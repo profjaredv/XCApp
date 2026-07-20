@@ -7,21 +7,24 @@ const prisma = require('../lib/db');
 // you'd verify any OIDC-issued JWT — no vendor SDK/network round trip
 // needed per request beyond the (cached) JWKS fetch.
 //
-// See MIGRATION_STATUS.md for the exact env vars this needs and a note
-// that the claim names below (`sub`, `email`, `name`) should be confirmed
-// against a real token once a Stack project exists — this was written
-// against Stack's documented token shape but has not been exercised
-// against a live project.
+// Neon Auth serves its JWKS from the project's own Neon endpoint (not the
+// shared api.stack-auth.com host this was originally written against) —
+// STACK_JWKS_URL is the full URL from the Neon project's Auth tab, e.g.
+// https://<endpoint>.neonauth.<region>.aws.neon.tech/<database>/auth/.well-known/jwks.json
+//
+// See MIGRATION_STATUS.md for a note that the claim names below (`sub`,
+// `email`, `name`) should be confirmed against a real token — written
+// against Stack's documented token shape but not yet exercised against a
+// live sign-in.
 const STACK_PROJECT_ID = process.env.STACK_PROJECT_ID;
-const STACK_JWKS_ISSUER = process.env.STACK_JWKS_ISSUER || 'https://api.stack-auth.com';
+const STACK_JWKS_URL = process.env.STACK_JWKS_URL;
 
-if (!STACK_PROJECT_ID) {
-  console.error('CRITICAL: STACK_PROJECT_ID is not set — cannot verify Neon Auth tokens.');
+if (!STACK_PROJECT_ID || !STACK_JWKS_URL) {
+  console.error('CRITICAL: STACK_PROJECT_ID / STACK_JWKS_URL are not set — cannot verify Neon Auth tokens.');
   process.exit(1);
 }
 
-const JWKS_URL = `${STACK_JWKS_ISSUER}/api/v1/projects/${STACK_PROJECT_ID}/.well-known/jwks.json`;
-const jwks = createRemoteJWKSet(new URL(JWKS_URL));
+const jwks = createRemoteJWKSet(new URL(STACK_JWKS_URL));
 
 async function verifyAccessToken(token) {
   const { payload } = await jwtVerify(token, jwks);
