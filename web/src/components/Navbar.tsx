@@ -1,16 +1,15 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useUser } from '@stackframe/react';
+import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 
 const Navbar: React.FC = () => {
   const { currentUser } = useAuth();
-  const stackUser = useUser();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
     try {
-      await stackUser?.signOut();
+      await authClient.signOut();
       navigate('/login');
     } catch (error) {
       console.error('Failed to log out', error);

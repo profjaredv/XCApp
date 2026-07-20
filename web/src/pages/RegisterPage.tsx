@@ -1,11 +1,23 @@
-import React from 'react';
-import { SignUp } from '@stackframe/react';
+import React, { useEffect } from 'react';
+import { AuthView } from '@neondatabase/neon-js/auth/react/ui';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
-// Uses Stack Auth's prebuilt <SignUp/> component — see LoginPage.tsx and
-// MIGRATION_STATUS.md. Stack's `afterSignUp` URL (configured in
-// stackClientApp.ts) sends new users to /onboarding, matching the old flow.
+// Uses Neon Auth's (Better Auth) prebuilt <AuthView/> component — see
+// LoginPage.tsx. `redirectTo="/register"` keeps AuthView's own post-sign-up
+// navigation a no-op; the effect below sends new users to /onboarding once
+// our /users/me sync populates currentUser, matching the old afterSignUp flow.
 const RegisterPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
+
+  useEffect(() => {
+    if (currentUser) {
+      navigate('/onboarding', { replace: true });
+    }
+  }, [currentUser, navigate]);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <Card className="mx-auto max-w-sm w-full">
@@ -14,7 +26,7 @@ const RegisterPage: React.FC = () => {
           <CardDescription>Create an account</CardDescription>
         </CardHeader>
         <CardContent>
-          <SignUp />
+          <AuthView pathname="sign-up" redirectTo="/register" />
         </CardContent>
       </Card>
     </div>

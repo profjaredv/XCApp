@@ -7,7 +7,7 @@ A cross country team management and performance analytics platform: import race 
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS
 - **Backend**: Node.js + Express + Prisma
 - **Database**: Neon (serverless Postgres)
-- **Auth**: Neon Auth (Stack Auth) — the frontend handles sign-in/sign-up directly against Stack; the backend only verifies the resulting access token
+- **Auth**: Neon Auth (Better Auth under the hood) — the frontend handles sign-in/sign-up directly via `@neondatabase/neon-js`; the backend only verifies the resulting JWT
 - **Scraper**: Playwright, invoked from the backend against Athletic.net's public results pages
 - **Deployment**: Railway (the Playwright/Chromium dependency isn't viable on Vercel-style serverless — see `nixpacks.toml`)
 
@@ -26,12 +26,12 @@ This is a from-scratch migration off Supabase (sunsetted) and a half-finished Mo
 
 1. **Create a Neon project** (neon.tech) and enable **Neon Auth** on it (Project → Auth tab). This gives you:
    - A pooled and a direct Postgres connection string
-   - A Stack project ID and publishable client key
+   - An Auth URL and a JWKS URL, both served from your project's own Neon endpoint
 
 2. **Backend setup**:
    ```bash
    cd backend
-   cp .env.example .env   # fill in DATABASE_URL, DIRECT_URL, STACK_PROJECT_ID, COACH_UPGRADE_CODE
+   cp .env.example .env   # fill in DATABASE_URL, DIRECT_URL, NEON_AUTH_JWKS_URL, COACH_UPGRADE_CODE
    npm install
    npx prisma migrate dev --name init
    npm run dev
@@ -40,7 +40,7 @@ This is a from-scratch migration off Supabase (sunsetted) and a half-finished Mo
 3. **Frontend setup**:
    ```bash
    cd web
-   cp .env.example .env   # fill in VITE_STACK_PROJECT_ID, VITE_STACK_PUBLISHABLE_CLIENT_KEY
+   cp .env.example .env   # fill in VITE_NEON_AUTH_URL
    npm install
    npm run dev
    ```
@@ -68,7 +68,7 @@ This is a from-scratch migration off Supabase (sunsetted) and a half-finished Mo
 
 ## Security
 
-- Neon Auth (Stack) handles authentication; the backend verifies access tokens cryptographically against Stack's JWKS
+- Neon Auth (Better Auth) handles authentication; the backend verifies JWTs cryptographically against Neon Auth's JWKS
 - Every team-scoped query is scoped by the authenticated user's own `teamId` — no route trusts a client-supplied team id for authorization (see `XCAPP_ASSESSMENT.md` for the access-control bugs this replaces)
 - No secrets are committed to this repo — see `MIGRATION_STATUS.md` for keys that need rotating from the pre-migration codebase
 

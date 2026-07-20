@@ -1,30 +1,22 @@
 const { createRemoteJWKSet, jwtVerify } = require('jose');
 const prisma = require('../lib/db');
 
-// Neon Auth is Stack Auth under the hood. The frontend signs users in with
-// the Stack React SDK and sends the resulting access token as a bearer
-// token; we verify it here purely cryptographically (JWKS), the same way
-// you'd verify any OIDC-issued JWT — no vendor SDK/network round trip
-// needed per request beyond the (cached) JWKS fetch.
+// Neon Auth is Better Auth under the hood. The frontend signs users in with
+// Neon Auth's React client and sends the resulting JWT as a bearer token;
+// we verify it here purely cryptographically (JWKS), the same way you'd
+// verify any OIDC-issued JWT — no vendor SDK/network round trip needed per
+// request beyond the (cached) JWKS fetch.
 //
-// Neon Auth serves its JWKS from the project's own Neon endpoint (not the
-// shared api.stack-auth.com host this was originally written against) —
-// STACK_JWKS_URL is the full URL from the Neon project's Auth tab, e.g.
+// NEON_AUTH_JWKS_URL is the full JWKS URL from the Neon project's Auth tab:
 // https://<endpoint>.neonauth.<region>.aws.neon.tech/<database>/auth/.well-known/jwks.json
-//
-// See MIGRATION_STATUS.md for a note that the claim names below (`sub`,
-// `email`, `name`) should be confirmed against a real token — written
-// against Stack's documented token shape but not yet exercised against a
-// live sign-in.
-const STACK_PROJECT_ID = process.env.STACK_PROJECT_ID;
-const STACK_JWKS_URL = process.env.STACK_JWKS_URL;
+const NEON_AUTH_JWKS_URL = process.env.NEON_AUTH_JWKS_URL;
 
-if (!STACK_PROJECT_ID || !STACK_JWKS_URL) {
-  console.error('CRITICAL: STACK_PROJECT_ID / STACK_JWKS_URL are not set — cannot verify Neon Auth tokens.');
+if (!NEON_AUTH_JWKS_URL) {
+  console.error('CRITICAL: NEON_AUTH_JWKS_URL is not set — cannot verify Neon Auth tokens.');
   process.exit(1);
 }
 
-const jwks = createRemoteJWKSet(new URL(STACK_JWKS_URL));
+const jwks = createRemoteJWKSet(new URL(NEON_AUTH_JWKS_URL));
 
 async function verifyAccessToken(token) {
   const { payload } = await jwtVerify(token, jwks);

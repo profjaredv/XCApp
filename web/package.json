@@ -20,7 +20,7 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-tabs": "^1.1.13",
-    "@stackframe/react": "^2.8.108",
+    "@neondatabase/neon-js": "^0.6.2-beta",
     "@tanstack/react-query": "^5.87.1",
     "@types/d3-axis": "^3.0.6",
     "@types/d3-force": "^3.0.10",

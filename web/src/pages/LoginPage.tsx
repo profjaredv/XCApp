@@ -1,13 +1,14 @@
 import React, { useEffect } from 'react';
-import { SignIn } from '@stackframe/react';
+import { AuthView } from '@neondatabase/neon-js/auth/react/ui';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
-// Uses Stack Auth's prebuilt <SignIn/> component rather than a hand-rolled
-// email/password form — see MIGRATION_STATUS.md for why (the previous
-// Supabase-based form isn't portable 1:1, and Stack's own component is the
-// verified, supported way to do this).
+// Uses Neon Auth's (Better Auth) prebuilt <AuthView/> component rather than a
+// hand-rolled email/password form. `redirectTo="/login"` keeps AuthView's own
+// post-sign-in navigation a no-op so the effect below — which redirects based
+// on whether the user already has a team — is the one that actually moves
+// the user away from this page, once our own /users/me sync has run.
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
@@ -35,7 +36,7 @@ const LoginPage: React.FC = () => {
           <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
         <CardContent>
-          <SignIn />
+          <AuthView pathname="sign-in" redirectTo="/login" />
         </CardContent>
       </Card>
     </div>

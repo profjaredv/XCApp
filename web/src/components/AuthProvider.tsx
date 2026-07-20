@@ -1,16 +1,11 @@
 import React, { ReactNode, useState, useEffect } from 'react';
-import { useUser } from '@stackframe/react';
 import { AuthContext } from '../contexts/AuthContext';
 import { User } from '../types';
 import { api } from '../api/axios';
+import { authClient, getJWTToken } from '../lib/auth';
 
-// UNVERIFIED against live Stack Auth docs (see stackClientApp.ts and
-// MIGRATION_STATUS.md) — in particular `stackUser.getAuthJson()` returning
-// `{ accessToken, refreshToken }` is written from documented behavior but
-// wasn't exercised against a real project in this session. Confirm this
-// against a real sign-in before shipping.
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const stackUser = useUser();
+  const { data: session, isPending: sessionLoading } = authClient.useSession();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -40,8 +35,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     let cancelled = false;
 
     const sync = async () => {
-      if (!stackUser) {
+      if (sessionLoading) return;
+
+      if (!session?.user) {
         if (!cancelled) {
+          delete api.defaults.headers.common['Authorization'];
           setCurrentUser(null);
           setLoading(false);
         }
@@ -49,8 +47,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       try {
-        const { accessToken } = await stackUser.getAuthJson();
-        if (!accessToken) {
+        const token = await getJWTToken();
+        if (!token) {
           if (!cancelled) {
             setCurrentUser(null);
             setLoading(false);
@@ -58,13 +56,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return;
         }
 
-        const userData = await fetchUserData(accessToken);
+        const userData = await fetchUserData(token);
         if (!cancelled) {
           setCurrentUser(
             userData || {
-              uid: stackUser.id,
-              email: stackUser.primaryEmail || '',
-              name: stackUser.displayName || '',
+              uid: session.user.id,
+              email: session.user.email || '',
+              name: session.user.name || '',
               role: 'athlete',
             }
           );
@@ -81,13 +79,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       cancelled = true;
     };
-  }, [stackUser]);
+  }, [session, sessionLoading]);
 
   const getFreshToken = async (): Promise<string | null> => {
     try {
-      if (!stackUser) return null;
-      const { accessToken } = await stackUser.getAuthJson();
-      return accessToken ?? null;
+      return await getJWTToken();
     } catch (err) {
       console.error('Error getting fresh token:', err);
       setError('Failed to refresh authentication');

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, Link, NavLink } from 'react-router-dom';
 import { ChevronLeft, Users, Settings, LogOut, User as UserIcon, Menu, Home, BarChart2, Database, Sparkles } from 'lucide-react';
-import { useUser } from '@stackframe/react';
+import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 
 interface SidebarProps {
@@ -19,10 +19,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
     }
   };
   const { currentUser } = useAuth();
-  const stackUser = useUser();
 
   const handleLogout = () => {
-    stackUser?.signOut();
+    authClient.signOut();
   };
 
   return (
