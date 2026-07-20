@@ -72,8 +72,11 @@ interface PerformanceService {
 
 export const performanceService: PerformanceService = {
   async getTeamMetrics(teamId: string, season: number) {
+    // teamId kept for call-site compatibility; the backend derives team
+    // from the authenticated session, not the URL.
+    void teamId;
     const response = await axiosInstance.get<TeamPerformanceResponse>(
-      `/performance/team/${teamId}/season/${season}`
+      `/performance/team/season/${season}`
     );
     return response.data;
   },
@@ -93,22 +96,27 @@ export const performanceService: PerformanceService = {
   },
 
   async getMeetMetrics(meetId: string, teamId: string) {
+    // teamId kept for call-site compatibility; the backend derives team
+    // from the authenticated session, not the URL.
+    void teamId;
     const response = await axiosInstance.get<MeetPerformanceResponse>(
-      `/performance/meet/${meetId}/team/${teamId}`
+      `/performance/meet/${meetId}`
     );
     return response.data;
   },
 
   async getTeamSeasonSeries(teamId: string, season: number) {
+    void teamId;
     const response = await axiosInstance.get<TeamSeasonSeriesResponse>(
-      `/performance/team/${teamId}/season/${season}/series`
+      `/performance/team/season/${season}/series`
     );
     return response.data;
   },
 
   async recalculateMetrics(teamId: string, season: number) {
+    void teamId;
     const response = await axiosInstance.post<PerformanceResponse<{ success: boolean }>>(
-      `/performance/calculate/${teamId}/${season}`
+      `/performance/calculate/${season}`
     );
     return response.data;
   },

@@ -103,7 +103,7 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
         setIsLoadingMeets(true);
         setError(null);
         const token = await getFreshToken();
-        const response = await axiosInstance.get(`/enhanced-performance/multi-season-meets/${teamId}`, {
+        const response = await axiosInstance.get(`/enhanced-performance/multi-season-meets`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMultiSeasonMeets(response.data.data || []);
@@ -126,7 +126,7 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
       try {
         setIsLoadingAthletes(true);
         const token = await getFreshToken();
-        const response = await axiosInstance.get(`/enhanced-performance/eligible-athletes/${teamId}`, {
+        const response = await axiosInstance.get(`/enhanced-performance/eligible-athletes`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setEligibleAthletes(response.data.data || []);
@@ -155,7 +155,7 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
         setError(null);
         const token = await getFreshToken();
         const encodedMeetName = encodeURIComponent(selectedMeet);
-        const response = await axiosInstance.get(`/enhanced-performance/meet-comparison/${teamId}/${encodedMeetName}`, {
+        const response = await axiosInstance.get(`/enhanced-performance/meet-comparison/${encodedMeetName}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMeetComparison(response.data.data);
@@ -186,7 +186,7 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
       try {
         const token = await getFreshToken();
         const encodedMeetName = encodeURIComponent(selectedMeet);
-        const response = await axiosInstance.get(`/enhanced-performance/meet-athlete/${teamId}/${encodedMeetName}/${selectedAthlete}`, {
+        const response = await axiosInstance.get(`/enhanced-performance/meet-athlete/${encodedMeetName}/${selectedAthlete}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setAthleteData(response.data.data);

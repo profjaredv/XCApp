@@ -27,7 +27,10 @@ export const dataManagementService = {
    * Clear data for a specific team and season
    */
   clearData: async (teamId: string, season: string): Promise<ClearDataResponse> => {
-    const response = await api.post<ClearDataResponse>(`/data/clear/${teamId}/${season}`);
+    // teamId is accepted for API-shape compatibility with callers, but the
+    // backend derives team from the authenticated session, not the URL.
+    void teamId;
+    const response = await api.post<ClearDataResponse>(`/data/clear/${season}`);
     return response.data;
   },
 
@@ -56,10 +59,13 @@ export const dataManagementService = {
    * Calculate metrics for a specific team and season
    */
   calculateMetrics: async (teamId: string, season: string): Promise<CalculateMetricsResponse> => {
+    // teamId kept for API-shape compatibility; the backend derives team from
+    // the authenticated session, not the URL.
+    void teamId;
     // 1) Trigger real calculation pipeline with synchronous option (returns computed metrics)
     //    If the server doesn't support wait=true (older build), we'll fall back to polling.
     try {
-      const calcResp = await api.post(`/performance/calculate/${teamId}/${season}?wait=true`);
+      const calcResp = await api.post(`/performance/calculate/${season}?wait=true`);
       const calcPayload = calcResp.data || {};
       const data = calcPayload.data || {};
       const m = data?.metrics || {};
@@ -86,7 +92,7 @@ export const dataManagementService = {
 
     while (attempts < maxAttempts) {
       try {
-        const resp = await api.get(`/performance/team/${teamId}/season/${season}`);
+        const resp = await api.get(`/performance/team/season/${season}`);
         const payload = resp.data || {};
         const metricsDoc = payload.data || payload; // backend wraps under { success, data }
         const m = metricsDoc?.metrics || {};
@@ -121,7 +127,7 @@ export const dataManagementService = {
    */
   calculateEnhancedMetrics: async (teamId: string, season: string): Promise<CalculateMetricsResponse> => {
     try {
-      const calcResp = await api.post(`/enhanced-performance/calculate/${teamId}/${season}?wait=true`);
+      const calcResp = await api.post(`/enhanced-performance/calculate/${season}?wait=true`);
       const calcPayload = calcResp.data || {};
       
       return {

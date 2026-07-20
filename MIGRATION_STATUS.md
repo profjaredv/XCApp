@@ -39,20 +39,22 @@ Found while converting the code, independent of anything else:
 
 **The backend JWT verification** (`middleware/auth.js`) is on firmer ground — JWKS verification is a standard, well-documented OIDC pattern and the code doesn't depend on Stack-specific SDK behavior, just the `sub`/`email` claims being present in the token, which is standard. Still worth a smoke test against a real token.
 
-## Remaining work: frontend API service call sites
+## Frontend API service call sites — done
 
-The following back-end routes had `:teamId` (and sometimes `:season`) removed from their URL — team is now derived from the authenticated session, never from the URL. The frontend service layer still calls the **old** URL shape and needs updating to match. This is mechanical (delete the `${teamId}/` segment from each template string) but has not been done:
+The following back-end routes had `:teamId` (and sometimes `:season`) removed from their URL — team is now derived from the authenticated session, never from the URL. All frontend call sites were updated to match (each still accepts a `teamId` parameter where it was part of a function's public signature, for call-site compatibility, but no longer puts it in the URL — marked `void teamId` where it would otherwise be an unused-parameter build error under this project's `noUnusedParameters: true`):
 
-| File | Old call (needs `${teamId}` removed) |
-|---|---|
-| `web/src/api/dataManagementService.ts` | `/data/clear/${teamId}/${season}` → `/data/clear/${season}`; `/performance/calculate/${teamId}/${season}` → `/performance/calculate/${season}`; `/performance/team/${teamId}/season/${season}` → `/performance/team/season/${season}`; `/enhanced-performance/calculate/${teamId}/${season}` → `/enhanced-performance/calculate/${season}` |
-| `web/src/api/performanceService.ts` | `/performance/team/${teamId}/season/${season}` (×2, incl. `/series`) and `/performance/calculate/${teamId}/${season}` — same pattern |
-| `web/src/api/enhancedAnalyticsService.ts` | `/enhanced-performance/team/${teamId}/${season}`, `/enhanced-performance/distance-analysis/${teamId}/${season}` |
-| `web/src/components/settings/MeetGroupsManager.tsx` | all 6 `/meet-groups/${teamId}...` calls |
-| `web/src/components/analytics/RaceComparisonTab.tsx` | `/enhanced-performance/multi-season-meets/${teamId}`, `/enhanced-performance/eligible-athletes/${teamId}`, `/enhanced-performance/meet-comparison/${teamId}/...`, `/enhanced-performance/meet-athlete/${teamId}/...` |
-| `web/src/hooks/useMultiSeasonTrends.ts` | `/multi-season/team/${teamId}/trends` → `/multi-season/trends` |
-| `web/src/pages/CoachesToolsPage.tsx` | all 3 `/coaches-tools/.../${teamId}/${currentSeason}` calls → drop `${teamId}/` |
-| `web/src/pages/RaceVisualizationPage.tsx` | `/coaches-tools/improvement-tracking/${teamId}/${currentSeason}` |
+- `web/src/api/dataManagementService.ts` — `clearData`, `calculateMetrics`, `calculateEnhancedMetrics`
+- `web/src/api/performanceService.ts` — `getTeamMetrics`, `getMeetMetrics`, `getTeamSeasonSeries`, `recalculateMetrics`
+- `web/src/api/enhancedAnalyticsService.ts` — `getEnhancedTeamMetrics`, `getDistanceAnalysis`
+- `web/src/components/settings/MeetGroupsManager.tsx` — all 6 `/meet-groups/...` calls
+- `web/src/components/analytics/RaceComparisonTab.tsx` — all 4 `/enhanced-performance/...` calls
+- `web/src/hooks/useMultiSeasonTrends.ts`
+- `web/src/pages/CoachesToolsPage.tsx` — all 3 calls
+- `web/src/pages/RaceVisualizationPage.tsx`
+
+Not touched, and not part of this fix — pre-existing dead/broken calls that 404'd before this migration too, not something it introduced:
+- `enhancedAnalyticsService.getRaceComparisons` calls `/enhanced-performance/race-comparisons/:athleteId`, a route that never existed on the backend (checked the pre-migration `enhancedPerformanceRoutes.js`).
+- `performanceService.clearCache` posts a `{ scope, teamId, athleteId, season }` body that doesn't match what `/performance/cache/clear` now reads (just `{ season }`, scoped to the caller's own team) — but this function isn't called from anywhere in the app (`useInvalidatePerformanceCache.ts` only does client-side React Query cache invalidation, never calls this endpoint), so it's unused code, not a live bug.
 
 Also removed entirely (no longer exist on the backend, frontend callers will 404 until updated or removed): `POST /api/data/import/:teamId/:season` and `POST /api/data/calculate/:teamId/:season` — both were dead/broken already (the import route required Mongoose, which was never connected in production; the calculate route was a hardcoded stub). The real import path is `POST /api/teams/scrape`; the real calculate path is `POST /api/performance/calculate/:season`.
 
@@ -63,9 +65,8 @@ Also removed entirely (no longer exist on the backend, frontend callers will 404
 1. **Neon**: create a project at neon.tech. Enable **Neon Auth** (Project → Auth tab) — this gives you Postgres connection strings and a Stack project.
 2. **Backend**: `cd backend && cp .env.example .env`, fill in `DATABASE_URL` (pooled), `DIRECT_URL` (direct), `STACK_PROJECT_ID`, a fresh `COACH_UPGRADE_CODE`. Then `npm install && npx prisma migrate dev --name init`.
 3. **Frontend**: `cd web && cp .env.example .env`, fill in `VITE_STACK_PROJECT_ID` and `VITE_STACK_PUBLISHABLE_CLIENT_KEY` from the same Neon Auth project. Run `npx @stackframe/stack-cli@latest init` here first (see "Unverified" above) before trusting the hand-written auth wiring.
-4. Fix the frontend API call sites in the table above.
-5. `npm run dev` from the repo root runs both.
-6. Smoke test the golden path end to end: sign up → create a team → trigger a scrape → confirm analytics populate — before deploying.
+4. `npm run dev` from the repo root runs both.
+5. Smoke test the golden path end to end: sign up → create a team → trigger a scrape → confirm analytics populate — before deploying.
 
 ## Not done in this pass (still applies from `XCAPP_ASSESSMENT.md`)
 

@@ -61,7 +61,7 @@ export default function RaceVisualizationPage() {
     try {
       setLoading(true);
       const response = await axiosInstance.get(
-        `/coaches-tools/improvement-tracking/${teamId}/${currentSeason}`
+        `/coaches-tools/improvement-tracking/${currentSeason}`
       );
       
       const improvements: ImprovementData[] = response.data.data || [];

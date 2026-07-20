@@ -177,7 +177,10 @@ export const enhancedAnalyticsService = {
    * Get enhanced team metrics for a specific season
    */
   getEnhancedTeamMetrics: async (teamId: string, season: string): Promise<EnhancedTeamMetrics> => {
-    const response = await api.get<{ success: boolean; data: EnhancedTeamMetrics }>(`/enhanced-performance/team/${teamId}/${season}`);
+    // teamId kept for call-site compatibility; the backend derives team
+    // from the authenticated session, not the URL.
+    void teamId;
+    const response = await api.get<{ success: boolean; data: EnhancedTeamMetrics }>(`/enhanced-performance/team/${season}`);
     return response.data.data;
   },
 
@@ -193,7 +196,8 @@ export const enhancedAnalyticsService = {
    * Get distance-specific analysis for a team and season
    */
   getDistanceAnalysis: async (teamId: string, season: string): Promise<DistanceAnalysis> => {
-    const response = await api.get<{ success: boolean; data: DistanceAnalysis }>(`/enhanced-performance/distance-analysis/${teamId}/${season}`);
+    void teamId;
+    const response = await api.get<{ success: boolean; data: DistanceAnalysis }>(`/enhanced-performance/distance-analysis/${season}`);
     return response.data.data;
   },
 

@@ -41,7 +41,7 @@ export const useMultiSeasonTrends = (teamId?: string, options = {}) => {
       }
       
       const response = await api.get<{ success: boolean; data: MultiSeasonTrendsData }>(
-        `/multi-season/team/${teamId}/trends`
+        `/multi-season/trends`
       );
       
       return response.data.data;

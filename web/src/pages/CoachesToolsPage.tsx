@@ -89,7 +89,7 @@ export default function CoachesToolsPage() {
       setLoadingImprovements(true);
       setError(null);
       const response = await axiosInstance.get(
-        `/coaches-tools/improvement-tracking/${teamId}/${currentSeason}`
+        `/coaches-tools/improvement-tracking/${currentSeason}`
       );
       setImprovements(response.data.data || []);
     } catch (err: unknown) {
@@ -107,7 +107,7 @@ export default function CoachesToolsPage() {
       setError(null);
       console.log('Generating training groups for season:', currentSeason);
       const response = await axiosInstance.post(
-        `/coaches-tools/generate-training-groups/${teamId}/${currentSeason}`
+        `/coaches-tools/generate-training-groups/${currentSeason}`
       );
       console.log('Training groups response:', response.data);
       setTrainingGroups(response.data.data.groups || []);
@@ -126,7 +126,7 @@ export default function CoachesToolsPage() {
       setLoadingInsights(true);
       setError(null);
       const response = await axiosInstance.post(
-        `/coaches-tools/ai-insights/${teamId}/${currentSeason}`
+        `/coaches-tools/ai-insights/${currentSeason}`
       );
       setAiInsights(response.data.data);
     } catch (err: unknown) {

@@ -44,7 +44,7 @@ export function MeetGroupsManager({ teamId }: MeetGroupsManagerProps) {
 
   const fetchMeetGroups = async () => {
     try {
-      const response = await axiosInstance.get(`/meet-groups/${teamId}`);
+      const response = await axiosInstance.get(`/meet-groups`);
       setMeetGroups(response.data.data || []);
     } catch (err: any) {
       console.error('Error fetching meet groups:', err);
@@ -54,7 +54,7 @@ export function MeetGroupsManager({ teamId }: MeetGroupsManagerProps) {
 
   const fetchUngroupedRaces = async () => {
     try {
-      const response = await axiosInstance.get(`/meet-groups/${teamId}/ungrouped-races`);
+      const response = await axiosInstance.get(`/meet-groups/ungrouped-races`);
       setUngroupedRaces(response.data.data || []);
       setIsLoading(false);
     } catch (err: any) {
@@ -67,7 +67,7 @@ export function MeetGroupsManager({ teamId }: MeetGroupsManagerProps) {
     if (!newGroupName.trim()) return;
 
     try {
-      await axiosInstance.post(`/meet-groups/${teamId}`, {
+      await axiosInstance.post(`/meet-groups`, {
         groupName: newGroupName,
         description: newGroupDescription || null
       });
@@ -85,7 +85,7 @@ export function MeetGroupsManager({ teamId }: MeetGroupsManagerProps) {
     if (!confirm('Are you sure you want to delete this meet group?')) return;
 
     try {
-      await axiosInstance.delete(`/meet-groups/${teamId}/${groupId}`);
+      await axiosInstance.delete(`/meet-groups/${groupId}`);
       fetchMeetGroups();
       fetchUngroupedRaces();
     } catch (err: any) {
@@ -95,7 +95,7 @@ export function MeetGroupsManager({ teamId }: MeetGroupsManagerProps) {
 
   const addRaceToGroup = async (groupId: string, raceId: string) => {
     try {
-      await axiosInstance.post(`/meet-groups/${teamId}/${groupId}/races`, {
+      await axiosInstance.post(`/meet-groups/${groupId}/races`, {
         raceId
       });
       fetchMeetGroups();
@@ -107,7 +107,7 @@ export function MeetGroupsManager({ teamId }: MeetGroupsManagerProps) {
 
   const removeRaceFromGroup = async (groupId: string, raceId: string) => {
     try {
-      await axiosInstance.delete(`/meet-groups/${teamId}/${groupId}/races/${raceId}`);
+      await axiosInstance.delete(`/meet-groups/${groupId}/races/${raceId}`);
       fetchMeetGroups();
       fetchUngroupedRaces();
     } catch (err: any) {
