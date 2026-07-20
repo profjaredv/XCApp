@@ -60,10 +60,23 @@ Also removed entirely (no longer exist on the backend, frontend callers will 404
 
 `web/src/components/team/TeamSettings.tsx` calls `PUT /teams/${teamId}` — this route didn't exist in the pre-migration backend either (checked the original `teamsSupabase.js`), so this was already broken before the migration, not something introduced by it.
 
+## The schema is already live on the real Neon database
+
+The Claude Code sandbox this migration was written in cannot make raw TCP connections to any database — its egress proxy explicitly blocks that (HTTPS only), so `prisma migrate dev`/`deploy` can't run from there. Rather than leave the schema unverified, once you shared the connection string I applied it a different way: generated the migration SQL with `prisma migrate diff --from-empty` (schema-only, no DB connection needed), then executed each statement over Neon's HTTPS SQL endpoint (`@neondatabase/serverless`'s `neon()` query function — real HTTPS, not a workaround). Confirmed all 14 tables, indexes, and foreign keys exist on your actual database by querying `information_schema.tables` afterward.
+
+The migration is committed at `backend/prisma/migrations/20260720175808_init/migration.sql` so it's tracked like any normal Prisma migration. Prisma's own bookkeeping table (`_prisma_migrations`) doesn't know about it yet, though, since that write happens through Prisma's normal TCP path, which I don't have. **One command, run locally where you have real network access, closes that gap:**
+
+```bash
+cd backend
+npx prisma migrate resolve --applied 20260720175808_init
+```
+
+This is Prisma's standard, documented way to tell it "this migration is already applied, just record it" — safe, well-worn, and avoids me hand-computing a checksum and risking a subtle mismatch. After that, `prisma migrate dev`/`deploy` will behave normally for any future schema changes.
+
 ## Setup runbook
 
-1. **Neon**: create a project at neon.tech. Enable **Neon Auth** (Project → Auth tab) — this gives you Postgres connection strings and a Stack project.
-2. **Backend**: `cd backend && cp .env.example .env`, fill in `DATABASE_URL` (pooled), `DIRECT_URL` (direct), `STACK_PROJECT_ID`, a fresh `COACH_UPGRADE_CODE`. Then `npm install && npx prisma migrate dev --name init`.
+1. **Neon**: done — you have a project and a `DATABASE_URL`/`DIRECT_URL`. Enable **Neon Auth** (Project → Auth tab) if you haven't, to get a Stack project ID and publishable client key. Skip the **Data API** toggle — unrelated feature, would expose the database directly over HTTP with none of this app's authorization logic in front of it.
+2. **Backend**: `cd backend`, fill in `.env` with `STACK_PROJECT_ID` and a fresh `COACH_UPGRADE_CODE` (already has `DATABASE_URL`/`DIRECT_URL`). Run `npx prisma migrate resolve --applied 20260720175808_init` (see above).
 3. **Frontend**: `cd web && cp .env.example .env`, fill in `VITE_STACK_PROJECT_ID` and `VITE_STACK_PUBLISHABLE_CLIENT_KEY` from the same Neon Auth project. Run `npx @stackframe/stack-cli@latest init` here first (see "Unverified" above) before trusting the hand-written auth wiring.
 4. `npm run dev` from the repo root runs both.
 5. Smoke test the golden path end to end: sign up → create a team → trigger a scrape → confirm analytics populate — before deploying.
