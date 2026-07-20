@@ -3,7 +3,7 @@ cmds = [
     "npm install",
     "cd backend && npm install",
     "cd backend && npx playwright install chromium --with-deps",
-    "cd web && npm install"
+    "cd web && npm install --include=dev"
 ]
 
 [phases.build]
