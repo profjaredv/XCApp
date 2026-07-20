@@ -1,127 +1,77 @@
 # LeadPack XC
 
-A comprehensive cross country analytics platform designed to help teams reach the lead pack. Features automated data import, performance tracking, and advanced visualizations for coaches and athletes.
+A cross country team management and performance analytics platform: import race results from Athletic.net, then track team and individual performance across meets and seasons.
 
-## 🚀 Features
-
-- **Automated Data Import**: Scrape race results from Athletic.net
-- **Comprehensive Analytics**: Team and individual performance metrics
-- **Multi-Season Trends**: Track performance across multiple seasons
-- **Enhanced Analytics**: Distance analysis, race comparisons, and more
-- **Real-time Updates**: Automatic calculation after each race import
-
-## 🏗️ Architecture
+## Architecture
 
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS
-- **Backend**: Node.js + Express
-- **Database & Auth**: Supabase (PostgreSQL + Auth)
-- **Deployment**: Railway or Vercel
+- **Backend**: Node.js + Express + Prisma
+- **Database**: Neon (serverless Postgres)
+- **Auth**: Neon Auth (Stack Auth) — the frontend handles sign-in/sign-up directly against Stack; the backend only verifies the resulting access token
+- **Scraper**: Playwright, invoked from the backend against Athletic.net's public results pages
+- **Deployment**: Railway (the Playwright/Chromium dependency isn't viable on Vercel-style serverless — see `nixpacks.toml`)
 
-## 📦 Project Structure
+This is a from-scratch migration off Supabase (sunsetted) and a half-finished Mongo/Firebase-era codebase. See `MIGRATION_STATUS.md` for what changed, what's still unverified, and the setup steps below in more detail. See `XCAPP_ASSESSMENT.md` for the original security/architecture audit that this migration addresses.
+
+## Project Structure
 
 ```
-leadpack-xc/
+.
 ├── web/                 # React frontend
-├── backend/            # Express API server
-├── docs/              # Documentation
-└── vercel.json        # Vercel deployment config
+├── backend/              # Express API server + Prisma schema/migrations
+└── docs/history/         # Archived design/debug notes from earlier iterations
 ```
 
-## 🚀 Deployment
+## Local Development
 
-See [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for detailed deployment instructions.
+1. **Create a Neon project** (neon.tech) and enable **Neon Auth** on it (Project → Auth tab). This gives you:
+   - A pooled and a direct Postgres connection string
+   - A Stack project ID and publishable client key
 
-### Quick Start (Railway)
-
-1. **Update environment variables** in Railway dashboard
-2. **Push to GitHub**: Railway auto-deploys
-3. **Test your app**
-
-### Environment Variables Required
-
-```bash
-VITE_SUPABASE_URL=your_supabase_project_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-COACH_UPGRADE_CODE=your_upgrade_code
-PORT=3001
-NODE_ENV=production
-```
-
-## 🔧 Local Development
-
-1. **Install dependencies**:
+2. **Backend setup**:
    ```bash
-   npm run install-all
-   ```
-
-2. **Set up environment variables**:
-   - Copy `.env.example` to `.env` in project root
-   - Fill in your Supabase credentials (URL and anon key)
-
-3. **Start development servers**:
-   ```bash
+   cd backend
+   cp .env.example .env   # fill in DATABASE_URL, DIRECT_URL, STACK_PROJECT_ID, COACH_UPGRADE_CODE
+   npm install
+   npx prisma migrate dev --name init
    npm run dev
    ```
 
-## 📊 Analytics Features
+3. **Frontend setup**:
+   ```bash
+   cd web
+   cp .env.example .env   # fill in VITE_STACK_PROJECT_ID, VITE_STACK_PUBLISHABLE_CLIENT_KEY
+   npm install
+   npm run dev
+   ```
 
-### Overview Tab
-- Team performance metrics
-- Top improving athletes
-- Season pace trends
+## Deployment (Railway)
 
-### Athletes Tab
-- Individual athlete profiles
-- Performance filtering by grade/gender
-- Career progression tracking
+1. Set the backend service's environment variables from `backend/.env.example` (real values) in the Railway dashboard.
+2. Set the frontend build's `VITE_*` variables — these are baked in at build time, so set them before deploying.
+3. Railway builds via `nixpacks.toml`, which installs the Chromium dependencies the scraper needs and runs `npx playwright install chromium --with-deps`.
+4. Run `npx prisma migrate deploy` (from `backend/`) against the production `DIRECT_URL` before the first deploy, and after any schema change.
 
-### Meets Tab
-- Race results and visualizations
-- Meet-by-meet analysis
+## Analytics Features
 
-### Enhanced Analytics
-- Distance-specific analysis
-- Multi-season comparisons
-- Advanced performance metrics
+- **Team overview**: race counts, mileage, pace trends, season improvement
+- **Athletes**: individual profiles, PR tracking, grade/gender filtering, career progression across seasons
+- **Meets**: race-by-race results and visualizations, manual meet grouping for cross-season comparison
+- **Coaches tools**: rule-based training group suggestions, improvement tracking, optional AI-generated insights (requires `GEMINI_API_KEY`)
 
-## 🔄 Data Flow
+## Data Flow
 
-1. **Import**: Scrape race data from Athletic.net
-2. **Calculate**: Automatically compute all analytics metrics
-3. **Store**: Save results to MongoDB for fast access
-4. **Display**: Real-time updates in the UI
+1. **Import**: a coach triggers a scrape of their team's Athletic.net results page (Playwright)
+2. **Store**: results are upserted into Postgres (athletes, races, results)
+3. **Calculate**: `calculationServiceSupabase.calculateAllMetrics` runs in the background, computing per-athlete, per-meet, and per-team season metrics
+4. **Display**: the frontend reads the pre-calculated metrics tables — fast, no live aggregation on every page load
 
-## 🛠️ Tech Stack
+## Security
 
-### Frontend
-- React 19 with TypeScript
-- Vite for build tooling
-- Tailwind CSS for styling
-- Recharts for data visualization
-- React Query for state management
+- Neon Auth (Stack) handles authentication; the backend verifies access tokens cryptographically against Stack's JWKS
+- Every team-scoped query is scoped by the authenticated user's own `teamId` — no route trusts a client-supplied team id for authorization (see `XCAPP_ASSESSMENT.md` for the access-control bugs this replaces)
+- No secrets are committed to this repo — see `MIGRATION_STATUS.md` for keys that need rotating from the pre-migration codebase
 
-### Backend
-- Node.js with Express
-- MongoDB with Mongoose
-- Firebase Admin SDK
-- Python scraping scripts
-
-## 📈 Performance
-
-- **Fast Loading**: Pre-calculated metrics stored in database
-- **Automatic Updates**: Metrics recalculate after each race import
-- **Responsive Design**: Works on desktop and mobile
-- **Real-time Data**: Live updates without page refresh
-
-## 🔐 Security
-
-- Firebase Authentication
-- Team-based access control
-- Environment variable protection
-- Input validation and sanitization
-
-## 📝 License
+## License
 
 MIT License - see LICENSE file for details
-
-<!-- Railway deployment trigger - force refresh -->
