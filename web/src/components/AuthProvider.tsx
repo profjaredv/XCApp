@@ -1,132 +1,93 @@
 import React, { ReactNode, useState, useEffect } from 'react';
+import { useUser } from '@stackframe/react';
 import { AuthContext } from '../contexts/AuthContext';
 import { User } from '../types';
 import { api } from '../api/axios';
-import { supabase } from '../lib/supabase';
 
+// UNVERIFIED against live Stack Auth docs (see stackClientApp.ts and
+// MIGRATION_STATUS.md) — in particular `stackUser.getAuthJson()` returning
+// `{ accessToken, refreshToken }` is written from documented behavior but
+// wasn't exercised against a real project in this session. Confirm this
+// against a real sign-in before shipping.
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const stackUser = useUser();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const fetchUserData = async (token: string): Promise<User | null> => {
     try {
-      console.log('🔄 Fetching user data from /users/me...');
-      console.log('📍 API base URL:', api.defaults.baseURL);
-      console.log('🔑 Token (first 20 chars):', token.substring(0, 20));
-      
-      // Note: The api instance already has an interceptor that adds the auth token
-      // But we'll set it explicitly here to be safe
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
-      console.log('📤 About to make API request...');
       const response = await api.get('/users/me');
-      console.log('📥 Response received:', response.status);
-      
       const userData = response.data;
-      console.log('✅ User data fetched:', userData);
       if (userData) {
         return {
           uid: userData.id || userData.uid,
           email: userData.email,
           name: userData.name,
           role: userData.role,
-          team: userData.team
+          team: userData.team,
         };
       }
       return null;
     } catch (err) {
-      console.error('❌ Error fetching user data:', err);
-      if (err instanceof Error) {
-        console.error('❌ Error message:', err.message);
-        console.error('❌ Error stack:', err.stack);
-      }
-      // Don't throw - just return null and let Supabase session data be used
+      console.error('Error fetching user data:', err);
       return null;
     }
   };
 
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    
-    const initAuth = async () => {
-      try {
-        console.log('🔄 Initializing auth...');
-        
-        // Set a timeout to force loading to false after 5 seconds
-        timeoutId = setTimeout(() => {
-          console.warn('⚠️ Auth initialization timeout - forcing loading to false');
+    let cancelled = false;
+
+    const sync = async () => {
+      if (!stackUser) {
+        if (!cancelled) {
+          setCurrentUser(null);
           setLoading(false);
-        }, 5000);
-        
-        // Check for existing session first
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session?.user) {
-          console.log('✅ Found existing session');
-          const userData = await fetchUserData(session.access_token);
-          if (userData) {
-            setCurrentUser(userData);
-          } else {
-            setCurrentUser({
-              uid: session.user.id,
-              email: session.user.email || '',
-              name: session.user.user_metadata?.name || '',
-              role: 'athlete',
-            });
-          }
-        } else {
-          console.log('ℹ️ No existing session');
         }
-        
-        clearTimeout(timeoutId);
-        setLoading(false);
-        console.log('✅ Auth initialized');
+        return;
+      }
+
+      try {
+        const { accessToken } = await stackUser.getAuthJson();
+        if (!accessToken) {
+          if (!cancelled) {
+            setCurrentUser(null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        const userData = await fetchUserData(accessToken);
+        if (!cancelled) {
+          setCurrentUser(
+            userData || {
+              uid: stackUser.id,
+              email: stackUser.primaryEmail || '',
+              name: stackUser.displayName || '',
+              role: 'athlete',
+            }
+          );
+          setLoading(false);
+        }
       } catch (err) {
-        console.error('❌ Auth init error:', err);
-        clearTimeout(timeoutId);
-        setLoading(false);
+        console.error('Auth sync error:', err);
+        if (!cancelled) setLoading(false);
       }
     };
 
-    initAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      try {
-        console.log('🔄 Auth state changed:', _event);
-        if (session?.user) {
-          const userData = await fetchUserData(session.access_token);
-          if (userData) {
-            setCurrentUser(userData);
-          } else {
-            setCurrentUser({
-              uid: session.user.id,
-              email: session.user.email || '',
-              name: session.user.user_metadata?.name || '',
-              role: 'athlete',
-            });
-          }
-        } else {
-          setCurrentUser(null);
-        }
-      } catch (err) {
-        console.error('❌ Error in auth state change handler:', err);
-      } finally {
-        setLoading(false);
-        console.log('✅ Loading set to false');
-      }
-    });
+    sync();
 
     return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      subscription.unsubscribe();
+      cancelled = true;
     };
-  }, []);
+  }, [stackUser]);
 
   const getFreshToken = async (): Promise<string | null> => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      return session?.access_token ?? null;
+      if (!stackUser) return null;
+      const { accessToken } = await stackUser.getAuthJson();
+      return accessToken ?? null;
     } catch (err) {
       console.error('Error getting fresh token:', err);
       setError('Failed to refresh authentication');
@@ -165,9 +126,5 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
   }
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

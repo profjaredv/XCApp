@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -28,12 +27,6 @@ const OnboardingPage: React.FC = () => {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate('/login');
-        return;
-      }
-
       const response = await axiosInstance.post(
         '/profile/join-team',
         { joinCode }
@@ -68,12 +61,6 @@ const OnboardingPage: React.FC = () => {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate('/login');
-        return;
-      }
-
       const response = await axiosInstance.post(
         '/teams',
         { name: teamName, athleticTeamId }

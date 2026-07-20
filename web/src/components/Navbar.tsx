@@ -1,15 +1,16 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useUser } from '@stackframe/react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
 
 const Navbar: React.FC = () => {
   const { currentUser } = useAuth();
+  const stackUser = useUser();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      await stackUser?.signOut();
       navigate('/login');
     } catch (error) {
       console.error('Failed to log out', error);
@@ -23,8 +24,8 @@ const Navbar: React.FC = () => {
           <Link to="/" className="text-xl font-bold text-blue-600">XC Analytics</Link>
           <div>
             {currentUser ? (
-              <button 
-                onClick={handleLogout} 
+              <button
+                onClick={handleLogout}
                 className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition duration-200"
               >
                 Logout

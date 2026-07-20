@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api as axios } from '../api/axios';
-import { supabase } from '../lib/supabase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -12,7 +11,6 @@ const ProfilePage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [resetMsg, setResetMsg] = useState('');
 
   const handleSave = async () => {
     setSaving(true);
@@ -30,22 +28,6 @@ const ProfilePage: React.FC = () => {
       setError(error?.response?.data?.message || error?.message || 'Failed to update profile.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handlePasswordReset = async () => {
-    setResetMsg('');
-    if (!currentUser?.email) {
-      setResetMsg('No email on file.');
-      return;
-    }
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(currentUser.email);
-      if (error) throw error;
-      setResetMsg('Password reset email sent.');
-    } catch (err: unknown) {
-      const error = err as { message?: string };
-      setResetMsg(error?.message || 'Failed to send reset email.');
     }
   };
 
@@ -76,18 +58,17 @@ const ProfilePage: React.FC = () => {
               <Button onClick={handleSave} disabled={saving || !name.trim()}>
                 {saving ? 'Saving...' : 'Save Changes'}
               </Button>
-              <Button type="button" variant="secondary" onClick={handlePasswordReset}>
-                Send Password Reset Email
-              </Button>
               {currentUser?.role !== 'coach' && (
                 <Button type="button" variant="outline" onClick={() => window.location.href = '/upgrade-role'}>
                   Upgrade to Coach
                 </Button>
               )}
             </div>
+            <p className="text-xs text-muted-foreground">
+              To change your password, use account settings from the sign-in screen.
+            </p>
             {error && <p className="text-sm text-red-600">{error}</p>}
             {success && <p className="text-sm text-green-600">{success}</p>}
-            {resetMsg && <p className="text-sm text-muted-foreground">{resetMsg}</p>}
           </div>
         </CardContent>
       </Card>

@@ -1,6 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom';
 import App from '../App';
-import { LoginPage, RegisterPage, OnboardingPage, TeamPage, ProfilePage, ImportPage, AnalyticsPage, InviteAcceptPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage } from '../pages';
+import { LoginPage, RegisterPage, OnboardingPage, TeamPage, ProfilePage, AnalyticsPage, InviteAcceptPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage } from '../pages';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
@@ -86,10 +86,6 @@ export const router = createBrowserRouter([
               {
                 path: '/settings',
                 element: <SettingsPage />,
-              },
-              {
-                path: '/import',
-                element: <ImportPage />,
               },
               {
                 path: '/results-grid',

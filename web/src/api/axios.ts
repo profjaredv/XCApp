@@ -17,16 +17,8 @@ api.interceptors.response.use(
 );
 
 api.interceptors.request.use(
-    (config) => {
-        // Authorization header is set by AuthProvider, so we don't need to do it here
-        // This prevents the interceptor from hanging on supabase.auth.getSession()
-        console.log('🔧 Request interceptor: passing through for', config.url);
-        return config;
-    },
-    (error) => {
-        console.error('🔧 Request interceptor error:', error);
-        return Promise.reject(error);
-    }
+    (config) => config,
+    (error) => Promise.reject(error)
 );
 
 // For backward compatibility
