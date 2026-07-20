@@ -1,127 +1,125 @@
-const supabase = require('../config/supabase');
+const { createRemoteJWKSet, jwtVerify } = require('jose');
+const prisma = require('../lib/db');
 
+// Neon Auth is Stack Auth under the hood. The frontend signs users in with
+// the Stack React SDK and sends the resulting access token as a bearer
+// token; we verify it here purely cryptographically (JWKS), the same way
+// you'd verify any OIDC-issued JWT — no vendor SDK/network round trip
+// needed per request beyond the (cached) JWKS fetch.
+//
+// See MIGRATION_STATUS.md for the exact env vars this needs and a note
+// that the claim names below (`sub`, `email`, `name`) should be confirmed
+// against a real token once a Stack project exists — this was written
+// against Stack's documented token shape but has not been exercised
+// against a live project.
+const STACK_PROJECT_ID = process.env.STACK_PROJECT_ID;
+const STACK_JWKS_ISSUER = process.env.STACK_JWKS_ISSUER || 'https://api.stack-auth.com';
+
+if (!STACK_PROJECT_ID) {
+  console.error('CRITICAL: STACK_PROJECT_ID is not set — cannot verify Neon Auth tokens.');
+  process.exit(1);
+}
+
+const JWKS_URL = `${STACK_JWKS_ISSUER}/api/v1/projects/${STACK_PROJECT_ID}/.well-known/jwks.json`;
+const jwks = createRemoteJWKSet(new URL(JWKS_URL));
+
+async function verifyAccessToken(token) {
+  const { payload } = await jwtVerify(token, jwks);
+  return payload;
+}
+
+// Authenticates the request and attaches the app-level user profile to
+// req.user. req.user.teamId is the ONLY source of truth for "what team is
+// this request allowed to touch" — route handlers must scope every query
+// by req.user.teamId and must never accept a teamId from params/body/query
+// for authorization purposes. (The previous version of this app had that
+// exact bug — see XCAPP_ASSESSMENT.md — this rewrite removes the footgun
+// by never plumbing a client-supplied teamId into a query in the first
+// place.)
 const authenticate = async (req, res, next) => {
-    const { authorization } = req.headers;
+  const { authorization } = req.headers;
 
-    if (!authorization || !authorization.startsWith('Bearer ')) {
-        console.log('❌ No authorization header or invalid format');
-        return res.status(401).send({ message: 'Unauthorized: No token provided.' });
+  if (!authorization || !authorization.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Unauthorized: No token provided.' });
+  }
+
+  const token = authorization.slice('Bearer '.length);
+
+  let payload;
+  try {
+    payload = await verifyAccessToken(token);
+  } catch (err) {
+    return res.status(403).json({ message: 'Invalid or expired token.' });
+  }
+
+  const authUserId = payload.sub;
+  if (!authUserId) {
+    return res.status(403).json({ message: 'Token missing subject claim.' });
+  }
+  const authEmail = payload.email || payload.primary_email || null;
+
+  try {
+    let user = await prisma.user.findUnique({
+      where: { id: authUserId },
+      include: { team: true },
+    });
+
+    if (!user) {
+      // First time we've seen this Neon Auth identity: create the app
+      // profile row. If they already own a team (coach_uid matches),
+      // promote them to coach automatically, same behavior as before.
+      const ownedTeam = await prisma.team.findFirst({ where: { coachUid: authUserId } });
+
+      user = await prisma.user.create({
+        data: {
+          id: authUserId,
+          email: authEmail || `${authUserId}@unknown.local`,
+          name: payload.name || (authEmail ? authEmail.split('@')[0] : 'Athlete'),
+          role: ownedTeam ? 'coach' : 'athlete',
+          teamId: ownedTeam?.id ?? null,
+        },
+        include: { team: true },
+      });
+    } else if (user.team && user.team.coachUid === user.id && user.role !== 'coach') {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { role: 'coach' },
+        include: { team: true },
+      });
     }
 
-    const token = authorization.split('Bearer ')[1];
-    console.log('🔑 Token received:', token.substring(0, 20) + '...');
-
-    try {
-        const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
-
-        if (authError || !authUser) {
-            console.log('❌ Auth error:', authError?.message || 'No user found');
-            return res.status(403).send({ message: 'Invalid or expired token', details: authError?.message });
-        }
-
-        console.log('✅ Auth user found:', authUser.id, authUser.email);
-
-        const { data: user, error: userError } = await supabase
-            .from('users')
-            .select(`
-                *,
-                team:teams(*)
-            `)
-            .eq('id', authUser.id)
-            .maybeSingle();
-
-        if (userError) {
-            console.error('Error fetching user:', userError);
-            return res.status(500).send({ message: 'Error fetching user data' });
-        }
-
-        if (!user) {
-            const { data: ownedTeam } = await supabase
-                .from('teams')
-                .select('*')
-                .eq('coach_uid', authUser.id)
-                .maybeSingle();
-
-            const { data: newUser, error: createError } = await supabase
-                .from('users')
-                .insert({
-                    id: authUser.id,
-                    email: authUser.email,
-                    name: authUser.user_metadata?.name || authUser.email.split('@')[0],
-                    role: ownedTeam ? 'coach' : 'athlete',
-                    team_id: ownedTeam?.id
-                })
-                .select(`
-                    *,
-                    team:teams(*)
-                `)
-                .single();
-
-            if (createError) {
-                console.error('Error creating user:', createError);
-                return res.status(500).send({ message: 'Error creating user profile' });
-            }
-
-            req.user = newUser;
-        } else {
-            if (user.team && user.team.coach_uid === user.id && user.role !== 'coach') {
-                await supabase
-                    .from('users')
-                    .update({ role: 'coach' })
-                    .eq('id', user.id);
-                user.role = 'coach';
-            }
-
-            req.user = user;
-        }
-
-        next();
-    } catch (error) {
-        console.error('Error in auth middleware:', error);
-        res.status(500).send({ message: 'An unexpected error occurred during authentication.', error: error.message });
-    }
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error('Error resolving user profile for', authUserId, ':', err.message);
+    res.status(500).json({ message: 'An unexpected error occurred during authentication.' });
+  }
 };
 
-const authorizeTeamAccess = (req, res, next) => {
-    try {
-        const routeTeamId = req.params?.teamId || req.body?.teamId || null;
-        if (!routeTeamId) return next();
-
-        if (!req.user) {
-            console.log('❌ authorizeTeamAccess: No user in request');
-            return res.status(401).send({ message: 'Unauthorized' });
-        }
-
-        // Handle both object and array formats for team
-        let userTeam = req.user.team;
-        if (Array.isArray(userTeam)) {
-            userTeam = userTeam[0];
-        }
-        
-        const userTeamId = userTeam?.id || req.user.team_id;
-
-        console.log('🔐 Team Authorization Check:');
-        console.log('  Route teamId:', routeTeamId);
-        console.log('  User teamId:', userTeamId);
-        console.log('  User team object:', userTeam);
-        console.log('  Match:', userTeamId === routeTeamId);
-
-        if (!userTeamId) {
-            console.log('❌ No team assigned to user');
-            return res.status(403).send({ message: 'Forbidden: No team assigned to user' });
-        }
-
-        if (userTeamId !== routeTeamId) {
-            console.log('❌ Team ID mismatch');
-            return res.status(403).send({ message: 'Forbidden: You do not have access to this team' });
-        }
-
-        console.log('✅ Team access authorized');
-        return next();
-    } catch (e) {
-        console.error('Authorization error:', e);
-        return res.status(500).send({ message: 'Authorization error', error: e.message });
-    }
+const requireCoach = (req, res, next) => {
+  if (req.user?.role !== 'coach') {
+    return res.status(403).json({ message: 'Access denied. Coach role required.' });
+  }
+  next();
 };
 
-module.exports = { authenticate, authorizeTeamAccess };
+const requireTeam = (req, res, next) => {
+  if (!req.user?.teamId) {
+    return res.status(400).json({ message: 'You are not on a team yet.' });
+  }
+  next();
+};
+
+// Use for destructive/administrative actions that must be limited to the
+// coach who actually owns the team, not just "a coach somewhere."
+const requireOwnTeam = (req, res, next) => {
+  if (!req.user?.teamId) {
+    return res.status(400).json({ message: 'You are not on a team yet.' });
+  }
+  if (req.user.team?.coachUid !== req.user.id) {
+    return res.status(403).json({ message: 'Only the coach who owns this team can do that.' });
+  }
+  next();
+};
+
+module.exports = { authenticate, requireCoach, requireTeam, requireOwnTeam };

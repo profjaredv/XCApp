@@ -7,7 +7,7 @@ const express = require('express');
 const cors = require('cors');
 
 const main = async () => {
-    console.log('Using Supabase for database operations.');
+    console.log('Using Neon (Postgres via Prisma) for database operations.');
 
     const app = express();
     const PORT = process.env.PORT || 3001;
@@ -32,9 +32,8 @@ const main = async () => {
     const { authenticate } = require('./middleware/auth');
 
     // Import routes
-    const authRoutes = require('./routes/auth');
     const profileRoutes = require('./routes/profile');
-    const teamRoutes = require('./routes/teamsSupabase');
+    const teamRoutes = require('./routes/teams');
     const resultRoutes = require('./routes/results');
     const userRoutes = require('./routes/users');
     const analyticsRoutes = require('./routes/analytics');
@@ -44,7 +43,7 @@ const main = async () => {
     const multiSeasonTrendsRoutes = require('./routes/multiSeasonTrends');
     const dataManagementRoutes = require('./routes/dataManagement');
     const meetRoutes = require('./routes/meets');
-    const teamPerformanceRoutes = require('./routes/teamSupabase');
+    const teamPerformanceRoutes = require('./routes/team');
     const splitsRoutes = require('./routes/splits');
     const meetGroupsRoutes = require('./routes/meetGroups');
     const coachesToolsRoutes = require('./routes/coachesTools');
@@ -55,7 +54,9 @@ const main = async () => {
     });
 
     // Use routes
-    app.use('/api/auth', authRoutes);
+    // Note: there is no /api/auth route anymore — Neon Auth (Stack) handles
+    // sign-up/sign-in entirely client-side; the backend only verifies the
+    // resulting access token (see middleware/auth.js).
     app.use('/api/profile', profileRoutes);
     app.use('/api/teams', teamRoutes);
     app.use('/api/results', resultRoutes);

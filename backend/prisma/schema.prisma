@@ -1,0 +1,364 @@
+// XCApp database schema — Neon Postgres.
+//
+// Rebuilt from the application code and the ad hoc SQL fix files in
+// supabase_migrations/ and supabase/migrations/ (there was no single
+// source of truth for the old schema — see MIGRATION_STATUS.md).
+//
+// Deliberate cleanups made while rebuilding (see MIGRATION_STATUS.md for
+// the full list):
+//   - `season` is now Int everywhere (was a mix of text/int across tables).
+//   - `grade` is now Int everywhere (was a mix of text/int across tables).
+//   - Every team-scoped table has a real foreign key + index on team_id;
+//     several of these existed only as application-level conventions before.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth & team membership
+// ---------------------------------------------------------------------------
+
+// Mirrors a Neon Auth (Stack) user by id. Neon Auth owns the identity/login
+// record in its own `neon_auth.users_sync` table; this is our app-level
+// profile row (role, team assignment) keyed on the same id.
+model User {
+  id        String   @id @db.Uuid
+  email     String   @unique
+  name      String?
+  role      String   @default("athlete") // 'coach' | 'athlete'
+  teamId    String?  @map("team_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  team              Team?        @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
+  coachedTeams      Team[]       @relation("TeamCoach")
+  teamMemberships   TeamMember[]
+  createdRaceSplits RaceSplit[]  @relation("RaceSplitCreator")
+
+  @@index([teamId])
+  @@map("users")
+}
+
+model Team {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  coachUid        String   @map("coach_uid") @db.Uuid
+  joinCode        String   @unique @map("join_code")
+  athleticTeamId  String   @unique @map("athletic_team_id")
+  importedSeasons Int[]    @default([]) @map("imported_seasons")
+  currentSeason   Int?     @map("current_season")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  coach                  User                     @relation("TeamCoach", fields: [coachUid], references: [id])
+  members                User[]                   @relation("TeamUsers")
+  teamMembers            TeamMember[]
+  athletes               Athlete[]
+  races                  Race[]
+  results                Result[]
+  seasons                Season[]
+  meetGroups             MeetGroup[]
+  raceSplits             RaceSplit[]
+  teamSeasonMetrics      TeamSeasonMetrics[]
+  athleteSeasonMetrics   AthleteSeasonMetrics[]
+  meetPerformanceMetrics MeetPerformanceMetrics[]
+
+  @@index([coachUid])
+  @@map("teams")
+}
+
+// Team roster membership (distinct from `users.team_id`, which is a user's
+// *current* team; this is the durable join-history record).
+model TeamMember {
+  id       String   @id @default(uuid()) @db.Uuid
+  teamId   String   @map("team_id") @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  role     String // 'coach' | 'athlete'
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+// ---------------------------------------------------------------------------
+// Roster & results
+// ---------------------------------------------------------------------------
+
+model Athlete {
+  id             String   @id @default(uuid()) @db.Uuid
+  teamId         String   @map("team_id") @db.Uuid
+  name           String
+  gender         String? // 'M' | 'F'
+  grade          Int? // 9-12
+  graduationYear Int?     @map("graduation_year")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  team                Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  results             Result[]
+  raceSplits          RaceSplit[]
+  seasonRosterEntries SeasonRoster[]
+  seasonMetrics       AthleteSeasonMetrics[]
+  bestInMeets         MeetPerformanceMetrics[] @relation("BestAthlete")
+
+  @@unique([teamId, name])
+  @@index([teamId])
+  @@map("athletes")
+}
+
+model Race {
+  id             String   @id @default(uuid()) @db.Uuid
+  teamId         String   @map("team_id") @db.Uuid
+  name           String
+  date           DateTime @db.Date
+  season         Int
+  distance       String? // e.g. "5K", "5,000 Meters" (as scraped)
+  distanceMeters Float?   @map("distance_meters")
+  location       String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  team                   Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  results                Result[]
+  raceSplits             RaceSplit[]
+  meetGroupRaces         MeetGroupRace[]
+  meetPerformanceMetrics MeetPerformanceMetrics[]
+  bestPaceForAthletes    AthleteSeasonMetrics[]   @relation("BestPaceRace")
+  bestTime5kForAthletes  AthleteSeasonMetrics[]   @relation("BestTime5kRace")
+
+  @@unique([teamId, name, date, distance])
+  @@index([teamId])
+  @@index([teamId, season])
+  @@map("races")
+}
+
+model Result {
+  id        String   @id @default(uuid()) @db.Uuid
+  raceId    String   @map("race_id") @db.Uuid
+  athleteId String   @map("athlete_id") @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  time      Float? // seconds
+  place     Int?
+  grade     Int? // athlete's grade at the time of this specific race
+  createdAt DateTime @default(now()) @map("created_at")
+
+  race      Race       @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  athlete   Athlete    @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  team      Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  raceSplit RaceSplit?
+
+  @@unique([athleteId, raceId])
+  @@index([raceId])
+  @@index([athleteId])
+  @@index([teamId])
+  @@map("results")
+}
+
+model RaceSplit {
+  id          String   @id @default(uuid()) @db.Uuid
+  resultId    String   @unique @map("result_id") @db.Uuid
+  athleteId   String   @map("athlete_id") @db.Uuid
+  raceId      String   @map("race_id") @db.Uuid
+  teamId      String   @map("team_id") @db.Uuid
+  mile1       Float?   @map("mile_1")
+  mile2       Float?   @map("mile_2")
+  mile3       Float?   @map("mile_3")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdById String?  @map("created_by") @db.Uuid
+
+  result    Result  @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  athlete   Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  race      Race    @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("RaceSplitCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([athleteId])
+  @@index([raceId])
+  @@index([teamId])
+  @@map("race_splits")
+}
+
+// ---------------------------------------------------------------------------
+// Seasons
+// ---------------------------------------------------------------------------
+
+model Season {
+  id        String    @id @default(uuid()) @db.Uuid
+  teamId    String    @map("team_id") @db.Uuid
+  year      Int
+  sport     String    @default("XC")
+  startDate DateTime? @map("start_date") @db.Date
+  endDate   DateTime? @map("end_date") @db.Date
+  isActive  Boolean   @default(false) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  team   Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  roster SeasonRoster[]
+
+  @@unique([teamId, year, sport])
+  @@index([teamId])
+  @@map("seasons")
+}
+
+model SeasonRoster {
+  id        String   @id @default(uuid()) @db.Uuid
+  seasonId  String   @map("season_id") @db.Uuid
+  athleteId String   @map("athlete_id") @db.Uuid
+  grade     Int?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  season  Season  @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, athleteId])
+  @@index([seasonId])
+  @@index([athleteId])
+  @@map("season_roster")
+}
+
+// ---------------------------------------------------------------------------
+// Manual meet grouping (cross-season comparisons)
+// ---------------------------------------------------------------------------
+
+model MeetGroup {
+  id          String   @id @default(uuid()) @db.Uuid
+  teamId      String   @map("team_id") @db.Uuid
+  groupName   String   @map("group_name")
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  team  Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  races MeetGroupRace[]
+
+  @@unique([teamId, groupName])
+  @@index([teamId])
+  @@map("meet_groups")
+}
+
+model MeetGroupRace {
+  id          String   @id @default(uuid()) @db.Uuid
+  meetGroupId String   @map("meet_group_id") @db.Uuid
+  raceId      String   @map("race_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  meetGroup MeetGroup @relation(fields: [meetGroupId], references: [id], onDelete: Cascade)
+  race      Race      @relation(fields: [raceId], references: [id], onDelete: Cascade)
+
+  @@unique([meetGroupId, raceId])
+  @@index([meetGroupId])
+  @@index([raceId])
+  @@map("meet_group_races")
+}
+
+// ---------------------------------------------------------------------------
+// Pre-calculated analytics (written by the calculation service, read by the
+// analytics/performance routes — never written to directly by user input)
+// ---------------------------------------------------------------------------
+
+model TeamSeasonMetrics {
+  id                 String   @id @default(uuid()) @db.Uuid
+  teamId             String   @map("team_id") @db.Uuid
+  season             Int
+  athleteCount       Int?     @map("athlete_count")
+  maleAthleteCount   Int?     @map("male_athlete_count")
+  femaleAthleteCount Int?     @map("female_athlete_count")
+  meetCount          Int?     @map("meet_count")
+  totalRaces         Int?     @map("total_races")
+  totalMiles         Float?   @map("total_miles")
+  averagePace        Float?   @map("average_pace")
+  improvementPercent Float?   @map("improvement_percent")
+  firstMeet          Json?    @map("first_meet")
+  lastMeet           Json?    @map("last_meet")
+  byGender           Json?    @map("by_gender")
+  byGrade            Json?    @map("by_grade")
+  byDistance         Json?    @map("by_distance")
+  teamDepth          Json?    @map("team_depth")
+  packRunning        Json?    @map("pack_running")
+  calculatedAt       DateTime @default(now()) @map("calculated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, season])
+  @@index([teamId])
+  @@map("team_season_metrics")
+}
+
+model AthleteSeasonMetrics {
+  id                 String   @id @default(uuid()) @db.Uuid
+  athleteId          String   @map("athlete_id") @db.Uuid
+  teamId             String   @map("team_id") @db.Uuid
+  season             Int
+  name               String? // denormalized snapshot
+  gender             String?
+  grade              Int?
+  totalRaces         Int?     @map("total_races")
+  totalMiles         Float?   @map("total_miles")
+  totalTimeSeconds   Float?   @map("total_time_seconds")
+  averagePace        Float?   @map("average_pace")
+  bestPace           Float?   @map("best_pace")
+  bestPaceRaceId     String?  @map("best_pace_race_id") @db.Uuid
+  bestTime5k         Float?   @map("best_time_5k")
+  bestTime5kRaceId   String?  @map("best_time_5k_race_id") @db.Uuid
+  improvementPercent Float?   @map("improvement_percent")
+  calculatedAt       DateTime @default(now()) @map("calculated_at")
+
+  athlete        Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  team           Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  bestPaceRace   Race?   @relation("BestPaceRace", fields: [bestPaceRaceId], references: [id], onDelete: SetNull)
+  bestTime5kRace Race?   @relation("BestTime5kRace", fields: [bestTime5kRaceId], references: [id], onDelete: SetNull)
+
+  @@unique([athleteId, teamId, season])
+  @@index([teamId])
+  @@index([athleteId])
+  @@map("athlete_season_metrics")
+}
+
+model MeetPerformanceMetrics {
+  id                     String    @id @default(uuid()) @db.Uuid
+  raceId                 String    @map("race_id") @db.Uuid
+  teamId                 String    @map("team_id") @db.Uuid
+  season                 Int
+  meetName               String?   @map("meet_name")
+  meetDate               DateTime? @map("meet_date") @db.Date
+  distance               Float?
+  distanceLabel          String?   @map("distance_label")
+  participantCount       Int?      @map("participant_count")
+  maleParticipantCount   Int?      @map("male_participant_count")
+  femaleParticipantCount Int?      @map("female_participant_count")
+  averageTime            Float?    @map("average_time")
+  averagePace            Float?    @map("average_pace")
+  bestTime               Float?    @map("best_time")
+  bestAthleteId          String?   @map("best_athlete_id") @db.Uuid
+  teamScore              Float?    @map("team_score")
+  boysAvgPace            Float?    @map("boys_avg_pace")
+  boysCount              Int?      @map("boys_count")
+  girlsAvgPace           Float?    @map("girls_avg_pace")
+  girlsCount             Int?      @map("girls_count")
+  metrics                Json?
+  calculatedAt           DateTime  @default(now()) @map("calculated_at")
+
+  race        Race     @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  bestAthlete Athlete? @relation("BestAthlete", fields: [bestAthleteId], references: [id], onDelete: SetNull)
+
+  @@unique([raceId, teamId])
+  @@index([teamId])
+  @@index([raceId])
+  @@map("meet_performance_metrics")
+}

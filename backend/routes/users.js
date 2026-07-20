@@ -1,54 +1,31 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../config/supabase');
+const prisma = require('../lib/db');
 const { authenticate } = require('../middleware/auth');
 
 // GET /api/users/me
-// Get current user's profile
 router.get('/me', authenticate, async (req, res) => {
-  try {
-    return res.status(200).send(req.user);
-  } catch (err) {
-    console.error('Failed to fetch user profile:', err);
-    return res.status(500).send({ message: 'Internal Server Error' });
-  }
+  res.status(200).json(req.user);
 });
 
 // PUT /api/users/me
-// Update current user's profile fields (currently: name)
 router.put('/me', authenticate, async (req, res) => {
   try {
     const { name } = req.body;
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).send({ message: 'Name is required.' });
+      return res.status(400).json({ message: 'Name is required.' });
     }
 
-    const { data: updated, error } = await supabase
-      .from('users')
-      .update({
-        name: name.trim(),
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', req.user.id)
-      .select(`
-        *,
-        team:teams(*)
-      `)
-      .single();
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { name: name.trim() },
+      include: { team: true },
+    });
 
-    if (error) {
-      console.error('Failed to update profile:', error);
-      return res.status(500).send({ message: 'Failed to update profile.' });
-    }
-
-    if (!updated) {
-      return res.status(404).send({ message: 'User not found.' });
-    }
-
-    return res.status(200).send({ message: 'Profile updated.', user: updated });
+    res.status(200).json({ message: 'Profile updated.', user: updated });
   } catch (err) {
-    console.error('Failed to update profile:', err);
-    return res.status(500).send({ message: 'Internal Server Error' });
+    console.error('Failed to update profile:', err.message);
+    res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 

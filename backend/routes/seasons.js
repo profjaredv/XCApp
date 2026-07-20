@@ -1,57 +1,30 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../config/supabase');
-const { authenticate } = require('../middleware/auth');
+const prisma = require('../lib/db');
+const { authenticate, requireTeam } = require('../middleware/auth');
 
-router.get('/', authenticate, async (req, res) => {
-  const teamId = req.user.team?.id;
+router.get('/', authenticate, requireTeam, async (req, res) => {
   const { sport = 'XC' } = req.query;
 
-  if (!teamId) {
-    return res.status(400).json({ msg: 'Team context is required.' });
-  }
-
   try {
-    const { data: seasons, error } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('team_id', teamId)
-      .eq('sport', sport)
-      .order('year', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching seasons:', error);
-      return res.status(500).json({ msg: 'Error fetching seasons' });
-    }
-
+    const seasons = await prisma.season.findMany({
+      where: { teamId: req.user.teamId, sport },
+      orderBy: { year: 'desc' },
+    });
     res.json(seasons);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
+    console.error('Error fetching seasons:', err.message);
+    res.status(500).json({ msg: 'Error fetching seasons' });
   }
 });
 
-router.get('/current', authenticate, async (req, res) => {
-  const teamId = req.user.team?.id;
+router.get('/current', authenticate, requireTeam, async (req, res) => {
   const { sport = 'XC' } = req.query;
 
-  if (!teamId) {
-    return res.status(400).json({ msg: 'Team context is required.' });
-  }
-
   try {
-    const { data: currentSeason, error } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('team_id', teamId)
-      .eq('sport', sport)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error fetching current season:', error);
-      return res.status(500).json({ msg: 'Error fetching current season' });
-    }
+    const currentSeason = await prisma.season.findFirst({
+      where: { teamId: req.user.teamId, sport, isActive: true },
+    });
 
     if (!currentSeason) {
       return res.status(404).json({ msg: 'No active season found.' });
@@ -59,280 +32,161 @@ router.get('/current', authenticate, async (req, res) => {
 
     res.json(currentSeason);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
+    console.error('Error fetching current season:', err.message);
+    res.status(500).json({ msg: 'Error fetching current season' });
   }
 });
 
-router.post('/', authenticate, async (req, res) => {
-  const teamId = req.user.team?.id;
+router.post('/', authenticate, requireTeam, async (req, res) => {
   const { year, sport = 'XC', startDate, endDate } = req.body;
+  const teamId = req.user.teamId;
 
-  if (!teamId || !year) {
-    return res.status(400).json({ msg: 'Team context and year are required.' });
+  if (!year) {
+    return res.status(400).json({ msg: 'Year is required.' });
   }
 
   try {
-    const { data: existing, error: checkError } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('team_id', teamId)
-      .eq('year', year)
-      .eq('sport', sport)
-      .maybeSingle();
-
+    const existing = await prisma.season.findUnique({ where: { teamId_year_sport: { teamId, year, sport } } });
     if (existing) {
       return res.status(400).json({ msg: 'Season already exists.' });
     }
 
-    const { data: season, error } = await supabase
-      .from('seasons')
-      .insert({
+    const season = await prisma.season.create({
+      data: {
         year,
         sport,
-        team_id: teamId,
-        start_date: startDate,
-        end_date: endDate,
-        is_active: false
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error creating season:', error);
-      return res.status(500).json({ msg: 'Error creating season' });
-    }
+        teamId,
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
+        isActive: false,
+      },
+    });
 
     res.json(season);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
+    console.error('Error creating season:', err.message);
+    res.status(500).json({ msg: 'Error creating season' });
   }
 });
 
-router.put('/:id', authenticate, async (req, res) => {
-  const teamId = req.user.team?.id;
+router.put('/:id', authenticate, requireTeam, async (req, res) => {
   const { isActive, startDate, endDate } = req.body;
-
-  if (!teamId) {
-    return res.status(400).json({ msg: 'Team context is required.' });
-  }
+  const teamId = req.user.teamId;
 
   try {
-    const { data: season, error: fetchError } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('id', req.params.id)
-      .eq('team_id', teamId)
-      .maybeSingle();
-
-    if (fetchError || !season) {
+    const season = await prisma.season.findFirst({ where: { id: req.params.id, teamId } });
+    if (!season) {
       return res.status(404).json({ msg: 'Season not found.' });
     }
 
     if (isActive) {
-      await supabase
-        .from('seasons')
-        .update({ is_active: false })
-        .eq('team_id', teamId)
-        .eq('sport', season.sport)
-        .neq('id', season.id);
+      await prisma.season.updateMany({
+        where: { teamId, sport: season.sport, id: { not: season.id } },
+        data: { isActive: false },
+      });
     }
 
     const updates = {};
-    if (isActive !== undefined) updates.is_active = isActive;
-    if (startDate) updates.start_date = startDate;
-    if (endDate) updates.end_date = endDate;
+    if (isActive !== undefined) updates.isActive = isActive;
+    if (startDate) updates.startDate = new Date(startDate);
+    if (endDate) updates.endDate = new Date(endDate);
 
-    const { data: updated, error: updateError } = await supabase
-      .from('seasons')
-      .update(updates)
-      .eq('id', req.params.id)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error('Error updating season:', updateError);
-      return res.status(500).json({ msg: 'Error updating season' });
-    }
-
+    const updated = await prisma.season.update({ where: { id: season.id }, data: updates });
     res.json(updated);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
+    console.error('Error updating season:', err.message);
+    res.status(500).json({ msg: 'Error updating season' });
   }
 });
 
-router.post('/:id/roster', authenticate, async (req, res) => {
-  const teamId = req.user.team?.id;
+router.post('/:id/roster', authenticate, requireTeam, async (req, res) => {
   const { athletes } = req.body;
+  const teamId = req.user.teamId;
 
-  if (!teamId || !athletes || !Array.isArray(athletes)) {
-    return res.status(400).json({ msg: 'Team context and athletes array are required.' });
+  if (!athletes || !Array.isArray(athletes)) {
+    return res.status(400).json({ msg: 'Athletes array is required.' });
   }
 
   try {
-    const { data: season, error: fetchError } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('id', req.params.id)
-      .eq('team_id', teamId)
-      .maybeSingle();
-
-    if (fetchError || !season) {
+    const season = await prisma.season.findFirst({ where: { id: req.params.id, teamId } });
+    if (!season) {
       return res.status(404).json({ msg: 'Season not found.' });
     }
 
-    const rosterEntries = athletes
-      .filter(a => a.id && a.grade)
-      .map(a => ({
-        season_id: season.id,
-        athlete_id: a.id,
-        grade: a.grade,
-        is_active: true
-      }));
-
-    if (rosterEntries.length > 0) {
-      await supabase.from('season_roster').insert(rosterEntries);
+    const rosterEntries = athletes.filter((a) => a.id && a.grade);
+    for (const entry of rosterEntries) {
+      await prisma.seasonRoster.upsert({
+        where: { seasonId_athleteId: { seasonId: season.id, athleteId: entry.id } },
+        update: { grade: parseInt(entry.grade, 10), isActive: true },
+        create: { seasonId: season.id, athleteId: entry.id, grade: parseInt(entry.grade, 10), isActive: true },
+      });
     }
 
-    const { data: updatedRoster, error: rosterError } = await supabase
-      .from('season_roster')
-      .select(`
-        *,
-        athlete:athletes(*)
-      `)
-      .eq('season_id', season.id);
+    const updatedRoster = await prisma.seasonRoster.findMany({
+      where: { seasonId: season.id },
+      include: { athlete: true },
+    });
 
-    res.json({ ...season, roster: updatedRoster || [] });
+    res.json({ ...season, roster: updatedRoster });
   } catch (err) {
-    console.error(err);
+    console.error('Error updating roster:', err.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
-router.delete('/:id/roster/:athleteId', authenticate, async (req, res) => {
-  const teamId = req.user.team?.id;
-
-  if (!teamId) {
-    return res.status(400).json({ msg: 'Team context is required.' });
-  }
-
+router.delete('/:id/roster/:athleteId', authenticate, requireTeam, async (req, res) => {
   try {
-    const { data: season, error: fetchError } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('id', req.params.id)
-      .eq('team_id', teamId)
-      .maybeSingle();
-
-    if (fetchError || !season) {
+    const season = await prisma.season.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
+    if (!season) {
       return res.status(404).json({ msg: 'Season not found.' });
     }
 
-    await supabase
-      .from('season_roster')
-      .delete()
-      .eq('season_id', req.params.id)
-      .eq('athlete_id', req.params.athleteId);
-
+    await prisma.seasonRoster.deleteMany({ where: { seasonId: req.params.id, athleteId: req.params.athleteId } });
     res.json({ msg: 'Athlete removed from roster' });
   } catch (err) {
-    console.error(err);
+    console.error('Error removing from roster:', err.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
-router.get('/:id/roster', authenticate, async (req, res) => {
-  const teamId = req.user.team?.id;
+router.get('/:id/roster', authenticate, requireTeam, async (req, res) => {
   const { activeOnly = 'true' } = req.query;
 
-  if (!teamId) {
-    return res.status(400).json({ msg: 'Team context is required.' });
-  }
-
   try {
-    const { data: season, error: fetchError } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('id', req.params.id)
-      .eq('team_id', teamId)
-      .maybeSingle();
-
-    if (fetchError || !season) {
+    const season = await prisma.season.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
+    if (!season) {
       return res.status(404).json({ msg: 'Season not found.' });
     }
 
-    let query = supabase
-      .from('season_roster')
-      .select(`
-        *,
-        athlete:athletes(*)
-      `)
-      .eq('season_id', req.params.id);
+    const roster = await prisma.seasonRoster.findMany({
+      where: { seasonId: req.params.id, ...(activeOnly === 'true' ? { isActive: true } : {}) },
+      include: { athlete: true },
+    });
 
-    if (activeOnly === 'true' || activeOnly === true) {
-      query = query.eq('is_active', true);
-    }
-
-    const { data: roster, error } = await query;
-
-    if (error) {
-      console.error('Error fetching roster:', error);
-      return res.status(500).json({ msg: 'Error fetching roster' });
-    }
-
-    res.json(roster || []);
+    res.json(roster);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
+    console.error('Error fetching roster:', err.message);
+    res.status(500).json({ msg: 'Error fetching roster' });
   }
 });
 
-router.delete('/:id/results', authenticate, async (req, res) => {
-  const teamId = req.user.team?.id;
-
-  if (!teamId) {
-    return res.status(400).json({ msg: 'Team context is required.' });
-  }
+router.delete('/:id/results', authenticate, requireTeam, async (req, res) => {
+  const teamId = req.user.teamId;
 
   try {
-    const { data: season, error: fetchError } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('id', req.params.id)
-      .eq('team_id', teamId)
-      .maybeSingle();
-
-    if (fetchError || !season) {
+    const season = await prisma.season.findFirst({ where: { id: req.params.id, teamId } });
+    if (!season) {
       return res.status(404).json({ msg: 'Season not found.' });
     }
 
-    const { data: races } = await supabase
-      .from('races')
-      .select('id')
-      .eq('team_id', teamId)
-      .eq('season', season.year.toString());
-
-    if (races && races.length > 0) {
-      const raceIds = races.map(r => r.id);
-      const { error: deleteError } = await supabase
-        .from('results')
-        .delete()
-        .in('race_id', raceIds);
-
-      if (deleteError) {
-        console.error('Error deleting results:', deleteError);
-        return res.status(500).json({ msg: 'Error deleting results' });
-      }
+    const races = await prisma.race.findMany({ where: { teamId, season: season.year }, select: { id: true } });
+    if (races.length > 0) {
+      await prisma.result.deleteMany({ where: { raceId: { in: races.map((r) => r.id) } } });
     }
 
-    res.json({
-      success: true,
-      message: `Cleared results for season ${season.year}`
-    });
+    res.json({ success: true, message: `Cleared results for season ${season.year}` });
   } catch (err) {
-    console.error(err);
+    console.error('Error clearing season results:', err.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

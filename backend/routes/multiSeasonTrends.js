@@ -1,20 +1,14 @@
 const express = require('express');
-const { authenticate, authorizeTeamAccess } = require('../middleware/auth');
+const { authenticate, requireTeam } = require('../middleware/auth');
 const logger = require('../utils/logger');
-const supabase = require('../config/supabase');
+const prisma = require('../lib/db');
 
 const router = express.Router();
 
-/**
- * Helper to convert meters to miles
- */
-const toMiles = (meters) => meters > 0 ? meters / 1609.34 : 0;
+const toMiles = (meters) => (meters > 0 ? meters / 1609.34 : 0);
 
-/**
- * Helper to parse distance in miles from race data
- */
 const parseDistanceMiles = (race) => {
-  const meters = race?.distance_meters || 0;
+  const meters = race?.distanceMeters || 0;
   if (meters > 0) return toMiles(meters);
 
   const label = (race?.distance || '').toLowerCase();
@@ -26,120 +20,67 @@ const parseDistanceMiles = (race) => {
   const numMatch = label.match(/^(\d+(?:\.\d+)?)\s*(?:mile|mi|m|k|km|meter|meters)?/i);
   if (numMatch) {
     const value = parseFloat(numMatch[1]);
-    if (label.includes('k') || label.includes('km')) {
-      return value * 0.621371;
-    }
+    if (label.includes('k') || label.includes('km')) return value * 0.621371;
     return value;
   }
 
   return 0;
 };
 
-/**
- * @route   GET /api/multi-season/team/:teamId/trends
- * @desc    Get multi-season trend data for a team
- * @access  Private (Team Member)
- */
-router.get(
-  '/team/:teamId/trends',
-  authenticate,
-  authorizeTeamAccess,
-  async (req, res) => {
-    try {
-      const { teamId } = req.params;
+// GET /api/multi-season/trends
+router.get('/trends', authenticate, requireTeam, async (req, res) => {
+  try {
+    const teamId = req.user.teamId;
 
-      // Get all distinct seasons for this team
-      const { data: races, error: racesError } = await supabase
-        .from('races')
-        .select('season')
-        .eq('team_id', teamId);
+    const raceSeasons = await prisma.race.findMany({
+      where: { teamId },
+      select: { season: true },
+      distinct: ['season'],
+    });
+    const seasons = raceSeasons.map((r) => r.season).sort((a, b) => a - b);
 
-      if (racesError) throw racesError;
+    if (!seasons.length) {
+      return res.json({ success: true, data: { seasons: [], trends: [] } });
+    }
 
-      const seasons = [...new Set((races || []).map(r => parseInt(r.season)))]
-        .filter(s => !isNaN(s))
-        .sort((a, b) => a - b);
+    const multiSeasonData = await Promise.all(
+      seasons.map(async (season) => {
+        const emptyTrend = {
+          season,
+          avg5K: { girls: null, boys: null, team: null },
+          avgPace: { girls: null, boys: null, team: null },
+          stateMeet: { avg5K: { girls: null, boys: null, team: null }, avgPace: { girls: null, boys: null, team: null }, hasData: false },
+          hasData: false,
+        };
 
-      if (!seasons.length) {
-        return res.json({ success: true, data: { seasons: [], trends: [] } });
-      }
+        const results = await prisma.result.findMany({
+          where: { teamId, time: { gt: 0 }, race: { season } },
+          include: { athlete: { select: { id: true, name: true, gender: true, grade: true } }, race: true },
+        });
 
-      const multiSeasonData = await Promise.all(seasons.map(async (season) => {
-        const seasonStr = String(season);
+        if (results.length === 0) return emptyTrend;
 
-        // Get all races for this season
-        const { data: seasonRaces } = await supabase
-          .from('races')
-          .select('*')
-          .eq('team_id', teamId)
-          .eq('season', seasonStr);
-
-        if (!seasonRaces || seasonRaces.length === 0) {
-          return {
-            season,
-            avg5K: { girls: null, boys: null, team: null },
-            avgPace: { girls: null, boys: null, team: null },
-            stateMeet: { avg5K: { girls: null, boys: null, team: null }, avgPace: { girls: null, boys: null, team: null }, hasData: false },
-            hasData: false,
-          };
-        }
-
-        const raceIds = seasonRaces.map(race => race.id);
-
-        // Get all results for these races with athlete data
-        const { data: results } = await supabase
-          .from('results')
-          .select(`
-            *,
-            athlete:athletes(id, name, gender, grade),
-            race:races(*)
-          `)
-          .in('race_id', raceIds)
-          .gt('time', 0);
-
-        if (!results || results.length === 0) {
-          return {
-            season,
-            avg5K: { girls: null, boys: null, team: null },
-            avgPace: { girls: null, boys: null, team: null },
-            stateMeet: { avg5K: { girls: null, boys: null, team: null }, avgPace: { girls: null, boys: null, team: null }, hasData: false },
-            hasData: false,
-          };
-        }
-
-        // Filter for valid results (exclude state meets)
-        const validResults = results.filter(result => {
-          const race = result.race;
-          const isStateMeet = race?.name && /state|championship/i.test(race.name);
+        const validResults = results.filter((result) => {
+          const isStateMeet = result.race?.name && /state|championship/i.test(result.race.name);
           return !isStateMeet && result.time > 0;
         });
 
-        // Calculate pace for each result (seconds per mile)
-        const resultsWithPace = validResults.map(result => {
-          const race = result.race;
-          const distanceMiles = parseDistanceMiles(race);
-          const pace = distanceMiles > 0 ? result.time / distanceMiles : 0;
+        const resultsWithPace = validResults
+          .map((result) => {
+            const distanceMiles = parseDistanceMiles(result.race);
+            const pace = distanceMiles > 0 ? result.time / distanceMiles : 0;
+            return { ...result, pace };
+          })
+          .filter((r) => r.pace > 0 && r.pace < 1800);
 
-          return { ...result, pace, distanceMiles };
-        }).filter(r => r.pace > 0 && r.pace < 1800); // Filter out unrealistic paces
+        const girls = resultsWithPace.filter((r) => ['F', 'Women'].includes(r.athlete?.gender));
+        const boys = resultsWithPace.filter((r) => ['M', 'Men'].includes(r.athlete?.gender));
 
-        // Filter by gender - handle both 'M'/'F' and 'Men'/'Women' formats
-        const girls = resultsWithPace.filter(r => {
-          const gender = r.athlete?.gender;
-          return gender === 'F' || gender === 'Women';
-        });
-        const boys = resultsWithPace.filter(r => {
-          const gender = r.athlete?.gender;
-          return gender === 'M' || gender === 'Men';
-        });
-
-        // Calculate average pace (seconds per mile)
-        const avgPace = (arr) => arr.length ? arr.reduce((s, r) => s + r.pace, 0) / arr.length : 0;
+        const avgPace = (arr) => (arr.length ? arr.reduce((s, r) => s + r.pace, 0) / arr.length : 0);
         const teamAvgPace = avgPace(resultsWithPace);
         const girlsAvgPace = avgPace(girls);
         const boysAvgPace = avgPace(boys);
 
-        // Convert pace to 5K time (pace * 3.1 miles)
         const milesPer5k = 3.10686;
         const teamAvg5K = teamAvgPace > 0 ? teamAvgPace * milesPer5k : 0;
         const girlsAvg5K = girlsAvgPace > 0 ? girlsAvgPace * milesPer5k : 0;
@@ -152,14 +93,14 @@ router.get(
           stateMeet: { avg5K: { girls: null, boys: null, team: null }, avgPace: { girls: null, boys: null, team: null }, hasData: false },
           hasData: resultsWithPace.length > 0,
         };
-      }));
+      })
+    );
 
-      return res.json({ success: true, data: { seasons, trends: multiSeasonData } });
-    } catch (error) {
-      logger.error(`Error fetching multi-season trends: ${error.message}`, { error });
-      res.status(500).json({ success: false, message: 'Failed to fetch multi-season trends', error: error.message });
-    }
+    res.json({ success: true, data: { seasons, trends: multiSeasonData } });
+  } catch (error) {
+    logger.error(`Error fetching multi-season trends: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to fetch multi-season trends' });
   }
-);
+});
 
 module.exports = router;
