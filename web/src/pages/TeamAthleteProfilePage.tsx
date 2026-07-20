@@ -1,0 +1,204 @@
+import React, { useState, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { ChevronLeft } from 'lucide-react';
+import { useAthletePerformance, useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
+import { useMultiSeasonTrends } from '@/hooks/useMultiSeasonTrends';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SeasonModeSelector, SeasonMode } from '@/components/SeasonModeSelector';
+import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
+import { formatDateShort } from '@/lib/formatUtils';
+import type { Athlete, Race, AthleteSeasonData } from '@/types/analytics';
+
+interface RaceData {
+  name: string;
+  date: string;
+  distanceMi: number;
+  time: number;
+  season?: number;
+}
+
+interface CareerSummary {
+  totalRaces: number;
+  totalMiles: number;
+  avgPace: number;
+  best5kTime: number;
+}
+
+interface SeasonBreakdown {
+  season: number;
+  totalRaces: number;
+  totalMiles: number;
+  avgPace: number;
+  best5kTime: number;
+}
+
+const TeamAthleteProfilePage = () => {
+  const { teamId, athleteId } = useParams<{ teamId: string; athleteId: string }>();
+  const navigate = useNavigate();
+  const [selectedSeason, setSelectedSeason] = useState<number>(new Date().getFullYear());
+  const [seasonMode, setSeasonMode] = useState<'current' | 'all' | 'custom'>('current');
+
+  const handleSeasonModeChange = (newMode: 'current' | 'all' | 'historical') => {
+    setSeasonMode(newMode as 'current' | 'all' | 'custom');
+  };
+  
+  // Fetch athlete data
+  const { data: athletePerf, isLoading: isLoadingAthlete } = useAthletePerformance(athleteId || '', selectedSeason);
+  const { data: athleteAllSeasons } = useAthleteAllSeasons(athleteId || '', { enabled: !!athleteId });
+  const { data: multiSeasonTrendsData, isLoading: isLoadingMultiSeasonTrends } = useMultiSeasonTrends(teamId || '', selectedSeason);
+  
+  // Derived values
+  const enhancedAthlete: (Athlete & { bestTimeDate?: string; raceCount?: number; firstRaceTime?: number; lastRaceTime?: number; races: Race[] }) | null = useMemo(() => {
+    if (!athletePerf?.data) return null;
+    const { data } = athletePerf;
+    return {
+      id: athleteId || '',
+      name: data.athleteName || '',
+      firstName: data.athleteName?.split(' ')[0] || '',
+      lastName: data.athleteName?.split(' ').slice(1).join(' ') || '',
+      currentGrade: data.grade || 0,
+      gender: data.gender as 'M' | 'F',
+      teamName: '', // This can be populated if available from the API
+      seasons: [], // This will be populated by athleteAllSeasons
+      currentSeason: {} as AthleteSeasonData, // Placeholder
+      personalBests: {}, // Placeholder
+      races: (data.metrics?.races as unknown as Race[]) || [],
+      bestTime: data.metrics?.best?.bestTime || 0,
+      avgPace: data.metrics?.current?.avgMilePace?.overall || 0,
+      improvementPercent: 0, // Placeholder
+      raceCount: data.metrics?.current?.totalRaces || 0,
+      firstRaceTime: 0, // Placeholder
+      lastRaceTime: 0, // Placeholder
+      bestTimeDate: '' // Placeholder
+    };
+  }, [athletePerf, athleteId]);
+
+  const careerSummary = useMemo<CareerSummary>(() => {
+    const seasons = athleteAllSeasons?.data?.seasons || [];
+    if (!seasons.length) return { totalRaces: 0, totalMiles: 0, avgPace: 0, best5kTime: 0 };
+    const totals = seasons.reduce((acc, season) => {
+      const metrics = season.metrics;
+      const miles = metrics?.totalMiles ?? 0;
+      return {
+        totalRaces: acc.totalRaces + (metrics?.totalRaces ?? 0),
+        totalMiles: acc.totalMiles + miles,
+        totalTime: acc.totalTime + (miles > 0 && (metrics?.avgMilePace?.overall ?? 0) > 0 ? miles * metrics.avgMilePace.overall : 0),
+        best5kTime: Math.min(acc.best5kTime, metrics?.best5kTime ?? Infinity)
+      };
+    }, { totalRaces: 0, totalMiles: 0, totalTime: 0, best5kTime: Infinity });
+    return {
+      totalRaces: totals.totalRaces,
+      totalMiles: parseFloat(totals.totalMiles.toFixed(2)),
+      avgPace: totals.totalMiles > 0 ? Math.round(totals.totalTime / totals.totalMiles) : 0,
+      best5kTime: Number.isFinite(totals.best5kTime) ? totals.best5kTime : 0
+    };
+  }, [athleteAllSeasons?.data?.seasons]);
+
+  const seasonBreakdown = useMemo<SeasonBreakdown[]>(() => {
+    return (athleteAllSeasons?.data?.seasons || []).map(s => ({
+      season: s.season,
+      totalRaces: s.metrics?.totalRaces ?? 0,
+      totalMiles: s.metrics?.totalMiles ?? 0,
+      avgPace: s.metrics?.avgMilePace?.overall ?? 0,
+      best5kTime: s.metrics?.best5kTime ?? 0,
+    }));
+  }, [athleteAllSeasons?.data?.seasons]);
+
+  const allSeasonsRaces = useMemo<RaceData[]>(() => {
+    const races = (athleteAllSeasons?.data?.seasons || []).flatMap(s => 
+      (s.metrics?.races || []).map(r => ({
+        name: r.meetName,
+        date: formatDateShort(r.date),
+        distanceMi: r.distance / 1609.34, // Convert meters to miles
+        time: r.time,
+        season: s.season
+      }))
+    );
+    return races.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [athleteAllSeasons?.data?.seasons]);
+  
+  // Handle back button
+  const handleBack = () => {
+    navigate(`/team`);
+  };
+  
+  if (isLoadingAthlete || !enhancedAthlete) {
+    return (
+      <div className="container py-8">
+        <div className="flex items-center mb-6">
+          <Button variant="ghost" onClick={handleBack} className="mr-4">
+            <ChevronLeft className="h-5 w-5 mr-1" />
+            Back to Team
+          </Button>
+          <Skeleton className="h-10 w-64" />
+        </div>
+        <div className="space-y-8">
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="container py-8">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <Button variant="ghost" onClick={handleBack} className="mr-4">
+            <ChevronLeft className="h-5 w-5 mr-1" />
+            Back to Team
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold">{enhancedAthlete.name}</h1>
+            <p className="text-muted-foreground">
+              Grade {enhancedAthlete.currentGrade} • {enhancedAthlete.gender === 'M' ? 'Boys' : 'Girls'}
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          <SeasonModeSelector 
+            currentMode={seasonMode as SeasonMode}
+            onModeChange={handleSeasonModeChange as (mode: SeasonMode) => void}
+            selectedSeason={selectedSeason}
+            onSeasonChange={setSelectedSeason}
+          />
+        </div>
+      </div>
+      
+      {/* Use the AthleteDetailModal component as a full page */}
+      <AthleteDetailModal 
+        selectedAthlete={{
+          id: enhancedAthlete.id,
+          name: enhancedAthlete.name,
+          firstName: enhancedAthlete.firstName,
+          lastName: enhancedAthlete.lastName,
+          currentGrade: enhancedAthlete.currentGrade,
+          gender: enhancedAthlete.gender,
+          teamName: enhancedAthlete.teamName,
+          seasons: enhancedAthlete.seasons,
+          currentSeason: enhancedAthlete.currentSeason,
+          personalBests: enhancedAthlete.personalBests,
+          races: enhancedAthlete.races,
+          bestTime: enhancedAthlete.bestTime,
+          avgPace: enhancedAthlete.avgPace,
+          improvementPercent: enhancedAthlete.improvementPercent,
+          raceCount: enhancedAthlete.raceCount,
+          firstRaceTime: enhancedAthlete.firstRaceTime,
+          lastRaceTime: enhancedAthlete.lastRaceTime,
+          bestTimeDate: enhancedAthlete.bestTimeDate
+        }}
+        enhancedSelectedAthlete={enhancedAthlete}
+        careerSummary={careerSummary}
+        seasonBreakdown={seasonBreakdown}
+        allSeasonsRaces={allSeasonsRaces}
+        multiSeasonTrendsData={multiSeasonTrendsData}
+        isLoadingMultiSeasonTrends={isLoadingMultiSeasonTrends}
+        onClose={() => {}} // No-op since this is a dedicated page
+      />
+    </div>
+  );
+};
+
+export default TeamAthleteProfilePage;

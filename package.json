@@ -1,0 +1,19 @@
+{
+  "name": "leadpack-xc",
+  "version": "1.0.0",
+  "description": "LeadPack XC - Cross Country Analytics Platform",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "cd web && npm install && npm run build",
+    "start": "npm --prefix backend start",
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd web && npm run dev\"",
+    "install-all": "cd backend && npm install && cd ../web && npm install",
+    "vercel-build": "cd web && npm install && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
