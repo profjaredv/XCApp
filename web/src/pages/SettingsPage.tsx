@@ -309,4 +309,4 @@ const SimpleSettingsPage: React.FC = () => {
   );
 };
 
-export default SettingsPage;
+export default SimpleSettingsPage;
