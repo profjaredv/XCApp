@@ -36,46 +36,46 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
       <div className="p-6">
         {isCollapsed ? (
           <div className="flex justify-center">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-xl flex items-center justify-center text-white font-bold text-base shadow-lg shadow-indigo-500/20">
+            <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary/80 rounded-xl flex items-center justify-center text-white font-bold text-base shadow-lg shadow-primary/20">
               LP
             </div>
           </div>
         ) : (
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-indigo-700 bg-clip-text text-transparent transition-opacity duration-300">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent transition-opacity duration-300">
             LeadPack XC
           </h1>
         )}
       </div>
 
       <nav className="mt-2 flex-1 px-3 space-y-1">
-        <NavLink to="/analytics" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-indigo-50 to-indigo-100/50 text-indigo-700 shadow-sm'}`}>
+        <NavLink to="/analytics" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
           <Home className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
           {!isCollapsed && <span className="text-sm">Analytics</span>}
         </NavLink>
-        <NavLink to="/team" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-indigo-50 to-indigo-100/50 text-indigo-700 shadow-sm'}`}>
+        <NavLink to="/team" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
           <Users className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
           {!isCollapsed && <span className="text-sm">My Team</span>}
         </NavLink>
-        <NavLink to="/results-grid" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-indigo-50 to-indigo-100/50 text-indigo-700 shadow-sm'}`}>
+        <NavLink to="/results-grid" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
           <BarChart2 className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
           {!isCollapsed && <span className="text-sm">Results Grid</span>}
         </NavLink>
-        <NavLink to="/tools" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-indigo-50 to-indigo-100/50 text-indigo-700 shadow-sm'}`}>
+        <NavLink to="/tools" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
           <BarChart2 className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
           {!isCollapsed && <span className="text-sm">Tools</span>}
         </NavLink>
         {currentUser?.role === 'coach' && (
           <>
-            <NavLink to="/coaches-tools" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-purple-50 to-purple-100/50 text-purple-700 shadow-sm'}`}>
+            <NavLink to="/coaches-tools" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-accent/15 to-accent/5 text-accent-foreground shadow-sm'}`}>
               <Sparkles className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
               {!isCollapsed && <span className="text-sm">Coaches Tools</span>}
             </NavLink>
             {/* Import Data archived - not shown in UI */}
-            {/* <NavLink to="/import" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-indigo-50 to-indigo-100/50 text-indigo-700 shadow-sm'}`}>
+            {/* <NavLink to="/import" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
               <Upload className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
               {!isCollapsed && <span className="text-sm">Import Data</span>}
             </NavLink> */}
-            <NavLink to="/data-management" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-indigo-50 to-indigo-100/50 text-indigo-700 shadow-sm'}`}>
+            <NavLink to="/data-management" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
               <Database className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
               {!isCollapsed && <span className="text-sm">Data Management</span>}
             </NavLink>

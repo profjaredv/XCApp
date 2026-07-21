@@ -28,6 +28,8 @@ createRoot(document.getElementById('root')!).render(
       navigate={(href) => router.navigate(href)}
       replace={(href) => router.navigate(href, { replace: true })}
       Link={Link}
+      basePath=""
+      viewPaths={{ SIGN_IN: 'login', SIGN_UP: 'register' }}
     >
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
