@@ -1,5 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+/* Neon Auth (better-auth-ui) tokens-only stylesheet for Tailwind v4 apps.
+   Must come after `@import "tailwindcss"`. This pulls in the auth-ui theme
+   tokens + component class safelist WITHOUT a second Tailwind preflight,
+   avoiding the layout-breaking duplication of the full `/ui/css` bundle.
+   The auth-ui theme only reads our --primary etc. (see the :root block
+   below), so our green theme flows through to the sign-in/up forms. */
+@import "@neondatabase/neon-js/ui/tailwind";
 
 @custom-variant dark (&:is(.dark *));
 

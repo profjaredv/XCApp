@@ -3,7 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider, Link as RouterLink } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NeonAuthUIProvider } from '@neondatabase/neon-js/auth/react/ui';
-import '@neondatabase/neon-js/ui/css';
+// Note: Neon Auth's CSS is imported via index.css (the `@neondatabase/neon-js/ui/tailwind`
+// tokens-only entry), NOT the full `/ui/css` bundle. This app already ships its own
+// Tailwind v4 build; importing Neon's full pre-built CSS on top of it duplicates the
+// preflight/utility layers and breaks the app's own spacing (Neon's docs: "Never import both").
 import { authClient } from './lib/auth';
 import { router } from './router';
 import { AuthProvider } from './components/AuthProvider';
