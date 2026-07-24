@@ -1,0 +1,107 @@
+const prisma = require('./db');
+
+// ---------------------------------------------------------------------------
+// Season & eligibility domain rules.
+//
+// This module is the single source of truth for two questions that were
+// previously answered ad-hoc (and inconsistently) in ~7 different route files:
+//
+//   1. "Which season is this team currently looking at?"
+//   2. "What grade is this athlete in, in a given season?"
+//
+// Before this existed, every route defaulted to `new Date().getFullYear()`,
+// which silently pointed the whole app at a season the team had no data for
+// (import 2025, calendar rolls to 2026, every screen goes blank).
+// ---------------------------------------------------------------------------
+
+// Cross country is a fall sport: the "2025 season" runs Aug–Nov 2025. Before
+// August, the most recent competitive season is still the previous calendar
+// year, so the bare calendar year is the wrong default for half the year.
+const XC_SEASON_START_MONTH = 7; // August, 0-indexed
+
+const FIRST_HS_GRADE = 9;
+const FINAL_HS_GRADE = 12;
+
+function currentCalendarSeason(now = new Date()) {
+  const year = now.getFullYear();
+  return now.getMonth() >= XC_SEASON_START_MONTH ? year : year - 1;
+}
+
+// Grade is DERIVED, never stored as the athlete's identity. `graduationYear`
+// is the stable fact about a runner; their grade is a function of that fact
+// and whichever season you're asking about. Storing grade on the athlete (as
+// this app used to) means the last import silently rewrites their grade for
+// every other season they ever ran in.
+function deriveGrade(graduationYear, season) {
+  if (!Number.isFinite(graduationYear) || !Number.isFinite(season)) return null;
+  return FINAL_HS_GRADE - (graduationYear - season);
+}
+
+function deriveGraduationYear(grade, season) {
+  const gradeNum = parseInt(grade, 10);
+  if (!Number.isFinite(gradeNum) || !Number.isFinite(season)) return null;
+  return season + (FINAL_HS_GRADE - gradeNum);
+}
+
+// "Is this athlete on the team during this season?" — i.e. grades 9-12.
+// Seniors from last season fall out of the current roster naturally, without
+// deleting anything: their results (and therefore all history, trends and PRs)
+// are untouched.
+function isEnrolled(graduationYear, season) {
+  const grade = deriveGrade(graduationYear, season);
+  return grade !== null && grade >= FIRST_HS_GRADE && grade <= FINAL_HS_GRADE;
+}
+
+function hasGraduated(graduationYear, season) {
+  if (!Number.isFinite(graduationYear) || !Number.isFinite(season)) return false;
+  return graduationYear <= season;
+}
+
+// Seasons this team actually has race data for, newest first.
+async function listSeasonsWithData(teamId) {
+  const races = await prisma.race.findMany({
+    where: { teamId },
+    select: { season: true },
+    distinct: ['season'],
+  });
+  return races.map((r) => r.season).sort((a, b) => b - a);
+}
+
+// Resolve the season the app should show when the caller didn't name one.
+//
+// Order matters: an explicit coach choice beats an inferred one, and *any*
+// season with real data beats the calendar. Falling through to the calendar
+// year is the last resort, not the default.
+async function resolveActiveSeason(teamId, requestedSeason) {
+  const explicit = parseInt(requestedSeason, 10);
+  if (Number.isFinite(explicit)) return explicit;
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { currentSeason: true },
+  });
+  if (Number.isFinite(team?.currentSeason)) return team.currentSeason;
+
+  const activeSeasonRow = await prisma.season.findFirst({
+    where: { teamId, isActive: true },
+    select: { year: true },
+  });
+  if (Number.isFinite(activeSeasonRow?.year)) return activeSeasonRow.year;
+
+  const [latestWithData] = await listSeasonsWithData(teamId);
+  if (Number.isFinite(latestWithData)) return latestWithData;
+
+  return currentCalendarSeason();
+}
+
+module.exports = {
+  FIRST_HS_GRADE,
+  FINAL_HS_GRADE,
+  currentCalendarSeason,
+  deriveGrade,
+  deriveGraduationYear,
+  isEnrolled,
+  hasGraduated,
+  listSeasonsWithData,
+  resolveActiveSeason,
+};

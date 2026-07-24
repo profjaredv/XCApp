@@ -4,6 +4,14 @@ const { customAlphabet } = require('nanoid');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireOwnTeam } = require('../middleware/auth');
 const calculationService = require('../services/performance/calculationServiceSupabase');
+const {
+  resolveActiveSeason,
+  deriveGrade,
+  deriveGraduationYear,
+  currentCalendarSeason,
+  listSeasonsWithData,
+  isEnrolled,
+} = require('../lib/season');
 
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 
@@ -125,7 +133,7 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
 
   try {
     const team = req.user.team;
-    const yearNum = parseInt(year, 10) || new Date().getFullYear();
+    const yearNum = parseInt(year, 10) || currentCalendarSeason();
 
     // Re-importing a season that was already imported: wipe it first.
     const importedSeasons = team.importedSeasons || [];
@@ -185,6 +193,8 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
         let recordsProcessed = 0;
         let skippedMissing = 0;
         let skippedDate = 0;
+        const importedAthleteIds = new Set();
+        const importedGradYears = new Map();
 
         const parseTimeToSeconds = (timeStr) => {
           if (!timeStr) return null;
@@ -207,11 +217,10 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
           return null;
         };
 
-        const calculateGraduationYear = (grade, currentYear) => {
-          const gradeNum = parseInt(grade, 10);
-          if (isNaN(gradeNum)) return null;
-          return currentYear + (12 - gradeNum);
-        };
+        // Grade in a season implies a graduation year, and graduation year is
+        // the fact we keep: it stays true no matter which season you import
+        // next, or in what order.
+        const calculateGraduationYear = (grade, currentYear) => deriveGraduationYear(grade, currentYear);
 
         const dateFormats = ['MMM D, YYYY', 'MMMM D, YYYY', 'M/D, YYYY', 'M/D/YYYY', 'MM/DD/YYYY', 'MM/D/YYYY', 'M/DD/YYYY'];
 
@@ -240,11 +249,24 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
           const gradeNum = grade ? parseInt(grade, 10) : null;
           const graduationYear = grade ? calculateGraduationYear(grade, yearNum) : null;
 
+          // Deliberately NOT writing `grade` onto the athlete: grade is a
+          // function of (graduationYear, season) and is derived on read. The
+          // old code stored it here, so importing 2025 rewrote every
+          // athlete's grade for 2024 too. Only fill graduationYear when this
+          // row actually told us one — a blank grade must not wipe it.
           const athlete = await prisma.athlete.upsert({
             where: { teamId_name: { teamId: team.id, name: athleteName } },
-            update: { gender, grade: gradeNum, graduationYear },
-            create: { name: athleteName, teamId: team.id, gender, grade: gradeNum, graduationYear },
+            update: {
+              ...(gender ? { gender } : {}),
+              ...(graduationYear !== null ? { graduationYear } : {}),
+            },
+            create: { name: athleteName, teamId: team.id, gender, graduationYear },
           });
+
+          if (graduationYear !== null) {
+            importedGradYears.set(athlete.id, graduationYear);
+          }
+          importedAthleteIds.add(athlete.id);
 
           const race = await prisma.race.upsert({
             where: {
@@ -278,7 +300,40 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
         }
 
         const updatedSeasons = [...new Set([...importedSeasons, yearNum])];
-        await prisma.team.update({ where: { id: team.id }, data: { importedSeasons: updatedSeasons } });
+
+        // An import is also a statement that this season exists. Previously
+        // nothing ever wrote Season/SeasonRoster rows, so the roster tables
+        // sat empty and every screen had to re-infer the team from raw
+        // results — which is why a season with no results yet showed nothing.
+        const seasonRow = await prisma.season.upsert({
+          where: { teamId_year_sport: { teamId: team.id, year: yearNum, sport: 'XC' } },
+          update: {},
+          create: { teamId: team.id, year: yearNum, sport: 'XC' },
+        });
+
+        for (const athleteId of importedAthleteIds) {
+          const gradYear = importedGradYears.get(athleteId) ?? null;
+          const grade = gradYear !== null ? deriveGrade(gradYear, yearNum) : null;
+          await prisma.seasonRoster.upsert({
+            where: { seasonId_athleteId: { seasonId: seasonRow.id, athleteId } },
+            update: { grade, isActive: true },
+            create: { seasonId: seasonRow.id, athleteId, grade, isActive: true },
+          });
+        }
+
+        // Point the team at the season it just imported unless the coach is
+        // already looking at a newer one. Without this, importing 2025 in
+        // calendar 2026 left every default view pointed at an empty 2026.
+        const shouldAdvance =
+          !Number.isFinite(team.currentSeason) || team.currentSeason < yearNum;
+
+        await prisma.team.update({
+          where: { id: team.id },
+          data: {
+            importedSeasons: updatedSeasons,
+            ...(shouldAdvance ? { currentSeason: yearNum } : {}),
+          },
+        });
 
         calculationService
           .calculateAllMetrics(team.id, yearNum)
@@ -305,19 +360,237 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
 });
 
 // GET /api/teams/seasons
+//
+// Every season this team knows about — one it has results for, one the coach
+// created but hasn't raced yet, or both. `hasData` is what lets the UI show a
+// roster-only preseason differently from a season with races in the books,
+// instead of treating "no results" as "nothing here".
 router.get('/seasons', authenticate, requireTeam, async (req, res) => {
+  const teamId = req.user.teamId;
+
   try {
-    const races = await prisma.race.findMany({
-      where: { teamId: req.user.teamId },
-      select: { season: true },
-      distinct: ['season'],
+    const [seasonRows, raceGroups, activeSeason] = await Promise.all([
+      prisma.season.findMany({ where: { teamId }, orderBy: { year: 'desc' } }),
+      prisma.race.groupBy({ by: ['season'], where: { teamId }, _count: { _all: true } }),
+      resolveActiveSeason(teamId),
+    ]);
+
+    const raceCountByYear = new Map(raceGroups.map((g) => [g.season, g._count._all]));
+    const years = [...new Set([...seasonRows.map((s) => s.year), ...raceCountByYear.keys()])].sort(
+      (a, b) => b - a
+    );
+
+    const rosterCounts = await prisma.seasonRoster.groupBy({
+      by: ['seasonId'],
+      where: { seasonId: { in: seasonRows.map((s) => s.id) }, isActive: true },
+      _count: { _all: true },
+    });
+    const rosterCountBySeasonId = new Map(rosterCounts.map((g) => [g.seasonId, g._count._all]));
+    const seasonRowByYear = new Map(seasonRows.map((s) => [s.year, s]));
+
+    const seasons = years.map((year) => {
+      const row = seasonRowByYear.get(year);
+      const raceCount = raceCountByYear.get(year) || 0;
+      return {
+        id: row?.id ?? null,
+        year,
+        name: `${year} Cross Country`,
+        raceCount,
+        rosterCount: row ? rosterCountBySeasonId.get(row.id) || 0 : 0,
+        hasData: raceCount > 0,
+        isActive: year === activeSeason,
+      };
     });
 
-    const seasons = races.map((r) => r.season).sort((a, b) => b - a);
     res.status(200).json(seasons);
   } catch (error) {
     console.error('Error fetching seasons:', error.message);
     res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// GET /api/teams/context
+//
+// One call that tells the client everything it needs to decide what to render
+// before it renders anything: which season is active, what seasons exist, and
+// crucially whether this team is set up at all. The app used to have no way to
+// ask "is this a brand new team?", so first-run coaches were dropped straight
+// into a dozen empty analytics screens.
+router.get('/context', authenticate, requireTeam, async (req, res) => {
+  const teamId = req.user.teamId;
+
+  try {
+    const [team, activeSeason, seasonsWithData, athleteCount, raceCount] = await Promise.all([
+      prisma.team.findUnique({
+        where: { id: teamId },
+        select: { id: true, name: true, athleticTeamId: true, currentSeason: true, joinCode: true },
+      }),
+      resolveActiveSeason(teamId),
+      listSeasonsWithData(teamId),
+      prisma.athlete.count({ where: { teamId } }),
+      prisma.race.count({ where: { teamId } }),
+    ]);
+
+    const activeRosterSeason = await prisma.season.findFirst({
+      where: { teamId, year: activeSeason },
+      select: { id: true },
+    });
+    const activeRosterCount = activeRosterSeason
+      ? await prisma.seasonRoster.count({
+          where: { seasonId: activeRosterSeason.id, isActive: true },
+        })
+      : 0;
+    const activeSeasonRaceCount = await prisma.race.count({
+      where: { teamId, season: activeSeason },
+    });
+
+    res.json({
+      team,
+      activeSeason,
+      calendarSeason: currentCalendarSeason(),
+      seasonsWithData,
+      totals: { athletes: athleteCount, races: raceCount },
+      activeSeasonSummary: {
+        season: activeSeason,
+        rosterCount: activeRosterCount,
+        raceCount: activeSeasonRaceCount,
+        // A roster but no races = preseason, which is a real state to show,
+        // not an error and not an empty dashboard.
+        isPreseason: activeRosterCount > 0 && activeSeasonRaceCount === 0,
+      },
+      setup: {
+        hasAthleticTeamId: Boolean(team?.athleticTeamId),
+        hasRoster: athleteCount > 0,
+        hasResults: raceCount > 0,
+        isComplete: Boolean(team?.athleticTeamId) && athleteCount > 0 && raceCount > 0,
+      },
+    });
+  } catch (error) {
+    console.error('Error building team context:', error.message);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// POST /api/teams/seasons/:year/start
+//
+// Roll the roster forward into a new season. This is the operation the app was
+// missing entirely: last year's seniors age out of the active roster, everyone
+// else moves up a grade, and nothing is deleted — results stay attached to the
+// athletes forever, so graduated runners still appear in trends, career
+// progressions and past-season views.
+router.post('/seasons/:year/start', authenticate, requireOwnTeam, async (req, res) => {
+  const teamId = req.user.teamId;
+  const targetYear = parseInt(req.params.year, 10);
+  const { fromSeason, activate = true } = req.body || {};
+
+  if (!Number.isFinite(targetYear)) {
+    return res.status(400).json({ message: 'A valid season year is required.' });
+  }
+
+  try {
+    // Where are we carrying the roster from? The most recent season before
+    // the target that actually has people in it.
+    let sourceYear = parseInt(fromSeason, 10);
+    if (!Number.isFinite(sourceYear)) {
+      const priorSeasons = await prisma.season.findMany({
+        where: { teamId, year: { lt: targetYear } },
+        orderBy: { year: 'desc' },
+        select: { year: true },
+      });
+      const priorWithData = (await listSeasonsWithData(teamId)).filter((y) => y < targetYear);
+      sourceYear = priorSeasons[0]?.year ?? priorWithData[0] ?? null;
+    }
+
+    const targetSeason = await prisma.season.upsert({
+      where: { teamId_year_sport: { teamId, year: targetYear, sport: 'XC' } },
+      update: {},
+      create: { teamId, year: targetYear, sport: 'XC' },
+    });
+
+    // Candidates: whoever was on the source roster, plus anyone who raced
+    // that season (covers teams whose history came in via import only).
+    let candidateIds = [];
+    if (Number.isFinite(sourceYear)) {
+      const sourceSeason = await prisma.season.findFirst({
+        where: { teamId, year: sourceYear },
+        select: { id: true },
+      });
+      const [rosterRows, resultRows] = await Promise.all([
+        sourceSeason
+          ? prisma.seasonRoster.findMany({
+              where: { seasonId: sourceSeason.id, isActive: true },
+              select: { athleteId: true },
+            })
+          : [],
+        prisma.result.findMany({
+          where: { teamId, race: { season: sourceYear } },
+          select: { athleteId: true },
+          distinct: ['athleteId'],
+        }),
+      ]);
+      candidateIds = [
+        ...new Set([...rosterRows.map((r) => r.athleteId), ...resultRows.map((r) => r.athleteId)]),
+      ];
+    }
+
+    const candidates = await prisma.athlete.findMany({
+      where: { id: { in: candidateIds }, teamId },
+      select: { id: true, name: true, graduationYear: true },
+    });
+
+    const carried = [];
+    const graduated = [];
+    const unknownGradYear = [];
+
+    for (const athlete of candidates) {
+      if (!Number.isFinite(athlete.graduationYear)) {
+        // No graduation year means we can't know if they aged out. Surface
+        // them rather than silently guessing in either direction.
+        unknownGradYear.push({ id: athlete.id, name: athlete.name });
+        continue;
+      }
+      if (isEnrolled(athlete.graduationYear, targetYear)) {
+        const grade = deriveGrade(athlete.graduationYear, targetYear);
+        await prisma.seasonRoster.upsert({
+          where: { seasonId_athleteId: { seasonId: targetSeason.id, athleteId: athlete.id } },
+          update: { grade, isActive: true },
+          create: { seasonId: targetSeason.id, athleteId: athlete.id, grade, isActive: true },
+        });
+        carried.push({ id: athlete.id, name: athlete.name, grade });
+      } else {
+        graduated.push({
+          id: athlete.id,
+          name: athlete.name,
+          graduationYear: athlete.graduationYear,
+        });
+      }
+    }
+
+    if (activate) {
+      await prisma.season.updateMany({
+        where: { teamId, sport: 'XC', id: { not: targetSeason.id } },
+        data: { isActive: false },
+      });
+      await prisma.season.update({ where: { id: targetSeason.id }, data: { isActive: true } });
+      await prisma.team.update({ where: { id: teamId }, data: { currentSeason: targetYear } });
+    }
+
+    res.json({
+      success: true,
+      season: targetYear,
+      fromSeason: Number.isFinite(sourceYear) ? sourceYear : null,
+      carriedCount: carried.length,
+      graduatedCount: graduated.length,
+      carried,
+      graduated,
+      needsReview: unknownGradYear,
+      message: Number.isFinite(sourceYear)
+        ? `Started ${targetYear}: carried ${carried.length} returning athletes, ${graduated.length} graduated.`
+        : `Started ${targetYear} with an empty roster.`,
+    });
+  } catch (error) {
+    console.error('Error starting season:', error.message);
+    res.status(500).json({ message: 'Failed to start season.' });
   }
 });
 
@@ -404,6 +677,169 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
   } catch (error) {
     console.error('Error fetching results grid:', error.message);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Team & roster management
+//
+// These are the "run the program" operations, as opposed to the analytics
+// reads above. Several of them are called by the existing UI but never
+// actually existed on the server (saving team settings 404'd), which is the
+// clearest sign that management was bolted on after the analytics.
+//
+// NOTE: parameterised routes are declared last on purpose — `/:id` would
+// otherwise shadow `/seasons`, `/context` and `/current`.
+// ---------------------------------------------------------------------------
+
+// POST /api/teams/seasons/:year/roster — add or restore an athlete
+router.post('/seasons/:year/roster', authenticate, requireOwnTeam, async (req, res) => {
+  const teamId = req.user.teamId;
+  const year = parseInt(req.params.year, 10);
+  const { athleteId, grade } = req.body || {};
+
+  if (!Number.isFinite(year) || !athleteId) {
+    return res.status(400).json({ message: 'A valid season year and athleteId are required.' });
+  }
+
+  try {
+    const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId } });
+    if (!athlete) {
+      return res.status(404).json({ message: 'Athlete not found on this team.' });
+    }
+
+    const season = await prisma.season.upsert({
+      where: { teamId_year_sport: { teamId, year, sport: 'XC' } },
+      update: {},
+      create: { teamId, year, sport: 'XC' },
+    });
+
+    const resolvedGrade = Number.isFinite(parseInt(grade, 10))
+      ? parseInt(grade, 10)
+      : deriveGrade(athlete.graduationYear, year);
+
+    // Adding someone to a season is also the moment to fix their graduation
+    // year if the coach supplied a grade — otherwise the two disagree.
+    if (Number.isFinite(parseInt(grade, 10))) {
+      await prisma.athlete.update({
+        where: { id: athlete.id },
+        data: { graduationYear: deriveGraduationYear(grade, year) },
+      });
+    }
+
+    const entry = await prisma.seasonRoster.upsert({
+      where: { seasonId_athleteId: { seasonId: season.id, athleteId } },
+      update: { isActive: true, grade: resolvedGrade },
+      create: { seasonId: season.id, athleteId, grade: resolvedGrade, isActive: true },
+    });
+
+    res.json({ success: true, season: year, entry });
+  } catch (error) {
+    console.error('Error adding athlete to roster:', error.message);
+    res.status(500).json({ message: 'Failed to update roster.' });
+  }
+});
+
+// DELETE /api/teams/seasons/:year/roster/:athleteId
+// Deactivates the roster entry rather than deleting it: the athlete's results
+// for the season must survive being taken off the roster.
+router.delete('/seasons/:year/roster/:athleteId', authenticate, requireOwnTeam, async (req, res) => {
+  const teamId = req.user.teamId;
+  const year = parseInt(req.params.year, 10);
+
+  try {
+    const season = await prisma.season.findFirst({ where: { teamId, year } });
+    if (!season) {
+      return res.status(404).json({ message: 'Season not found.' });
+    }
+
+    await prisma.seasonRoster.updateMany({
+      where: { seasonId: season.id, athleteId: req.params.athleteId },
+      data: { isActive: false },
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing athlete from roster:', error.message);
+    res.status(500).json({ message: 'Failed to update roster.' });
+  }
+});
+
+// PUT /api/teams/:id — team settings.
+// The Settings screen has always called this endpoint; it never existed.
+router.put('/:id', authenticate, requireOwnTeam, async (req, res) => {
+  const teamId = req.user.teamId;
+  const { name, athleticTeamId, current_season: currentSeason } = req.body || {};
+
+  if (req.params.id !== teamId) {
+    return res.status(403).json({ message: 'You can only update your own team.' });
+  }
+
+  try {
+    if (athleticTeamId) {
+      const clash = await prisma.team.findFirst({
+        where: { athleticTeamId: String(athleticTeamId), id: { not: teamId } },
+        select: { id: true },
+      });
+      if (clash) {
+        return res
+          .status(409)
+          .json({ message: 'Another team is already using this Athletic.net Team ID.' });
+      }
+    }
+
+    const updates = {};
+    if (name) updates.name = name;
+    if (athleticTeamId) updates.athleticTeamId = String(athleticTeamId);
+    if (currentSeason !== undefined && Number.isFinite(parseInt(currentSeason, 10))) {
+      updates.currentSeason = parseInt(currentSeason, 10);
+    }
+
+    const team = await prisma.team.update({ where: { id: teamId }, data: updates });
+    res.json(team);
+  } catch (error) {
+    console.error('Error updating team:', error.message);
+    res.status(500).json({ message: 'Failed to update team.' });
+  }
+});
+
+// DELETE /api/teams/:athleticTeamId/results — clear imported race data.
+// Athletes and roster membership survive; only results/races are removed, so
+// the team you manage isn't destroyed by clearing data you imported.
+router.delete('/:athleticTeamId/results', authenticate, requireOwnTeam, async (req, res) => {
+  const teamId = req.user.teamId;
+  const { season } = req.query;
+
+  try {
+    if (String(req.user.team?.athleticTeamId) !== String(req.params.athleticTeamId)) {
+      return res.status(403).json({ message: 'You can only clear data for your own team.' });
+    }
+
+    const seasonFilter = Number.isFinite(parseInt(season, 10))
+      ? { season: parseInt(season, 10) }
+      : {};
+
+    const races = await prisma.race.findMany({
+      where: { teamId, ...seasonFilter },
+      select: { id: true },
+    });
+    const raceIds = races.map((r) => r.id);
+
+    if (raceIds.length > 0) {
+      await prisma.result.deleteMany({ where: { raceId: { in: raceIds } } });
+      await prisma.race.deleteMany({ where: { id: { in: raceIds } } });
+    }
+
+    const remaining = await listSeasonsWithData(teamId);
+    await prisma.team.update({
+      where: { id: teamId },
+      data: { importedSeasons: remaining },
+    });
+
+    res.json({ success: true, clearedRaces: raceIds.length });
+  } catch (error) {
+    console.error('Error clearing team results:', error.message);
+    res.status(500).json({ message: 'Failed to clear team data.' });
   }
 });
 

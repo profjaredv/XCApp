@@ -2,15 +2,17 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam } = require('../middleware/auth');
+const { resolveActiveSeason } = require('../lib/season');
 
 router.get('/', authenticate, requireTeam, async (req, res) => {
   const { season } = req.query;
+  const teamId = req.user.teamId;
 
   try {
-    const seasonYear = season ? parseInt(season, 10) : new Date().getFullYear();
+    const seasonYear = await resolveActiveSeason(teamId, season);
 
     const races = await prisma.race.findMany({
-      where: { teamId: req.user.teamId, season: seasonYear },
+      where: { teamId, season: seasonYear },
       include: { results: true },
       orderBy: { date: 'asc' },
     });

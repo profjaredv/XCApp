@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
+const { resolveActiveSeason } = require('../lib/season');
 
 // GET /api/team/performance
 router.get('/performance', authenticate, requireTeam, async (req, res) => {
@@ -9,7 +10,7 @@ router.get('/performance', authenticate, requireTeam, async (req, res) => {
   const teamId = req.user.teamId;
 
   try {
-    const seasonYear = season ? parseInt(season, 10) : new Date().getFullYear();
+    const seasonYear = await resolveActiveSeason(teamId, season);
 
     const team = await prisma.team.findUnique({ where: { id: teamId }, select: { name: true } });
     if (!team) {
