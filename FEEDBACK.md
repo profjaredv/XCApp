@@ -1,12 +1,15 @@
 # Feedback log
 
-A place to dump observations while walking the app. Work **one flow at a time**,
-note everything you hit, then hand over the whole batch. Ten issues from one
-flow usually share two or three root causes — that pattern is visible in a
-batch and invisible one bug at a time.
+Dump observations here as you click through the app. Organised by screen —
+that's how you'll actually encounter problems.
 
-Don't pre-filter or pre-diagnose. Raw observations are more useful than a
-theory, and "this felt clunky" is legitimate feedback, not just crashes.
+Work through **one screen at a time** and note everything you see, then hand
+over that section. A full screen's worth of observations is more useful than
+one bug at a time: issues on the same screen often share a root cause, and
+that's visible in a batch.
+
+Don't pre-filter or pre-diagnose. Raw observations beat theories, and "this
+feels clunky" is legitimate feedback, not just crashes.
 
 ## What to capture
 
@@ -17,7 +20,7 @@ In rough order of how much it helps:
 2. **Browser console.** The error text *and* the failing request — DevTools →
    Network → click the red entry → Response tab.
 3. **Railway deploy logs.** Server-side truth. Some failures (a missing env
-   var, a Prisma error) are completely invisible from the browser.
+   var, a Prisma error) are invisible from the browser.
 4. **Screenshot.** Best for layout and UX, weakest for logic bugs.
 
 ## Format
@@ -26,79 +29,114 @@ Copy this per observation. Severity: `blocker` (can't proceed) / `bug` (wrong
 but workable) / `polish` (works, feels wrong).
 
 ```
-### [flow] short title
+### short title
 severity:
 expected:
 actual:
 console/logs:
 ```
 
+Anything about how it *looks* or *feels* — spacing, wording, hierarchy, "why is
+this even here" — is worth writing down. Tag it `polish` and keep moving.
+
 ---
 
-# Flow 1 — Set up a team
+# Public
 
-Create the team, connect Athletic.net, build a roster before any race exists.
-
-- [ ] Team settings save without error (this endpoint didn't exist until recently)
-- [ ] Roster tab loads
-- [ ] Add an athlete by hand; they appear under the right grade
-- [ ] Grades read as class years (a freshman stays class-of-X across seasons)
-- [ ] Setup checklist appears for a team with no results, and steps tick off
+## Landing page `/`
 
 _Observations:_
 
-# Flow 2 — Get data in
-
-Import a season from Athletic.net.
-
-- [ ] Import runs without a 500
-- [ ] Scraper actually returns results (still unverified — if it fails, the logs
-      now print the final URL, page title and a body snippet: that's the useful part)
-- [ ] Imported athletes land on the roster with correct grades
-- [ ] Re-importing the same season doesn't duplicate races or results
+## Sign in `/login` · Sign up `/register`
 
 _Observations:_
 
-# Flow 3 — Read the season
+## Onboarding `/onboarding`
 
-Team dashboard, meets, results grid.
-
-- [ ] Analytics defaults to the season with data (not an empty calendar year)
-- [ ] Season switcher lists real seasons and switching actually changes the data
-- [ ] Meet list and results grid match what's on Athletic.net
-- [ ] Numbers are believable — pace, mileage, PRs
+First screen after signing up.
 
 _Observations:_
 
-# Flow 4 — Read an athlete
+---
 
-Profile, PRs, progression across seasons.
+# Main app
 
-- [ ] Athlete profile opens and shows this season's races
-- [ ] Career history spans multiple seasons (this was silently empty before)
-- [ ] PRs and season bests are correct
-- [ ] A graduated athlete is still viewable in past seasons and trends
+## Analytics `/analytics`
+
+The default screen after login. Note the season shown in the header — it should
+be a season you have data for, not an empty year.
+
+Per tab:
+
+- **Dashboard** —
+- **Athletes** —
+- **Meets** —
+- **Performance** —
+- **Distance Analysis** —
+- **Head-to-Head** —
 
 _Observations:_
 
-# Flow 5 — Coach with it
+## Roster `/roster`
+
+New screen. Add athletes by hand, grouped by grade, "Start &lt;year&gt;" rollover.
+
+_Observations:_
+
+## My Team `/team`
+
+The older roster/invites screen. Worth noting where it overlaps or conflicts
+with the new Roster screen — that overlap is a design question, not just a bug.
+
+_Observations:_
+
+## Results Grid `/results-grid`
+
+_Observations:_
+
+## Tools `/tools`
+
+_Observations:_
+
+## Coaches Tools `/coaches-tools`
 
 Training groups, improvement tracking, AI insights.
 
-- [ ] Coaches Tools loads for the active season
-- [ ] Training group suggestions are sensible
-- [ ] Improvement tracking picks the right comparison races
-- [ ] AI insights work, or fail clearly when no key is set
+_Observations:_
+
+## Data Management `/data-management`
+
+Import a season, recalculate metrics, clear data.
 
 _Observations:_
 
-# Flow 6 — Roll over to next season
+## Athlete profile `/athlete/:id`
 
-- [ ] "Start <year>" carries returning athletes forward, one grade up
-- [ ] Seniors drop off the active roster
-- [ ] Graduated athletes still appear in history and multi-season trends
-- [ ] Athletes with no class year are flagged for review rather than guessed at
-- [ ] A started-but-unraced season reads as preseason, not as an error
+Reached by clicking an athlete. PRs, season and career progression.
+
+_Observations:_
+
+## Race visualization `/race-visualization`
+
+_Observations:_
+
+## Settings `/settings`
+
+Team name, Athletic.net ID, current season, danger zone.
+
+_Observations:_
+
+## Profile `/profile`
+
+_Observations:_
+
+---
+
+# Cross-cutting
+
+Things that aren't one screen: navigation, mobile layout, loading states, error
+messages, wording and terminology, anything that behaves differently in one
+place than another.
 
 _Observations:_
 
@@ -106,15 +144,17 @@ _Observations:_
 
 # Known open
 
-Things already identified, so they don't need re-reporting:
+Already identified — no need to re-report:
 
 - **Scraper vs. athletic.net** — hardened against bot-blocking (browser
-  identity, retries, failure diagnostics) but not yet confirmed working.
+  identity, retries, failure diagnostics) but not yet confirmed working. If it
+  fails, the logs now print the final URL, page title and a body snippet;
+  that's the part worth pasting.
 - **Season/roster rework is unverified against live data** — the database
-  wasn't reachable from the dev sandbox, so flows 1–6 need a real run.
+  wasn't reachable from the dev sandbox, so all of it needs a real run.
 - **Backend boots "healthy" with a missing `DATABASE_URL`** and only fails on
-  the first request. Should fail fast at startup instead.
+  the first request. Should fail fast at startup.
 - **Single ~2 MB JS bundle, no code splitting** — one bad module takes down the
-  whole app (this is what caused the white screen).
+  whole app (this caused the white screen).
 - **`_archive/` still has type errors.** Excluded from the working set; delete
   or fix eventually.
