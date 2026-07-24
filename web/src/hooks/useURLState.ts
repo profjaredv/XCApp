@@ -94,7 +94,9 @@ export function useURLState<T extends Record<string, unknown>>(
 
   // Set a specific value
   const setValue = useCallback(<K extends keyof T>(stateKey: K, value: T[K]) => {
-    setState({ [stateKey]: value } as Partial<T>);
+    // TS can't narrow a computed key back to Partial<T>; the double assertion
+    // is the standard escape hatch for a single-key partial update.
+    setState({ [stateKey]: value } as unknown as Partial<T>);
   }, [setState]);
 
   return {

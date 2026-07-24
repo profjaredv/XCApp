@@ -37,7 +37,8 @@ export const teamService = {
    */
   async getTeamPerformance(seasonYear?: number): Promise<TeamPerformance> {
     const response = await axiosInstance.get<TeamPerformance>('/team/performance', {
-      params: { season: seasonYear || new Date().getFullYear() }
+      // See athleteService.getAthletes: omit season so the server resolves it.
+      params: seasonYear ? { season: seasonYear } : {}
     });
     return response.data;
   },
@@ -60,7 +61,7 @@ export const teamService = {
     coaches: string[];
   }> {
     const response = await axiosInstance.get('/team/roster', {
-      params: { season: seasonYear || new Date().getFullYear() }
+      params: seasonYear ? { season: seasonYear } : {}
     });
     return response.data;
   },
@@ -77,8 +78,11 @@ export const teamService = {
    * Get all available seasons with data
    */
   async getAvailableSeasons(): Promise<number[]> {
-    const response = await axiosInstance.get<number[]>('/teams/seasons');
-    return response.data.sort((a, b) => b - a); // Sort descending (newest first)
+    // /teams/seasons returns season objects (year plus roster/race counts) so
+    // the UI can tell a roster-only preseason from one with results. Callers
+    // that only need the years get them projected out here.
+    const response = await axiosInstance.get<Array<{ year: number }>>('/teams/seasons');
+    return response.data.map((s) => s.year).sort((a, b) => b - a);
   },
 
   /**

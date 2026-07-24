@@ -21,8 +21,12 @@ export const athleteService = {
    */
     async getAthletes(seasonYear?: number, opts?: { activeOnly?: boolean }): Promise<ApiAthlete[]> {
         const response = await axiosInstance.get<ApiAthlete[]>('/athletes', {
+      // Omit `season` entirely when the caller didn't pick one: the server
+      // resolves the team's active season (which accounts for imported data).
+      // Sending a calendar year here would override that resolution and put
+      // every screen back on a season the team may have no data for.
       params: {
-        season: seasonYear || new Date().getFullYear(),
+        ...(seasonYear ? { season: seasonYear } : {}),
         activeOnly: opts?.activeOnly ?? true,
       }
     });

@@ -369,13 +369,13 @@ export function EnhancedAthleteProfile({ athleteId, athleteName, season }: Enhan
                 <div className="space-y-4">
                   {athleteMetrics.raceComparisons.map((comparison, index) => (
                     <div key={index} className="border rounded-lg p-4">
-                      <h4 className="font-medium mb-3">{comparison.raceName}</h4>
+                      <h4 className="font-medium mb-3">{comparison.meetName}</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         {comparison.seasons.map((seasonData) => (
                           <div key={seasonData.season} className="p-3 border rounded">
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-medium">{seasonData.season}</span>
-                              <Badge variant="outline">{seasonData.raceCount} races</Badge>
+                              <Badge variant="outline">{seasonData.athleteCount} athletes</Badge>
                             </div>
                             <div className="space-y-1 text-sm">
                               <div className="flex justify-between">

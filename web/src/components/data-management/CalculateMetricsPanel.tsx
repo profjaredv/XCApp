@@ -31,7 +31,7 @@ export function CalculateMetricsPanel({ teamId, season, onComplete, setIsProcess
   
   // Use the calculate metrics mutation hook
   const calculateMetricsMutation = useCalculateMetrics();
-  const isCalculating = calculateMetricsMutation.isLoading;
+  const isCalculating = calculateMetricsMutation.isPending;
 
   // Calculation steps for display
   const calculationSteps = [

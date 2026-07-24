@@ -7,6 +7,7 @@ import ToolsPage from '../pages/ToolsPage';
 import AthleteProfilePage from '../pages/AthleteProfilePage';
 import DataManagementPage from '../pages/DataManagementPage';
 import SettingsPage from '../pages/SettingsPage';
+import RosterPage from '../pages/RosterPage';
 import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
 import LandingPage from '../pages/LandingPage';
@@ -78,6 +79,10 @@ export const router = createBrowserRouter([
               {
                 path: '/team',
                 element: <TeamPage />,
+              },
+              {
+                path: '/roster',
+                element: <RosterPage />,
               },
               {
                 path: '/profile',

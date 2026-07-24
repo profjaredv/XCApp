@@ -106,11 +106,14 @@ const TeamAthleteProfilePage = () => {
   }, [athleteAllSeasons?.data?.seasons]);
 
   const allSeasonsRaces = useMemo<RaceData[]>(() => {
-    const races = (athleteAllSeasons?.data?.seasons || []).flatMap(s => 
-      (s.metrics?.races || []).map(r => ({
+    const races = (athleteAllSeasons?.data?.seasons || []).flatMap(s =>
+      // Races come back at the top level of the season payload, not nested
+      // under `metrics` — reading `s.metrics.races` silently produced an
+      // empty career history on every athlete.
+      (s.races || []).map(r => ({
         name: r.meetName,
         date: formatDateShort(r.date),
-        distanceMi: r.distance / 1609.34, // Convert meters to miles
+        distanceMi: r.distanceMeters / 1609.34,
         time: r.time,
         season: s.season
       }))

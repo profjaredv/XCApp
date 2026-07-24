@@ -22,7 +22,7 @@ export function ClearDataPanel({ teamId, season, onComplete, setIsProcessing }: 
   
   // Use the clear data mutation hook
   const clearDataMutation = useClearData();
-  const isClearing = clearDataMutation.isLoading;
+  const isClearing = clearDataMutation.isPending;
 
   const handleClearData = async () => {
     setIsProcessing(true);

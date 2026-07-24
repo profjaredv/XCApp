@@ -33,7 +33,7 @@ export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }:
   
   // Use the import data mutation hook
   const importDataMutation = useImportData();
-  const isImporting = importDataMutation.isLoading;
+  const isImporting = importDataMutation.isPending;
 
   // Keep the Athletic.net Team ID in sync with the authenticated user's team
   useEffect(() => {

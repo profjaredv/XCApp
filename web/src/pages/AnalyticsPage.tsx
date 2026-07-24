@@ -24,6 +24,8 @@ import { DistanceAnalysisTab } from '@/components/analytics/DistanceAnalysisTab'
 import { RaceComparisonTab } from '@/components/analytics/RaceComparisonTab';
 import { useEnhancedTeamMetrics } from '@/hooks/useEnhancedAnalytics';
 import { useTeamURLState } from '@/hooks/useURLState';
+import { useTeamContext } from '@/hooks/useTeamContext';
+import { SetupChecklist } from '@/components/SetupChecklist';
 
 const gradeBorderColors: Record<number, string> = {
   9: 'border-blue-800',
@@ -98,8 +100,10 @@ const AnalyticsPage = () => {
   const { athletes = [], team, meets = [], mostImproved = [] } = analyticsData || {};
 
   const { data: availableSeasons = [], isLoading: isLoadingSeasons, refetch: refetchSeasons } = useAvailableSeasons(teamId);
+  const { data: teamContext } = useTeamContext();
+  const activeSeason = teamContext?.activeSeason;
   const { data: multiSeasonTrendsData, isLoading: isLoadingMultiSeasonTrends } = useMultiSeasonTrends(teamId || '', seasonMode === 'historical' ? selectedSeason : undefined);
-  const { data: enhancedTeamMetrics, isLoading: isLoadingEnhanced } = useEnhancedTeamMetrics(teamId || '', selectedSeason?.toString() || '2025');
+  const { data: enhancedTeamMetrics, isLoading: isLoadingEnhanced } = useEnhancedTeamMetrics(teamId || '', (selectedSeason ?? activeSeason)?.toString() ?? '');
   const { data: seasonSeriesData } = useTeamSeasonSeries(teamId, selectedSeason ? selectedSeason.toString() : undefined);
 
   // Sync URL state with local state
@@ -124,20 +128,29 @@ const AnalyticsPage = () => {
     }
   }, [urlSelectedAthleteId, athletes]);
 
+  // Default to the season the *server* says is active — which accounts for
+  // what has actually been imported — rather than the calendar year. Using
+  // `new Date().getFullYear()` here is what left a team that imported 2025
+  // staring at an empty 2026.
   useEffect(() => {
+    if (activeSeason === undefined) return;
+
     if (seasonMode === 'current') {
-      const currentYear = new Date().getFullYear();
-      setSelectedSeason(currentYear);
-      setValue('season', currentYear);
+      if (selectedSeason !== activeSeason) {
+        setSelectedSeason(activeSeason);
+        setValue('season', activeSeason);
+      }
     } else if (seasonMode === 'historical' && availableSeasons.length > 0 && !selectedSeason) {
-      const currentYear = new Date().getFullYear();
-      const defaultSeason = availableSeasons.find(s => s.year === currentYear)?.year || availableSeasons[0]?.year;
+      const defaultSeason =
+        availableSeasons.find((s) => s.year === activeSeason)?.year ??
+        availableSeasons.find((s) => s.hasData)?.year ??
+        availableSeasons[0]?.year;
       if (defaultSeason) {
         setSelectedSeason(defaultSeason);
         setValue('season', defaultSeason);
       }
     }
-  }, [seasonMode, availableSeasons, selectedSeason, setValue]);
+  }, [seasonMode, availableSeasons, selectedSeason, setValue, activeSeason]);
 
   const { toast } = useToast();
   const invalidatePerf = useInvalidatePerformanceCache();
@@ -358,6 +371,23 @@ const AnalyticsPage = () => {
     );
   }
 
+
+  // A team that hasn't imported anything yet isn't an error state and isn't a
+  // wall of empty charts — it's a team that needs setting up. Show the path
+  // forward instead of a dozen zeroed-out dashboards.
+  if (teamContext && !teamContext.setup.hasResults) {
+    return (
+      <div className="container mx-auto max-w-3xl space-y-6 py-10 px-4">
+        <div>
+          <h1 className="text-3xl font-bold">Welcome to LeadPack XC</h1>
+          <p className="text-muted-foreground">
+            A few steps and your team's analytics come to life.
+          </p>
+        </div>
+        <SetupChecklist />
+      </div>
+    );
+  }
 
   if (!teamId || !analyticsData) {
     return (

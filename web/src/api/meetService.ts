@@ -7,7 +7,7 @@ export const meetService = {
    */
     async getMeets(seasonYear?: number): Promise<ApiMeet[]> {
         const response = await axiosInstance.get<ApiMeet[]>('/meets', {
-      params: { season: seasonYear || new Date().getFullYear() }
+      params: seasonYear ? { season: seasonYear } : {}
     });
     return response.data;
   },
