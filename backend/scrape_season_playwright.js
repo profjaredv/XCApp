@@ -1,33 +1,113 @@
 const { chromium } = require('playwright');
 
+const RESULT_GRID_SELECTOR = '#M_Table, #F_Table';
+const NAV_TIMEOUT = 60000;
+const SELECTOR_TIMEOUT = 35000;
+const MAX_ATTEMPTS = 3;
+
+// Headless Chromium's default User-Agent contains the literal string
+// "HeadlessChrome", which athletic.net (and most sites behind a bot filter)
+// treat as a scraper — they serve a challenge/empty shell instead of the
+// results page, so the server-rendered #M_Table / #F_Table never render and
+// waitForSelector times out. Presenting a normal desktop-Chrome identity
+// (UA + viewport + locale + Accept-Language) is the difference between getting
+// the real results grid and getting silently blocked from a datacenter IP.
+const USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+// All diagnostics go to stderr on purpose: the parent process (routes/teams.js)
+// reads stdout as the CSV payload and stderr as the log stream, so anything
+// printed here must never touch stdout.
+async function captureFailureDiagnostics(page, attempt) {
+  try {
+    const finalUrl = page.url();
+    const title = await page.title().catch(() => '(could not read title)');
+    let bodySnippet = '(could not read body)';
+    try {
+      bodySnippet = (await page.content()).replace(/\s+/g, ' ').trim().slice(0, 1500);
+    } catch (_) {
+      /* page may have been closed / navigated */
+    }
+    console.error(`--- scrape failure diagnostics (attempt ${attempt}) ---`);
+    console.error('final URL :', finalUrl);
+    console.error('page title:', title);
+    console.error('body[0..1500]:', bodySnippet);
+    console.error('-------------------------------------------------');
+  } catch (e) {
+    console.error('Could not capture failure diagnostics:', e.message);
+  }
+}
+
 async function scrapeSeasonResults(teamId, year) {
   console.error(`Starting Playwright scrape for team ${teamId}, year ${year}`);
-  
+
   let browser;
   try {
-    // Launch browser
+    // Launch browser. --disable-blink-features=AutomationControlled removes the
+    // navigator.webdriver=true signal that flags automated browsers.
     browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled',
+      ],
     });
 
-    const page = await browser.newPage();
-    
+    const context = await browser.newContext({
+      userAgent: USER_AGENT,
+      viewport: { width: 1366, height: 900 },
+      locale: 'en-US',
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
+
+    const page = await context.newPage();
+
     // Navigate to Athletic.net season results page
     const url = `https://www.athletic.net/CrossCountry/Results/Season.aspx?SchoolID=${teamId}&S=${year}`;
-    console.error(`Navigating to: ${url}`);
-    
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    
-    // Wait for the results grid to be present (M_Table or F_Table)
-    console.error('Waiting for results grid...');
-    await page.waitForSelector('#M_Table, #F_Table', { timeout: 20000 });
-    console.error('Page loaded successfully and main table found.');
-    
+
+    // Retry the navigate + wait-for-grid step: transient bot challenges,
+    // cold datacenter connections, and slow renders are common and usually
+    // clear on a second attempt.
+    let lastError;
+    let loaded = false;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        console.error(`Navigating (attempt ${attempt}/${MAX_ATTEMPTS}): ${url}`);
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+
+        console.error('Waiting for results grid...');
+        await page.waitForSelector(RESULT_GRID_SELECTOR, { timeout: SELECTOR_TIMEOUT });
+        console.error('Page loaded successfully and main table found.');
+        loaded = true;
+        break;
+      } catch (err) {
+        lastError = err;
+        console.error(`Attempt ${attempt} failed: ${err.message}`);
+        await captureFailureDiagnostics(page, attempt);
+        if (attempt < MAX_ATTEMPTS) {
+          const backoff = 2000 * attempt;
+          console.error(`Retrying in ${backoff}ms...`);
+          await page.waitForTimeout(backoff);
+        }
+      }
+    }
+
+    if (!loaded) {
+      throw new Error(
+        `Results grid (${RESULT_GRID_SELECTOR}) never appeared after ${MAX_ATTEMPTS} attempts — ` +
+          `athletic.net likely served a bot-challenge or empty page to the scraper ` +
+          `(see the diagnostics logged above). Last error: ${lastError && lastError.message}`
+      );
+    }
+
     // Extract all data using the same logic as Python scraper
     const allResults = await page.evaluate((year) => {
       const results = [];
-      
+
       // Build distance key
       const distanceKey = {};
       const distanceTable = document.querySelector('table.pull-right-sm');
@@ -46,29 +126,29 @@ async function scrapeSeasonResults(teamId, year) {
           }
         });
       }
-      
+
       // Build meet key
       const meetKey = {};
       const meetListTable = document.querySelector('#MeetList');
       const resultHeadersTable = document.querySelector('#M_Table table.DataTable, #F_Table table.DataTable');
-      
+
       if (meetListTable && resultHeadersTable) {
         const meets = meetListTable.querySelectorAll('tbody tr');
         let meetIdx = 0;
-        
+
         meets.forEach(meetTr => {
           // Skip header rows
           if (meetTr.querySelector('th')) return;
-          
+
           const cells = meetTr.querySelectorAll('td');
           if (cells.length === 2) {
             const dateLabel = cells[0].querySelector('label');
             const nameA = cells[1].querySelector('a');
-            
+
             if (dateLabel && nameA) {
               const meetDate = dateLabel.textContent.trim();
               const meetName = nameA.textContent.trim();
-              
+
               meetKey[meetIdx] = {
                 name: meetName,
                 date: meetDate
@@ -78,9 +158,9 @@ async function scrapeSeasonResults(teamId, year) {
           }
         });
       }
-      
+
       console.log(`Found ${Object.keys(meetKey).length} meets and ${Object.keys(distanceKey).length} distance types.`);
-      
+
       // Parse gender tables
       function parseGenderTable(tableId, gender) {
         const tableResults = [];
@@ -89,17 +169,17 @@ async function scrapeSeasonResults(teamId, year) {
           console.log(`${gender}'s table (${tableId}) not found.`);
           return tableResults;
         }
-        
+
         console.log(`Parsing ${gender}'s table...`);
         const athleteRows = table.querySelectorAll('tr');
-        
+
         athleteRows.forEach(row => {
           // Skip header rows
           if (row.querySelector('th')) return;
-          
+
           const cells = row.querySelectorAll('td');
           if (cells.length < 2) return;
-          
+
           // Get grade
           let grade = '';
           const rowClasses = row.className.split(' ');
@@ -109,7 +189,7 @@ async function scrapeSeasonResults(teamId, year) {
               break;
             }
           }
-          
+
           if (!grade && cells[0]) {
             const gradeCell = cells[0].textContent.trim();
             if (/^\d+$/.test(gradeCell) && parseInt(gradeCell) >= 1 && parseInt(gradeCell) <= 12) {
@@ -119,11 +199,11 @@ async function scrapeSeasonResults(teamId, year) {
               grade = gradeMap[gradeCell.toUpperCase().substring(0, 2)] || '12';
             }
           }
-          
+
           const athleteNameTag = cells[1].querySelector('a');
           if (!athleteNameTag) return;
           const athleteName = athleteNameTag.textContent.trim();
-          
+
           // Result cells start from the 3rd column (index 2)
           for (let i = 2; i < cells.length; i++) {
             const cell = cells[i];
@@ -132,12 +212,12 @@ async function scrapeSeasonResults(teamId, year) {
               const timeStr = timeA.textContent.trim();
               const distanceIdSpan = cell.querySelector('span.subscript');
               const distId = distanceIdSpan ? distanceIdSpan.textContent.trim() : 'N/A';
-              
+
               const distance = distanceKey[distId] || 'Unknown';
               const meetInfo = meetKey[i - 2] || {};
               const raceName = meetInfo.name || 'Unknown Meet';
               const raceDate = meetInfo.date || 'Unknown Date';
-              
+
               tableResults.push([
                 raceName,
                 athleteName,
@@ -150,29 +230,29 @@ async function scrapeSeasonResults(teamId, year) {
             }
           }
         });
-        
+
         console.log(`Found ${tableResults.length} results in ${gender}'s table.`);
         return tableResults;
       }
-      
+
       // Process both tables
       results.push(...parseGenderTable('M_Table', 'Men'));
       results.push(...parseGenderTable('F_Table', 'Women'));
-      
+
       return results;
     }, year);
-    
+
     console.error(`Finished scraping. Found ${allResults.length} results.`);
-    
+
     // Output CSV format (matching Python scraper exactly)
     console.log('Race Name,Athlete Name,Grade,Gender,Time,Race Date,Distance');
     allResults.forEach(row => {
       console.log(row.map(field => `"${field}"`).join(','));
     });
-    
+
     await browser.close();
     return allResults;
-    
+
   } catch (error) {
     console.error('Scraping error:', error.message);
     if (browser) await browser.close();
@@ -184,7 +264,7 @@ async function scrapeSeasonResults(teamId, year) {
 if (require.main === module) {
   const args = process.argv.slice(2);
   let teamId, year;
-  
+
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--team_id' && args[i + 1]) {
       teamId = args[i + 1];
@@ -193,12 +273,12 @@ if (require.main === module) {
       year = args[i + 1];
     }
   }
-  
+
   if (!teamId || !year) {
     console.error('Usage: node scrape_season_playwright.js --team_id <id> --year <year>');
     process.exit(1);
   }
-  
+
   scrapeSeasonResults(teamId, year)
     .then(() => process.exit(0))
     .catch(err => {
