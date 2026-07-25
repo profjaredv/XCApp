@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail } from 'lucide-react';
+import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle } from 'lucide-react';
 import { rosterService, type RosterAthlete } from '@/api/rosterService';
 import { athleteService } from '@/api/athleteService';
 import { teamService } from '@/api/teamService';
@@ -127,6 +127,29 @@ const RosterPage: React.FC = () => {
     mutationFn: (athleteId: string) => rosterService.removeFromRoster(season!, athleteId),
     onSuccess: () => {
       toast.success('Removed from roster (results kept)');
+      invalidate();
+    },
+    onError: () => toast.error('Could not update roster'),
+  });
+
+  const syncRoster = useMutation({
+    mutationFn: () => rosterService.syncFromAthleticNet(season!),
+    onSuccess: (result) => {
+      toast.success(result.message);
+      invalidate();
+    },
+    onError: (err: unknown) => {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'Could not sync from Athletic.net';
+      toast.error(message);
+    },
+  });
+
+  const clearRemovalFlag = useMutation({
+    mutationFn: (athleteId: string) => rosterService.clearRemovalFlag(season!, athleteId),
+    onSuccess: () => {
+      toast.success('Kept on roster');
       invalidate();
     },
     onError: () => toast.error('Could not update roster'),
@@ -264,6 +287,16 @@ const RosterPage: React.FC = () => {
             <CalendarPlus className="mr-2 h-4 w-4" />
             Start {nextSeason}
           </Button>
+          {isCoach && (
+            <Button
+              variant="outline"
+              onClick={() => syncRoster.mutate()}
+              disabled={syncRoster.isPending || season === undefined}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${syncRoster.isPending ? 'animate-spin' : ''}`} />
+              {syncRoster.isPending ? 'Syncing…' : 'Sync from Athletic.net'}
+            </Button>
+          )}
           <Button onClick={() => setAddOpen(true)}>
             <UserPlus className="mr-2 h-4 w-4" />
             Add athlete
@@ -416,6 +449,12 @@ const RosterPage: React.FC = () => {
                           {inviteBadgeFor(athlete)!.label}
                         </Badge>
                       )}
+                      {athlete.flaggedForRemoval && (
+                        <Badge variant="destructive" className="flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Not on Athletic.net
+                        </Badge>
+                      )}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {athlete.graduationYear ? `Class of ${athlete.graduationYear}` : 'No class year'}
@@ -438,6 +477,16 @@ const RosterPage: React.FC = () => {
                     >
                       View Profile
                     </Button>
+                    {isCoach && athlete.flaggedForRemoval && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => clearRemovalFlag.mutate(athlete.id)}
+                        disabled={clearRemovalFlag.isPending}
+                      >
+                        Keep
+                      </Button>
+                    )}
                     {athlete.onRoster && !athlete.graduated && (
                       <Button
                         variant="ghost"

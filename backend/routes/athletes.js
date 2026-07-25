@@ -84,6 +84,10 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         onRoster: hasExplicitRoster
           ? Boolean(rosterEntry && rosterEntry.isActive)
           : races.length > 0 || isEnrolled(a.graduationYear, seasonYear),
+        // Set by a roster sync (routes/teams.js POST /scrape-roster) when
+        // this athlete no longer appears on Athletic.net — a review signal
+        // for the coach, never an automatic removal.
+        flaggedForRemoval: Boolean(rosterEntry?.flaggedForRemoval),
         // Truthy exactly when this roster row is linked to an account —
         // matches the roster UI's `if (athlete.user)` check.
         user: a.userId || undefined,

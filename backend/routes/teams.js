@@ -329,6 +329,205 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
   }
 });
 
+// POST /api/teams/scrape-roster
+//
+// Pulls the CURRENT roster (names/grades, no results) from Athletic.net and
+// merges it into the season's SeasonRoster. Deliberately conservative,
+// unlike /scrape's wipe-and-reimport: this never deletes or deactivates
+// anything. An athlete who was active but no longer appears on Athletic.net
+// gets flaggedForRemoval — a signal for the coach to review on the Roster
+// page — never an automatic isActive: false. Re-running this after a coach
+// dismisses a flag (or after the athlete reappears on Athletic.net) clears
+// it again. Name matching is exact (normalized), not fuzzy — a near-miss
+// name shows up as a new athlete rather than risking silently merging two
+// different people.
+const normalizeRosterName = (name) => (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+router.post('/scrape-roster', authenticate, requireOwnTeam, async (req, res) => {
+  const { year } = req.body;
+  const { spawn } = require('child_process');
+  const path = require('path');
+  const { parse } = require('csv-parse/sync');
+
+  try {
+    const team = req.user.team;
+    const yearNum = parseInt(year, 10) || currentCalendarSeason();
+
+    const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
+    const scriptPath = isRailway
+      ? path.join(__dirname, '..', 'scrape_roster_playwright.js')
+      : path.join(__dirname, '..', 'scrape_roster.py');
+
+    const scraperProcess = isRailway
+      ? spawn('node', [scriptPath, '--team_id', team.athleticTeamId, '--year', String(yearNum)])
+      : spawn('python3', [scriptPath, '--team_id', team.athleticTeamId, '--year', String(yearNum)]);
+
+    let csvData = '';
+    let errorData = '';
+
+    scraperProcess.stdout.on('data', (data) => { csvData += data.toString(); });
+    scraperProcess.stderr.on('data', (data) => { errorData += data.toString(); });
+
+    scraperProcess.on('error', (err) => {
+      console.error('Failed to start roster scraper subprocess:', err.message);
+      return res.status(500).json({ message: 'Failed to start roster scraper process.' });
+    });
+
+    scraperProcess.on('close', async (code) => {
+      if (code !== 0) {
+        console.error(`Roster scraper exited with code ${code}: ${errorData}`);
+        return res.status(500).json({
+          message: 'Failed to scrape the roster from Athletic.net. This page may not match what the scraper expects — check server logs for diagnostics.',
+        });
+      }
+
+      try {
+        const records = csvData.length > 0
+          ? parse(csvData, { columns: true, skip_empty_lines: true, trim: true })
+          : [];
+
+        // A genuinely empty roster is indistinguishable from a scraper that
+        // silently found nothing — treat zero rows as a failure rather than
+        // flagging the entire existing roster for removal against nothing.
+        if (records.length === 0) {
+          console.error('Roster scraper returned zero athletes:', errorData);
+          return res.status(502).json({
+            message: 'Athletic.net returned no athletes for this roster — nothing was changed. This may mean the roster isn\'t published there yet, or the page structure changed.',
+          });
+        }
+
+        const season = await prisma.season.upsert({
+          where: { teamId_year_sport: { teamId: team.id, year: yearNum, sport: 'XC' } },
+          update: {},
+          create: { teamId: team.id, year: yearNum, sport: 'XC' },
+        });
+
+        const existingRoster = await prisma.seasonRoster.findMany({
+          where: { seasonId: season.id },
+          include: { athlete: true },
+        });
+        const existingByName = new Map(existingRoster.map((r) => [normalizeRosterName(r.athlete.name), r]));
+
+        const added = [];
+        const reactivated = [];
+        const updated = [];
+        const matchedAthleteIds = new Set();
+
+        for (const row of records) {
+          const name = (row['Athlete Name'] || '').trim();
+          if (!name) continue;
+
+          const gradeNum = row.Grade ? parseInt(row.Grade, 10) : null;
+          const graduationYear = Number.isFinite(gradeNum) ? deriveGraduationYear(gradeNum, yearNum) : null;
+          const gender = row.Gender || null;
+
+          const normalized = normalizeRosterName(name);
+          const existingEntry = existingByName.get(normalized);
+
+          if (existingEntry) {
+            matchedAthleteIds.add(existingEntry.athleteId);
+            const athleteUpdates = {};
+            if (graduationYear !== null && existingEntry.athlete.graduationYear !== graduationYear) {
+              athleteUpdates.graduationYear = graduationYear;
+            }
+            if (gender && existingEntry.athlete.gender !== gender) {
+              athleteUpdates.gender = gender;
+            }
+            if (Object.keys(athleteUpdates).length > 0) {
+              await prisma.athlete.update({ where: { id: existingEntry.athleteId }, data: athleteUpdates });
+            }
+
+            const wasInactiveOrFlagged = !existingEntry.isActive || existingEntry.flaggedForRemoval;
+            await prisma.seasonRoster.update({
+              where: { id: existingEntry.id },
+              data: {
+                isActive: true,
+                flaggedForRemoval: false,
+                flaggedForRemovalAt: null,
+                grade: Number.isFinite(gradeNum) ? gradeNum : existingEntry.grade,
+              },
+            });
+            if (wasInactiveOrFlagged) reactivated.push(name);
+            else updated.push(name);
+          } else {
+            const athlete = await prisma.athlete.create({
+              data: { teamId: team.id, name, gender, graduationYear },
+            });
+            await prisma.seasonRoster.create({
+              data: {
+                seasonId: season.id,
+                athleteId: athlete.id,
+                grade: gradeNum,
+                isActive: true,
+              },
+            });
+            matchedAthleteIds.add(athlete.id);
+            added.push(name);
+          }
+        }
+
+        const flaggedForRemoval = [];
+        for (const entry of existingRoster) {
+          if (entry.isActive && !matchedAthleteIds.has(entry.athleteId)) {
+            await prisma.seasonRoster.update({
+              where: { id: entry.id },
+              data: { flaggedForRemoval: true, flaggedForRemovalAt: new Date() },
+            });
+            flaggedForRemoval.push(entry.athlete.name);
+          }
+        }
+
+        res.status(200).json({
+          success: true,
+          season: yearNum,
+          totalScraped: records.length,
+          added,
+          reactivated,
+          updated,
+          flaggedForRemoval,
+          message: `Synced ${records.length} athletes from Athletic.net: ${added.length} added, ` +
+            `${reactivated.length} reactivated, ${flaggedForRemoval.length} flagged for review.`,
+        });
+      } catch (error) {
+        console.error('Error processing scraped roster:', error.message);
+        res.status(500).json({ message: 'Failed to process scraped roster.' });
+      }
+    });
+  } catch (error) {
+    console.error('Error in scrape-roster endpoint:', error.message);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// POST /api/teams/seasons/:year/roster/:athleteId/clear-flag
+// A coach's "keep them" review action: this athlete didn't match the last
+// Athletic.net sync, but the coach knows they're still on the team (e.g. a
+// name mismatch, or Athletic.net just hasn't been updated yet).
+router.post('/seasons/:year/roster/:athleteId/clear-flag', authenticate, requireOwnTeam, async (req, res) => {
+  const teamId = req.user.teamId;
+  const year = parseInt(req.params.year, 10);
+
+  try {
+    const season = await prisma.season.findFirst({ where: { teamId, year } });
+    if (!season) {
+      return res.status(404).json({ message: 'Season not found.' });
+    }
+
+    const result = await prisma.seasonRoster.updateMany({
+      where: { seasonId: season.id, athleteId: req.params.athleteId },
+      data: { flaggedForRemoval: false, flaggedForRemovalAt: null },
+    });
+    if (result.count === 0) {
+      return res.status(404).json({ message: 'Roster entry not found.' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error clearing removal flag:', error.message);
+    res.status(500).json({ message: 'Failed to update roster.' });
+  }
+});
+
 // GET /api/teams/seasons
 //
 // Every season this team knows about — one it has results for, one the coach

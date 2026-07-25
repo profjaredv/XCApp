@@ -303,6 +303,13 @@ model SeasonRoster {
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
 
+  // Set by a roster sync (see routes/teams.js POST /scrape-roster) when this
+  // athlete was active but no longer appears on Athletic.net's roster. This
+  // is a coach-reviewable signal, never an automatic deactivation — a sync
+  // must never be able to silently remove someone from the app's roster.
+  flaggedForRemoval   Boolean   @default(false) @map("flagged_for_removal")
+  flaggedForRemovalAt DateTime? @map("flagged_for_removal_at")
+
   season  Season  @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
 
