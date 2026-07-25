@@ -121,6 +121,50 @@ router.get('/:athleteId', authenticate, requireTeam, async (req, res) => {
   }
 });
 
+// GET /api/athletes/:athleteId/races?limit=5
+//
+// An athlete's most recent races, across all seasons — the VDOT/performance
+// calculator seeds its predictions from whichever race the coach picks here.
+// This endpoint didn't exist; the frontend called it unconditionally, so
+// every request 404'd (compounding a separate bug where the athlete picker
+// couldn't identify a specific athlete at all — see the `id` fix on the
+// frontend). Distance is returned in miles, matching what the calculator's
+// Riegel's-formula code expects.
+router.get('/:athleteId/races', authenticate, requireTeam, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 5, 25);
+
+  try {
+    const athlete = await prisma.athlete.findFirst({
+      where: { id: req.params.athleteId, teamId: req.user.teamId },
+    });
+    if (!athlete) {
+      return res.status(404).json({ msg: 'Athlete not found' });
+    }
+
+    const results = await prisma.result.findMany({
+      where: { athleteId: athlete.id, time: { gt: 0 } },
+      include: { race: true },
+      orderBy: { race: { date: 'desc' } },
+      take: limit,
+    });
+
+    const races = results
+      .filter((r) => r.race && r.race.distanceMeters)
+      .map((r) => ({
+        id: r.id,
+        raceName: r.race.name,
+        date: r.race.date,
+        distance: r.race.distanceMeters / 1609.34,
+        time: r.time,
+      }));
+
+    res.json(races);
+  } catch (error) {
+    console.error('Error in GET /athletes/:athleteId/races:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // POST /api/athletes
 // Accepts either an explicit graduationYear or a grade + season to derive it
 // from — coaches think in grades ("she's a sophomore"), the data model thinks

@@ -4,6 +4,7 @@ import { useTeam } from '@/hooks/useTeam';
 import { athleteService } from '@/api/athleteService';
 import { teamService } from '@/api/teamService';
 import { useAvailableSeasons } from '@/hooks/useAnalyticsData';
+import { useCurrentSeason } from '@/hooks/useCurrentSeason';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -31,10 +32,17 @@ type RosterAthlete = {
 };
 
 const TeamPage: React.FC = () => {
-  const currentYear = new Date().getFullYear();
   const navigate = useNavigate();
   const { currentTeam } = useTeam();
-  const { data: availableSeasons = [] } = useAvailableSeasons();
+  // This screen's "current season" used to be a bare `new Date().getFullYear()`
+  // that could never actually be selected: the seasons query below was called
+  // with no teamId, which the hook requires to run at all (`enabled: !!teamId`),
+  // so it silently never fired and this page was permanently stuck computing
+  // "current" as the calendar year regardless of what data existed. Passing
+  // currentTeam.id fixes that; useCurrentSeason() replaces the calendar-year
+  // fallback with the same server-resolved season every other screen uses.
+  const currentYear = useCurrentSeason();
+  const { data: availableSeasons = [] } = useAvailableSeasons(currentTeam?.id);
   const currentSeason = useMemo(() => {
     if (availableSeasons.length === 0) return currentYear;
     return availableSeasons.includes(currentYear) ? currentYear : availableSeasons[0];

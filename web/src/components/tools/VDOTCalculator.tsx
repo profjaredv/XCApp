@@ -12,14 +12,14 @@ import { Calculator, TrendingUp, User, Clock, Target } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Athlete {
-  _id: string;
+  id: string;
   name: string;
   grade?: number;
   gender?: 'Men' | 'Women';
 }
 
 interface RecentRace {
-  _id: string;
+  id: string;
   raceName: string;
   date: string;
   distance: number;
@@ -52,7 +52,10 @@ const VDOTCalculator: React.FC = () => {
       
       setIsLoadingAthletes(true);
       try {
-        const response = await api.get(`/athletes?season=${new Date().getFullYear()}`);
+        // No season param: the server resolves the team's actual active
+        // season (accounting for imported data). Hardcoding the calendar
+        // year here returned an empty list for most of the year.
+        const response = await api.get('/athletes');
         setAthletes(response.data.slice(0, 50)); // Limit to 50 for performance
       } catch (error) {
         console.error('Error fetching athletes:', error);
@@ -131,7 +134,7 @@ const VDOTCalculator: React.FC = () => {
   const calculateFromAthleteRace = () => {
     if (!selectedRace) return;
     
-    const race = recentRaces.find(r => r._id === selectedRace);
+    const race = recentRaces.find(r => r.id === selectedRace);
     if (!race) return;
     
     setIsLoading(true);
@@ -309,7 +312,7 @@ const VDOTCalculator: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {athletes.map(athlete => (
-                      <SelectItem key={athlete._id} value={athlete._id}>
+                      <SelectItem key={athlete.id} value={athlete.id}>
                         {athlete.name} {athlete.grade && `(Grade ${athlete.grade})`}
                       </SelectItem>
                     ))}
@@ -326,7 +329,7 @@ const VDOTCalculator: React.FC = () => {
                     </SelectTrigger>
                     <SelectContent>
                       {recentRaces.map(race => (
-                        <SelectItem key={race._id} value={race._id}>
+                        <SelectItem key={race.id} value={race.id}>
                           {race.raceName} - {formatTime(race.time)}
                         </SelectItem>
                       ))}

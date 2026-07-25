@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
+import { teamService } from '@/api/teamService';
 
 interface GridData {
   races: string[];
@@ -47,11 +48,16 @@ const ResultsGridPage: React.FC = () => {
     // @ts-expect-error - team.id exists in runtime but not in type definition
     const teamId = currentUser?.team?.id || currentUser?.team_id;
     if (teamId) {
-      api.get('/teams/seasons')
-        .then((response: { data: number[] }) => {
-          setSeasons(response.data);
-          if (response.data.length > 0) {
-            setSelectedSeason(response.data[0]); // Select the most recent season by default
+      // /teams/seasons returns season objects (year + roster/race counts), not
+      // plain numbers — teamService.getAvailableSeasons() projects out the
+      // years. Calling the raw endpoint here previously set selectedSeason to
+      // an object, which stringified to "[object Object]" in the results-grid
+      // request URL and always 400'd.
+      teamService.getAvailableSeasons()
+        .then((years) => {
+          setSeasons(years);
+          if (years.length > 0) {
+            setSelectedSeason(years[0]); // Select the most recent season by default
           }
         })
         .catch((err: unknown) => {

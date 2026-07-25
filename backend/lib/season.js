@@ -32,15 +32,22 @@ function currentCalendarSeason(now = new Date()) {
 // and whichever season you're asking about. Storing grade on the athlete (as
 // this app used to) means the last import silently rewrites their grade for
 // every other season they ever ran in.
+//
+// The academic-year offset matters here: a fall XC "season" year S is the
+// start of school year (S, S+1), and a senior racing in that fall doesn't
+// graduate until spring of S+1 — not spring of S. A grad-year athlete is
+// therefore FINAL_HS_GRADE during season = graduationYear - 1, not season =
+// graduationYear. Getting this wrong makes a currently-enrolled senior
+// compute as already graduated for the entire season they're racing in.
 function deriveGrade(graduationYear, season) {
   if (!Number.isFinite(graduationYear) || !Number.isFinite(season)) return null;
-  return FINAL_HS_GRADE - (graduationYear - season);
+  return FINAL_HS_GRADE - (graduationYear - season - 1);
 }
 
 function deriveGraduationYear(grade, season) {
   const gradeNum = parseInt(grade, 10);
   if (!Number.isFinite(gradeNum) || !Number.isFinite(season)) return null;
-  return season + (FINAL_HS_GRADE - gradeNum);
+  return season + 1 + (FINAL_HS_GRADE - gradeNum);
 }
 
 // "Is this athlete on the team during this season?" — i.e. grades 9-12.

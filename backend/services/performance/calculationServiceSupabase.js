@@ -1,6 +1,7 @@
 const prisma = require('../../lib/db');
 const logger = require('../../utils/logger');
 const cache = require('./cache');
+const { deriveGrade } = require('../../lib/season');
 
 class CalculationService {
   constructor() {
@@ -109,13 +110,20 @@ class CalculationService {
       races.sort((a, b) => new Date(a.date) - new Date(b.date));
       const metrics = this.calculateAthleteRaceMetrics(races);
       const genderNorm = athlete.gender === 'Men' ? 'M' : athlete.gender === 'Women' ? 'F' : athlete.gender || '';
+      // Derive grade for THIS season from the athlete's stable graduationYear,
+      // rather than reading the stored `athlete.grade` column. That column is
+      // no longer written on import (see routes/teams.js) and, even when it
+      // was, held only a single snapshot value shared across every season —
+      // so a team's grade-9-12 breakdown either went stale or silently
+      // dropped whichever grades weren't present in the most recent import.
+      const grade = deriveGrade(athlete.graduationYear, season);
 
       await prisma.athleteSeasonMetrics.upsert({
         where: { athleteId_teamId_season: { athleteId: athlete.id, teamId: athlete.teamId, season } },
         update: {
           name: athlete.name,
           gender: genderNorm,
-          grade: athlete.grade ?? null,
+          grade,
           totalRaces: metrics.totalRaces || 0,
           totalMiles: metrics.totalMiles || 0,
           totalTimeSeconds: metrics.totalTimeSeconds || 0,
@@ -131,7 +139,7 @@ class CalculationService {
           season,
           name: athlete.name,
           gender: genderNorm,
-          grade: athlete.grade ?? null,
+          grade,
           totalRaces: metrics.totalRaces || 0,
           totalMiles: metrics.totalMiles || 0,
           totalTimeSeconds: metrics.totalTimeSeconds || 0,
