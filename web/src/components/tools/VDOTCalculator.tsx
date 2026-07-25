@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { axiosInstance as api } from '@/api/axios';
 import { formatTime, formatPace } from '../../lib/formatters';
-import { Calculator, TrendingUp, User, Clock, Target } from 'lucide-react';
+import { trainingPacesFromRace, type TrainingPaceZone } from '../../lib/vdotPaces';
+import { Calculator, TrendingUp, User, Clock, Target, Gauge } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Athlete {
@@ -41,7 +42,11 @@ const VDOTCalculator: React.FC = () => {
   const [recentRaces, setRecentRaces] = useState<RecentRace[]>([]);
   const [selectedRace, setSelectedRace] = useState('');
   const [athletePredictions, setAthletePredictions] = useState<Record<string, number>>({});
-  
+  const [trainingPaces, setTrainingPaces] = useState<TrainingPaceZone[]>([]);
+  const [vdotScore, setVdotScore] = useState<number | null>(null);
+  const [athleteTrainingPaces, setAthleteTrainingPaces] = useState<TrainingPaceZone[]>([]);
+  const [athleteVdotScore, setAthleteVdotScore] = useState<number | null>(null);
+
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingAthletes, setIsLoadingAthletes] = useState(false);
 
@@ -120,11 +125,15 @@ const VDOTCalculator: React.FC = () => {
     }
     
     setIsLoading(true);
-    
+
     // Simulate API delay for better UX
     setTimeout(() => {
       const predictions = calculatePredictions(timeInSeconds, inputDistance);
       setPredictedTimes(predictions);
+      const sourceDist = distances.find(d => d.value === inputDistance)?.miles || 3.1;
+      const paceResult = trainingPacesFromRace(sourceDist, timeInSeconds);
+      setTrainingPaces(paceResult?.paces ?? []);
+      setVdotScore(paceResult?.vdot ?? null);
       setActiveTab('predictions');
       setIsLoading(false);
     }, 500);
@@ -138,11 +147,14 @@ const VDOTCalculator: React.FC = () => {
     if (!race) return;
     
     setIsLoading(true);
-    
+
     // Simulate API delay for better UX
     setTimeout(() => {
       const predictions = calculatePredictions(race.time, getDistanceKey(race.distance));
       setAthletePredictions(predictions);
+      const paceResult = trainingPacesFromRace(race.distance, race.time);
+      setAthleteTrainingPaces(paceResult?.paces ?? []);
+      setAthleteVdotScore(paceResult?.vdot ?? null);
       setActiveTab('predictions');
       setIsLoading(false);
     }, 500);
@@ -174,6 +186,32 @@ const VDOTCalculator: React.FC = () => {
     { value: '8k', label: '8K', miles: 5.0 },
     { value: '10k', label: '10K', miles: 6.2 }
   ];
+
+  const renderTrainingPaces = (paces: TrainingPaceZone[], vdot: number | null, title: string) => {
+    if (paces.length === 0) return null;
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Gauge className="h-5 w-5 text-muted-foreground" />
+          <h3 className="text-lg font-semibold">{title}</h3>
+          {vdot !== null && (
+            <span className="text-xs text-muted-foreground">(VDOT ~{vdot.toFixed(1)})</span>
+          )}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {paces.map((zone) => (
+            <Card key={zone.key}>
+              <CardContent className="p-4">
+                <p className="font-medium">{zone.label}</p>
+                <p className="text-xl font-bold text-primary">{formatPace(zone.paceSecPerMile)}</p>
+                <p className="text-xs text-muted-foreground">{zone.description}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const renderPredictions = (predictions: Record<string, number>, title: string) => {
     return (
@@ -359,9 +397,19 @@ const VDOTCalculator: React.FC = () => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="predictions" className="mt-6">
-          {Object.keys(predictedTimes).length > 0 && renderPredictions(predictedTimes, 'Predicted Race Times')}
-          {Object.keys(athletePredictions).length > 0 && renderPredictions(athletePredictions, "Athlete's Predicted Times")}
+        <TabsContent value="predictions" className="mt-6 space-y-8">
+          {Object.keys(predictedTimes).length > 0 && (
+            <>
+              {renderPredictions(predictedTimes, 'Predicted Race Times')}
+              {renderTrainingPaces(trainingPaces, vdotScore, 'Training Paces')}
+            </>
+          )}
+          {Object.keys(athletePredictions).length > 0 && (
+            <>
+              {renderPredictions(athletePredictions, "Athlete's Predicted Times")}
+              {renderTrainingPaces(athleteTrainingPaces, athleteVdotScore, "Athlete's Training Paces")}
+            </>
+          )}
           {Object.keys(predictedTimes).length === 0 && Object.keys(athletePredictions).length === 0 && (
             <Card>
               <CardContent className="p-8 text-center">

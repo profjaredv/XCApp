@@ -2,6 +2,7 @@ export { default as LoginPage } from './LoginPage';
 export { default as RegisterPage } from './RegisterPage';
 export { default as OnboardingPage } from './OnboardingPage';
 export { default as ProfilePage } from './ProfilePage';
+export { default as MyProgressPage } from './MyProgressPage';
 export { default as SettingsPage } from './SettingsPage';
 export { default as AnalyticsPage } from './AnalyticsPage';
 export { default as ToolsPage } from './ToolsPage';

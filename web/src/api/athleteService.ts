@@ -33,6 +33,15 @@ export const athleteService = {
     return response.data;
   },
 
+  /** Most recent races for an athlete, most recent first — used to seed VDOT/pace calculations. */
+  async getRecentRaces(
+    athleteId: string,
+    limit = 5
+  ): Promise<Array<{ id: string; raceName: string; date: string; distance: number; time: number }>> {
+    const response = await axiosInstance.get(`/athletes/${athleteId}/races`, { params: { limit } });
+    return response.data;
+  },
+
   async inviteAthlete(athleteId: string, email: string): Promise<InviteResponse> {
     const response = await axiosInstance.post<InviteResponse>(`/athletes/${athleteId}/invite`, { email });
     return response.data;

@@ -1,6 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom';
 import App from '../App';
-import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage } from '../pages';
+import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage } from '../pages';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
@@ -116,6 +116,10 @@ export const router = createBrowserRouter([
                   {
                     path: 'roster',
                     element: <RosterPage />,
+                  },
+                  {
+                    path: 'me',
+                    element: <MyProgressPage />,
                   },
                   {
                     path: 'feedback',

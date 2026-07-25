@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
+const { authenticate, requireTeam, requireCoach, requireLinkedAthlete } = require('../middleware/auth');
 const {
   resolveActiveSeason,
   deriveGrade,
@@ -392,6 +392,85 @@ router.post('/accept-invite', authenticate, async (req, res) => {
     });
   } catch (error) {
     console.error('Error accepting invite:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Athlete self-service: logging your own training runs. Deliberately a
+// separate model from Result/Race (see schema.prisma) — a self-reported run
+// must never be able to corrupt race history or team-wide meet aggregates.
+// Every route here is scoped by req.user.linkedAthlete.id, never a param, so
+// there's no way to read or write another athlete's training log.
+// ---------------------------------------------------------------------------
+
+const VALID_LOG_TYPES = new Set(['easy', 'long', 'tempo', 'interval', 'race', 'other']);
+
+// GET /api/athletes/me/training-logs?limit=
+router.get('/me/training-logs', authenticate, requireLinkedAthlete, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+
+  try {
+    const logs = await prisma.trainingLog.findMany({
+      where: { athleteId: req.user.linkedAthlete.id },
+      orderBy: { date: 'desc' },
+      take: limit,
+    });
+    res.json(logs);
+  } catch (error) {
+    console.error('Error in GET /athletes/me/training-logs:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/athletes/me/training-logs
+router.post('/me/training-logs', authenticate, requireLinkedAthlete, async (req, res) => {
+  const { date, type, distanceMi, durationSec, notes } = req.body;
+
+  if (!date || Number.isNaN(new Date(date).getTime())) {
+    return res.status(400).json({ msg: 'A valid date is required.' });
+  }
+  if (!type || !VALID_LOG_TYPES.has(type)) {
+    return res.status(400).json({ msg: `Type must be one of: ${[...VALID_LOG_TYPES].join(', ')}` });
+  }
+  if (distanceMi !== undefined && distanceMi !== null && (typeof distanceMi !== 'number' || distanceMi < 0)) {
+    return res.status(400).json({ msg: 'Distance must be a non-negative number.' });
+  }
+  if (durationSec !== undefined && durationSec !== null && (!Number.isInteger(durationSec) || durationSec < 0)) {
+    return res.status(400).json({ msg: 'Duration must be a non-negative whole number of seconds.' });
+  }
+
+  try {
+    const log = await prisma.trainingLog.create({
+      data: {
+        athleteId: req.user.linkedAthlete.id,
+        date: new Date(date),
+        type,
+        distanceMi: distanceMi ?? null,
+        durationSec: durationSec ?? null,
+        notes: notes || null,
+      },
+    });
+    res.status(201).json(log);
+  } catch (error) {
+    console.error('Error in POST /athletes/me/training-logs:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// DELETE /api/athletes/me/training-logs/:logId
+router.delete('/me/training-logs/:logId', authenticate, requireLinkedAthlete, async (req, res) => {
+  try {
+    const log = await prisma.trainingLog.findFirst({
+      where: { id: req.params.logId, athleteId: req.user.linkedAthlete.id },
+    });
+    if (!log) {
+      return res.status(404).json({ msg: 'Training log not found.' });
+    }
+    await prisma.trainingLog.delete({ where: { id: log.id } });
+    res.json({ msg: 'Deleted' });
+  } catch (error) {
+    console.error('Error in DELETE /athletes/me/training-logs/:logId:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

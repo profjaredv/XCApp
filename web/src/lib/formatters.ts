@@ -27,3 +27,16 @@ export function formatPace(paceInSeconds: number | null): string {
   // Ensure seconds are padded with leading zero if needed
   return `${minutes}:${seconds.toString().padStart(2, '0')}/mi`;
 }
+
+/**
+ * Parse a MM:SS or H:MM:SS string into seconds. Returns NaN if unparseable.
+ */
+export function parseTimeToSeconds(timeStr: string): number {
+  const parts = timeStr.trim().split(':');
+  if (parts.length === 2) {
+    return parseInt(parts[0], 10) * 60 + parseFloat(parts[1]);
+  } else if (parts.length === 3) {
+    return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2]);
+  }
+  return NaN;
+}
