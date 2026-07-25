@@ -9,22 +9,35 @@ import {
 
 // Define type for athlete season metrics
 export interface AthleteSeasonMetricsData {
-  // Database column names (snake_case)
-  athlete_id: string;
-  team_id: string;
+  // GET /performance/athlete/:id/all-seasons spreads the raw Prisma
+  // AthleteSeasonMetrics row, so these are the fields that are ACTUALLY
+  // present — flat camelCase, matching prisma/schema.prisma, never
+  // snake_case. The snake_case fields below never appear on a live response;
+  // they're kept only because other, unaudited call sites may still read
+  // them defensively.
+  athleteId?: string;
+  teamId?: string;
   season: number;
-  grade?: string;
+  grade?: number | string;
   gender?: string;
+  totalRaces?: number;
+  totalMiles?: number;
+  averagePace?: number;
+  bestPace?: number;
+  bestTime5k?: number;
+  improvementPercent?: number;
+  totalTimeDropped?: number;
+
+  // Legacy snake_case — not returned by the current backend, retained only
+  // as a defensive fallback for older cached responses.
+  athlete_id?: string;
+  team_id?: string;
   total_races?: number;
   total_miles?: number;
   average_pace?: number;
   best_time_5k?: number;
   improvement_percent?: number;
   total_time_dropped?: number;
-  
-  // Legacy camelCase (for backward compatibility)
-  athleteId?: string;
-  teamId?: string;
   
   // Optional nested metrics object (legacy)
   metrics?: {

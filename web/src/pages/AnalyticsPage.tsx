@@ -261,11 +261,17 @@ const AnalyticsPage = () => {
     const seasons = athleteAllSeasons?.data?.seasons || [];
     if (!seasons.length) return { totalRaces: 0, totalMiles: 0, avgPace: 0, best5kTime: 0 };
     const totals = seasons.reduce((acc, season) => {
-      // Check both snake_case (top-level) and nested metrics object
-      const totalRaces = season.total_races ?? season.metrics?.totalRaces ?? 0;
-      const totalMiles = season.total_miles ?? season.metrics?.totalMiles ?? 0;
-      const avgPace = season.average_pace ?? season.metrics?.avgMilePace?.overall ?? 0;
-      const best5k = season.best_time_5k ?? season.best5kTime ?? season.metrics?.best5kTime ?? Infinity;
+      // GET /performance/athlete/:id/all-seasons spreads the raw
+      // AthleteSeasonMetrics row, whose fields are flat camelCase
+      // (totalRaces, totalMiles, averagePace) — never snake_case, never
+      // nested under `.metrics`. Only best5kTime is separately set by the
+      // route handler, which is why PR/SB 5K worked while races/miles/pace
+      // silently zeroed out: those were the only two fallbacks that could
+      // ever actually match.
+      const totalRaces = season.totalRaces ?? season.total_races ?? season.metrics?.totalRaces ?? 0;
+      const totalMiles = season.totalMiles ?? season.total_miles ?? season.metrics?.totalMiles ?? 0;
+      const avgPace = season.averagePace ?? season.average_pace ?? season.metrics?.avgMilePace?.overall ?? 0;
+      const best5k = season.best5kTime ?? season.best_time_5k ?? season.metrics?.best5kTime ?? Infinity;
       
       return {
         totalRaces: acc.totalRaces + totalRaces,
@@ -283,12 +289,14 @@ const AnalyticsPage = () => {
   }, [athleteAllSeasons?.data?.seasons]);
 
   const seasonBreakdown = useMemo<SeasonBreakdown[]>(() => {
+    // Same field-name fix as careerSummary above: the real response is flat
+    // camelCase.
     return (athleteAllSeasons?.data?.seasons || []).map(s => ({
       season: s.season,
-      totalRaces: s.total_races ?? s.metrics?.totalRaces ?? 0,
-      totalMiles: s.total_miles ?? s.metrics?.totalMiles ?? 0,
-      avgPace: s.average_pace ?? s.metrics?.avgMilePace?.overall ?? 0,
-      best5kTime: s.best_time_5k ?? s.best5kTime ?? s.metrics?.best5kTime ?? 0,
+      totalRaces: s.totalRaces ?? s.total_races ?? s.metrics?.totalRaces ?? 0,
+      totalMiles: s.totalMiles ?? s.total_miles ?? s.metrics?.totalMiles ?? 0,
+      avgPace: s.averagePace ?? s.average_pace ?? s.metrics?.avgMilePace?.overall ?? 0,
+      best5kTime: s.best5kTime ?? s.best_time_5k ?? s.metrics?.best5kTime ?? 0,
     }));
   }, [athleteAllSeasons?.data?.seasons]);
 
