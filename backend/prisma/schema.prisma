@@ -37,10 +37,12 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  team              Team?        @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
-  coachedTeams      Team[]       @relation("TeamCoach")
+  team              Team?          @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
+  coachedTeams      Team[]         @relation("TeamCoach")
   teamMemberships   TeamMember[]
-  createdRaceSplits RaceSplit[]  @relation("RaceSplitCreator")
+  createdRaceSplits RaceSplit[]    @relation("RaceSplitCreator")
+  linkedAthlete     Athlete?       @relation("AthleteAccount")
+  athleteClaims     AthleteClaim[]
 
   @@index([teamId])
   @@map("users")
@@ -69,6 +71,8 @@ model Team {
   teamSeasonMetrics      TeamSeasonMetrics[]
   athleteSeasonMetrics   AthleteSeasonMetrics[]
   meetPerformanceMetrics MeetPerformanceMetrics[]
+  athleteInvites         AthleteInvite[]
+  athleteClaims          AthleteClaim[]
 
   @@index([coachUid])
   @@map("teams")
@@ -103,19 +107,96 @@ model Athlete {
   gender         String? // 'M' | 'F'
   grade          Int? // 9-12
   graduationYear Int?     @map("graduation_year")
+  // The link this app never had: which signed-in account, if any, this
+  // roster entry belongs to. Null means unclaimed — either nobody has
+  // signed up yet, or a claim is still pending coach approval. Set only by
+  // an accepted AthleteInvite or an approved AthleteClaim, never directly.
+  userId         String?  @unique @map("user_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   team                Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user                User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
   results             Result[]
   raceSplits          RaceSplit[]
   seasonRosterEntries SeasonRoster[]
   seasonMetrics       AthleteSeasonMetrics[]
   bestInMeets         MeetPerformanceMetrics[] @relation("BestAthlete")
+  invite              AthleteInvite?
+  claims              AthleteClaim[]
+  trainingLogs        TrainingLog[]
 
   @@unique([teamId, name])
   @@index([teamId])
   @@map("athletes")
+}
+
+// A coach-initiated invite for a SPECIFIC athlete row. The coach already
+// knows who this is; accepting the invite token is itself the approval, no
+// separate review step. One row per athlete (re-inviting overwrites the
+// token rather than accumulating history) — resending is meant to feel like
+// "send it again," not a new request.
+model AthleteInvite {
+  id         String    @id @default(uuid()) @db.Uuid
+  athleteId  String    @unique @map("athlete_id") @db.Uuid
+  teamId     String    @map("team_id") @db.Uuid
+  email      String
+  token      String    @unique @default(uuid())
+  status     String    @default("pending") // pending | accepted | revoked
+  createdAt  DateTime  @default(now()) @map("created_at")
+  acceptedAt DateTime? @map("accepted_at")
+  expiresAt  DateTime  @map("expires_at")
+
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@map("athlete_invites")
+}
+
+// A self-serve claim: an athlete joined via the team's join code (so team
+// membership is already established) and is now asserting "this roster row
+// is me." Unlike AthleteInvite, the coach didn't pick this athlete — a
+// person of unverified identity is matching themselves to a name on the
+// roster — so this DOES need a pending/approve step before it grants
+// access to that athlete's record.
+model AthleteClaim {
+  id          String    @id @default(uuid()) @db.Uuid
+  athleteId   String    @map("athlete_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  teamId      String    @map("team_id") @db.Uuid
+  status      String    @default("pending") // pending | approved | rejected
+  matchScore  Int?      @map("match_score")
+  requestedAt DateTime  @default(now()) @map("requested_at")
+  resolvedAt  DateTime? @map("resolved_at")
+
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([athleteId, userId])
+  @@index([teamId, status])
+  @@map("athlete_claims")
+}
+
+// A self-reported training effort — deliberately NOT a Result. Results
+// belong to a scraped Race with a team-wide meet context (place, official
+// time, feeds team/meet metrics); a training log is personal, unverified,
+// and must never be able to corrupt race history or team aggregates.
+model TrainingLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  athleteId   String   @map("athlete_id") @db.Uuid
+  date        DateTime @db.Date
+  type        String // easy | tempo | interval | long | race_adjacent | other
+  distanceMi  Float?   @map("distance_mi")
+  durationSec Int?     @map("duration_sec")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@index([athleteId, date])
+  @@map("training_logs")
 }
 
 model Race {

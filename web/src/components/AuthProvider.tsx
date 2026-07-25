@@ -22,6 +22,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           name: userData.name,
           role: userData.role,
           team: userData.team,
+          linkedAthlete: userData.linkedAthlete ?? null,
         };
       }
       return null;
@@ -96,9 +97,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const acceptInvite = async (token: string) => {
-    // TODO: Implement invite acceptance logic
-    console.log('Accept invite:', token);
-    return Promise.resolve();
+    const response = await api.post('/athletes/accept-invite', { token });
+    // The invite just linked this account to an athlete and (re)set its
+    // team — currentUser needs to reflect that immediately rather than
+    // waiting for the next natural refetch.
+    const fresh = await getFreshToken();
+    if (fresh) {
+      const refreshedUser = await fetchUserData(fresh);
+      if (refreshedUser) setCurrentUser(refreshedUser);
+    }
+    return response.data;
   };
 
   const value = {

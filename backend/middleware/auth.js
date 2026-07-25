@@ -56,7 +56,7 @@ const authenticate = async (req, res, next) => {
   try {
     let user = await prisma.user.findUnique({
       where: { id: authUserId },
-      include: { team: true },
+      include: { team: true, linkedAthlete: true },
     });
 
     if (!user) {
@@ -73,13 +73,13 @@ const authenticate = async (req, res, next) => {
           role: ownedTeam ? 'coach' : 'athlete',
           teamId: ownedTeam?.id ?? null,
         },
-        include: { team: true },
+        include: { team: true, linkedAthlete: true },
       });
     } else if (user.team && user.team.coachUid === user.id && user.role !== 'coach') {
       user = await prisma.user.update({
         where: { id: user.id },
         data: { role: 'coach' },
-        include: { team: true },
+        include: { team: true, linkedAthlete: true },
       });
     }
 
@@ -117,4 +117,16 @@ const requireOwnTeam = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, requireCoach, requireTeam, requireOwnTeam };
+// For the athlete self-service routes (own profile, log a run): this account
+// must actually be linked to a specific Athlete row (via an accepted invite
+// or an approved claim — see routes/athletes.js and routes/team.js). Being
+// on a team is not enough; a coach who has never raced has no Athlete row to
+// scope these to.
+const requireLinkedAthlete = (req, res, next) => {
+  if (!req.user?.linkedAthlete) {
+    return res.status(403).json({ message: 'Your account is not linked to an athlete profile yet.' });
+  }
+  next();
+};
+
+module.exports = { authenticate, requireCoach, requireTeam, requireOwnTeam, requireLinkedAthlete };

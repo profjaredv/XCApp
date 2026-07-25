@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,13 +21,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, CalendarPlus, GraduationCap, Users } from 'lucide-react';
+import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail } from 'lucide-react';
 import { rosterService, type RosterAthlete } from '@/api/rosterService';
+import { athleteService } from '@/api/athleteService';
+import { teamService } from '@/api/teamService';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { useQueryParamNumber } from '@/hooks/useQueryState';
+import { useTeamPath } from '@/hooks/useTeamRoute';
+import { useAuth } from '@/contexts/AuthContext';
+import { PendingClaimsCard } from '@/components/PendingClaimsCard';
 
 // The roster is the thing a coach actually manages day to day: who is on the
 // team this season, what grade they're in, who just graduated. Before this
@@ -34,6 +41,12 @@ import { useQueryParamNumber } from '@/hooks/useQueryState';
 // page, so a team couldn't be set up before its first race.
 
 const RosterPage: React.FC = () => {
+  const navigate = useNavigate();
+  const teamPath = useTeamPath();
+  const teamAthletePath = (athleteId: string) => teamPath(`/team/athlete/${athleteId}`);
+  const { currentUser } = useAuth();
+  const isCoach = currentUser?.role === 'coach';
+
   const queryClient = useQueryClient();
   const { data: context } = useTeamContext();
   const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
@@ -48,6 +61,18 @@ const RosterPage: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [newGrade, setNewGrade] = useState<string>('9');
   const [newGender, setNewGender] = useState<string>('M');
+
+  const [joinCode, setJoinCode] = useState<string | null>(null);
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+  const [joinCodeError, setJoinCodeError] = useState<string | null>(null);
+
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [inviteTarget, setInviteTarget] = useState<RosterAthlete | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const {
     data: roster = [],
@@ -120,6 +145,94 @@ const RosterPage: React.FC = () => {
   const summary = context?.activeSeasonSummary;
   const isPreseason = season === context?.activeSeason && summary?.isPreseason;
 
+  const handleGenerateJoinCode = async () => {
+    setIsGeneratingCode(true);
+    setJoinCodeError(null);
+    try {
+      const response = await teamService.generateJoinCode();
+      setJoinCode(response.joinCode);
+    } catch (err) {
+      setJoinCodeError(err instanceof Error ? err.message : 'Failed to generate join code');
+    } finally {
+      setIsGeneratingCode(false);
+    }
+  };
+
+  const handleCopyJoinCode = async () => {
+    if (!joinCode || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(joinCode);
+    toast.success('Join code copied to clipboard');
+  };
+
+  const openInviteDialog = (athlete: RosterAthlete) => {
+    setInviteTarget(athlete);
+    setInviteEmail(athlete.invite?.email || '');
+    setInviteError(null);
+    setInviteNotice(null);
+    setInviteLink(null);
+    setInviteDialogOpen(true);
+  };
+
+  const closeInviteDialog = () => {
+    setInviteDialogOpen(false);
+    setInviteTarget(null);
+    setInviteEmail('');
+    setInviteLoading(false);
+  };
+
+  const handleInviteSubmit = async () => {
+    if (!inviteTarget || !inviteEmail) {
+      setInviteError('Please provide an email to send the invitation.');
+      return;
+    }
+    setInviteLoading(true);
+    setInviteError(null);
+    try {
+      const response = await athleteService.inviteAthlete(inviteTarget.id, inviteEmail);
+      const tokenFromResponse = response?.token || response?.invite?.token;
+      setInviteNotice(`Invitation sent to ${inviteEmail}.`);
+      setInviteLink(
+        tokenFromResponse && typeof window !== 'undefined'
+          ? `${window.location.origin}/invite/${tokenFromResponse}`
+          : null
+      );
+      invalidate();
+      closeInviteDialog();
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : 'Failed to send invitation.');
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  const handleCopyInviteLink = async () => {
+    if (!inviteLink || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(inviteLink);
+    toast.success('Invite link copied to clipboard');
+  };
+
+  const inviteBadgeFor = (athlete: RosterAthlete) => {
+    if (athlete.user) return { label: 'Accepted', variant: 'default' as const };
+    switch (athlete.invite?.status) {
+      case 'pending':
+        return { label: 'Invited', variant: 'outline' as const };
+      case 'accepted':
+        return { label: 'Accepted', variant: 'default' as const };
+      case 'expired':
+        return { label: 'Expired', variant: 'secondary' as const };
+      case 'revoked':
+        return { label: 'Revoked', variant: 'secondary' as const };
+      default:
+        return null;
+    }
+  };
+
+  const inviteButtonLabel = (athlete: RosterAthlete) => {
+    if (athlete.user) return 'Invite Sent';
+    if (athlete.invite?.status && athlete.invite.status !== 'not_invited') return 'Resend Invite';
+    return 'Invite';
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -171,6 +284,72 @@ const RosterPage: React.FC = () => {
             </CardDescription>
           </CardHeader>
         </Card>
+      )}
+
+      {isCoach && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <KeyRound className="h-5 w-5" />
+              Team Join Code
+            </CardTitle>
+            <CardDescription>
+              Generate a code athletes can use to join the team and claim their roster profile.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {joinCode ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                  <span className="font-mono text-lg font-semibold">{joinCode}</span>
+                  <Button size="sm" variant="outline" onClick={handleCopyJoinCode}>
+                    Copy Code
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Share this code with athletes so they can join the team and claim their profile.
+                </p>
+              </div>
+            ) : (
+              <Button onClick={handleGenerateJoinCode} disabled={isGeneratingCode}>
+                {isGeneratingCode ? 'Generating…' : 'Generate Join Code'}
+              </Button>
+            )}
+            {joinCodeError && (
+              <Alert variant="destructive" className="mt-3">
+                <AlertDescription>{joinCodeError}</AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {isCoach && <PendingClaimsCard onClaimProcessed={invalidate} />}
+
+      {inviteNotice && (
+        <Alert>
+          <div className="space-y-2">
+            <AlertDescription>{inviteNotice}</AlertDescription>
+            {inviteLink && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="break-all font-mono">{inviteLink}</span>
+                <Button size="sm" variant="outline" onClick={handleCopyInviteLink}>
+                  Copy Link
+                </Button>
+              </div>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setInviteNotice(null);
+                setInviteLink(null);
+              }}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </Alert>
       )}
 
       <div className="flex items-center gap-2">
@@ -230,7 +409,14 @@ const RosterPage: React.FC = () => {
                   className="flex flex-wrap items-center justify-between gap-3 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-medium">{athlete.name}</p>
+                    <p className="truncate font-medium flex items-center gap-2">
+                      <span>{athlete.name}</span>
+                      {inviteBadgeFor(athlete) && (
+                        <Badge variant={inviteBadgeFor(athlete)!.variant}>
+                          {inviteBadgeFor(athlete)!.label}
+                        </Badge>
+                      )}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {athlete.graduationYear ? `Class of ${athlete.graduationYear}` : 'No class year'}
                       {athlete.raceCount > 0 ? ` • ${athlete.raceCount} races in ${season}` : ''}
@@ -239,6 +425,19 @@ const RosterPage: React.FC = () => {
                   <div className="flex items-center gap-2">
                     {athlete.graduated && <Badge variant="secondary">Graduated</Badge>}
                     {!athlete.graduationYear && <Badge variant="outline">Needs class year</Badge>}
+                    {isCoach && !athlete.user && (
+                      <Button variant="outline" size="sm" onClick={() => openInviteDialog(athlete)}>
+                        <Mail className="mr-2 h-4 w-4" />
+                        {inviteButtonLabel(athlete)}
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate(teamAthletePath(athlete.id))}
+                    >
+                      View Profile
+                    </Button>
                     {athlete.onRoster && !athlete.graduated && (
                       <Button
                         variant="ghost"
@@ -334,6 +533,45 @@ const RosterPage: React.FC = () => {
             </Button>
             <Button onClick={() => startSeason.mutate()} disabled={startSeason.isPending}>
               {startSeason.isPending ? 'Starting…' : `Start ${nextSeason}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={inviteDialogOpen}
+        onOpenChange={(open) => (open ? setInviteDialogOpen(true) : closeInviteDialog())}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite {inviteTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Send an invitation so this athlete can access analytics, results, and their profile.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="invite-email">Athlete Email</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="runner@example.com"
+              />
+            </div>
+            {inviteError && (
+              <Alert variant="destructive">
+                <AlertDescription>{inviteError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={closeInviteDialog} disabled={inviteLoading}>
+              Cancel
+            </Button>
+            <Button onClick={handleInviteSubmit} disabled={inviteLoading}>
+              {inviteLoading ? 'Sending…' : 'Send Invite'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -13,7 +13,7 @@ const InviteAcceptPage: React.FC = () => {
   const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'requires_auth'>('loading');
   const [message, setMessage] = useState<string>('');
   const [athleteId, setAthleteId] = useState<string | null>(null);
-  const [teamId, setTeamId] = useState<string | null>(null);
+  const [athleticTeamId, setAthleticTeamId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleInviteAcceptance = async () => {
@@ -37,7 +37,7 @@ const InviteAcceptPage: React.FC = () => {
           setStatus('success');
           setMessage(response.msg as string);
           setAthleteId((response as { athleteId?: string }).athleteId || null);
-          setTeamId((response as { teamId?: string }).teamId || null);
+          setAthleticTeamId((response as { athleticTeamId?: string }).athleticTeamId || null);
         } else {
           setStatus('success');
           setMessage('Invitation accepted successfully!');
@@ -53,15 +53,12 @@ const InviteAcceptPage: React.FC = () => {
   }, [token, currentUser, acceptInvite]);
 
   const handleContinue = () => {
-    // NOTE: acceptInvite() in AuthProvider is currently a stub ("TODO:
-    // Implement invite acceptance logic") that never actually calls the
-    // backend, so athleteId/teamId below are always null and this branch is
-    // presently unreachable — that's a pre-existing gap, not part of the URL
-    // rework. Using currentUser's own team here rather than the (internal,
-    // unused) `teamId` from the invite response, since routes are keyed by
-    // athleticTeamId, not the database id.
-    if (athleteId && currentUser?.team?.athleticTeamId) {
-      navigate(`/t/${currentUser.team.athleticTeamId}/team/athlete/${athleteId}`);
+    // Prefer the athleticTeamId /athletes/accept-invite just returned over
+    // currentUser.team — the auth context refresh acceptInvite() kicks off
+    // is async and may not have landed yet the instant this runs.
+    const resolvedAthleticTeamId = athleticTeamId ?? currentUser?.team?.athleticTeamId;
+    if (athleteId && resolvedAthleticTeamId) {
+      navigate(`/t/${resolvedAthleticTeamId}/team/athlete/${athleteId}`);
     } else {
       navigate('/analytics'); // legacy redirect resolves this to the team-scoped path
     }

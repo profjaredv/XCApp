@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam } = require('../middleware/auth');
+const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
 const {
   resolveActiveSeason,
   deriveGrade,
@@ -61,9 +61,17 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
     const rosterById = new Map(rosterEntries.map((entry) => [entry.athleteId, entry]));
     const hasExplicitRoster = rosterEntries.length > 0;
 
+    // Invite status per athlete — lets the roster UI show "Invited" /
+    // "Accepted" without a separate request per row.
+    const invites = await prisma.athleteInvite.findMany({
+      where: { athleteId: { in: athletes.map((a) => a.id) } },
+    });
+    const inviteByAthleteId = new Map(invites.map((i) => [i.athleteId, i]));
+
     const enriched = athletes.map((a) => {
       const races = resultMap.get(a.id) || [];
       const rosterEntry = rosterById.get(a.id);
+      const invite = inviteByAthleteId.get(a.id);
       // Prefer the grade recorded on the roster (a coach may have corrected
       // it); otherwise derive it from the stable graduation year.
       const grade = rosterEntry?.grade ?? deriveGrade(a.graduationYear, seasonYear);
@@ -76,6 +84,12 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         onRoster: hasExplicitRoster
           ? Boolean(rosterEntry && rosterEntry.isActive)
           : races.length > 0 || isEnrolled(a.graduationYear, seasonYear),
+        // Truthy exactly when this roster row is linked to an account —
+        // matches the roster UI's `if (athlete.user)` check.
+        user: a.userId || undefined,
+        invite: invite
+          ? { status: invite.status, email: invite.email, sentAt: invite.createdAt, acceptedAt: invite.acceptedAt }
+          : undefined,
       };
     });
 
@@ -276,6 +290,109 @@ router.delete('/:athleteId', authenticate, requireTeam, async (req, res) => {
   } catch (error) {
     console.error('Error in DELETE /athletes/:athleteId:', error.message);
     res.status(500).json({ msg: 'Error deleting athlete' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Coach-initiated invite: unlike a claim (routes/team.js), the coach already
+// knows exactly which athlete this is, so accepting the token IS the
+// approval — no separate review step.
+// ---------------------------------------------------------------------------
+
+const INVITE_TTL_DAYS = 30;
+
+// POST /api/athletes/:athleteId/invite
+router.post('/:athleteId/invite', authenticate, requireTeam, requireCoach, async (req, res) => {
+  const { email } = req.body;
+  const teamId = req.user.teamId;
+
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ msg: 'A valid email is required.' });
+  }
+
+  try {
+    const athlete = await prisma.athlete.findFirst({ where: { id: req.params.athleteId, teamId } });
+    if (!athlete) {
+      return res.status(404).json({ msg: 'Athlete not found.' });
+    }
+    if (athlete.userId) {
+      return res.status(409).json({ msg: 'This athlete is already linked to an account.' });
+    }
+
+    const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+    // One invite per athlete — resending overwrites the token (a fresh link)
+    // rather than accumulating history.
+    const invite = await prisma.athleteInvite.upsert({
+      where: { athleteId: athlete.id },
+      update: { email, status: 'pending', expiresAt, acceptedAt: null },
+      create: { athleteId: athlete.id, teamId, email, expiresAt },
+    });
+
+    // No email service is wired up (see MIGRATION_STATUS.md) — the coach
+    // copies/sends this link themselves, same as the join code already works.
+    res.status(201).json({
+      msg: `Invite ready for ${athlete.name}.`,
+      token: invite.token,
+      invite: { token: invite.token, email: invite.email, expiresAt: invite.expiresAt },
+    });
+  } catch (error) {
+    console.error('Error creating invite:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/athletes/accept-invite
+// Authenticated: the token identifies the athlete; the session identifies
+// who is claiming them.
+router.post('/accept-invite', authenticate, async (req, res) => {
+  const { token } = req.body;
+  const userId = req.user.id;
+
+  if (!token) {
+    return res.status(400).json({ msg: 'Invite token is required.' });
+  }
+
+  try {
+    const invite = await prisma.athleteInvite.findUnique({
+      where: { token },
+      include: { athlete: true, team: true },
+    });
+
+    if (!invite || invite.status !== 'pending') {
+      return res.status(404).json({ msg: 'This invite is no longer valid.' });
+    }
+    if (invite.expiresAt < new Date()) {
+      return res.status(410).json({ msg: 'This invite has expired. Ask your coach to resend it.' });
+    }
+    if (invite.athlete.userId && invite.athlete.userId !== userId) {
+      return res.status(409).json({ msg: 'This athlete is already linked to a different account.' });
+    }
+
+    const [athlete] = await prisma.$transaction([
+      prisma.athlete.update({ where: { id: invite.athleteId }, data: { userId } }),
+      prisma.athleteInvite.update({
+        where: { id: invite.id },
+        data: { status: 'accepted', acceptedAt: new Date() },
+      }),
+      prisma.user.update({ where: { id: userId }, data: { teamId: invite.teamId } }),
+      prisma.teamMember.upsert({
+        where: { teamId_userId: { teamId: invite.teamId, userId } },
+        update: {},
+        create: { teamId: invite.teamId, userId, role: 'athlete' },
+      }),
+    ]);
+
+    res.json({
+      msg: `Welcome to ${invite.team.name}!`,
+      athleteId: athlete.id,
+      athleteName: athlete.name,
+      teamId: invite.teamId,
+      athleticTeamId: invite.team.athleticTeamId,
+    });
+  } catch (error) {
+    console.error('Error accepting invite:', error.message);
+    res.status(500).json({ msg: 'Server error' });
   }
 });
 

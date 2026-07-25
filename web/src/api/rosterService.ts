@@ -1,5 +1,7 @@
 import api from './api';
 
+export type InviteStatus = 'not_invited' | 'pending' | 'accepted' | 'expired' | 'revoked';
+
 export interface RosterAthlete {
   id: string;
   name: string;
@@ -10,6 +12,14 @@ export interface RosterAthlete {
   raceCount: number;
   graduated: boolean;
   onRoster: boolean;
+  /** Set once this row is linked to a Neon Auth account (accepted invite or approved claim). */
+  user?: string;
+  invite?: {
+    status: InviteStatus;
+    email?: string;
+    sentAt?: string;
+    acceptedAt?: string;
+  };
 }
 
 export interface StartSeasonResult {

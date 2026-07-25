@@ -84,42 +84,9 @@ router.get('/current', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-// POST /api/teams/join
-router.post('/join', authenticate, async (req, res) => {
-  const { joinCode } = req.body;
-  const userId = req.user.id;
-
-  if (!joinCode) {
-    return res.status(400).json({ message: 'Join code is required.' });
-  }
-
-  try {
-    const team = await prisma.team.findUnique({ where: { joinCode } });
-    if (!team) {
-      return res.status(404).json({ message: 'Team not found for this join code.' });
-    }
-
-    await prisma.teamMember.upsert({
-      where: { teamId_userId: { teamId: team.id, userId } },
-      update: {},
-      create: { teamId: team.id, userId, role: 'athlete' },
-    });
-
-    await prisma.user.update({ where: { id: userId }, data: { teamId: team.id } });
-
-    const updatedUser = await prisma.user.findUnique({ where: { id: userId }, include: { team: true } });
-
-    res.status(200).json({
-      success: true,
-      message: `Successfully joined team: ${team.name}`,
-      user: updatedUser,
-      team,
-    });
-  } catch (error) {
-    console.error('Error joining team:', error.message);
-    res.status(500).json({ message: 'Internal Server Error' });
-  }
-});
+// Team-join-by-code lives at POST /api/team/join (routes/team.js, singular
+// mount) — that's the endpoint the frontend has always called. This was a
+// second, divergent implementation at the plural path nothing ever reached.
 
 // POST /api/teams/scrape
 // Scrapes Athletic.net for the CALLER'S OWN team (requireOwnTeam — the

@@ -1,6 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom';
 import App from '../App';
-import { LoginPage, RegisterPage, OnboardingPage, TeamPage, ProfilePage, AnalyticsPage, InviteAcceptPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage } from '../pages';
+import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage } from '../pages';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
@@ -72,7 +72,9 @@ export const router = createBrowserRouter([
           { path: '/analytics', element: <LegacyRedirect toSubpath="/analytics" /> },
           { path: '/dashboard', element: <LegacyRedirect toSubpath="/analytics" /> },
           { path: '/enhanced-analytics', element: <LegacyRedirect toSubpath="/analytics" /> },
-          { path: '/team', element: <LegacyRedirect toSubpath="/team" /> },
+          // '/team' (bare roster listing) was merged into '/roster'; only
+          // 'team/athlete/:id' still lives under the 'team' subpath.
+          { path: '/team', element: <LegacyRedirect toSubpath="/roster" /> },
           { path: '/roster', element: <LegacyRedirect toSubpath="/roster" /> },
           { path: '/results-grid', element: <LegacyRedirect toSubpath="/results-grid" /> },
           { path: '/tools', element: <LegacyRedirect toSubpath="/tools" /> },
@@ -110,10 +112,6 @@ export const router = createBrowserRouter([
                   {
                     path: 'analytics',
                     element: <AnalyticsPage />,
-                  },
-                  {
-                    path: 'team',
-                    element: <TeamPage />,
                   },
                   {
                     path: 'roster',
