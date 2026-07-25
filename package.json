@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "cd web && npm install && npm run build",
-    "start": "npm --prefix backend start",
+    "start": "npm --prefix backend run prisma:deploy && npm --prefix backend start",
     "dev": "concurrently \"cd backend && npm run dev\" \"cd web && npm run dev\"",
     "install-all": "cd backend && npm install && cd ../web && npm install"
   },

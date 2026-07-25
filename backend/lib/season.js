@@ -76,19 +76,24 @@ async function resolveActiveSeason(teamId, requestedSeason) {
   const explicit = parseInt(requestedSeason, 10);
   if (Number.isFinite(explicit)) return explicit;
 
-  const team = await prisma.team.findUnique({
-    where: { id: teamId },
-    select: { currentSeason: true },
-  });
-  if (Number.isFinite(team?.currentSeason)) return team.currentSeason;
+  const [team, activeSeasonRow, seasonsWithData] = await Promise.all([
+    prisma.team.findUnique({ where: { id: teamId }, select: { currentSeason: true } }),
+    prisma.season.findFirst({ where: { teamId, isActive: true }, select: { year: true } }),
+    listSeasonsWithData(teamId),
+  ]);
 
-  const activeSeasonRow = await prisma.season.findFirst({
-    where: { teamId, isActive: true },
-    select: { year: true },
-  });
-  if (Number.isFinite(activeSeasonRow?.year)) return activeSeasonRow.year;
+  const [latestWithData] = seasonsWithData;
 
-  const [latestWithData] = await listSeasonsWithData(teamId);
+  // Invariant: a team cannot be "on" a season older than its newest results.
+  // Importing a back season used to drag the whole app backwards — import
+  // 2025, then 2024, and every screen started defaulting to 2024. Current
+  // season means "the season this team is running", so it can legitimately be
+  // ahead of the data (a preseason), but never behind it.
+  const notBehindData = (year) =>
+    Number.isFinite(latestWithData) ? Math.max(year, latestWithData) : year;
+
+  if (Number.isFinite(team?.currentSeason)) return notBehindData(team.currentSeason);
+  if (Number.isFinite(activeSeasonRow?.year)) return notBehindData(activeSeasonRow.year);
   if (Number.isFinite(latestWithData)) return latestWithData;
 
   return currentCalendarSeason();

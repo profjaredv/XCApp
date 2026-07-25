@@ -10,7 +10,12 @@ import { NeonAuthUIProvider } from '@neondatabase/neon-js/auth/react/ui';
 import { authClient } from './lib/auth';
 import { router } from './router';
 import { AuthProvider } from './components/AuthProvider';
+import { installErrorBuffer } from './lib/errorBuffer';
 import './index.css';
+
+// Start capturing console errors before anything renders, so a crash during
+// initial mount is still attached to any feedback filed afterwards.
+installErrorBuffer();
 
 const queryClient = new QueryClient();
 

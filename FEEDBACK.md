@@ -1,5 +1,12 @@
 # Feedback log
 
+> **There is now an in-app feedback button** (bottom-right, every screen). It
+> attaches the screen, the season you're viewing and any recent console errors
+> automatically. Prefer it over this file — then open **Feedback** in the
+> sidebar and hit "Copy as markdown" to hand the whole batch over at once.
+>
+> This file stays useful for notes taken away from the app.
+
 Dump observations here as you click through the app. Organised by screen —
 that's how you'll actually encounter problems.
 

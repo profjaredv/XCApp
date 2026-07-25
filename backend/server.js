@@ -6,6 +6,22 @@ if (process.env.NODE_ENV !== 'production') {
 const express = require('express');
 const cors = require('cors');
 
+// Fail fast on missing configuration rather than booting "healthy" and then
+// throwing on every request that touches the database. A missing DATABASE_URL
+// previously produced a server that logged "running on port 8080" and then
+// 500'd every single API call, with the real cause buried in a Prisma stack
+// trace — the logs said the app was fine while nothing worked.
+const REQUIRED_ENV = ['DATABASE_URL', 'NEON_AUTH_JWKS_URL'];
+const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
+if (missingEnv.length > 0) {
+    console.error(
+        `CRITICAL: missing required environment variable(s): ${missingEnv.join(', ')}.\n` +
+        'Set them on the service (Railway → Variables) and redeploy. ' +
+        'Refusing to start, because every database-backed request would fail at runtime.'
+    );
+    process.exit(1);
+}
+
 const main = async () => {
     console.log('Using Neon (Postgres via Prisma) for database operations.');
 
@@ -47,6 +63,7 @@ const main = async () => {
     const splitsRoutes = require('./routes/splits');
     const meetGroupsRoutes = require('./routes/meetGroups');
     const coachesToolsRoutes = require('./routes/coachesTools');
+    const feedbackRoutes = require('./routes/feedback');
 
 
     app.get('/api', (req, res) => {
@@ -72,6 +89,7 @@ const main = async () => {
     app.use('/api/splits', splitsRoutes);
     app.use('/api/meet-groups', meetGroupsRoutes);
     app.use('/api/coaches-tools', coachesToolsRoutes);
+    app.use('/api/feedback', feedbackRoutes);
     
     // Enhanced performance routes
     const enhancedPerformanceRoutes = require('./routes/enhancedPerformanceRoutes');

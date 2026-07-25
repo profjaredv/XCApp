@@ -321,17 +321,20 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
           });
         }
 
-        // Point the team at the season it just imported unless the coach is
-        // already looking at a newer one. Without this, importing 2025 in
-        // calendar 2026 left every default view pointed at an empty 2026.
-        const shouldAdvance =
-          !Number.isFinite(team.currentSeason) || team.currentSeason < yearNum;
+        // Advance the team to the newest season it now has data for — not
+        // simply the season just imported. Backfilling an older year must not
+        // drag the team backwards: importing 2025 and then 2024 previously
+        // left "current season" sitting on 2024.
+        const newestWithData = Math.max(...updatedSeasons);
+        const nextCurrentSeason = Number.isFinite(team.currentSeason)
+          ? Math.max(team.currentSeason, newestWithData)
+          : newestWithData;
 
         await prisma.team.update({
           where: { id: team.id },
           data: {
             importedSeasons: updatedSeasons,
-            ...(shouldAdvance ? { currentSeason: yearNum } : {}),
+            currentSeason: nextCurrentSeason,
           },
         });
 

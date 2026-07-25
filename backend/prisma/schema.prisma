@@ -362,3 +362,46 @@ model MeetPerformanceMetrics {
   @@index([raceId])
   @@map("meet_performance_metrics")
 }
+
+// ---------------------------------------------------------------------------
+// Product feedback
+//
+// Captured in-app rather than out-of-band: the context that makes a report
+// actionable (which screen, which season, what the console said) is exactly
+// the context a person is least likely to write down by hand.
+//
+// Deliberately not linked by foreign key to User/Team — feedback must survive
+// the thing it is about being deleted, and a report about a broken team should
+// not disappear when that team is cleaned up.
+// ---------------------------------------------------------------------------
+model Feedback {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamId    String?  @map("team_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  userEmail String?  @map("user_email")
+  userRole  String?  @map("user_role")
+
+  /// Route the reporter was on, e.g. "/analytics"
+  route     String
+  /// Human label for that route, e.g. "Analytics — Dashboard"
+  screen    String?
+  /// Season selected at the time; a lot of bugs are season-dependent.
+  season    Int?
+
+  /// blocker | bug | polish | idea
+  severity  String   @default("bug")
+  message   String
+  /// Console errors, viewport, user agent — auto-captured.
+  context   Json?
+
+  /// open | triaged | fixed | wontfix
+  status    String   @default("open")
+  notes     String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([teamId])
+  @@index([status])
+  @@map("feedback")
+}
