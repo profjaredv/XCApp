@@ -9,6 +9,10 @@ import { SeasonModeSelector, SeasonMode } from '@/components/SeasonModeSelector'
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
 import { formatDateShort } from '@/lib/formatUtils';
 import type { Athlete, Race, AthleteSeasonData } from '@/types/analytics';
+import { useAuth } from '@/contexts/AuthContext';
+import { useTeamPath } from '@/hooks/useTeamRoute';
+import { useCurrentSeason } from '@/hooks/useCurrentSeason';
+import { useQueryParamNumber } from '@/hooks/useQueryState';
 
 interface RaceData {
   name: string;
@@ -34,9 +38,18 @@ interface SeasonBreakdown {
 }
 
 const TeamAthleteProfilePage = () => {
-  const { teamId, athleteId } = useParams<{ teamId: string; athleteId: string }>();
+  // The route no longer carries a :teamId param — the team is identified once,
+  // higher up, by :athleticTeamId (see router/index.tsx). The internal team
+  // UUID some hooks below still need comes from the signed-in user's own team.
+  const { athleteId } = useParams<{ athleteId: string }>();
+  const { currentUser } = useAuth();
+  const teamId = currentUser?.team?.id;
   const navigate = useNavigate();
-  const [selectedSeason, setSelectedSeason] = useState<number>(new Date().getFullYear());
+  const teamPath = useTeamPath();
+  const defaultSeason = useCurrentSeason();
+  const [seasonParam, setSeasonParam] = useQueryParamNumber('season');
+  const selectedSeason = seasonParam ?? defaultSeason;
+  const setSelectedSeason = setSeasonParam;
   const [seasonMode, setSeasonMode] = useState<'current' | 'all' | 'custom'>('current');
 
   const handleSeasonModeChange = (newMode: 'current' | 'all' | 'historical') => {
@@ -123,7 +136,7 @@ const TeamAthleteProfilePage = () => {
   
   // Handle back button
   const handleBack = () => {
-    navigate(`/team`);
+    navigate(teamPath('/team'));
   };
   
   if (isLoadingAthlete || !enhancedAthlete) {

@@ -53,10 +53,17 @@ const InviteAcceptPage: React.FC = () => {
   }, [token, currentUser, acceptInvite]);
 
   const handleContinue = () => {
-    if (athleteId && teamId) {
-      navigate(`/team/${teamId}/athlete/${athleteId}`);
+    // NOTE: acceptInvite() in AuthProvider is currently a stub ("TODO:
+    // Implement invite acceptance logic") that never actually calls the
+    // backend, so athleteId/teamId below are always null and this branch is
+    // presently unreachable — that's a pre-existing gap, not part of the URL
+    // rework. Using currentUser's own team here rather than the (internal,
+    // unused) `teamId` from the invite response, since routes are keyed by
+    // athleticTeamId, not the database id.
+    if (athleteId && currentUser?.team?.athleticTeamId) {
+      navigate(`/t/${currentUser.team.athleticTeamId}/team/athlete/${athleteId}`);
     } else {
-      navigate('/analytics');
+      navigate('/analytics'); // legacy redirect resolves this to the team-scoped path
     }
   };
 

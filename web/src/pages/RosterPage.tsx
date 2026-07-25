@@ -26,6 +26,7 @@ import { rosterService, type RosterAthlete } from '@/api/rosterService';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { gradeLabel } from '@/lib/seasonUtils';
+import { useQueryParamNumber } from '@/hooks/useQueryState';
 
 // The roster is the thing a coach actually manages day to day: who is on the
 // team this season, what grade they're in, who just graduated. Before this
@@ -37,7 +38,7 @@ const RosterPage: React.FC = () => {
   const { data: context } = useTeamContext();
   const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
 
-  const [seasonOverride, setSeasonOverride] = useState<number | undefined>();
+  const [seasonOverride, setSeasonOverride] = useQueryParamNumber('season');
   const season = seasonOverride ?? context?.activeSeason;
 
   const [showGraduated, setShowGraduated] = useState(false);

@@ -23,9 +23,10 @@ import { AuthContext } from '@/contexts/AuthContext';
 import { DistanceAnalysisTab } from '@/components/analytics/DistanceAnalysisTab';
 import { RaceComparisonTab } from '@/components/analytics/RaceComparisonTab';
 import { useEnhancedTeamMetrics } from '@/hooks/useEnhancedAnalytics';
-import { useTeamURLState } from '@/hooks/useURLState';
+import { useQueryParam, useQueryParamNumber } from '@/hooks/useQueryState';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { SetupChecklist } from '@/components/SetupChecklist';
+import { currentCalendarSeason } from '@/lib/seasonUtils';
 
 const gradeBorderColors: Record<number, string> = {
   9: 'border-blue-800',
@@ -76,24 +77,18 @@ const AnalyticsPage = () => {
   const currentUser = authContext?.currentUser;
   const teamId = currentUser?.team?.id || (currentUser as unknown as { team_id?: string })?.team_id;
 
-  // URL state for navigation only (tab, season, seasonMode, selectedAthleteId)
-  const { state: urlState, setValue } = useTeamURLState<{
-    tab: string;
-    season?: number;
-    seasonMode: SeasonMode;
-    selectedAthleteId?: string;
-  }>(teamId, {
-    defaultValues: {
-      tab: 'dashboard',
-      seasonMode: 'current'
-    }
-  });
-
-  // Extract navigation state from URL
-  const [activeTab, setActiveTab] = useState(urlState.tab);
-  const [seasonMode, setSeasonMode] = useState<SeasonMode>(urlState.seasonMode);
-  const [selectedSeason, setSelectedSeason] = useState<number | undefined>(urlState.season);
-  const urlSelectedAthleteId = urlState.selectedAthleteId;
+  // Tab/season/athlete selection live directly in the URL — plain params
+  // (?tab=athletes&season=2025&athlete=abc123), not local state mirrored
+  // into a namespaced, JSON-quoted param keyed by the internal team UUID
+  // (the old useTeamURLState). That older scheme re-keyed itself the moment
+  // teamId resolved from undefined to a real value, which reset whatever
+  // was in the URL — a real cause of state feeling like it didn't persist.
+  const [tabParam, setTabParam] = useQueryParam('tab');
+  const activeTab = tabParam ?? 'dashboard';
+  const [seasonModeParam, setSeasonModeParam] = useQueryParam('seasonMode');
+  const seasonMode = (seasonModeParam as SeasonMode | undefined) ?? 'current';
+  const [selectedSeason, setSelectedSeasonParam] = useQueryParamNumber('season');
+  const [urlSelectedAthleteId, setUrlSelectedAthleteId] = useQueryParam('athlete');
 
   const { data: analyticsData, isLoading, error, refetch } = useAnalyticsData(selectedSeason);
 
@@ -105,19 +100,6 @@ const AnalyticsPage = () => {
   const { data: multiSeasonTrendsData, isLoading: isLoadingMultiSeasonTrends } = useMultiSeasonTrends(teamId || '', seasonMode === 'historical' ? selectedSeason : undefined);
   const { data: enhancedTeamMetrics, isLoading: isLoadingEnhanced } = useEnhancedTeamMetrics(teamId || '', (selectedSeason ?? activeSeason)?.toString() ?? '');
   const { data: seasonSeriesData } = useTeamSeasonSeries(teamId, selectedSeason ? selectedSeason.toString() : undefined);
-
-  // Sync URL state with local state
-  useEffect(() => {
-    setActiveTab(urlState.tab);
-  }, [urlState.tab]);
-
-  useEffect(() => {
-    setSeasonMode(urlState.seasonMode);
-  }, [urlState.seasonMode]);
-
-  useEffect(() => {
-    setSelectedSeason(urlState.season);
-  }, [urlState.season]);
 
   useEffect(() => {
     if (urlSelectedAthleteId) {
@@ -137,8 +119,7 @@ const AnalyticsPage = () => {
 
     if (seasonMode === 'current') {
       if (selectedSeason !== activeSeason) {
-        setSelectedSeason(activeSeason);
-        setValue('season', activeSeason);
+        setSelectedSeasonParam(activeSeason);
       }
     } else if (seasonMode === 'historical' && availableSeasons.length > 0 && !selectedSeason) {
       const defaultSeason =
@@ -146,11 +127,10 @@ const AnalyticsPage = () => {
         availableSeasons.find((s) => s.hasData)?.year ??
         availableSeasons[0]?.year;
       if (defaultSeason) {
-        setSelectedSeason(defaultSeason);
-        setValue('season', defaultSeason);
+        setSelectedSeasonParam(defaultSeason);
       }
     }
-  }, [seasonMode, availableSeasons, selectedSeason, setValue, activeSeason]);
+  }, [seasonMode, availableSeasons, selectedSeason, setSelectedSeasonParam, activeSeason]);
 
   const { toast } = useToast();
   const invalidatePerf = useInvalidatePerformanceCache();
@@ -203,7 +183,7 @@ const AnalyticsPage = () => {
     }
     try {
       setIsRecalculating(true);
-      await performanceService.recalculateMetrics(teamId, selectedSeason || new Date().getFullYear());
+      await performanceService.recalculateMetrics(teamId, selectedSeason ?? activeSeason ?? currentCalendarSeason());
       await new Promise((r) => setTimeout(r, 750));
       invalidatePerf.invalidateAll();
       await refetch();
@@ -230,36 +210,32 @@ const AnalyticsPage = () => {
     }
   }, [refetch, toast]);
 
-  const seasonDisplay = `${selectedSeason} Cross Country${selectedSeason === new Date().getFullYear() ? ' (Current)' : ''}`;
+  const seasonDisplay = `${selectedSeason} Cross Country${selectedSeason === activeSeason ? ' (Current)' : ''}`;
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value);
   const handleGenderFilterChange = (value: 'all' | 'M' | 'F') => setGenderFilter(value);
   const handleGradeFilterChange = (value: string) => setGradeFilter(value);
 
   const handleSeasonModeChange = useCallback((newMode: SeasonMode) => {
-    setSeasonMode(newMode);
-    setValue('seasonMode', newMode);
-    setSelectedSeason(undefined);
-    setValue('season', undefined);
+    setSeasonModeParam(newMode);
+    setSelectedSeasonParam(undefined);
     if (newMode === 'historical' && (!availableSeasons || availableSeasons.length === 0)) {
       refetchSeasons();
     }
-  }, [availableSeasons, refetchSeasons, setValue]);
+  }, [availableSeasons, refetchSeasons, setSeasonModeParam, setSelectedSeasonParam]);
 
   const handleTabChange = useCallback((tab: string) => {
-    setActiveTab(tab);
-    setValue('tab', tab);
-  }, [setValue]);
+    setTabParam(tab);
+  }, [setTabParam]);
 
   const handleSeasonChange = useCallback((season: number | undefined) => {
-    setSelectedSeason(season);
-    setValue('season', season);
-  }, [setValue]);
+    setSelectedSeasonParam(season);
+  }, [setSelectedSeasonParam]);
 
   const handleAthleteSelect = useCallback((athlete: Athlete | null) => {
     setSelectedAthlete(athlete);
-    setValue('selectedAthleteId', athlete?.id);
-  }, [setValue]);
+    setUrlSelectedAthleteId(athlete?.id);
+  }, [setUrlSelectedAthleteId]);
 
   type EnhancedAthlete = Athlete & {
     bestTimeDate?: string;

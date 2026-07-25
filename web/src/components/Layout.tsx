@@ -4,6 +4,7 @@ import { ChevronLeft, Users, Settings, LogOut, User as UserIcon, Menu, Home, Bar
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { FeedbackWidget } from './FeedbackWidget';
+import { useTeamPath } from '../hooks/useTeamRoute';
 
 interface SidebarProps {
   isMobileOpen: boolean;
@@ -20,6 +21,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
     }
   };
   const { currentUser } = useAuth();
+  const teamPath = useTeamPath();
 
   const handleLogout = () => {
     authClient.signOut();
@@ -49,29 +51,29 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
       </div>
 
       <nav className="mt-2 flex-1 px-3 space-y-1">
-        <NavLink to="/analytics" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
+        <NavLink to={teamPath('/analytics')} onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
           <Home className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
           {!isCollapsed && <span className="text-sm">Analytics</span>}
         </NavLink>
-        <NavLink to="/roster" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
+        <NavLink to={teamPath('/roster')} onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
           <ClipboardList className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
           {!isCollapsed && <span className="text-sm">Roster</span>}
         </NavLink>
-        <NavLink to="/team" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
+        <NavLink to={teamPath('/team')} onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
           <Users className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
           {!isCollapsed && <span className="text-sm">My Team</span>}
         </NavLink>
-        <NavLink to="/results-grid" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
+        <NavLink to={teamPath('/results-grid')} onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
           <BarChart2 className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
           {!isCollapsed && <span className="text-sm">Results Grid</span>}
         </NavLink>
-        <NavLink to="/tools" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
+        <NavLink to={teamPath('/tools')} onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
           <BarChart2 className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
           {!isCollapsed && <span className="text-sm">Tools</span>}
         </NavLink>
         {currentUser?.role === 'coach' && (
           <>
-            <NavLink to="/coaches-tools" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-accent/15 to-accent/5 text-accent-foreground shadow-sm'}`}>
+            <NavLink to={teamPath('/coaches-tools')} onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-accent/15 to-accent/5 text-accent-foreground shadow-sm'}`}>
               <Sparkles className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
               {!isCollapsed && <span className="text-sm">Coaches Tools</span>}
             </NavLink>
@@ -80,11 +82,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
               <Upload className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
               {!isCollapsed && <span className="text-sm">Import Data</span>}
             </NavLink> */}
-            <NavLink to="/feedback" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
+            <NavLink to={teamPath('/feedback')} onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
               <MessageSquare className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
               {!isCollapsed && <span className="text-sm">Feedback</span>}
             </NavLink>
-            <NavLink to="/data-management" onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
+            <NavLink to={teamPath('/data-management')} onClick={handleLinkClick} className={({ isActive }) => `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`}>
               <Database className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2.5} />
               {!isCollapsed && <span className="text-sm">Data Management</span>}
             </NavLink>
@@ -108,7 +110,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
           <UserIcon className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2} />
           {!isCollapsed && <span className="ml-3 text-sm font-medium">Profile</span>}
         </Link>
-        <Link to="/settings" onClick={handleLinkClick} className="flex items-center w-full px-4 py-2.5 text-slate-600 hover:bg-slate-50 transition-colors">
+        <Link to={teamPath('/settings')} onClick={handleLinkClick} className="flex items-center w-full px-4 py-2.5 text-slate-600 hover:bg-slate-50 transition-colors">
           <Settings className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2} />
           {!isCollapsed && <span className="ml-3 text-sm font-medium">Settings</span>}
         </Link>

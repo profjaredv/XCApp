@@ -2,6 +2,7 @@ import React from 'react';
 import { Athlete } from '../../types/analytics';
 import { formatTime, formatPace } from '../../lib/utils';
 import { useNavigate } from 'react-router-dom';
+import { useTeamPath } from '../../hooks/useTeamRoute';
 
 interface AthleteCardProps {
   athlete: Athlete;
@@ -9,9 +10,10 @@ interface AthleteCardProps {
 
 export const AthleteCard: React.FC<AthleteCardProps> = ({ athlete }) => {
   const navigate = useNavigate();
+  const teamPath = useTeamPath();
 
   const handleClick = () => {
-    navigate(`/athlete/${athlete.id}`);
+    navigate(teamPath(`/athlete/${athlete.id}`));
   };
 
   return (

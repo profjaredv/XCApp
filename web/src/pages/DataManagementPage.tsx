@@ -7,6 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { useToast } from "../components/ui/use-toast";
 import { useTeam } from '../hooks/useTeam';
 import { useAuth } from '../contexts/AuthContext';
+import { useTeamPath } from '../hooks/useTeamRoute';
+import { useCurrentSeason } from '../hooks/useCurrentSeason';
+import { useQueryParam } from '../hooks/useQueryState';
 import { ClearDataPanel } from '../components/data-management/ClearDataPanel';
 import { ImportDataPanel } from '../components/data-management/ImportDataPanel';
 import { EnhancedCalculateMetricsPanel } from '../components/data-management/EnhancedCalculateMetricsPanel';
@@ -21,10 +24,17 @@ enum DataManagementStep {
 export function DataManagementPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const teamPath = useTeamPath();
   const { currentTeam } = useTeam();
   const { currentUser } = useAuth();
   const [activeStep, setActiveStep] = useState<DataManagementStep>(DataManagementStep.CLEAR);
-  const [selectedSeason, setSelectedSeason] = useState<string>(new Date().getFullYear().toString());
+  // Defaults to the team's actual active season (accounts for imported data),
+  // not the calendar year, and persists across refresh/back via the URL
+  // instead of resetting every time this page mounts.
+  const defaultSeason = useCurrentSeason();
+  const [seasonParam, setSeasonParam] = useQueryParam('season');
+  const selectedSeason = seasonParam ?? String(defaultSeason);
+  const setSelectedSeason = setSeasonParam;
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [completedSteps, setCompletedSteps] = useState<Set<DataManagementStep>>(new Set());
 
@@ -95,7 +105,10 @@ export function DataManagementPage() {
             <CardDescription>Please select a team to manage data.</CardDescription>
           </CardHeader>
           <CardFooter>
-            <Button onClick={() => navigate('/teams')}>Go to Teams</Button>
+            {/* /teams was never a real route — there is no team switcher,
+                each user has exactly one team, so the only path forward
+                without one is onboarding. */}
+            <Button onClick={() => navigate('/onboarding')}>Set Up a Team</Button>
           </CardFooter>
         </Card>
       </div>
@@ -179,9 +192,9 @@ export function DataManagementPage() {
       </Tabs>
       
       <div className="mt-6 flex justify-between">
-        <Button 
-          variant="outline" 
-          onClick={() => navigate('/dashboard')}
+        <Button
+          variant="outline"
+          onClick={() => navigate(teamPath('/analytics'))}
           disabled={isProcessing}
         >
           Back to Dashboard

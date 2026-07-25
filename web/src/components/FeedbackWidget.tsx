@@ -54,11 +54,18 @@ const SCREEN_NAMES: Record<string, string> = {
   '/feedback': 'Feedback Review',
 };
 
+// Team-scoped routes look like /t/12345/analytics — strip that prefix before
+// matching against SCREEN_NAMES so the report reads "Analytics", not the raw
+// path (which also embeds a value, the Athletic.net team ID, worth keeping
+// out of a report title).
+const TEAM_PREFIX = /^\/t\/[^/]+/;
+
 function screenNameFor(pathname: string): string {
-  if (SCREEN_NAMES[pathname]) return SCREEN_NAMES[pathname];
-  if (pathname.startsWith('/athlete/')) return 'Athlete Profile';
-  if (pathname.includes('/athlete/')) return 'Team Athlete Profile';
-  return pathname;
+  const normalized = pathname.replace(TEAM_PREFIX, '') || '/';
+  if (SCREEN_NAMES[normalized]) return SCREEN_NAMES[normalized];
+  if (normalized.startsWith('/athlete/')) return 'Athlete Profile';
+  if (normalized.includes('/athlete/')) return 'Team Athlete Profile';
+  return normalized;
 }
 
 export const FeedbackWidget: React.FC = () => {

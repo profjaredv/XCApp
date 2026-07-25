@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
 import { teamService } from '@/api/teamService';
+import { useQueryParamNumber } from '@/hooks/useQueryState';
 
 interface GridData {
   races: string[];
@@ -36,7 +37,7 @@ const ResultsGridPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [seasons, setSeasons] = useState<number[]>([]);
-  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const [selectedSeason, setSelectedSeason] = useQueryParamNumber('season');
   const [selectedGrades, setSelectedGrades] = useState<Set<number>>(new Set());
   const [selectedGenders, setSelectedGenders] = useState<Set<string>>(new Set(['M', 'F']));
   const [sortField, setSortField] = useState<SortField>(null);

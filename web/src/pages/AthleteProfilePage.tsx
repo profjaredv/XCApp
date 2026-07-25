@@ -6,11 +6,16 @@ import { useAthletePerformance } from '@/hooks/usePerformanceMetrics';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeasonModeSelector, SeasonMode } from '@/components/SeasonModeSelector';
 import type { Athlete, Race, AthleteSeasonData } from '@/types/analytics';
+import { useCurrentSeason } from '@/hooks/useCurrentSeason';
+import { useQueryParamNumber } from '@/hooks/useQueryState';
 
 const AthleteProfilePage = () => {
   const { athleteId } = useParams<{ athleteId: string }>();
   const navigate = useNavigate();
-  const [selectedSeason, setSelectedSeason] = useState<number>(new Date().getFullYear());
+  const defaultSeason = useCurrentSeason();
+  const [seasonParam, setSeasonParam] = useQueryParamNumber('season');
+  const selectedSeason = seasonParam ?? defaultSeason;
+  const setSelectedSeason = setSeasonParam;
   const [seasonMode, setSeasonMode] = useState<'current' | 'all' | 'custom'>('current');
 
   const handleSeasonModeChange = (newMode: 'current' | 'all' | 'historical') => {

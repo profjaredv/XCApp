@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, Circle, ArrowRight } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 
 // Shown instead of a wall of empty charts while a team is still being set up.
 // The app previously had no concept of "not set up yet", so a brand-new coach
@@ -19,6 +20,7 @@ interface Step {
 
 export const SetupChecklist: React.FC = () => {
   const { data: context, isLoading } = useTeamContext();
+  const teamPath = useTeamPath();
 
   if (isLoading || !context) return null;
 
@@ -27,21 +29,21 @@ export const SetupChecklist: React.FC = () => {
       label: 'Connect your Athletic.net team',
       description: 'Lets the app import your race results automatically.',
       done: context.setup.hasAthleticTeamId,
-      href: '/settings',
+      href: teamPath('/settings'),
       cta: 'Open settings',
     },
     {
       label: 'Build your roster',
       description: 'Add athletes by hand, or let an import create them for you.',
       done: context.setup.hasRoster,
-      href: '/roster',
+      href: teamPath('/roster'),
       cta: 'Manage roster',
     },
     {
       label: 'Import a season',
       description: 'Pull in results to unlock analytics, PRs and trends.',
       done: context.setup.hasResults,
-      href: '/data-management',
+      href: teamPath('/data-management'),
       cta: 'Import results',
     },
   ];

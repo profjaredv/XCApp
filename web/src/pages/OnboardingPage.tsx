@@ -33,7 +33,12 @@ const OnboardingPage: React.FC = () => {
       );
 
       if (response.data.success) {
-        navigate('/analytics');
+        // Navigate straight off this response rather than the legacy /analytics
+        // redirect (which reads currentUser.team from auth context) — that
+        // context may not have re-synced yet the instant after joining, which
+        // would bounce back to /onboarding instead of forward.
+        const athleticTeamId = response.data.user?.team?.athleticTeamId;
+        navigate(athleticTeamId ? `/t/${athleticTeamId}/analytics` : '/onboarding');
       } else {
         throw new Error(response.data.message || 'Failed to join team');
       }
@@ -67,7 +72,10 @@ const OnboardingPage: React.FC = () => {
       );
 
       if (response.data.success) {
-        navigate('/analytics');
+        // Prefer the server's echoed value over the local form field, same
+        // reasoning as handleJoinTeam above.
+        const createdAthleticTeamId = response.data.team?.athleticTeamId ?? athleticTeamId;
+        navigate(`/t/${createdAthleticTeamId}/analytics`);
       } else {
         throw new Error(response.data.message || 'Failed to create team');
       }

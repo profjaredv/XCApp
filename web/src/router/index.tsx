@@ -14,6 +14,8 @@ import RaceVisualizationPage from '../pages/RaceVisualizationPage';
 import LandingPage from '../pages/LandingPage';
 // Enhanced analytics now integrated into main analytics page
 import ProtectedRoute from './ProtectedRoute';
+import TeamRouteGuard from './TeamRouteGuard';
+import LegacyRedirect from './LegacyRedirect';
 import Layout from '../components/Layout';
 
 export const router = createBrowserRouter([
@@ -35,6 +37,7 @@ export const router = createBrowserRouter([
         path: '/register',
         element: <RegisterPage />,
       },
+      // Not team-scoped: reachable before a coach has (or knows) a team.
       {
         path: '/onboarding',
         element: <OnboardingPage />,
@@ -55,75 +58,100 @@ export const router = createBrowserRouter([
       {
         element: <ProtectedRoute />,
         children: [
-          // Race visualization - standalone without Layout (no sidebar)
+          // Identity-level, not team data — deliberately outside /t/:athleticTeamId.
           {
-            path: '/race-visualization',
-            element: <RaceVisualizationPage />,
+            path: '/profile',
+            element: <ProfilePage />,
           },
-          // All other routes with Layout (sidebar)
           {
-            element: <Layout />,
+            path: '/upgrade-role',
+            element: <UpgradeRolePage />,
+          },
+          // Pre-team-scoped-URL paths: bounce old bookmarks/links to the
+          // equivalent /t/:athleticTeamId route instead of 404ing.
+          { path: '/analytics', element: <LegacyRedirect toSubpath="/analytics" /> },
+          { path: '/dashboard', element: <LegacyRedirect toSubpath="/analytics" /> },
+          { path: '/enhanced-analytics', element: <LegacyRedirect toSubpath="/analytics" /> },
+          { path: '/team', element: <LegacyRedirect toSubpath="/team" /> },
+          { path: '/roster', element: <LegacyRedirect toSubpath="/roster" /> },
+          { path: '/results-grid', element: <LegacyRedirect toSubpath="/results-grid" /> },
+          { path: '/tools', element: <LegacyRedirect toSubpath="/tools" /> },
+          { path: '/coaches-tools', element: <LegacyRedirect toSubpath="/coaches-tools" /> },
+          { path: '/data-management', element: <LegacyRedirect toSubpath="/data-management" /> },
+          { path: '/settings', element: <LegacyRedirect toSubpath="/settings" /> },
+          { path: '/feedback', element: <LegacyRedirect toSubpath="/feedback" /> },
+          { path: '/race-visualization', element: <LegacyRedirect toSubpath="/race-visualization" /> },
+          {
+            path: '/athlete/:athleteId',
+            element: <LegacyRedirect toSubpath={(p) => `/athlete/${p.athleteId}`} />,
+          },
+          // Every screen that shows a specific team's data lives under this
+          // prefix, keyed by the Athletic.net team ID rather than the internal
+          // database UUID: it's globally unique (one team can ever claim a
+          // given Athletic.net ID) and, unlike a UUID, means something to a
+          // coach who sees it in a shared link. TeamRouteGuard enforces this
+          // matches the signed-in coach's own team — it's a redirect-to-the-
+          // right-place guard, not an authorization check; every API call
+          // underneath is still scoped server-side by the session, never by
+          // this URL segment.
+          {
+            path: '/t/:athleticTeamId',
+            element: <TeamRouteGuard />,
             children: [
+              // Race visualization - standalone without Layout (no sidebar)
               {
-                path: '/analytics',
-                element: <AnalyticsPage />,
+                path: 'race-visualization',
+                element: <RaceVisualizationPage />,
               },
+              // All other routes with Layout (sidebar)
               {
-                path: '/dashboard',
-                element: <AnalyticsPage />,
-              },
-              // Enhanced analytics now integrated into main analytics page - redirect to analytics
-              {
-                path: '/enhanced-analytics',
-                element: <AnalyticsPage />,
-              },
-              {
-                path: '/team',
-                element: <TeamPage />,
-              },
-              {
-                path: '/roster',
-                element: <RosterPage />,
-              },
-              {
-                path: '/feedback',
-                element: <FeedbackPage />,
-              },
-              {
-                path: '/profile',
-                element: <ProfilePage />,
-              },
-              {
-                path: '/settings',
-                element: <SettingsPage />,
-              },
-              {
-                path: '/results-grid',
-                element: <ResultsGridPage />,
-              },
-              {
-                path: '/tools',
-                element: <ToolsPage />,
-              },
-              {
-                path: '/upgrade-role',
-                element: <UpgradeRolePage />,
-              },
-              {
-                path: '/athlete/:athleteId',
-                element: <AthleteProfilePage />,
-              },
-              {
-                path: '/team/:teamId/athlete/:athleteId',
-                element: <TeamAthleteProfilePage />,
-              },
-              {
-                path: '/data-management',
-                element: <DataManagementPage />,
-              },
-              {
-                path: '/coaches-tools',
-                element: <CoachesToolsPage />,
+                element: <Layout />,
+                children: [
+                  {
+                    path: 'analytics',
+                    element: <AnalyticsPage />,
+                  },
+                  {
+                    path: 'team',
+                    element: <TeamPage />,
+                  },
+                  {
+                    path: 'roster',
+                    element: <RosterPage />,
+                  },
+                  {
+                    path: 'feedback',
+                    element: <FeedbackPage />,
+                  },
+                  {
+                    path: 'settings',
+                    element: <SettingsPage />,
+                  },
+                  {
+                    path: 'results-grid',
+                    element: <ResultsGridPage />,
+                  },
+                  {
+                    path: 'tools',
+                    element: <ToolsPage />,
+                  },
+                  {
+                    path: 'athlete/:athleteId',
+                    element: <AthleteProfilePage />,
+                  },
+                  {
+                    path: 'team/athlete/:athleteId',
+                    element: <TeamAthleteProfilePage />,
+                  },
+                  {
+                    path: 'data-management',
+                    element: <DataManagementPage />,
+                  },
+                  {
+                    path: 'coaches-tools',
+                    element: <CoachesToolsPage />,
+                  },
+                ],
               },
             ],
           },

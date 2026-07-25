@@ -5,6 +5,7 @@ import { athleteService } from '@/api/athleteService';
 import { teamService } from '@/api/teamService';
 import { useAvailableSeasons } from '@/hooks/useAnalyticsData';
 import { useCurrentSeason } from '@/hooks/useCurrentSeason';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -16,7 +17,7 @@ import { PendingClaimsCard } from '@/components/PendingClaimsCard';
 type InviteStatus = 'not_invited' | 'pending' | 'accepted' | 'expired' | 'revoked';
 
 type RosterAthlete = {
-  _id: string;
+  id: string;
   name: string;
   graduationYear?: number;
   gender?: 'Men' | 'Women' | string;
@@ -33,6 +34,8 @@ type RosterAthlete = {
 
 const TeamPage: React.FC = () => {
   const navigate = useNavigate();
+  const teamPath = useTeamPath();
+  const teamAthletePath = (athleteId: string) => teamPath(`/team/athlete/${athleteId}`);
   const { currentTeam } = useTeam();
   // This screen's "current season" used to be a bare `new Date().getFullYear()`
   // that could never actually be selected: the seasons query below was called
@@ -119,7 +122,7 @@ const TeamPage: React.FC = () => {
     setInviteLoading(true);
     setInviteError(null);
     try {
-      const response = await athleteService.inviteAthlete(inviteTarget._id, inviteEmail);
+      const response = await athleteService.inviteAthlete(inviteTarget.id, inviteEmail);
       setInviteNotice(`Invitation sent to ${inviteEmail}.`);
       const tokenFromResponse = response?.token || response?.invite?.token;
       if (tokenFromResponse && typeof window !== 'undefined') {
@@ -351,7 +354,7 @@ const TeamPage: React.FC = () => {
                   const badge = inviteBadgeFor(a);
                   const inviteMeta = formatInviteMeta(a);
                   return (
-                    <li key={a._id} className="py-2 flex items-center justify-between">
+                    <li key={a.id} className="py-2 flex items-center justify-between">
                       <div>
                         <div className="font-medium flex items-center gap-2">
                           <span>{a.name}</span>
@@ -374,7 +377,7 @@ const TeamPage: React.FC = () => {
                         <Button 
                         variant="outline" 
                         size="sm"
-                        onClick={() => navigate(`/team/${currentTeam?.id || 'current'}/athlete/${a._id}`)}
+                        onClick={() => navigate(teamAthletePath(a.id))}
                       >
                         View Profile
                       </Button>
