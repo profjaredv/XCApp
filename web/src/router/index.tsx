@@ -4,7 +4,6 @@ import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, In
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
-import AthleteProfilePage from '../pages/AthleteProfilePage';
 import DataManagementPage from '../pages/DataManagementPage';
 import SettingsPage from '../pages/SettingsPage';
 import RosterPage from '../pages/RosterPage';
@@ -138,8 +137,14 @@ export const router = createBrowserRouter([
                     element: <ToolsPage />,
                   },
                   {
+                    // 'athlete/:athleteId' (a half-built, always-"coming
+                    // soon" placeholder page reachable only via legacy
+                    // bookmarks) and 'team/athlete/:athleteId' (the real,
+                    // finished detail page every in-app link actually uses)
+                    // were two different screens for the same thing —
+                    // consolidated onto the one that works.
                     path: 'athlete/:athleteId',
-                    element: <AthleteProfilePage />,
+                    element: <TeamAthleteProfilePage />,
                   },
                   {
                     path: 'team/athlete/:athleteId',

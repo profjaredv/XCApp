@@ -77,7 +77,7 @@ export const AthletesTab = ({
                 </div>
                 <div>
                     <p className="text-muted-foreground">Races</p>
-                    <p className="font-semibold">{athlete.races.length}</p>
+                    <p className="font-semibold">{athlete.raceCount ?? athlete.races.length}</p>
                 </div>
             </CardContent>
           </Card>

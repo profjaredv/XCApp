@@ -46,6 +46,18 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
       orderBy: { meetDate: 'asc' },
     });
 
+    // Season-best (bestTime5k above) is scoped to this one season; PR is the
+    // athlete's best 5k across every season they've ever run — a single
+    // groupBy across AthleteSeasonMetrics rather than N per-athlete queries.
+    const allTimeBests = await prisma.athleteSeasonMetrics.groupBy({
+      by: ['athleteId'],
+      where: { teamId, athleteId: { in: athleteMetrics.map((am) => am.athleteId) } },
+      _min: { bestTime5k: true },
+    });
+    const prBestByAthleteId = new Map(
+      allTimeBests.map((row) => [row.athleteId, row._min.bestTime5k || 0])
+    );
+
     const athletes = athleteMetrics.map((am) => {
       const athlete = am.athlete || {};
       const improvementPercent = am.improvementPercent || 0;
@@ -58,6 +70,7 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
         currentGrade: athlete.grade || am.grade || 9,
         totalRaces: am.totalRaces || 0,
         bestTime: am.bestTime5k || 0,
+        prBest5K: prBestByAthleteId.get(am.athleteId) || am.bestTime5k || 0,
         avgPace: am.averagePace || 0,
         improvementPercent: parseFloat(improvementPercent.toFixed(2)),
         raceCount: am.totalRaces || 0,

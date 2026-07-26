@@ -1,9 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronLeft } from 'lucide-react';
 import { useAthletePerformance, useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
 import { useMultiSeasonTrends } from '@/hooks/useMultiSeasonTrends';
+import { performanceService } from '@/api/performanceService';
+import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeasonModeSelector, SeasonMode } from '@/components/SeasonModeSelector';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
@@ -44,6 +47,7 @@ const TeamAthleteProfilePage = () => {
   const { athleteId } = useParams<{ athleteId: string }>();
   const { currentUser } = useAuth();
   const teamId = currentUser?.team?.id;
+  const isCoach = currentUser?.role === 'coach';
   const navigate = useNavigate();
   const teamPath = useTeamPath();
   const defaultSeason = useCurrentSeason();
@@ -51,13 +55,18 @@ const TeamAthleteProfilePage = () => {
   const selectedSeason = seasonParam ?? defaultSeason;
   const setSelectedSeason = setSeasonParam;
   const [seasonMode, setSeasonMode] = useState<'current' | 'all' | 'custom'>('current');
+  const [isRecalculating, setIsRecalculating] = useState(false);
 
   const handleSeasonModeChange = (newMode: 'current' | 'all' | 'historical') => {
     setSeasonMode(newMode as 'current' | 'all' | 'custom');
   };
-  
+
   // Fetch athlete data
-  const { data: athletePerf, isLoading: isLoadingAthlete } = useAthletePerformance(athleteId || '', selectedSeason);
+  const {
+    data: athletePerf,
+    isLoading: isLoadingAthlete,
+    refetch: refetchAthletePerf,
+  } = useAthletePerformance(athleteId || '', selectedSeason);
   const { data: athleteAllSeasons } = useAthleteAllSeasons(athleteId || '', { enabled: !!athleteId });
   const { data: multiSeasonTrendsData, isLoading: isLoadingMultiSeasonTrends } = useMultiSeasonTrends(teamId || '', selectedSeason);
   
@@ -136,10 +145,31 @@ const TeamAthleteProfilePage = () => {
   
   // Handle back button
   const handleBack = () => {
-    navigate(teamPath('/team'));
+    // '/team' (bare roster listing) was merged into '/roster' — this used to
+    // point at a route that no longer exists.
+    navigate(teamPath('/roster'));
   };
-  
-  if (isLoadingAthlete || !enhancedAthlete) {
+
+  const handleRecalculate = async () => {
+    if (!selectedSeason) return;
+    setIsRecalculating(true);
+    try {
+      await performanceService.recalculateMetrics(teamId || '', selectedSeason);
+      await refetchAthletePerf();
+      toast.success('Metrics calculated');
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      toast.error(
+        status === 403
+          ? 'Only a coach can calculate metrics.'
+          : 'Could not calculate metrics for this season.'
+      );
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
+
+  if (isLoadingAthlete) {
     return (
       <div className="container py-8">
         <div className="flex items-center mb-6">
@@ -156,7 +186,41 @@ const TeamAthleteProfilePage = () => {
       </div>
     );
   }
-  
+
+  // The season query settled but returned nothing — almost always because
+  // this season's metrics were never calculated (a separate step from
+  // importing results), not a genuine "this athlete has no data" state.
+  // Previously this fell through to `!enhancedAthlete` and stayed on the
+  // loading skeleton forever, which is exactly what "the athlete screen is
+  // largely blank" looked like.
+  if (!enhancedAthlete) {
+    return (
+      <div className="container py-8">
+        <div className="flex items-center mb-6">
+          <Button variant="ghost" onClick={handleBack} className="mr-4">
+            <ChevronLeft className="h-5 w-5 mr-1" />
+            Back to Team
+          </Button>
+        </div>
+        <Card className="mx-auto max-w-xl">
+          <CardHeader className="text-center">
+            <CardTitle>Metrics haven't been calculated for {selectedSeason} yet</CardTitle>
+            <CardDescription>
+              This athlete's {selectedSeason} results haven't been run through analytics yet.
+            </CardDescription>
+          </CardHeader>
+          {isCoach && (
+            <CardContent className="flex justify-center">
+              <Button onClick={handleRecalculate} disabled={isRecalculating}>
+                {isRecalculating ? 'Calculating…' : `Calculate Metrics for ${selectedSeason}`}
+              </Button>
+            </CardContent>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="container py-8">
       <div className="flex items-center justify-between mb-6">

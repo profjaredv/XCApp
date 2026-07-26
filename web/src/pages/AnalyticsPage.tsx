@@ -4,6 +4,7 @@ import { useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
 import { performanceService } from '@/api/performanceService';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDateShort } from '@/lib/formatUtils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/api/axios';
@@ -97,8 +98,24 @@ const AnalyticsPage = () => {
   const { data: availableSeasons = [], isLoading: isLoadingSeasons, refetch: refetchSeasons } = useAvailableSeasons(teamId);
   const { data: teamContext } = useTeamContext();
   const activeSeason = teamContext?.activeSeason;
+  const viewedSeason = selectedSeason ?? activeSeason;
+  const viewedSeasonMeta = availableSeasons.find((s) => s.year === viewedSeason);
+  // A season can have real races imported but no computed metrics yet — an
+  // older season that predates the last recalculation, say. That state was
+  // previously invisible: the overview endpoint just returns zeros for
+  // everything (no error), so the whole page looked broken/empty, and the
+  // enhanced-metrics endpoint 404s repeatedly trying to fetch data that was
+  // never calculated. Detect it explicitly and skip the doomed fetch.
+  const needsCalculation =
+    Boolean(viewedSeasonMeta?.hasData) &&
+    !isLoading &&
+    (analyticsData?.team?.overview?.totalRaces ?? 0) === 0;
   const { data: multiSeasonTrendsData, isLoading: isLoadingMultiSeasonTrends } = useMultiSeasonTrends(teamId || '', seasonMode === 'historical' ? selectedSeason : undefined);
-  const { data: enhancedTeamMetrics, isLoading: isLoadingEnhanced } = useEnhancedTeamMetrics(teamId || '', (selectedSeason ?? activeSeason)?.toString() ?? '');
+  const { data: enhancedTeamMetrics, isLoading: isLoadingEnhanced } = useEnhancedTeamMetrics(
+    teamId || '',
+    viewedSeason?.toString() ?? '',
+    !needsCalculation
+  );
   const { data: seasonSeriesData } = useTeamSeasonSeries(teamId, selectedSeason ? selectedSeason.toString() : undefined);
 
   useEffect(() => {
@@ -409,75 +426,93 @@ const AnalyticsPage = () => {
         handleClearTeamData={handleClearTeamData}
         seasonDisplay={seasonDisplay}
       />
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <div className="overflow-x-auto mb-4 -mx-3 px-3 md:mx-0 md:px-0">
-          <TabsList className="inline-flex w-auto min-w-full md:grid md:w-full md:grid-cols-4">
-            <TabsTrigger value="dashboard" className="whitespace-nowrap">Dashboard</TabsTrigger>
-            <TabsTrigger value="athletes" className="whitespace-nowrap">Athletes</TabsTrigger>
-            <TabsTrigger value="meets" className="whitespace-nowrap">Meets</TabsTrigger>
-            <TabsTrigger value="performance" className="whitespace-nowrap">Performance</TabsTrigger>
-          </TabsList>
-        </div>
-        <TabsContent value="dashboard">
-          <DashboardTab 
-            displayedStats={displayedStats}
-            mostImproved={mostImproved}
-            seasonSeriesData={seasonSeriesData}
-            enhancedMetrics={enhancedTeamMetrics || null}
-            isLoadingEnhanced={isLoadingEnhanced}
-          />
-        </TabsContent>
-        <TabsContent value="athletes">
-          <AthletesTab 
-            searchTerm={searchTerm}
-            handleSearch={handleSearch}
-            genderFilter={genderFilter}
-            handleGenderFilterChange={handleGenderFilterChange}
-            gradeFilter={gradeFilter}
-            handleGradeFilterChange={handleGradeFilterChange}
-            grades={grades}
-            filteredAthletes={filteredAthletes}
-            setSelectedAthlete={handleAthleteSelect}
-            getGradeBorderColor={getGradeBorderColor}
-          />
-        </TabsContent>
-        <TabsContent value="meets">
-          <MeetsTab meets={meets} athletes={athletes} setSelectedRace={setSelectedRace} />
-        </TabsContent>
-        <TabsContent value="performance">
-          <Tabs defaultValue="distance" className="w-full">
-            <TabsList className="mb-4">
-                <TabsTrigger value="distance">Distance Analysis</TabsTrigger>
-                <TabsTrigger value="compare">Head-to-Head</TabsTrigger>
+      {needsCalculation ? (
+        <Card className="mx-auto max-w-xl">
+          <CardHeader className="text-center">
+            <CardTitle>Metrics haven't been calculated for {viewedSeason} yet</CardTitle>
+            <CardDescription>
+              This season has {viewedSeasonMeta?.raceCount} race
+              {viewedSeasonMeta?.raceCount === 1 ? '' : 's'} imported, but analytics haven't been
+              calculated from them — that's a separate step from importing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Button onClick={handleRecalculateMetrics} disabled={isRecalculating}>
+              {isRecalculating ? 'Calculating…' : `Calculate Metrics for ${viewedSeason}`}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <div className="overflow-x-auto mb-4 -mx-3 px-3 md:mx-0 md:px-0">
+            <TabsList className="inline-flex w-auto min-w-full md:grid md:w-full md:grid-cols-4">
+              <TabsTrigger value="dashboard" className="whitespace-nowrap">Dashboard</TabsTrigger>
+              <TabsTrigger value="athletes" className="whitespace-nowrap">Athletes</TabsTrigger>
+              <TabsTrigger value="meets" className="whitespace-nowrap">Meets</TabsTrigger>
+              <TabsTrigger value="performance" className="whitespace-nowrap">Performance</TabsTrigger>
             </TabsList>
-            <TabsContent value="distance">
-                 {isLoadingEnhanced ? (
-                    <div className="flex items-center justify-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                    <span className="ml-2">Loading distance analysis...</span>
-                    </div>
-                ) : enhancedTeamMetrics ? (
-                    <DistanceAnalysisTab teamId={teamId || ''} season={selectedSeason?.toString() || '2025'} />
-                ) : (
-                    <div className="text-center py-12">
-                    <p className="text-muted-foreground">Distance analysis not available. Please calculate enhanced metrics first.</p>
-                    </div>
-                )}
-            </TabsContent>
-            <TabsContent value="compare">
-                {athletes.length > 0 ? (
-                    <RaceComparisonTab 
-                    teamId={teamId || ''} 
-                    />
-                ) : (
-                    <div className="text-center py-12">
-                    <p className="text-muted-foreground">No athlete data available for race comparison.</p>
-                    </div>
-                )}
-            </TabsContent>
-          </Tabs>
-        </TabsContent>
-      </Tabs>
+          </div>
+          <TabsContent value="dashboard">
+            <DashboardTab
+              displayedStats={displayedStats}
+              mostImproved={mostImproved}
+              seasonSeriesData={seasonSeriesData}
+              enhancedMetrics={enhancedTeamMetrics || null}
+              isLoadingEnhanced={isLoadingEnhanced}
+            />
+          </TabsContent>
+          <TabsContent value="athletes">
+            <AthletesTab
+              searchTerm={searchTerm}
+              handleSearch={handleSearch}
+              genderFilter={genderFilter}
+              handleGenderFilterChange={handleGenderFilterChange}
+              gradeFilter={gradeFilter}
+              handleGradeFilterChange={handleGradeFilterChange}
+              grades={grades}
+              filteredAthletes={filteredAthletes}
+              setSelectedAthlete={handleAthleteSelect}
+              getGradeBorderColor={getGradeBorderColor}
+            />
+          </TabsContent>
+          <TabsContent value="meets">
+            <MeetsTab meets={meets} athletes={athletes} setSelectedRace={setSelectedRace} />
+          </TabsContent>
+          <TabsContent value="performance">
+            <Tabs defaultValue="distance" className="w-full">
+              <TabsList className="mb-4">
+                  <TabsTrigger value="distance">Distance Analysis</TabsTrigger>
+                  <TabsTrigger value="compare">Head-to-Head</TabsTrigger>
+              </TabsList>
+              <TabsContent value="distance">
+                   {isLoadingEnhanced ? (
+                      <div className="flex items-center justify-center py-12">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                      <span className="ml-2">Loading distance analysis...</span>
+                      </div>
+                  ) : enhancedTeamMetrics ? (
+                      <DistanceAnalysisTab teamId={teamId || ''} season={selectedSeason?.toString() || '2025'} />
+                  ) : (
+                      <div className="text-center py-12">
+                      <p className="text-muted-foreground">Distance analysis not available. Please calculate enhanced metrics first.</p>
+                      </div>
+                  )}
+              </TabsContent>
+              <TabsContent value="compare">
+                  {athletes.length > 0 ? (
+                      <RaceComparisonTab
+                      teamId={teamId || ''}
+                      />
+                  ) : (
+                      <div className="text-center py-12">
+                      <p className="text-muted-foreground">No athlete data available for race comparison.</p>
+                      </div>
+                  )}
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
+        </Tabs>
+      )}
       <AthleteDetailModal 
         selectedAthlete={selectedAthlete}
         enhancedSelectedAthlete={enhancedSelectedAthlete}
