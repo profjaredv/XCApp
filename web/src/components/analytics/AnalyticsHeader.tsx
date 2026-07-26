@@ -24,6 +24,7 @@ interface AnalyticsHeaderProps {
   handleSeasonModeChange: (mode: SeasonMode) => void;
   selectedSeason?: number;
   setSelectedSeason: (year: number) => void;
+  activeSeason?: number;
   handleRecalculateMetrics: () => void;
   isRecalculating: boolean;
   team: Team | undefined;
@@ -31,7 +32,7 @@ interface AnalyticsHeaderProps {
   seasonDisplay: string;
 }
 
-export const AnalyticsHeader = ({ 
+export const AnalyticsHeader = ({
   currentUser,
   isLoadingSeasons,
   availableSeasons,
@@ -39,6 +40,7 @@ export const AnalyticsHeader = ({
   handleSeasonModeChange,
   selectedSeason,
   setSelectedSeason,
+  activeSeason,
   handleRecalculateMetrics,
   isRecalculating,
   team,
@@ -67,7 +69,7 @@ export const AnalyticsHeader = ({
                     <SelectTrigger className="w-[180px]"><SelectValue placeholder="Select season" /></SelectTrigger>
                     <SelectContent>
                       {availableSeasons.map((s) => (
-                        <SelectItem key={s.year} value={s.year.toString()}>{s.year} Cross{s.year === new Date().getFullYear() ? ' (Current)' : ''}</SelectItem>
+                        <SelectItem key={s.year} value={s.year.toString()}>{s.year} Cross{s.year === activeSeason ? ' (Current)' : ''}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

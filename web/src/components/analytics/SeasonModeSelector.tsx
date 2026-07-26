@@ -29,21 +29,14 @@ export const SeasonModeSelector: React.FC<SeasonModeSelectorProps> = ({
           size="sm"
           onClick={() => onModeChange('current')}
         >
-          Current
-        </Button>
-        <Button
-          variant={mode === 'all' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => onModeChange('all')}
-        >
-          All Seasons
+          Current Season
         </Button>
         <Button
           variant={mode === 'historical' ? 'default' : 'outline'}
           size="sm"
           onClick={() => onModeChange('historical')}
         >
-          Historical
+          Past Seasons
         </Button>
       </div>
       

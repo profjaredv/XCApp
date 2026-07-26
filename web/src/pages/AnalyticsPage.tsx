@@ -122,9 +122,15 @@ const AnalyticsPage = () => {
         setSelectedSeasonParam(activeSeason);
       }
     } else if (seasonMode === 'historical' && availableSeasons.length > 0 && !selectedSeason) {
+      // Default to the most recent PAST season, not the active one — the
+      // whole point of switching to "Past Seasons" is to look at a season
+      // other than the one Current Season already shows. Falling back to
+      // activeSeason here made switching modes look like it did nothing:
+      // same season, same data, just a picker appeared.
+      const pastSeasons = availableSeasons.filter((s) => s.year !== activeSeason);
       const defaultSeason =
-        availableSeasons.find((s) => s.year === activeSeason)?.year ??
-        availableSeasons.find((s) => s.hasData)?.year ??
+        pastSeasons.find((s) => s.hasData)?.year ??
+        pastSeasons[0]?.year ??
         availableSeasons[0]?.year;
       if (defaultSeason) {
         setSelectedSeasonParam(defaultSeason);
@@ -396,6 +402,7 @@ const AnalyticsPage = () => {
         handleSeasonModeChange={handleSeasonModeChange}
         selectedSeason={selectedSeason}
         setSelectedSeason={handleSeasonChange}
+        activeSeason={activeSeason}
         handleRecalculateMetrics={handleRecalculateMetrics}
         isRecalculating={isRecalculating}
         team={team}

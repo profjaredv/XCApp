@@ -112,6 +112,12 @@ const RosterPage: React.FC = () => {
   });
 
   const nextSeason = (context?.activeSeason ?? new Date().getFullYear()) + 1;
+  // "Start next season" rolls the active roster forward (seniors graduate,
+  // everyone else moves up a grade) — that's only meaningful once the active
+  // season has actually happened. Without this, activeSeason+1 is available
+  // the instant a season is created, so starting 2026 immediately offered
+  // "Start 2027" before a single 2026 race had been run.
+  const canStartNextSeason = !context?.activeSeasonSummary?.isPreseason;
   const startSeason = useMutation({
     mutationFn: () => rosterService.startSeason(nextSeason),
     onSuccess: (result) => {
@@ -283,7 +289,16 @@ const RosterPage: React.FC = () => {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={() => setStartSeasonOpen(true)}>
+          <Button
+            variant="outline"
+            onClick={() => setStartSeasonOpen(true)}
+            disabled={!canStartNextSeason}
+            title={
+              canStartNextSeason
+                ? undefined
+                : `Available once ${context?.activeSeason} has race results — it's still preseason`
+            }
+          >
             <CalendarPlus className="mr-2 h-4 w-4" />
             Start {nextSeason}
           </Button>

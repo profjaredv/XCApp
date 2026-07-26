@@ -1,4 +1,4 @@
-export type SeasonMode = 'current' | 'all' | 'historical';
+export type SeasonMode = 'current' | 'historical';
 
 export interface Season {
   id: string;
