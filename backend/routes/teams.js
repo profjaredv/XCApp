@@ -402,11 +402,19 @@ router.post('/scrape-roster', authenticate, requireOwnTeam, async (req, res) => 
           create: { teamId: team.id, year: yearNum, sport: 'XC' },
         });
 
-        const existingRoster = await prisma.seasonRoster.findMany({
-          where: { seasonId: season.id },
-          include: { athlete: true },
-        });
-        const existingByName = new Map(existingRoster.map((r) => [normalizeRosterName(r.athlete.name), r]));
+        // Match against every athlete this TEAM has ever had, not just this
+        // season's roster — a returning athlete from a prior season already
+        // has an Athlete row, and this season's SeasonRoster is often empty
+        // (a brand-new season, which is exactly the preseason case this
+        // exists for). Matching only within the season's own roster meant
+        // every returning athlete looked "new" and hit the (team, name)
+        // unique constraint on athlete creation.
+        const [existingAthletes, existingRoster] = await Promise.all([
+          prisma.athlete.findMany({ where: { teamId: team.id } }),
+          prisma.seasonRoster.findMany({ where: { seasonId: season.id }, include: { athlete: true } }),
+        ]);
+        const athleteByName = new Map(existingAthletes.map((a) => [normalizeRosterName(a.name), a]));
+        const rosterByAthleteId = new Map(existingRoster.map((r) => [r.athleteId, r]));
 
         const added = [];
         const reactivated = [];
@@ -422,46 +430,47 @@ router.post('/scrape-roster', authenticate, requireOwnTeam, async (req, res) => 
           const gender = row.Gender || null;
 
           const normalized = normalizeRosterName(name);
-          const existingEntry = existingByName.get(normalized);
+          const existingAthlete = athleteByName.get(normalized);
 
-          if (existingEntry) {
-            matchedAthleteIds.add(existingEntry.athleteId);
+          let athleteId;
+          if (existingAthlete) {
+            athleteId = existingAthlete.id;
             const athleteUpdates = {};
-            if (graduationYear !== null && existingEntry.athlete.graduationYear !== graduationYear) {
+            if (graduationYear !== null && existingAthlete.graduationYear !== graduationYear) {
               athleteUpdates.graduationYear = graduationYear;
             }
-            if (gender && existingEntry.athlete.gender !== gender) {
+            if (gender && existingAthlete.gender !== gender) {
               athleteUpdates.gender = gender;
             }
             if (Object.keys(athleteUpdates).length > 0) {
-              await prisma.athlete.update({ where: { id: existingEntry.athleteId }, data: athleteUpdates });
+              await prisma.athlete.update({ where: { id: athleteId }, data: athleteUpdates });
             }
+          } else {
+            const created = await prisma.athlete.create({
+              data: { teamId: team.id, name, gender, graduationYear },
+            });
+            athleteId = created.id;
+          }
+          matchedAthleteIds.add(athleteId);
 
-            const wasInactiveOrFlagged = !existingEntry.isActive || existingEntry.flaggedForRemoval;
+          const rosterEntry = rosterByAthleteId.get(athleteId);
+          if (rosterEntry) {
+            const wasInactiveOrFlagged = !rosterEntry.isActive || rosterEntry.flaggedForRemoval;
             await prisma.seasonRoster.update({
-              where: { id: existingEntry.id },
+              where: { id: rosterEntry.id },
               data: {
                 isActive: true,
                 flaggedForRemoval: false,
                 flaggedForRemovalAt: null,
-                grade: Number.isFinite(gradeNum) ? gradeNum : existingEntry.grade,
+                grade: Number.isFinite(gradeNum) ? gradeNum : rosterEntry.grade,
               },
             });
             if (wasInactiveOrFlagged) reactivated.push(name);
             else updated.push(name);
           } else {
-            const athlete = await prisma.athlete.create({
-              data: { teamId: team.id, name, gender, graduationYear },
-            });
             await prisma.seasonRoster.create({
-              data: {
-                seasonId: season.id,
-                athleteId: athlete.id,
-                grade: gradeNum,
-                isActive: true,
-              },
+              data: { seasonId: season.id, athleteId, grade: gradeNum, isActive: true },
             });
-            matchedAthleteIds.add(athlete.id);
             added.push(name);
           }
         }
