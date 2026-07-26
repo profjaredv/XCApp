@@ -5,6 +5,8 @@ if (process.env.NODE_ENV !== 'production') {
 }
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 // Fail fast on missing configuration rather than booting "healthy" and then
 // throwing on every request that touches the database. A missing DATABASE_URL
@@ -37,13 +39,29 @@ const main = async () => {
         'https://xcapp-production.up.railway.app'
     ];
     
+    app.use(helmet());
     app.use(cors({
         origin: process.env.NODE_ENV === 'production' ? 'https://xcapp-production.up.railway.app' : allowedOrigins,
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization']
     }));
-    app.use(express.json());
+    app.use(express.json({ limit: '1mb' }));
+
+    // These three routes let an authenticated-but-unprivileged account
+    // change its own team/role standing (join a team, upgrade to coach) by
+    // guessing a code — exactly the kind of endpoint worth throttling
+    // per-IP regardless of how strong the code itself is.
+    const roleChangeLimiter = rateLimit({
+        windowMs: 60 * 60 * 1000, // 1 hour
+        limit: 10,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { message: 'Too many attempts. Try again later.' },
+    });
+    app.use('/api/profile/join-team', roleChangeLimiter);
+    app.use('/api/profile/upgrade-to-coach', roleChangeLimiter);
+    app.use('/api/team/join', roleChangeLimiter);
 
     const { authenticate } = require('./middleware/auth');
 

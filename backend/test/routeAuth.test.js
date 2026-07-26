@@ -1,0 +1,86 @@
+// Verify gate 0 (XCApp Build Spec, Phase 0): every non-GET route must carry
+// an authorization guard beyond `authenticate` — a route that only checks
+// "is this a valid, signed-in user" and nothing else is exactly the bug
+// class this gate exists to catch (see routes/athletes.js POST/PUT/DELETE
+// and routes/seasons.js and routes/meetGroups.js before this fix, which had
+// none). Add a new mutating route without a guard and this test fails the
+// build, on purpose.
+const path = require('node:path');
+const fs = require('node:fs');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+
+const ROUTES_DIR = path.join(__dirname, '..', 'routes');
+
+const GUARD_NAMES = new Set(['requireTeam', 'requireCoach', 'requireOwnTeam', 'requireLinkedAthlete']);
+
+// Routes that intentionally carry no guard beyond `authenticate`, and why.
+// This is a real allowlist, not an escape hatch — every entry is a route
+// that CANNOT sensibly require team/coach membership (it's what grants that
+// membership in the first place) or that is provably self-scoped to the
+// caller's own row. Anything not on this list must have a guard.
+const ALLOWED_UNGUARDED = new Set([
+  // Join-by-code / secret-code upgrades: the code IS the authorization
+  // boundary, and rate-limited at 10/hour/IP in server.js. There is no team
+  // to require yet — that's what these routes grant.
+  'profile.js POST /join-team',
+  'profile.js POST /upgrade-to-coach',
+  'profile.js POST /fix-coach-role',
+  'team.js POST /join',
+  // Creating a brand-new team: the caller isn't on any team yet by
+  // definition, so requireTeam/requireCoach is a logical contradiction here.
+  'teams.js POST /',
+  // Self-scoped: writes only req.user.id's own row, never a body-supplied
+  // user id — no cross-user or cross-team surface exists to guard.
+  'users.js PUT /me',
+  // Deliberately open to any signed-in user; every field written is scoped
+  // to req.user.id / req.user.teamId, never to a body-supplied id.
+  'feedback.js POST /',
+  // The invite token itself is the authorization (a coach already named
+  // this exact athlete when creating it) — not team/role membership.
+  'athletes.js POST /accept-invite',
+]);
+
+function collectRouteMiddlewareNames(routeLayer) {
+  return routeLayer.stack.map((layer) => layer.name).filter(Boolean);
+}
+
+test('every non-GET route carries an authorization guard beyond authenticate', () => {
+  const failures = [];
+
+  for (const file of fs.readdirSync(ROUTES_DIR)) {
+    if (!file.endsWith('.js')) continue;
+
+    // eslint-disable-next-line import/no-dynamic-require, global-require
+    const router = require(path.join(ROUTES_DIR, file));
+    if (!router || !router.stack) continue; // not an Express Router export
+
+    for (const layer of router.stack) {
+      if (!layer.route) continue; // router-level middleware, not a route
+
+      const routePath = layer.route.path;
+      const methods = Object.keys(layer.route.methods).filter((m) => layer.route.methods[m]);
+
+      for (const method of methods) {
+        if (method === 'get') continue;
+
+        const handlerNames = collectRouteMiddlewareNames(layer.route);
+        const hasGuard = handlerNames.some((name) => GUARD_NAMES.has(name));
+        const key = `${file} ${method.toUpperCase()} ${routePath}`;
+
+        if (!hasGuard && !ALLOWED_UNGUARDED.has(key)) {
+          failures.push(`${key} — middleware: [${handlerNames.join(', ')}]`);
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(
+    failures,
+    [],
+    `Routes missing an authorization guard beyond 'authenticate':\n${failures.join('\n')}\n\n` +
+      `If this route genuinely needs no guard, add it to ALLOWED_UNGUARDED in this file with a reason.`
+  );
+});

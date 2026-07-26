@@ -187,7 +187,7 @@ router.get('/:athleteId/races', authenticate, requireTeam, async (req, res) => {
 // Accepts either an explicit graduationYear or a grade + season to derive it
 // from — coaches think in grades ("she's a sophomore"), the data model thinks
 // in graduation years, so translate at the edge rather than storing the grade.
-router.post('/', authenticate, requireTeam, async (req, res) => {
+router.post('/', authenticate, requireTeam, requireCoach, async (req, res) => {
   const { firstName, lastName, name, graduationYear, grade, season, gender } = req.body;
   const teamId = req.user.teamId;
 
@@ -243,7 +243,7 @@ router.post('/', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-router.put('/:athleteId', authenticate, requireTeam, async (req, res) => {
+router.put('/:athleteId', authenticate, requireTeam, requireCoach, async (req, res) => {
   const { firstName, lastName, name, graduationYear, grade, season, gender } = req.body;
   const teamId = req.user.teamId;
 
@@ -279,7 +279,7 @@ router.put('/:athleteId', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-router.delete('/:athleteId', authenticate, requireTeam, async (req, res) => {
+router.delete('/:athleteId', authenticate, requireTeam, requireCoach, async (req, res) => {
   try {
     const existing = await prisma.athlete.findFirst({
       where: { id: req.params.athleteId, teamId: req.user.teamId },

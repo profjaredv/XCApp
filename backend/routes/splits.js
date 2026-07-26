@@ -49,9 +49,28 @@ router.post('/batch', authenticate, requireTeam, requireCoach, async (req, res) 
       return res.status(400).json({ msg: 'Splits array required' });
     }
 
-    const saved = await Promise.all(
-      splits.map((split) =>
-        prisma.raceSplit.upsert({
+    // resultId, athleteId and raceId were previously taken straight from the
+    // request body and written as-is: a coach could pass a resultId from a
+    // DIFFERENT team and either overwrite that team's split (the upsert
+    // matched on resultId with no team scoping) or create a split row whose
+    // athleteId/raceId didn't even match its resultId. Now every resultId is
+    // verified to belong to the caller's team before anything is written,
+    // and athleteId/raceId are read from that verified Result row — never
+    // trusted from the client.
+    const resultIds = [...new Set(splits.map((s) => s.resultId))];
+    const results = await prisma.result.findMany({
+      where: { id: { in: resultIds }, teamId },
+      select: { id: true, athleteId: true, raceId: true },
+    });
+    if (results.length !== resultIds.length) {
+      return res.status(403).json({ msg: 'One or more results do not belong to your team.' });
+    }
+    const resultById = new Map(results.map((r) => [r.id, r]));
+
+    const saved = await prisma.$transaction(
+      splits.map((split) => {
+        const result = resultById.get(split.resultId);
+        return prisma.raceSplit.upsert({
           where: { resultId: split.resultId },
           update: {
             mile1: parseFloat(split.mile1),
@@ -60,16 +79,16 @@ router.post('/batch', authenticate, requireTeam, requireCoach, async (req, res) 
           },
           create: {
             resultId: split.resultId,
-            athleteId: split.athleteId,
-            raceId: split.raceId,
+            athleteId: result.athleteId,
+            raceId: result.raceId,
             teamId,
             mile1: parseFloat(split.mile1),
             mile2: parseFloat(split.mile2),
             mile3: parseFloat(split.mile3),
             createdById: userId,
           },
-        })
-      )
+        });
+      })
     );
 
     res.json({ success: true, count: saved.length, splits: saved });

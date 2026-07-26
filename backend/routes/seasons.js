@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam } = require('../middleware/auth');
+const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
 
 router.get('/', authenticate, requireTeam, async (req, res) => {
   const { sport = 'XC' } = req.query;
@@ -37,7 +37,7 @@ router.get('/current', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-router.post('/', authenticate, requireTeam, async (req, res) => {
+router.post('/', authenticate, requireTeam, requireCoach, async (req, res) => {
   const { year, sport = 'XC', startDate, endDate } = req.body;
   const teamId = req.user.teamId;
 
@@ -69,7 +69,7 @@ router.post('/', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-router.put('/:id', authenticate, requireTeam, async (req, res) => {
+router.put('/:id', authenticate, requireTeam, requireCoach, async (req, res) => {
   const { isActive, startDate, endDate } = req.body;
   const teamId = req.user.teamId;
 
@@ -99,7 +99,7 @@ router.put('/:id', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-router.post('/:id/roster', authenticate, requireTeam, async (req, res) => {
+router.post('/:id/roster', authenticate, requireTeam, requireCoach, async (req, res) => {
   const { athletes } = req.body;
   const teamId = req.user.teamId;
 
@@ -134,7 +134,7 @@ router.post('/:id/roster', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-router.delete('/:id/roster/:athleteId', authenticate, requireTeam, async (req, res) => {
+router.delete('/:id/roster/:athleteId', authenticate, requireTeam, requireCoach, async (req, res) => {
   try {
     const season = await prisma.season.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
     if (!season) {
@@ -170,7 +170,7 @@ router.get('/:id/roster', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-router.delete('/:id/results', authenticate, requireTeam, async (req, res) => {
+router.delete('/:id/results', authenticate, requireTeam, requireCoach, async (req, res) => {
   const teamId = req.user.teamId;
 
   try {

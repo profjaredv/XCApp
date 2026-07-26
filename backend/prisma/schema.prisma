@@ -21,6 +21,18 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// Explicit finish status, replacing the implicit `time > 0` convention
+// scattered across ~12 query sites as the only signal that a result wasn't
+// a real finish. That convention doesn't distinguish DNF from DNS from DQ,
+// and nothing enforced it on new code — a query that forgot the filter
+// would silently include non-finishes in an average. See Result.status.
+enum ResultStatus {
+  FINISHED
+  DNF
+  DNS
+  DQ
+}
+
 // ---------------------------------------------------------------------------
 // Auth & team membership
 // ---------------------------------------------------------------------------
@@ -233,6 +245,7 @@ model Result {
   time      Float? // seconds
   place     Int?
   grade     Int? // athlete's grade at the time of this specific race
+  status    ResultStatus @default(FINISHED)
   createdAt DateTime @default(now()) @map("created_at")
 
   race      Race       @relation(fields: [raceId], references: [id], onDelete: Cascade)
