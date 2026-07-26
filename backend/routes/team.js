@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
+const { customAlphabet } = require('nanoid');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
 const { resolveActiveSeason } = require('../lib/season');
+
+const generateJoinCode = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 
 // GET /api/team/performance
 router.get('/performance', authenticate, requireTeam, async (req, res) => {
@@ -138,6 +141,32 @@ function nameMatchScore(athleteName, userName) {
   }
   return Math.round((matches / maxLength) * 100);
 }
+
+// POST /api/team/generate-join-code
+// The frontend's join-code panel (RosterPage) has called this since it was
+// built; the backend route never existed, so it 404'd every time.
+router.post('/generate-join-code', authenticate, requireTeam, requireCoach, async (req, res) => {
+  try {
+    let joinCode;
+    // joinCode is globally unique across all teams — retry on the rare
+    // collision rather than trusting a single random draw never clashes.
+    for (let attempt = 0; attempt < 5 && !joinCode; attempt++) {
+      const candidate = generateJoinCode();
+      const clash = await prisma.team.findUnique({ where: { joinCode: candidate }, select: { id: true } });
+      if (!clash) joinCode = candidate;
+    }
+    if (!joinCode) {
+      return res.status(500).json({ msg: 'Could not generate a unique join code — try again.' });
+    }
+
+    await prisma.team.update({ where: { id: req.user.teamId }, data: { joinCode } });
+
+    res.json({ msg: 'New join code generated.', joinCode });
+  } catch (error) {
+    console.error('Error generating join code:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
 
 // POST /api/team/join
 router.post('/join', authenticate, async (req, res) => {
