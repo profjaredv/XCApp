@@ -165,12 +165,40 @@ export const AthleteDetailModal = ({
       }))
       .sort((a, b) => a.date - b.date);
 
-    const withBreaks: typeof points = [];
-    points.forEach((point, i) => {
+    // Least-squares fit over the real races only (never the synthetic
+    // season-break points below) — a straight trend line across the whole
+    // span, distinct from the pace line itself, which still breaks at
+    // season boundaries. Needs at least 2 races with distinct dates or the
+    // slope is undefined; in that case no trend is drawn.
+    const n = points.length;
+    const sumX = points.reduce((s, p) => s + p.date, 0);
+    const sumY = points.reduce((s, p) => s + p.pace, 0);
+    const sumXY = points.reduce((s, p) => s + p.date * p.pace, 0);
+    const sumXX = points.reduce((s, p) => s + p.date * p.date, 0);
+    const denominator = n * sumXX - sumX * sumX;
+    const trendFn: ((date: number) => number) | null =
+      n >= 2 && denominator !== 0
+        ? (() => {
+            const slope = (n * sumXY - sumX * sumY) / denominator;
+            const intercept = (sumY - slope * sumX) / n;
+            return (date: number) => slope * date + intercept;
+          })()
+        : null;
+
+    const withTrend = points.map((p) => ({ ...p, trend: trendFn?.(p.date) }));
+
+    const withBreaks: typeof withTrend = [];
+    withTrend.forEach((point, i) => {
       withBreaks.push(point);
-      const next = points[i + 1];
+      const next = withTrend[i + 1];
       if (next && next.season !== point.season) {
-        withBreaks.push({ date: (point.date + next.date) / 2, season: point.season, pace: null as unknown as number });
+        const breakDate = (point.date + next.date) / 2;
+        withBreaks.push({
+          date: breakDate,
+          season: point.season,
+          pace: null as unknown as number,
+          trend: trendFn?.(breakDate),
+        });
       }
     });
     return withBreaks;
@@ -374,7 +402,9 @@ export const AthleteDetailModal = ({
                             domain={['dataMin - 15', 'dataMax + 15']}
                           />
                           <Tooltip
-                            formatter={(value: number) => [formatPace(value), 'Pace']}
+                            formatter={(value: number | null, name: string) =>
+                              value == null ? ['—', name] : [formatPace(value), name]
+                            }
                             labelFormatter={(timestamp) => {
                               const date = new Date(timestamp);
                               return `${date.toLocaleDateString()} - ${sortedRaces.find(r => new Date(r.date).getTime() === timestamp)?.name || 'Race'}`;
@@ -389,6 +419,17 @@ export const AthleteDetailModal = ({
                             name="Pace (min/mi)"
                             connectNulls={false}
                             dot={{ r: 4 }}
+                          />
+                          <Line
+                            type="linear"
+                            dataKey="trend"
+                            stroke="#f97316"
+                            strokeWidth={2}
+                            strokeDasharray="6 4"
+                            name="Trend"
+                            connectNulls
+                            dot={false}
+                            isAnimationActive={false}
                           />
                         </LineChart>
                       </ResponsiveContainer>
