@@ -235,9 +235,65 @@ about (credential exposure, ToS posture). Phase 2's own fallback path
 (Playwright against the public meet-results HTML page, same anti-bot
 handling as the season scraper) is the right approach and is next up.
 
-Not yet done, still ahead in Phase 2: the `Course` model + coach-reviewable
-mapping file (verify gate 2a, blocking), `scrape_meet_playwright.js` (the
-new full-field scraper, fixture-first per the spec), `FieldResult` +
+Not yet done, still ahead in Phase 2: `scrape_meet_playwright.js` (the new
+full-field scraper, fixture-first per the spec), `FieldResult` +
 `Race.fieldMeanSec`/`fieldMedianSec`/`fieldFinisherCount`, and
 `Athlete.athleticAthleteId` + relaxing the `[teamId, name]` unique
 constraint.
+
+## Phase 2, step 2: Course model + review-mapping tooling — code done, DB steps pending on you
+
+Added `Course` (migration `20260727010000_courses`) exactly as specced: not
+team-scoped (two teams at the same venue share one row), unique on
+`[name, city, state]`, plus a nullable `Race.courseId` → `Course` (SetNull
+on delete). Purely additive — no data migrated by the schema migration
+itself, since course assignment has to go through the review flow below.
+
+The mapping proposal is deliberately two separate steps, matching the
+spec's "a coach confirms the mapping before it is applied" requirement:
+
+- `backend/lib/courseMapping.js` — pure grouping logic, unit-tested
+  (`test/courseMapping.test.js`, 6 cases). Groups races only by **exact**
+  match on normalized `location` text (trim/collapse-space/case-fold —
+  normalization, not fuzzy similarity) and cross-references `MeetGroup`
+  membership. Two races a coach already linked into the same MeetGroup but
+  with *different* location text come back as a `meetGroupConflicts` entry
+  to review by hand, never auto-merged. Races with no location text at all
+  come back as `unmapped` — nothing invented for them.
+- `backend/scripts/proposeCourseMapping.js` — read-only against the DB,
+  writes `scripts/course-mapping-proposal.json` with every proposed course
+  defaulted to `"decision": "pending"`. Nothing is applied by running this.
+- `backend/scripts/applyCourseMapping.js` — reads that file back, applies
+  **only** entries marked `"decision": "confirmed"` (upserts the `Course`
+  row, sets `Race.courseId` for its `raceIds`, whole run in one
+  transaction), reports `"pending"`/`"rejected"` entries as skipped. Supports
+  `--dry-run`.
+
+**Could not run the propose script against real data from this sandbox** —
+same constraint as Phase 0/1 (Postgres port 5432 blocked, confirmed again
+by hand: `npx prisma db execute` times out with P1001 against the Neon
+host). Verified the logic itself instead: unit tests above, plus manually
+piping synthetic race data through `buildCourseMappingProposal` and both
+scripts' JSON read/write and dry-run paths outside of Prisma. Everything
+downstream of a real DB connection — actually generating
+`course-mapping-proposal.json` from this team's real races, reviewing it,
+and running the apply script — needs a live-access session or your own
+machine:
+
+```
+node scripts/proposeCourseMapping.js
+# review/edit scripts/course-mapping-proposal.json — set decision to
+# "confirmed" or "rejected" per entry, fix confirmedName/city/state as needed
+node scripts/applyCourseMapping.js --in scripts/course-mapping-proposal.json --dry-run
+node scripts/applyCourseMapping.js --in scripts/course-mapping-proposal.json
+```
+
+**Verify gate 2a status**: code side is ready; the actual gate (this
+team's course mapping reviewed and confirmed by you, `Race.sourceUrl`
+populated for a full imported season) still needs the propose/apply run
+above plus a re-scrape of at least one season with the patched scraper from
+step 1.
+
+Deliberately not touched yet: `MeetGroup`/`MeetGroupRace` stay exactly as
+they are (spec: keep them read-only for one release once `Course` lands,
+then delete — that's a later cleanup pass, not this one).

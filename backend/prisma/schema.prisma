@@ -226,10 +226,15 @@ model Race {
   // Null for races imported before this field existed, until re-scraped.
   sourceUrl      String?  @map("source_url")
   athleticMeetId String?  @map("athletic_meet_id")
+  // Set only by the coach-confirmed course-mapping apply step (see
+  // scripts/proposeCourseMapping.js / scripts/applyCourseMapping.js) —
+  // never inferred/written automatically from location-string similarity.
+  courseId       String?  @map("course_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   team                   Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  course                 Course?                  @relation(fields: [courseId], references: [id], onDelete: SetNull)
   results                Result[]
   raceSplits             RaceSplit[]
   meetGroupRaces         MeetGroupRace[]
@@ -241,7 +246,30 @@ model Race {
   @@index([teamId])
   @@index([teamId, season])
   @@index([athleticMeetId])
+  @@index([courseId])
   @@map("races")
+}
+
+// A physical race venue, shared across teams and seasons — deliberately NOT
+// team-scoped. Two teams racing at Franklin Park are on the same course, and
+// that shared identity is what makes cross-team field normalization
+// meaningful later. Replaces the free-text Race.location / manual MeetGroup
+// workaround for cross-season comparison (Build Spec Phase 2). Course rows
+// and Race.courseId links are only ever created by a coach-confirmed mapping
+// (scripts/applyCourseMapping.js) — never auto-merged on string similarity.
+model Course {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  city           String?
+  state          String?
+  distanceMeters Float?   @map("distance_meters")
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  races Race[]
+
+  @@unique([name, city, state])
+  @@map("courses")
 }
 
 model Result {
