@@ -39,7 +39,16 @@ const main = async () => {
         'https://xcapp-production.up.railway.app'
     ];
     
-    app.use(helmet());
+    // This same Express app also serves the built frontend (see
+    // express.static below) — helmet's default Content-Security-Policy
+    // header lands on that HTML response too, and the browser then enforces
+    // it against everything the SPA fetches: Neon Auth sign-in, Sentry,
+    // any CDN asset. Helmet's default CSP is tuned for a server-rendered
+    // app serving its own resources, not a SPA that legitimately talks to
+    // several third-party origins — it broke sign-in outright. The other
+    // headers helmet sets (X-Content-Type-Options, X-Frame-Options, HSTS,
+    // etc.) have no such cross-origin side effect and stay on.
+    app.use(helmet({ contentSecurityPolicy: false }));
     app.use(cors({
         origin: process.env.NODE_ENV === 'production' ? 'https://xcapp-production.up.railway.app' : allowedOrigins,
         credentials: true,
