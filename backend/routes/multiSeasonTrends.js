@@ -2,29 +2,18 @@ const express = require('express');
 const { authenticate, requireTeam } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
+const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 
 const router = express.Router();
 
-const toMiles = (meters) => (meters > 0 ? meters / 1609.34 : 0);
-
+// Prefer the already-parsed Race.distanceMeters (set at ingest — see
+// routes/teams.js); fall back to parsing Race.distance text only for races
+// imported before that field was reliably populated. Both paths now go
+// through the one shared parser — this used to have its own regex with a
+// completely different (wrong) idea of what "5,000 meters" means.
 const parseDistanceMiles = (race) => {
-  const meters = race?.distanceMeters || 0;
-  if (meters > 0) return toMiles(meters);
-
-  const label = (race?.distance || '').toLowerCase();
-  if (label.includes('5k') || label.includes('5 k')) return 3.1;
-  if (label.includes('3k') || label.includes('3 k')) return 1.86;
-  if (label.includes('2 mile')) return 2;
-  if (label.includes('1 mile') || label === 'mile') return 1;
-
-  const numMatch = label.match(/^(\d+(?:\.\d+)?)\s*(?:mile|mi|m|k|km|meter|meters)?/i);
-  if (numMatch) {
-    const value = parseFloat(numMatch[1]);
-    if (label.includes('k') || label.includes('km')) return value * 0.621371;
-    return value;
-  }
-
-  return 0;
+  const meters = race?.distanceMeters > 0 ? race.distanceMeters : parseDistanceToMeters(race?.distance);
+  return metersToMiles(meters) ?? 0;
 };
 
 // GET /api/multi-season/trends

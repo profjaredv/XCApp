@@ -87,6 +87,52 @@ change the rule exists to prevent. This should be its own pass: write the
 test, then migrate each site, then delete the old convention — not bundled
 into Phase 0 alongside seven other things.
 
+## Phase 1 — distance parser: code done, DB steps pending on you
+
+`backend/lib/distance.js` is now the one parser, tested against this team's
+actual production data (`SELECT distance, COUNT(*) FROM races GROUP BY
+distance` — 5 distinct strings, 27 races, all clean "N Meters"/"N Miles"
+formats, no commas-inside-numbers edge case actually hit in your data) plus
+every failure case from the audit, in `test/distance.test.js` (`npm test`).
+
+Turned out to be **six** duplicate implementations, not four — the audit
+listed `utils/distanceParser.js` (deleted; had zero callers, entirely dead),
+`multiSeasonTrends.js`, and `calculationServiceSupabase.js`, but missed two
+more found while grepping: an inline parser in `routes/teams.js` (the actual
+live import-time parser — already correct, extracted into lib/distance.js
+rather than rewritten) and one in `routes/team.js`'s `/performance` endpoint,
+which had its own comma bug and would silently compute 0 miles for any race
+whose `distanceMeters` was ever null and whose text was "N,NNN Meters" —
+15 of your 27 races are exactly that format. Whether that ever actually hit
+production numbers depends on whether `distanceMeters` was already populated
+for those races (likely yes, since the import-time parser was already
+correct) — not verified from here either way.
+
+The audit's claimed fourth duplicate, "the frontend duplication in
+`web/src/utils/dataTransformers.ts`," doesn't exist as a string parser —
+that file only ever reads an already-numeric `distanceMeters`/`distance`
+field. Not deleted because there was nothing there to delete.
+
+**Not done, waiting on you** (per the spec's rule on destructive
+operations, and because I have no live DB access):
+- Run `backend/scripts/backfillDistanceMeters.js` (add `--dry-run` first to
+  see the report without writing). It re-parses every race's `distance`
+  text and corrects `distanceMeters` wherever they disagree, reporting any
+  it can't parse for manual review. Safe to re-run.
+- **Do this only after the Neon branch backup exists.**
+- The metrics-table truncate (`team_season_metrics`, `athlete_season_metrics`,
+  `meet_performance_metrics`) — holding off until the backfill's been run
+  and its report reviewed, per rule 6. I'll ask explicitly before touching
+  those tables.
+
+**One more residual "default to 5K" spot, not fixed**: `calculationService
+Supabase.js:498`, `(m.distance || 5000) / 1609.34` inside a precomputed
+meet-metrics series builder. Different shape than the string-parsing bugs
+above (this is a numeric field with a missing-data fallback, not text
+parsing), and understanding whether it's safe to remove needs tracing the
+`MeetPerformanceMetrics` computation pipeline — left alone rather than
+guessed at in the same pass as everything above.
+
 ## Possible duplicate implementation worth checking before Phase 6
 
 `routes/seasons.js` (`/api/seasons/...`, keyed by season UUID) and

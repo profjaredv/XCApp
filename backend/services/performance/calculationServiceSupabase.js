@@ -2,6 +2,7 @@ const prisma = require('../../lib/db');
 const logger = require('../../utils/logger');
 const cache = require('./cache');
 const { deriveGrade } = require('../../lib/season');
+const { parseDistanceToMeters, metersToMiles } = require('../../lib/distance');
 
 class CalculationService {
   constructor() {
@@ -541,19 +542,25 @@ class CalculationService {
   }
 
   // Helper methods
+  //
+  // This used to have its own regex (stopped at a comma: "5,000" -> 5) and,
+  // worse, defaulted to "3.1 miles" — i.e. silently asserted every
+  // unparseable race was a 5K — for anything it couldn't make sense of.
+  // That's exactly the "never guess" rule this codebase is supposed to
+  // follow. Now delegates to lib/distance.js and falls back to 0 (already
+  // this file's existing convention for "unknown" — see calculatePace's
+  // own !distanceMiles guard below), which callers already handle by
+  // excluding the race rather than corrupting a total with a fabricated
+  // distance.
   parseDistanceToMiles(distanceMeters, distanceText) {
-    if (distanceMeters && distanceMeters > 0) return distanceMeters / 1609.34;
-    if (distanceText) {
-      if (distanceText.includes('5,000') || distanceText.includes('5000') || distanceText.includes('5k') || distanceText.includes('5K')) {
-        return 3.1;
-      }
-      if (distanceText.includes('3') && distanceText.includes('mile')) return 3.0;
-      const match = distanceText.match(/(\d+\.?\d*)/);
-      if (match) return parseFloat(match[1]);
-    }
-    return 3.1;
+    const meters = distanceMeters > 0 ? distanceMeters : parseDistanceToMeters(distanceText);
+    return metersToMiles(meters) ?? 0;
   }
 
+  // Some callers already have a race pre-transformed with `distance` as a
+  // computed miles number (see the .map() that builds distanceMeters/
+  // distanceText/distance together above); others pass the raw text.
+  // Accept either.
   normalizeDistanceMiles(distance) {
     if (typeof distance === 'number') return distance;
     return this.parseDistanceToMiles(null, distance);

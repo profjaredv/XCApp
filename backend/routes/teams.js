@@ -12,6 +12,7 @@ const {
   listSeasonsWithData,
   isEnrolled,
 } = require('../lib/season');
+const { parseDistanceToMeters } = require('../lib/distance');
 
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 
@@ -168,19 +169,6 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
           const parts = timeStr.split(':').map((p) => parseFloat(p));
           if (parts.length === 2) return parts[0] * 60 + parts[1];
           if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-          return null;
-        };
-
-        const parseDistanceToMeters = (distStr) => {
-          if (!distStr) return null;
-          const cleanStr = distStr.replace(/,/g, '');
-          const match = cleanStr.match(/(\d+\.?\d*)\s*(miles?|meters?|mi|km|k|m)/i);
-          if (!match) return null;
-          const value = parseFloat(match[1]);
-          const unit = match[2].toLowerCase();
-          if (unit === 'k' || unit === 'km') return value * 1000;
-          if (unit === 'miles' || unit === 'mile' || unit === 'mi') return value * 1609.34;
-          if (unit === 'meters' || unit === 'meter' || unit === 'm') return value;
           return null;
         };
 

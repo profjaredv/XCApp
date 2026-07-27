@@ -4,6 +4,7 @@ const { customAlphabet } = require('nanoid');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
 const { resolveActiveSeason } = require('../lib/season');
+const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 
 const generateJoinCode = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 
@@ -31,15 +32,8 @@ router.get('/performance', authenticate, requireTeam, async (req, res) => {
     });
 
     const parseDistanceToMiles = (distStr, distMeters) => {
-      if (distMeters && distMeters > 0) return distMeters / 1609.34;
-      if (!distStr) return 0;
-      const label = distStr.toLowerCase();
-      const kMatch = label.match(/([0-9]+(?:\.[0-9]+)?)\s*k/);
-      if (kMatch) return (parseFloat(kMatch[1]) * 1000) / 1609.34;
-      const miMatch = label.match(/([0-9]+(?:\.[0-9]+)?)\s*(mi|mile|miles)/);
-      if (miMatch) return parseFloat(miMatch[1]);
-      if (label.includes('5k')) return 3.10686;
-      return 0;
+      const meters = distMeters > 0 ? distMeters : parseDistanceToMeters(distStr);
+      return metersToMiles(meters) ?? 0;
     };
 
     const meetCount = races.length;
