@@ -18,11 +18,52 @@ or env vars. These need a human or a live-access session:
   the deployed app and confirm `DELETE /api/athletes/:id` returns 403. The
   static half (every non-GET route has a guard) is automated and passing —
   see `backend/test/routeAuth.test.js`, run via `npm test`.
-- **`XCApp-red-team-audit.md`**, the companion doc the build spec's header
-  references for "file-and-line detail behind the Phase 0 fixes," is not in
-  this repo. Phase 0 was completed by reading the actual route files
-  directly instead — worth confirming nothing in that doc was missed if it
-  turns up later.
+- ~~`XCApp-red-team-audit.md` missing~~ — received and reviewed. See below
+  for what it changed.
+
+## S2 (audit): cross-team coach escalation — fixed
+
+The audit's most severe finding wasn't in the build spec's Phase 0 checklist
+and would have shipped past this session unaddressed otherwise. Real, live
+chain: `POST /profile/upgrade-to-coach` set a global `User.role = 'coach'`
+never scoped to any team and never downgraded; `POST /team/join` (or
+`/profile/join-team`) lets anyone switch `teamId` to any team via its join
+code with no check on existing membership elsewhere. Put together, a coach
+of Team A (or anyone who used the shared upgrade code) could join Team B via
+its join code and `requireCoach` — which only checked the sticky global
+role — would treat them as Team B's legitimate coach: invite athletes,
+approve claims, generate a new join code, edit/delete the roster.
+
+Fixed: `requireCoach` now checks team-scoped standing — either
+`Team.coachUid === req.user.id` (owns this team), or a `'coach'` row in
+`TeamMember` for `(req.user.teamId, req.user.id)` specifically. Fast path
+for the common case (a coach acting on the team they created) costs no
+extra query. `POST /upgrade-to-coach` now also upserts the `TeamMember` row
+for the account's current team, scoping the grant instead of leaving it
+global. `User.role` is kept as-is for onboarding-UX purposes only; it is no
+longer trusted for authorization anywhere.
+
+Not re-verified against a live deploy — same sandbox constraint as
+everything else in Phase 0. Worth a manual check: create two teams, upgrade
+one account to coach on Team A via the shared code, join Team B with that
+account, confirm coach-only actions on Team B now 403.
+
+## From the audit, not yet acted on (flagged, not guessed at)
+
+- **S4, privacy/FERPA**: no retention policy, no deletion path for a
+  departed athlete, no guardian-consent concept, and `TrainingLog.notes` is
+  free text a minor writes with no defined coach-read boundary (currently
+  no coach read path exists at all for it, which the audit calls "the safe
+  default" — deliberate, not just fixed, is Phase 6 territory). Also:
+  confirm the previously-committed Gemini key (noted in
+  `MIGRATION_STATUS.md`) was actually rotated, not just deleted from the
+  repo. This is a policy/legal question for a human, not something to
+  silently decide in code.
+- **S5, minor**: `server.js` hardcodes the production CORS origin as a
+  single string — fine today, will need to become a list the moment a
+  second domain is added. Not changed, since there's only one production
+  origin right now and guessing at future domains isn't this session's
+  call to make.
 
 ## Phase 0 — `Result.status`: done, but incomplete on purpose
 

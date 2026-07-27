@@ -75,11 +75,29 @@ router.post('/upgrade-to-coach', authenticate, async (req, res) => {
       return res.status(400).json({ message: 'User is already a coach.' });
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: { role: 'coach' },
-      include: { team: true },
-    });
+    // User.role is only an onboarding-UX hint now, never the authorization
+    // source of truth (see requireCoach in middleware/auth.js) — the real
+    // grant is the TeamMember row, scoped to whichever team this account is
+    // on right now. Upgrading with no team yet still flips the hint flag
+    // (existing behavior, preserved), but grants no actual coach access
+    // anywhere until they're on a team.
+    const updates = [
+      prisma.user.update({
+        where: { id: userId },
+        data: { role: 'coach' },
+        include: { team: true },
+      }),
+    ];
+    if (req.user.teamId) {
+      updates.push(
+        prisma.teamMember.upsert({
+          where: { teamId_userId: { teamId: req.user.teamId, userId } },
+          update: { role: 'coach' },
+          create: { teamId: req.user.teamId, userId, role: 'coach' },
+        })
+      );
+    }
+    const [updatedUser] = await prisma.$transaction(updates);
 
     res.status(200).json({
       message: 'Successfully upgraded to coach.',

@@ -91,11 +91,40 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-const requireCoach = (req, res, next) => {
-  if (req.user?.role !== 'coach') {
+// req.user.role is a sticky, team-agnostic flag: nothing ever sets it back
+// to false. A coach who joins a DIFFERENT team via that team's join code
+// (routes/team.js POST /join, routes/profile.js POST /join-team) keeps
+// role:'coach' while req.user.teamId now points at a team they don't own —
+// checking role alone would let them act as that team's coach on every
+// requireCoach-gated route (invite athletes, approve claims, generate a
+// join code, scrape a roster...) just by learning that team's join code.
+// Coach status must be scoped to the team actually being acted on: either
+// they created it (Team.coachUid), or they hold a 'coach' TeamMember row
+// for it specifically (the shared-secret upgrade path in routes/profile.js
+// grants this, scoped to whichever team the account was on at the time —
+// see POST /upgrade-to-coach).
+const requireCoach = async (req, res, next) => {
+  if (!req.user?.teamId) {
     return res.status(403).json({ message: 'Access denied. Coach role required.' });
   }
-  next();
+
+  if (req.user.team?.coachUid === req.user.id) {
+    return next();
+  }
+
+  try {
+    const membership = await prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: req.user.teamId, userId: req.user.id } },
+    });
+    if (membership?.role === 'coach') {
+      return next();
+    }
+  } catch (err) {
+    console.error('Error checking team membership in requireCoach:', err.message);
+    return res.status(500).json({ message: 'An unexpected error occurred.' });
+  }
+
+  return res.status(403).json({ message: 'Access denied. Coach role required.' });
 };
 
 const requireTeam = (req, res, next) => {
