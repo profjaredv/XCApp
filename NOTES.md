@@ -113,17 +113,26 @@ The audit's claimed fourth duplicate, "the frontend duplication in
 that file only ever reads an already-numeric `distanceMeters`/`distance`
 field. Not deleted because there was nothing there to delete.
 
-**Not done, waiting on you** (per the spec's rule on destructive
-operations, and because I have no live DB access):
-- Run `backend/scripts/backfillDistanceMeters.js` (add `--dry-run` first to
-  see the report without writing). It re-parses every race's `distance`
-  text and corrects `distanceMeters` wherever they disagree, reporting any
-  it can't parse for manual review. Safe to re-run.
-- **Do this only after the Neon branch backup exists.**
-- The metrics-table truncate (`team_season_metrics`, `athlete_season_metrics`,
-  `meet_performance_metrics`) — holding off until the backfill's been run
-  and its report reviewed, per rule 6. I'll ask explicitly before touching
-  those tables.
+**Verify Gate 1 — passed:**
+- Test table: `npm test`, zero failures.
+- `SELECT COUNT(*) FROM races WHERE distance_meters IS NULL` → 0, fully
+  explicable (all 27 races are one of the 5 known clean formats).
+- Hand-check: SQL-computed total miles for Finley Woods-Vallejo (27.03 mi,
+  both 2024 and 2025, computed directly from `results`/`races`, bypassing
+  any cache) matched the app's displayed season totals for both seasons.
+
+**DB steps — done:**
+- `backend/scripts/backfillDistanceMeters.sql` run via the Neon SQL
+  Editor — 0 rows needed correction (the live import parser was already
+  correct, confirming the six-duplicate-parser bugs never actually fired
+  on this team's data; see below).
+- `backend/scripts/truncateMetricsCache.sql` run — cleared and
+  recalculated `team_season_metrics`, `athlete_season_metrics`,
+  `meet_performance_metrics`. Precautionary, not a fix for a known-wrong
+  number: since `distance_meters` was never null in this dataset, the
+  buggy fallback paths in the other five parsers never had a reason to
+  fire. Run at the user's request for certainty, not because a wrong
+  number was ever observed.
 
 **One more residual "default to 5K" spot, not fixed**: `calculationService
 Supabase.js:498`, `(m.distance || 5000) / 1609.34` inside a precomputed
@@ -133,6 +142,41 @@ parsing), and understanding whether it's safe to remove needs tracing the
 `MeetPerformanceMetrics` computation pipeline — left alone rather than
 guessed at in the same pass as everything above.
 
+## Bugs found and fixed while closing out Phase 1 (not in the audit)
+
+None of these are distance-parser bugs — they surfaced from live user
+reports while verifying Phase 1 — but they're worth a permanent record
+since the pattern recurred three times:
+
+- **Season context lost on navigation/default.** `RosterPage`'s "View
+  Profile" link, `AnalyticsPage`'s default view, `TeamAthleteProfilePage`'s
+  direct-link default, and two season-picker-less screens
+  (`CoachesToolsPage`, `RaceVisualizationPage`) all either dropped the
+  currently-viewed season when navigating, or defaulted to the team's
+  active season without checking whether it actually had data — showing
+  an empty page whenever the active season was a fresh preseason. Fixed
+  in each; added a shared `useCurrentSeasonWithData()` hook for the two
+  screens with no season picker of their own. Deliberately left
+  `DataManagementPage`/`ScraperControls` alone — those import data *into*
+  the active season, so defaulting there regardless of data is correct.
+- **Athlete chart plotted raw time, not pace.** `AthleteDetailModal`'s
+  "Race Performance Over Time" chart plotted `race.time` directly, mixing
+  races of very different distances (a 1-mile time trial next to a 5K) on
+  one axis — looked like wild fitness swings, was actually just distance
+  differences. Now plots pace; also breaks the line at season boundaries
+  (it previously drew one continuous line straight through the off-season)
+  and added a fitted trend line, independent of the results table's sort
+  state (which the chart's point order used to inherit).
+- **`setSearchParams` race condition — "Past Seasons" did nothing.**
+  Calling two separate `useQueryParam` setters back to back
+  (`setSeasonModeParam(...)` then `setSelectedSeasonParam(...)`) silently
+  dropped the first call: each snapshots the URL at render time before
+  navigating, so the second call's snapshot doesn't include the first
+  call's change, and its `replace` navigation overwrites it. Added
+  `useSetQueryParams()` (sets multiple keys in one call) and fixed both
+  call sites in `AnalyticsPage`. Worth grepping for if this pattern shows
+  up again elsewhere — it's an easy trap to fall into with this hook.
+
 ## Possible duplicate implementation worth checking before Phase 6
 
 `routes/seasons.js` (`/api/seasons/...`, keyed by season UUID) and
@@ -140,3 +184,12 @@ guessed at in the same pass as everything above.
 year) both do roster add/remove/clear-results. Didn't dig into which one the
 frontend actually uses before fixing both — flagging in case one turns out
 to be the "second implementation" rule 3 says to delete rather than fix.
+
+Also: `web/src/components/SeasonModeSelector.tsx` and `web/src/components/
+analytics/SeasonModeSelector.tsx` are two separate components with the same
+name and overlapping purpose (mode toggle + season picker), used by
+`TeamAthleteProfilePage` and `AnalyticsHeader` respectively, with different
+prop shapes and no shared code. Left both alone this pass — merging them
+means reconciling `TeamAthleteProfilePage`'s local `seasonMode` state
+(`'current' | 'all' | 'custom'`, not URL-backed) with `AnalyticsPage`'s
+URL-param-based one, which is more than a "fix a bug" change.
