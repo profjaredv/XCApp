@@ -24,7 +24,7 @@ import { AuthContext } from '@/contexts/AuthContext';
 import { DistanceAnalysisTab } from '@/components/analytics/DistanceAnalysisTab';
 import { RaceComparisonTab } from '@/components/analytics/RaceComparisonTab';
 import { useEnhancedTeamMetrics } from '@/hooks/useEnhancedAnalytics';
-import { useQueryParam, useQueryParamNumber } from '@/hooks/useQueryState';
+import { useQueryParam, useQueryParamNumber, useSetQueryParams } from '@/hooks/useQueryState';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { SetupChecklist } from '@/components/SetupChecklist';
 import { currentCalendarSeason } from '@/lib/seasonUtils';
@@ -86,10 +86,11 @@ const AnalyticsPage = () => {
   // was in the URL — a real cause of state feeling like it didn't persist.
   const [tabParam, setTabParam] = useQueryParam('tab');
   const activeTab = tabParam ?? 'dashboard';
-  const [seasonModeParam, setSeasonModeParam] = useQueryParam('seasonMode');
+  const [seasonModeParam] = useQueryParam('seasonMode');
   const seasonMode = (seasonModeParam as SeasonMode | undefined) ?? 'current';
   const [selectedSeason, setSelectedSeasonParam] = useQueryParamNumber('season');
   const [urlSelectedAthleteId, setUrlSelectedAthleteId] = useQueryParam('athlete');
+  const setQueryParams = useSetQueryParams();
 
   const { data: analyticsData, isLoading, error, refetch } = useAnalyticsData(selectedSeason);
 
@@ -151,8 +152,11 @@ const AnalyticsPage = () => {
         availableSeasons.find((s) => s.year !== activeSeason && s.hasData)?.year ??
         availableSeasons.find((s) => s.hasData)?.year;
       if (defaultSeason && defaultSeason !== selectedSeason) {
-        setSeasonModeParam('historical');
-        setSelectedSeasonParam(defaultSeason);
+        // One call, not two — setSeasonModeParam() and setSelectedSeasonParam()
+        // each snapshot the URL independently and navigate off that snapshot,
+        // so calling both back to back drops whichever one lands first. See
+        // useSetQueryParams' comment for the full explanation.
+        setQueryParams({ seasonMode: 'historical', season: defaultSeason });
       }
       return;
     }
@@ -182,7 +186,7 @@ const AnalyticsPage = () => {
     availableSeasons,
     selectedSeason,
     setSelectedSeasonParam,
-    setSeasonModeParam,
+    setQueryParams,
     activeSeason,
   ]);
 
@@ -271,12 +275,14 @@ const AnalyticsPage = () => {
   const handleGradeFilterChange = (value: string) => setGradeFilter(value);
 
   const handleSeasonModeChange = useCallback((newMode: SeasonMode) => {
-    setSeasonModeParam(newMode);
-    setSelectedSeasonParam(undefined);
+    // Single call — see useSetQueryParams' comment. Setting seasonMode and
+    // season via two separate setSearchParams calls was silently dropping
+    // the seasonMode change: "Past Seasons" appeared to do nothing.
+    setQueryParams({ seasonMode: newMode, season: undefined });
     if (newMode === 'historical' && (!availableSeasons || availableSeasons.length === 0)) {
       refetchSeasons();
     }
-  }, [availableSeasons, refetchSeasons, setSeasonModeParam, setSelectedSeasonParam]);
+  }, [availableSeasons, refetchSeasons, setQueryParams]);
 
   const handleTabChange = useCallback((tab: string) => {
     setTabParam(tab);

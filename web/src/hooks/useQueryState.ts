@@ -35,6 +35,41 @@ export function useQueryParam(key: string): [string | undefined, (value: string 
   return [value, setValue];
 }
 
+/**
+ * Set several query params in one navigation. Calling two single-param
+ * setters (from separate useQueryParam calls) back to back is NOT safe for
+ * this: each independently snapshots `searchParams` from the current
+ * render and calls `navigate()` off that snapshot, so the second call's
+ * snapshot doesn't yet include the first call's change — its `replace`
+ * navigation overwrites the first, and the first update is silently lost.
+ * This was the actual cause of "clicking Past Seasons does nothing": that
+ * handler set `seasonMode` and `season` in two separate calls, and only
+ * the second one ever stuck.
+ */
+export function useSetQueryParams(): (updates: Record<string, string | number | undefined>) => void {
+  const [, setSearchParams] = useSearchParams();
+
+  return useCallback(
+    (updates: Record<string, string | number | undefined>) => {
+      setSearchParams(
+        (prev) => {
+          const updated = new URLSearchParams(prev);
+          for (const [key, value] of Object.entries(updates)) {
+            if (value === undefined || value === '') {
+              updated.delete(key);
+            } else {
+              updated.set(key, String(value));
+            }
+          }
+          return updated;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+}
+
 /** A single numeric query param (e.g. ?season=2025). */
 export function useQueryParamNumber(key: string): [number | undefined, (value: number | undefined) => void] {
   const [raw, setRaw] = useQueryParam(key);

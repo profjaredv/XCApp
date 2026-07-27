@@ -57,9 +57,6 @@ export const AnalyticsHeader = ({
               <SeasonModeSelector
                 mode={seasonMode}
                 onModeChange={handleSeasonModeChange}
-                selectedSeason={selectedSeason}
-                onSeasonChange={(year) => setSelectedSeason(Number(year))}
-                seasons={availableSeasons.map(s => ({ id: s.year.toString(), name: `Season ${s.year}`, year: s.year, isCurrent: false }))}
                 className="mb-2 sm:mb-0"
               />
               {seasonMode === 'historical' && (
