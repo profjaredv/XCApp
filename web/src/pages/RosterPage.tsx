@@ -43,7 +43,13 @@ import { PendingClaimsCard } from '@/components/PendingClaimsCard';
 const RosterPage: React.FC = () => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
-  const teamAthletePath = (athleteId: string) => teamPath(`/team/athlete/${athleteId}`);
+  // Carries the season currently being viewed along to the athlete's
+  // profile — without this, clicking into an athlete while looking at a
+  // past season silently dropped back to the team's default/current
+  // season on the profile page (which may have no results at all yet,
+  // e.g. a fresh preseason), making it look like the athlete had no data.
+  const teamAthletePath = (athleteId: string) =>
+    teamPath(`/team/athlete/${athleteId}${season !== undefined ? `?season=${season}` : ''}`);
   const { currentUser } = useAuth();
   const isCoach = currentUser?.role === 'coach';
 

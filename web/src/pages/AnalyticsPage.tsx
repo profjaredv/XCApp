@@ -134,6 +134,29 @@ const AnalyticsPage = () => {
   useEffect(() => {
     if (activeSeason === undefined) return;
 
+    // Nobody has picked a mode yet (no `seasonMode` in the URL) and the
+    // active season has no races — a fresh preseason. Forcing "Current
+    // Season" in that case landed every visit on a genuinely empty page
+    // even when past seasons have real data. Default to the most recent
+    // season that actually has data instead. A user who explicitly clicks
+    // "Current Season" sets seasonModeParam and this no longer applies —
+    // that's a deliberate choice to view the (possibly empty) active season.
+    if (
+      seasonModeParam === undefined &&
+      availableSeasons.length > 0 &&
+      !availableSeasons.find((s) => s.year === activeSeason)?.hasData &&
+      availableSeasons.some((s) => s.hasData)
+    ) {
+      const defaultSeason =
+        availableSeasons.find((s) => s.year !== activeSeason && s.hasData)?.year ??
+        availableSeasons.find((s) => s.hasData)?.year;
+      if (defaultSeason && defaultSeason !== selectedSeason) {
+        setSeasonModeParam('historical');
+        setSelectedSeasonParam(defaultSeason);
+      }
+      return;
+    }
+
     if (seasonMode === 'current') {
       if (selectedSeason !== activeSeason) {
         setSelectedSeasonParam(activeSeason);
@@ -153,7 +176,15 @@ const AnalyticsPage = () => {
         setSelectedSeasonParam(defaultSeason);
       }
     }
-  }, [seasonMode, availableSeasons, selectedSeason, setSelectedSeasonParam, activeSeason]);
+  }, [
+    seasonMode,
+    seasonModeParam,
+    availableSeasons,
+    selectedSeason,
+    setSelectedSeasonParam,
+    setSeasonModeParam,
+    activeSeason,
+  ]);
 
   const { toast } = useToast();
   const invalidatePerf = useInvalidatePerformanceCache();
