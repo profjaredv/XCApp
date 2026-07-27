@@ -5,7 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Sparkles, TrendingUp, Users, Loader2, Lightbulb, AlertCircle, Download, Play } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useCurrentSeason } from '@/hooks/useCurrentSeason';
+import { useCurrentSeasonWithData } from '@/hooks/useCurrentSeasonWithData';
 import axiosInstance from '@/api/axios';
 
 interface Athlete {
@@ -67,7 +67,11 @@ interface AiInsightsData {
 export default function CoachesToolsPage() {
   const { currentUser } = useAuth();
   const teamId = currentUser?.team?.id;
-  const currentSeason = useCurrentSeason();
+  // No season picker on this page — default past an empty active/preseason
+  // to the most recent season that actually has races, or every tool here
+  // (training groups, improvement tracking, AI insights) looks broken on a
+  // team that just rolled into a new season.
+  const currentSeason = useCurrentSeasonWithData(teamId);
 
   const [trainingGroups, setTrainingGroups] = useState<TrainingGroup[]>([]);
   const [groupsRationale, setGroupsRationale] = useState<string>('');

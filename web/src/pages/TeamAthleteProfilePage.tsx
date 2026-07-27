@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -52,10 +52,34 @@ const TeamAthleteProfilePage = () => {
   const teamPath = useTeamPath();
   const defaultSeason = useCurrentSeason();
   const [seasonParam, setSeasonParam] = useQueryParamNumber('season');
-  const selectedSeason = seasonParam ?? defaultSeason;
-  const setSelectedSeason = setSeasonParam;
   const [seasonMode, setSeasonMode] = useState<'current' | 'all' | 'custom'>('current');
   const [isRecalculating, setIsRecalculating] = useState(false);
+
+  const { data: athleteAllSeasons } = useAthleteAllSeasons(athleteId || '', { enabled: !!athleteId });
+
+  // When landing with no explicit ?season= and this athlete has no races in
+  // the team's current/active season but does have races in a past one,
+  // default to the most recent season with data instead of showing an
+  // empty "no results" page — the same class of bug fixed on RosterPage
+  // (season not carried on navigation) and AnalyticsPage (defaulted to an
+  // empty preseason). `seasons` comes back ordered ascending by the
+  // backend, so the last entry with races is the most recent one.
+  const seasonsWithData = athleteAllSeasons?.data?.seasons;
+  const smartDefaultSeason = useMemo(() => {
+    if (!seasonsWithData) return undefined;
+    const hasCurrentData = (seasonsWithData.find(s => s.season === defaultSeason)?.metrics?.totalRaces ?? 0) > 0;
+    if (hasCurrentData) return undefined;
+    return [...seasonsWithData].reverse().find(s => (s.metrics?.totalRaces ?? 0) > 0)?.season;
+  }, [seasonsWithData, defaultSeason]);
+
+  useEffect(() => {
+    if (seasonParam === undefined && smartDefaultSeason !== undefined) {
+      setSeasonParam(smartDefaultSeason);
+    }
+  }, [seasonParam, smartDefaultSeason, setSeasonParam]);
+
+  const selectedSeason = seasonParam ?? smartDefaultSeason ?? defaultSeason;
+  const setSelectedSeason = setSeasonParam;
 
   const handleSeasonModeChange = (newMode: 'current' | 'all' | 'historical') => {
     setSeasonMode(newMode as 'current' | 'all' | 'custom');
@@ -67,9 +91,8 @@ const TeamAthleteProfilePage = () => {
     isLoading: isLoadingAthlete,
     refetch: refetchAthletePerf,
   } = useAthletePerformance(athleteId || '', selectedSeason);
-  const { data: athleteAllSeasons } = useAthleteAllSeasons(athleteId || '', { enabled: !!athleteId });
   const { data: multiSeasonTrendsData, isLoading: isLoadingMultiSeasonTrends } = useMultiSeasonTrends(teamId || '', selectedSeason);
-  
+
   // Derived values
   const enhancedAthlete: (Athlete & { bestTimeDate?: string; raceCount?: number; firstRaceTime?: number; lastRaceTime?: number; races: Race[] }) | null = useMemo(() => {
     if (!athletePerf?.data) return null;

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useCurrentSeason } from '@/hooks/useCurrentSeason';
+import { useCurrentSeasonWithData } from '@/hooks/useCurrentSeasonWithData';
 import axiosInstance from '@/api/axios';
 import { Button } from '@/components/ui/button';
 import { Loader2, Play, Pause, RotateCcw } from 'lucide-react';
@@ -40,7 +40,9 @@ const getGradeColor = (grade: string) => {
 export default function RaceVisualizationPage() {
   const { currentUser } = useAuth();
   const teamId = currentUser?.team?.id;
-  const currentSeason = useCurrentSeason();
+  // No season picker on this page — default past an empty active/preseason
+  // to the most recent season with actual improvement data to animate.
+  const currentSeason = useCurrentSeasonWithData(teamId);
 
   const [runners, setRunners] = useState<RunnerData[]>([]);
   const [loading, setLoading] = useState(true);
