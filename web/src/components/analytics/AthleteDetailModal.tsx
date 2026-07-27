@@ -145,6 +145,37 @@ export const AthleteDetailModal = ({
     });
   }, [racesWithPRs, sortField, sortDirection]);
 
+  // Chart data for "Race Performance Over Time" — always chronological
+  // regardless of how the table below is currently sorted (sortedRaces'
+  // order follows sortField/sortDirection, which the chart must not
+  // inherit). Plots pace (time per mile), not raw time: races here span
+  // wildly different distances (a 1-mile time trial vs. a 5K), and raw
+  // finish time makes those look like huge fitness swings when they're
+  // really just distance differences. A synthetic null-pace point is
+  // inserted at every season boundary so the line breaks there instead of
+  // drawing a single continuous slope straight through the off-season,
+  // where no races actually happened.
+  const paceChartData = useMemo(() => {
+    const points = sortedRaces
+      .filter((race) => race.distanceMi > 0)
+      .map((race) => ({
+        date: new Date(race.date).getTime(),
+        season: race.season || 2022,
+        pace: race.time / race.distanceMi,
+      }))
+      .sort((a, b) => a.date - b.date);
+
+    const withBreaks: typeof points = [];
+    points.forEach((point, i) => {
+      withBreaks.push(point);
+      const next = points[i + 1];
+      if (next && next.season !== point.season) {
+        withBreaks.push({ date: (point.date + next.date) / 2, season: point.season, pace: null as unknown as number });
+      }
+    });
+    return withBreaks;
+  }, [sortedRaces]);
+
   if (!selectedAthlete || !enhancedSelectedAthlete) return null;
 
   // Get team and gender averages from multiSeasonTrendsData
@@ -326,16 +357,9 @@ export const AthleteDetailModal = ({
                   <CardContent>
                     {sortedRaces.length > 0 ? (
                       <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={sortedRaces.map((race, index) => ({
-                          date: new Date(race.date).getTime(), // Use actual date timestamp
-                          season: race.season || 2022,
-                          time: race.time,
-                          pace: race.time / race.distanceMi,
-                          meetName: race.name,
-                          raceIndex: index
-                        })).sort((a, b) => a.date - b.date)}> {/* Sort by date */}
+                        <LineChart data={paceChartData}>
                           <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis 
+                          <XAxis
                             dataKey="date"
                             type="number"
                             scale="time"
@@ -345,27 +369,24 @@ export const AthleteDetailModal = ({
                               return `${date.getMonth() + 1}/${date.getDate()}`;
                             }}
                           />
-                          <YAxis 
-                            tickFormatter={(value) => formatTime(value)}
-                            domain={['dataMin - 30', 'dataMax + 30']}
+                          <YAxis
+                            tickFormatter={(value) => formatPace(value)}
+                            domain={['dataMin - 15', 'dataMax + 15']}
                           />
-                          <Tooltip 
-                            formatter={(value: number, name: string) => [
-                              name === 'time' ? formatTime(value) : formatPace(value),
-                              name === 'time' ? 'Time' : 'Pace'
-                            ]}
+                          <Tooltip
+                            formatter={(value: number) => [formatPace(value), 'Pace']}
                             labelFormatter={(timestamp) => {
                               const date = new Date(timestamp);
                               return `${date.toLocaleDateString()} - ${sortedRaces.find(r => new Date(r.date).getTime() === timestamp)?.name || 'Race'}`;
                             }}
                           />
                           <Legend />
-                          <Line 
-                            type="monotone" 
-                            dataKey="time" 
-                            stroke="#2563eb" 
+                          <Line
+                            type="monotone"
+                            dataKey="pace"
+                            stroke="#2563eb"
                             strokeWidth={2}
-                            name="Race Time"
+                            name="Pace (min/mi)"
                             connectNulls={false}
                             dot={{ r: 4 }}
                           />
