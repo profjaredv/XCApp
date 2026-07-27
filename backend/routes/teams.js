@@ -188,6 +188,8 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
             Time: time,
             'Race Date': raceDate,
             Distance: distance,
+            'Source URL': sourceUrl,
+            'Athletic Meet ID': athleticMeetId,
           } = rowData;
 
           if (!raceName || !athleteName || !time || !raceDate) {
@@ -223,6 +225,12 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
           }
           importedAthleteIds.add(athlete.id);
 
+          // csv-parse gives '' for a present-but-empty column, not undefined —
+          // normalize to null so a re-scrape without a resolvable meet link
+          // doesn't write an empty string over a previously-good value.
+          const sourceUrlValue = sourceUrl || null;
+          const athleticMeetIdValue = athleticMeetId || null;
+
           const race = await prisma.race.upsert({
             where: {
               teamId_name_date_distance: {
@@ -232,7 +240,13 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
                 distance,
               },
             },
-            update: { distance, distanceMeters: parseDistanceToMeters(distance), season: yearNum },
+            update: {
+              distance,
+              distanceMeters: parseDistanceToMeters(distance),
+              season: yearNum,
+              ...(sourceUrlValue ? { sourceUrl: sourceUrlValue } : {}),
+              ...(athleticMeetIdValue ? { athleticMeetId: athleticMeetIdValue } : {}),
+            },
             create: {
               name: raceName,
               date: parsedDate.startOf('day').toDate(),
@@ -240,6 +254,8 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
               distance,
               distanceMeters: parseDistanceToMeters(distance),
               season: yearNum,
+              sourceUrl: sourceUrlValue,
+              athleticMeetId: athleticMeetIdValue,
             },
           });
 

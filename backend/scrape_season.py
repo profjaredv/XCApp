@@ -1,6 +1,8 @@
 import argparse
 import sys
 import csv
+import re
+from urllib.parse import urljoin
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
@@ -79,10 +81,21 @@ def build_lookup_tables(soup):
                 if date_label and name_a:
                     meet_date = date_label.text.strip()
                     meet_name = name_a.text.strip()
-                    
+                    # The season grid only shows our own team's rows; the meet
+                    # link itself points at that meet's full-field results
+                    # page, which the Phase 2 meet scraper needs. bs4 doesn't
+                    # resolve relative URLs like a browser does, so build the
+                    # absolute one from the raw href.
+                    raw_href = name_a.get('href') or ''
+                    source_url = urljoin('https://www.athletic.net', raw_href) if raw_href else ''
+                    meet_id_match = re.search(r'/meet/(\d+)', source_url)
+                    athletic_meet_id = meet_id_match.group(1) if meet_id_match else ''
+
                     meet_key[meet_idx] = {
                         'name': meet_name,
-                        'date': meet_date
+                        'date': meet_date,
+                        'source_url': source_url,
+                        'athletic_meet_id': athletic_meet_id
                     }
                     meet_idx += 1
 
@@ -142,9 +155,12 @@ def parse_gender_table(table, gender, distance_key, meet_key, year):
                 meet_info = meet_key.get(i, {})
                 race_name = meet_info.get('name', 'Unknown Meet')
                 race_date = meet_info.get('date', 'Unknown Date')
+                source_url = meet_info.get('source_url', '')
+                athletic_meet_id = meet_info.get('athletic_meet_id', '')
 
                 results.append([
-                    race_name, athlete_name, grade, gender, time_str, f"{race_date}, {year}", distance
+                    race_name, athlete_name, grade, gender, time_str, f"{race_date}, {year}", distance,
+                    source_url, athletic_meet_id
                 ])
     print(f"Found {len(results)} results in {gender}'s table.", file=sys.stderr)
     return results
@@ -173,7 +189,7 @@ def main(team_id, year):
 
     # Output to CSV
     writer = csv.writer(sys.stdout)
-    writer.writerow(["Race Name", "Athlete Name", "Grade", "Gender", "Time", "Race Date", "Distance"])
+    writer.writerow(["Race Name", "Athlete Name", "Grade", "Gender", "Time", "Race Date", "Distance", "Source URL", "Athletic Meet ID"])
     writer.writerows(all_results)
     print(f"Finished scraping. Found {len(all_results)} results.", file=sys.stderr)
 

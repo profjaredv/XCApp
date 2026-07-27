@@ -1,0 +1,59 @@
+<!-- Minimal fixture mimicking Athletic.net's Season.aspx results-grid markup:
+     a distance key table, a #MeetList table, and #M_Table / #F_Table
+     (containers wrapping a table.DataTable) with graded athlete rows.
+     Used by test/scraper.test.js to exercise extractResults() without a
+     live network call. -->
+<!DOCTYPE html>
+<html>
+<head><base href="https://www.athletic.net/"></head>
+<body>
+  <table class="pull-right-sm">
+    <tr><td><sub>1</sub>5,000 Meters</td></tr>
+    <tr><td><sub>2</sub>3 Miles</td></tr>
+  </table>
+
+  <table id="MeetList">
+    <tbody>
+      <tr><th>Meet</th></tr>
+      <tr>
+        <td><label>Sep 6</label></td>
+        <td><a href="/CrossCountry/meet/111222/results/all">Season Opener</a></td>
+      </tr>
+      <tr>
+        <td><label>Sep 13</label></td>
+        <td><a href="/CrossCountry/meet/333444/results/all">Invitational</a></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div id="M_Table">
+    <table class="DataTable">
+      <tr><th>Header</th></tr>
+      <tr class="y9">
+        <td>9</td>
+        <td><a href="/athlete/1">Alex Runner</a></td>
+        <td><a href="/result/1">18:32</a><span class="subscript">1</span></td>
+        <td><a href="/result/2">17:55</a><span class="subscript">1</span></td>
+      </tr>
+      <tr class="y11">
+        <td>11</td>
+        <td><a href="/athlete/2">Jamie Fast</a></td>
+        <td><a href="/result/3">17:10</a><span class="subscript">1</span></td>
+        <td></td>
+      </tr>
+    </table>
+  </div>
+
+  <div id="F_Table">
+    <table class="DataTable">
+      <tr><th>Header</th></tr>
+      <tr class="y10">
+        <td>10</td>
+        <td><a href="/athlete/3">Sam Swift</a></td>
+        <td><a href="/result/4">21:04</a><span class="subscript">2</span></td>
+        <td></td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>

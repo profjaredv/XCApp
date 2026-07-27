@@ -1,0 +1,35 @@
+<!-- Meets are listed but the gender tables have no result cells at all —
+     simulates Athletic.net restructuring the results-grid markup so the
+     parser's row/cell assumptions no longer match. Used by
+     test/scraper.test.js to confirm the zero-results-despite-meets canary
+     trips. -->
+<!DOCTYPE html>
+<html>
+<body>
+  <table class="pull-right-sm">
+    <tr><td><sub>1</sub>5,000 Meters</td></tr>
+  </table>
+
+  <table id="MeetList">
+    <tbody>
+      <tr><th>Meet</th></tr>
+      <tr>
+        <td><label>Sep 6</label></td>
+        <td><a href="/meet/1">Season Opener</a></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div id="M_Table">
+    <table class="DataTable">
+      <tr><th>Header</th></tr>
+    </table>
+  </div>
+
+  <div id="F_Table">
+    <table class="DataTable">
+      <tr><th>Header</th></tr>
+    </table>
+  </div>
+</body>
+</html>

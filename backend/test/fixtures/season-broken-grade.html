@@ -1,0 +1,44 @@
+<!-- Same shape as season-valid.html, but athlete rows carry neither a
+     `y<grade>` row class nor a recognizable FR/SO/JR/SR/numeric first cell —
+     simulates Athletic.net changing its grade-marker convention. Used by
+     test/scraper.test.js to confirm the missing-grade canary trips. -->
+<!DOCTYPE html>
+<html>
+<body>
+  <table class="pull-right-sm">
+    <tr><td><sub>1</sub>5,000 Meters</td></tr>
+  </table>
+
+  <table id="MeetList">
+    <tbody>
+      <tr><th>Meet</th></tr>
+      <tr>
+        <td><label>Sep 6</label></td>
+        <td><a href="/meet/1">Season Opener</a></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div id="M_Table">
+    <table class="DataTable">
+      <tr><th>Header</th></tr>
+      <tr>
+        <td>Varsity</td>
+        <td><a href="/athlete/1">Alex Runner</a></td>
+        <td><a href="/result/1">18:32</a><span class="subscript">1</span></td>
+      </tr>
+      <tr>
+        <td>Varsity</td>
+        <td><a href="/athlete/2">Jamie Fast</a></td>
+        <td><a href="/result/3">17:10</a><span class="subscript">1</span></td>
+      </tr>
+    </table>
+  </div>
+
+  <div id="F_Table">
+    <table class="DataTable">
+      <tr><th>Header</th></tr>
+    </table>
+  </div>
+</body>
+</html>

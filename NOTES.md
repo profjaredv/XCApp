@@ -193,3 +193,51 @@ prop shapes and no shared code. Left both alone this pass — merging them
 means reconciling `TeamAthleteProfilePage`'s local `seasonMode` state
 (`'current' | 'all' | 'custom'`, not URL-backed) with `AnalyticsPage`'s
 URL-param-based one, which is more than a "fix a bug" change.
+
+## Phase 2, step 1: meet href capture — done
+
+Per the Build Spec's Phase 2 order of work: `scrape_season_playwright.js`'s
+meet-key extraction now captures `nameA.href` (browser-resolved absolute
+URL) and parses `athleticMeetId` out of it via `/meet/(\d+)/`, alongside the
+existing name/date. Same patch applied to `scrape_season.py` (still the
+non-Railway dev-mode scraper; used `urllib.parse.urljoin` since bs4 doesn't
+resolve relative URLs like a browser does). Both scrapers now emit two new
+trailing CSV columns, `Source URL` and `Athletic Meet ID`; `routes/teams.js`
+`POST /scrape` reads them and writes `Race.sourceUrl` / `Race.athleticMeetId`
+(migration `20260727000000_race_source_url`, additive/nullable, no backfill
+possible since the URL was never captured before — existing races stay
+`NULL` until their season is re-scraped).
+
+Also added, while in this file for other reasons: two canary checks in the
+scraper's retry loop, since the audit specifically flagged silent
+mis-parsing as the scraper's biggest risk. (1) meets listed but zero
+results parsed — that combination can't be a legitimately-empty season, so
+it's treated as a structure break and retried/fails loudly. (2) more than
+half of parsed rows missing a grade — signals the `y9`/`y10`/`FR`-`SR`
+grade convention broke, not that the team happens to be mostly ungraded.
+Both are regression-tested against fixture HTML in `test/scraper.test.js`
+(`test/fixtures/season-*.html`), per the audit's Phase 4 recommendation to
+catch a page-structure change in CI rather than by a coach noticing wrong
+numbers. Note for whoever next runs this suite somewhere the Playwright npm
+package's pinned browser revision isn't pre-installed: the test respects an
+optional `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var as a launch-option
+override; unset (the normal case), it's a no-op.
+
+Explicitly did not pursue athletic.net's internal `GetAllResultsData` JSON
+API as an alternative to HTML scraping for this or the Phase 2 full-field
+work: it sits behind Cloudflare and only returns data with a live logged-in
+session's `cf_clearance` + `anet-site-roles-token` + `anettokens` (verified
+by hitting it without those headers — 403 challenge page, not JSON). Building
+on that would mean storing a personal Athletic.net login session
+server-side and refreshing short-lived Cloudflare cookies indefinitely,
+which is worse than anonymous page scraping on both counts the audit cares
+about (credential exposure, ToS posture). Phase 2's own fallback path
+(Playwright against the public meet-results HTML page, same anti-bot
+handling as the season scraper) is the right approach and is next up.
+
+Not yet done, still ahead in Phase 2: the `Course` model + coach-reviewable
+mapping file (verify gate 2a, blocking), `scrape_meet_playwright.js` (the
+new full-field scraper, fixture-first per the spec), `FieldResult` +
+`Race.fieldMeanSec`/`fieldMedianSec`/`fieldFinisherCount`, and
+`Athlete.athleticAthleteId` + relaxing the `[teamId, name]` unique
+constraint.

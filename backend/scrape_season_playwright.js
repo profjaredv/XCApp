@@ -5,6 +5,13 @@ const NAV_TIMEOUT = 60000;
 const SELECTOR_TIMEOUT = 35000;
 const MAX_ATTEMPTS = 3;
 
+// Canary threshold: if more than half of parsed rows can't have a grade
+// extracted, the page almost certainly changed its grade convention (the
+// `y9`/`y10` row class, or the `FR`/`SO`/`JR`/`SR` text fallback) rather than
+// this team simply having a lot of ungraded entries. Fail loudly instead of
+// silently importing rows with blank grades that would look like real data.
+const MAX_MISSING_GRADE_RATIO = 0.5;
+
 // Headless Chromium's default User-Agent contains the literal string
 // "HeadlessChrome", which athletic.net (and most sites behind a bot filter)
 // treat as a scraper — they serve a challenge/empty shell instead of the
@@ -69,11 +76,14 @@ async function scrapeSeasonResults(teamId, year) {
     // Navigate to Athletic.net season results page
     const url = `https://www.athletic.net/CrossCountry/Results/Season.aspx?SchoolID=${teamId}&S=${year}`;
 
-    // Retry the navigate + wait-for-grid step: transient bot challenges,
-    // cold datacenter connections, and slow renders are common and usually
-    // clear on a second attempt.
+    // Retry the navigate + wait-for-grid + extract step as one unit: transient
+    // bot challenges, cold datacenter connections, slow/partial renders, and
+    // (via the canary checks inside extractResults) apparent page-structure
+    // breaks are all common and usually clear on a second attempt — and if
+    // the structure really has changed, retrying can't make it worse.
     let lastError;
     let loaded = false;
+    let extraction;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         console.error(`Navigating (attempt ${attempt}/${MAX_ATTEMPTS}): ${url}`);
@@ -82,6 +92,39 @@ async function scrapeSeasonResults(teamId, year) {
         console.error('Waiting for results grid...');
         await page.waitForSelector(RESULT_GRID_SELECTOR, { timeout: SELECTOR_TIMEOUT });
         console.error('Page loaded successfully and main table found.');
+
+        extraction = await extractResults(page, year);
+
+        // Canary: meets are listed but zero results were parsed out of the
+        // gender tables. A season can legitimately have zero meets (early
+        // preseason), but it can't have meets with zero results in the grid
+        // that's supposed to hold them — that combination means the parser's
+        // assumptions about the table shape no longer match the page.
+        if (extraction.meetCount > 0 && extraction.results.length === 0) {
+          throw new Error(
+            `Structure check failed: found ${extraction.meetCount} meets listed but 0 results ` +
+              `parsed from the gender tables — the results-grid markup likely changed shape.`
+          );
+        }
+
+        // Canary: most parsed rows have no grade. Real rosters have a few
+        // ungraded entries at most; a majority blank means the grade
+        // convention (row class or FR/SO/JR/SR text) broke, not that this
+        // team happens to be mostly ungraded.
+        if (extraction.results.length > 0) {
+          const missingRatio = extraction.missingGradeCount / extraction.results.length;
+          if (missingRatio > MAX_MISSING_GRADE_RATIO) {
+            throw new Error(
+              `Structure check failed: ${extraction.missingGradeCount}/${extraction.results.length} ` +
+                `parsed results have no grade — the grade-parsing convention likely changed.`
+            );
+          }
+        }
+
+        if (extraction.meetCount === 0) {
+          console.error('No meets listed for this season yet (0 meets in #MeetList) — treating as a valid empty season, not a failure.');
+        }
+
         loaded = true;
         break;
       } catch (err) {
@@ -98,15 +141,40 @@ async function scrapeSeasonResults(teamId, year) {
 
     if (!loaded) {
       throw new Error(
-        `Results grid (${RESULT_GRID_SELECTOR}) never appeared after ${MAX_ATTEMPTS} attempts — ` +
-          `athletic.net likely served a bot-challenge or empty page to the scraper ` +
-          `(see the diagnostics logged above). Last error: ${lastError && lastError.message}`
+        `Results grid (${RESULT_GRID_SELECTOR}) never appeared, or its contents failed a structure ` +
+          `check, after ${MAX_ATTEMPTS} attempts — athletic.net likely served a bot-challenge, an ` +
+          `empty page, or changed its page structure (see the diagnostics logged above). ` +
+          `Last error: ${lastError && lastError.message}`
       );
     }
 
-    // Extract all data using the same logic as Python scraper
-    const allResults = await page.evaluate((year) => {
+    const allResults = extraction.results;
+    console.error(`Finished scraping. Found ${allResults.length} results.`);
+
+    // Output CSV format. Source URL / Athletic Meet ID are new columns (Phase
+    // 2): they let the ingestion route persist a link to this race's full
+    // results page, which the meet-field scraper navigates to directly.
+    console.log('Race Name,Athlete Name,Grade,Gender,Time,Race Date,Distance,Source URL,Athletic Meet ID');
+    allResults.forEach(row => {
+      console.log(row.map(field => `"${field}"`).join(','));
+    });
+
+    await browser.close();
+    return allResults;
+
+  } catch (error) {
+    console.error('Scraping error:', error.message);
+    if (browser) await browser.close();
+    throw error;
+  }
+}
+
+// Runs in-page: extracts race results plus canary metadata (meet count,
+// rows missing a parseable grade) used by the caller's structure checks.
+async function extractResults(page, year) {
+  return page.evaluate((year) => {
       const results = [];
+      let missingGradeCount = 0;
 
       // Build distance key
       const distanceKey = {};
@@ -148,10 +216,21 @@ async function scrapeSeasonResults(teamId, year) {
             if (dateLabel && nameA) {
               const meetDate = dateLabel.textContent.trim();
               const meetName = nameA.textContent.trim();
+              // The season grid only ever shows our own team's rows, but each
+              // meet link points at that meet's own results page — which is
+              // where the full field (every school, every athlete) lives.
+              // Capturing it here is what makes Phase 2's meet scraper
+              // possible without guessing or constructing meet URLs.
+              const sourceUrl = nameA.href || null; // browser-resolved absolute URL
+              const rawHref = nameA.getAttribute('href') || null;
+              const meetIdMatch = (sourceUrl || rawHref || '').match(/\/meet\/(\d+)/);
+              const athleticMeetId = meetIdMatch ? meetIdMatch[1] : null;
 
               meetKey[meetIdx] = {
                 name: meetName,
-                date: meetDate
+                date: meetDate,
+                sourceUrl,
+                athleticMeetId,
               };
               meetIdx++;
             }
@@ -217,6 +296,10 @@ async function scrapeSeasonResults(teamId, year) {
               const meetInfo = meetKey[i - 2] || {};
               const raceName = meetInfo.name || 'Unknown Meet';
               const raceDate = meetInfo.date || 'Unknown Date';
+              const sourceUrl = meetInfo.sourceUrl || '';
+              const athleticMeetId = meetInfo.athleticMeetId || '';
+
+              if (!grade) missingGradeCount++;
 
               tableResults.push([
                 raceName,
@@ -225,7 +308,9 @@ async function scrapeSeasonResults(teamId, year) {
                 gender,
                 timeStr,
                 `${raceDate}, ${year}`,
-                distance
+                distance,
+                sourceUrl,
+                athleticMeetId
               ]);
             }
           }
@@ -239,25 +324,13 @@ async function scrapeSeasonResults(teamId, year) {
       results.push(...parseGenderTable('M_Table', 'Men'));
       results.push(...parseGenderTable('F_Table', 'Women'));
 
-      return results;
+      return {
+        results,
+        meetCount: Object.keys(meetKey).length,
+        distanceCount: Object.keys(distanceKey).length,
+        missingGradeCount,
+      };
     }, year);
-
-    console.error(`Finished scraping. Found ${allResults.length} results.`);
-
-    // Output CSV format (matching Python scraper exactly)
-    console.log('Race Name,Athlete Name,Grade,Gender,Time,Race Date,Distance');
-    allResults.forEach(row => {
-      console.log(row.map(field => `"${field}"`).join(','));
-    });
-
-    await browser.close();
-    return allResults;
-
-  } catch (error) {
-    console.error('Scraping error:', error.message);
-    if (browser) await browser.close();
-    throw error;
-  }
 }
 
 // CLI support
@@ -287,4 +360,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { scrapeSeasonResults };
+module.exports = { scrapeSeasonResults, extractResults, MAX_MISSING_GRADE_RATIO };

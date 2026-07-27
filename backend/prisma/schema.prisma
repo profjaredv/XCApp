@@ -220,6 +220,12 @@ model Race {
   distance       String? // e.g. "5K", "5,000 Meters" (as scraped)
   distanceMeters Float?   @map("distance_meters")
   location       String?
+  // Populated by the season scraper's meet-key extraction (Phase 2). Points
+  // at this race's own meet-results page on Athletic.net, which carries the
+  // full field (every school, every athlete) — the season grid never does.
+  // Null for races imported before this field existed, until re-scraped.
+  sourceUrl      String?  @map("source_url")
+  athleticMeetId String?  @map("athletic_meet_id")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -234,6 +240,7 @@ model Race {
   @@unique([teamId, name, date, distance])
   @@index([teamId])
   @@index([teamId, season])
+  @@index([athleticMeetId])
   @@map("races")
 }
 
