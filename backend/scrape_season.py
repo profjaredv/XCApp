@@ -141,6 +141,12 @@ def parse_gender_table(table, gender, distance_key, meet_key, year):
         if not athlete_name_tag:
             continue
         athlete_name = athlete_name_tag.text.strip()
+        # Phase 2 step 5: stable per-athlete identifier to match on instead
+        # of name (breaks on duplicate names/name changes). Raw profile
+        # link, not a parsed-out id — no confirmed evidence of that URL's
+        # internal structure to safely parse a substring out of it.
+        athlete_href = athlete_name_tag.get('href') or ''
+        athletic_athlete_id = urljoin('https://www.athletic.net', athlete_href) if athlete_href else ''
 
 
         # Result cells start from the 3rd column (index 2)
@@ -160,7 +166,7 @@ def parse_gender_table(table, gender, distance_key, meet_key, year):
 
                 results.append([
                     race_name, athlete_name, grade, gender, time_str, f"{race_date}, {year}", distance,
-                    source_url, athletic_meet_id
+                    source_url, athletic_meet_id, athletic_athlete_id
                 ])
     print(f"Found {len(results)} results in {gender}'s table.", file=sys.stderr)
     return results
@@ -189,7 +195,7 @@ def main(team_id, year):
 
     # Output to CSV
     writer = csv.writer(sys.stdout)
-    writer.writerow(["Race Name", "Athlete Name", "Grade", "Gender", "Time", "Race Date", "Distance", "Source URL", "Athletic Meet ID"])
+    writer.writerow(["Race Name", "Athlete Name", "Grade", "Gender", "Time", "Race Date", "Distance", "Source URL", "Athletic Meet ID", "Athletic Athlete ID"])
     writer.writerows(all_results)
     print(f"Finished scraping. Found {len(all_results)} results.", file=sys.stderr)
 

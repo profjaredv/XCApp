@@ -2,6 +2,7 @@ import argparse
 import sys
 import csv
 import re
+from urllib.parse import urljoin
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
@@ -100,7 +101,12 @@ def parse_gender_table(table, gender):
         if not a:
             continue
         name = a.text.strip()
-        roster.append([name, grade, gender])
+        # Phase 2 step 5: stable per-athlete identifier to match on instead
+        # of name — see scrape_season.py for why this isn't parsed down to
+        # a bare numeric id.
+        href = a.get('href') or ''
+        athletic_athlete_id = urljoin('https://www.athletic.net', href) if href else ''
+        roster.append([name, grade, gender, athletic_athlete_id])
     return roster
 
 
@@ -126,7 +132,7 @@ def main(team_id, year):
             elif 'girls' in header_text or 'women' in header_text:
                 all_rows.extend(parse_gender_table(table, 'Women'))
     writer = csv.writer(sys.stdout)
-    writer.writerow(["Athlete Name", "Grade", "Gender"])   
+    writer.writerow(["Athlete Name", "Grade", "Gender", "Athletic Athlete ID"])
     writer.writerows(all_rows)
 
 

@@ -119,6 +119,15 @@ model Athlete {
   gender         String? // 'M' | 'F'
   grade          Int? // 9-12
   graduationYear Int?     @map("graduation_year")
+  // The athlete's own Athletic.net profile link (path or full URL, as
+  // scraped — not a parsed-out numeric id, since this codebase has no
+  // confirmed evidence of that URL's internal structure to safely parse
+  // one). Opaque but stable per athlete, unlike name: two "Jack Smith"s on
+  // a 120-person roster get two different values here. Null until a scrape
+  // captures it (Phase 2 step 5) or for an athlete Athletic.net has no page
+  // for yet. Scrapers/routes match on this first when present, falling
+  // back to name — see routes/teams.js.
+  athleticAthleteId String? @unique @map("athletic_athlete_id")
   // The link this app never had: which signed-in account, if any, this
   // roster entry belongs to. Null means unclaimed — either nobody has
   // signed up yet, or a claim is still pending coach approval. Set only by
@@ -138,7 +147,11 @@ model Athlete {
   claims              AthleteClaim[]
   trainingLogs        TrainingLog[]
 
-  @@unique([teamId, name])
+  // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
+  // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
+  // plain index — lookups still filter by (teamId, name) constantly, it
+  // just no longer rejects a second athlete with the same name.
+  @@index([teamId, name])
   @@index([teamId])
   @@map("athletes")
 }
@@ -230,6 +243,16 @@ model Race {
   // scripts/proposeCourseMapping.js / scripts/applyCourseMapping.js) —
   // never inferred/written automatically from location-string similarity.
   courseId       String?  @map("course_id") @db.Uuid
+  // Field-relative normalization (Build Spec, "Core measurement decisions").
+  // Computed from FieldResult by the meet scraper's ingest step, gender-
+  // specific — a single Athletic.net race entry is usually single-gender;
+  // if one ever isn't, it gets split into two Race rows rather than storing
+  // a blended figure here. Null (not zero) when normalization wasn't
+  // computed — either the field scrape hasn't run for this race yet, or
+  // fieldFinisherCount fell below the 40-finisher confidence threshold.
+  fieldMeanSec       Float? @map("field_mean_sec")
+  fieldMedianSec     Float? @map("field_median_sec")
+  fieldFinisherCount Int?   @map("field_finisher_count")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -239,6 +262,7 @@ model Race {
   raceSplits             RaceSplit[]
   meetGroupRaces         MeetGroupRace[]
   meetPerformanceMetrics MeetPerformanceMetrics[]
+  fieldResults           FieldResult[]
   bestPaceForAthletes    AthleteSeasonMetrics[]   @relation("BestPaceRace")
   bestTime5kForAthletes  AthleteSeasonMetrics[]   @relation("BestTime5kRace")
 
@@ -248,6 +272,31 @@ model Race {
   @@index([athleticMeetId])
   @@index([courseId])
   @@map("races")
+}
+
+// Other schools' finishers in a race we scraped for field normalization.
+// This table exists ONLY to compute Race.fieldMeanSec / fieldMedianSec /
+// fieldFinisherCount. It is never surfaced as a roster, never linked to a
+// User or Athlete, and must never be exposed through an endpoint that
+// returns individually-named rows for athletes outside the requesting
+// team — aggregate reads only. If a route ever needs to expose per-athlete
+// field data, that is a new, deliberate product decision, not a query this
+// table's existing shape implicitly permits.
+model FieldResult {
+  id          String  @id @default(uuid()) @db.Uuid
+  raceId      String  @map("race_id") @db.Uuid
+  athleteName String  @map("athlete_name")
+  schoolName  String? @map("school_name")
+  gender      String?
+  grade       Int?
+  timeSec     Float?  @map("time_sec")
+  place       Int?
+  status      String  @default("FINISHED")
+
+  race Race @relation(fields: [raceId], references: [id], onDelete: Cascade)
+
+  @@index([raceId])
+  @@map("field_results")
 }
 
 // A physical race venue, shared across teams and seasons — deliberately NOT

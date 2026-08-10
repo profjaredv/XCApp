@@ -163,8 +163,12 @@ async function scrapeTeamRoster(teamId, year) {
           const name = nameTag.textContent.trim();
           if (!name || seen.has(name)) return;
           seen.add(name);
+          // Phase 2 step 5: stable per-athlete identifier (raw profile
+          // link) to match on instead of name — see scrape_season_playwright.js
+          // for why this isn't parsed down to a bare numeric id.
+          const athleticAthleteId = nameTag.href || '';
 
-          rows.push({ name, grade, gender });
+          rows.push({ name, grade, gender, athleticAthleteId });
         });
         return rows;
       }
@@ -174,9 +178,9 @@ async function scrapeTeamRoster(teamId, year) {
 
     console.error(`Finished scraping. Found ${athletes.length} athletes on the roster.`);
 
-    console.log('Athlete Name,Grade,Gender');
+    console.log('Athlete Name,Grade,Gender,Athletic Athlete ID');
     athletes.forEach((a) => {
-      console.log([a.name, a.grade, a.gender].map((f) => `"${(f || '').replace(/"/g, '""')}"`).join(','));
+      console.log([a.name, a.grade, a.gender, a.athleticAthleteId].map((f) => `"${(f || '').replace(/"/g, '""')}"`).join(','));
     });
 
     await browser.close();

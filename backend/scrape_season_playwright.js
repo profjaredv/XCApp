@@ -154,7 +154,7 @@ async function scrapeSeasonResults(teamId, year) {
     // Output CSV format. Source URL / Athletic Meet ID are new columns (Phase
     // 2): they let the ingestion route persist a link to this race's full
     // results page, which the meet-field scraper navigates to directly.
-    console.log('Race Name,Athlete Name,Grade,Gender,Time,Race Date,Distance,Source URL,Athletic Meet ID');
+    console.log('Race Name,Athlete Name,Grade,Gender,Time,Race Date,Distance,Source URL,Athletic Meet ID,Athletic Athlete ID');
     allResults.forEach(row => {
       console.log(row.map(field => `"${field}"`).join(','));
     });
@@ -282,6 +282,12 @@ async function extractResults(page, year) {
           const athleteNameTag = cells[1].querySelector('a');
           if (!athleteNameTag) return;
           const athleteName = athleteNameTag.textContent.trim();
+          // Phase 2 step 5: a stable per-athlete identifier from Athletic.net
+          // itself, to match on instead of name (which breaks on duplicate
+          // names and name changes). Stored as the raw profile link, not a
+          // parsed-out id — there's no confirmed evidence of that URL's
+          // internal structure to safely parse a substring out of it.
+          const athleticAthleteId = athleteNameTag.href || '';
 
           // Result cells start from the 3rd column (index 2)
           for (let i = 2; i < cells.length; i++) {
@@ -310,7 +316,8 @@ async function extractResults(page, year) {
                 `${raceDate}, ${year}`,
                 distance,
                 sourceUrl,
-                athleticMeetId
+                athleticMeetId,
+                athleticAthleteId
               ]);
             }
           }

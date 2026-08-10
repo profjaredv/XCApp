@@ -241,6 +241,104 @@ full-field scraper, fixture-first per the spec), `FieldResult` +
 `Athlete.athleticAthleteId` + relaxing the `[teamId, name]` unique
 constraint.
 
+## Phase 2, step 3: `scrape_meet_playwright.js` — blocked, not started
+
+The spec is explicit: "dump the raw HTML of one real meet page to a fixture
+file and inspect it before writing any selectors... do not write selectors
+from assumption." Tried to get that real page two ways, both failed for
+reasons outside this codebase:
+
+- Playwright/Chromium in this sandbox cannot reach the network through the
+  environment's HTTPS proxy at all — `net::ERR_CONNECTION_RESET` on every
+  attempt, reproduced against an unrelated, definitely-allowed host
+  (`registry.npmjs.org`) too, so this is a sandbox/proxy limitation, not
+  specific to athletic.net.
+- `curl` *can* reach athletic.net through the proxy, but
+  `/CrossCountry/meet/{id}/results/all` is behind a Cloudflare JS challenge
+  (`cf-mitigated: challenge`, HTTP 403) — curl can't execute that challenge,
+  only a real rendering browser can, which is exactly what's blocked above.
+
+Per rule 1/3, not fabricating plausible-looking meet-page HTML to write
+selectors against. This needs either a live-access session where Playwright
+can actually reach the internet, or a real meet page's HTML saved by hand
+(e.g. a browser "Save As" or view-source on `athletic.net/CrossCountry/
+meet/<id>/results/all`) dropped in as `test/fixtures/meet-page-raw.html`
+for me to inspect and build selectors from. Steps 4 and 5 didn't need live
+scraping and are done (below); this one is genuinely stuck without one of
+those two things.
+
+## Phase 2, step 4: `FieldResult` + `Race` normalization fields — done
+
+Added exactly per spec: `FieldResult` (holds other schools' finishers,
+comment on the model spells out aggregate-reads-only, never a named-row
+endpoint, never linked to a `User`/`Athlete`) and `Race.fieldMeanSec` /
+`fieldMedianSec` / `fieldFinisherCount` (migration
+`20260727020000_field_results`, additive). Also added
+`backend/lib/fieldNormalization.js` — the actual mean/median/40-finisher-
+threshold arithmetic from "Core measurement decisions," unit-tested
+(`test/fieldNormalization.test.js`) ahead of anything calling it, per rule
+5. Nothing populates `FieldResult` yet — that's step 3, blocked above — so
+these fields sit at `null` on every race for now, which is the documented,
+correct state (`normalizationAvailable: false`) until the meet scraper
+lands.
+
+## Phase 2, step 5: `athleticAthleteId` + relaxed name uniqueness — done
+
+Added `Athlete.athleticAthleteId` (migration
+`20260727030000_athlete_athletic_id`) and dropped the
+`@@unique([teamId, name])` constraint per the spec ("two students named
+Jack Smith is a normal occurrence"). Flagging per rule 6: this migration
+drops a unique constraint, not a column or table, and no rows are altered —
+but it's exactly the kind of change that rule exists to surface, so it's
+called out explicitly rather than folded in quietly.
+
+`athleticAthleteId` stores the athlete's raw Athletic.net profile link
+(`nameTag.href`), not a parsed-out numeric id — same reasoning as
+`Race.athleticMeetId`'s sibling decision in step 1, except here there's
+*no* confirmed real example of the URL shape at all (unlike meet URLs,
+where the referer header from an earlier real browser session gave actual
+evidence). Parsing a substring out of a URL I've never seen would be
+guessing, which rule 3/7 rule out. The full href works fine as an opaque,
+stable, globally-unique identifier regardless of its internal structure.
+
+Captured this alongside the existing name/grade extraction in all four
+scrapers that link to an athlete's name (`scrape_season_playwright.js`,
+`scrape_season.py`, `scrape_roster_playwright.js`, `scrape_roster.py`) —
+new trailing CSV column, `Athletic Athlete ID`.
+
+Matching logic lives in `backend/lib/athleteMatching.js`
+(`matchAthlete()`, unit-tested), preferring `athleticAthleteId` over name,
+falling back to name when no id is available yet. Wired into both
+`routes/teams.js` ingestion routes:
+
+- `POST /scrape` (results import) no longer does `prisma.athlete.upsert`
+  with the now-nonexistent `teamId_name` compound key — rewrote it to the
+  same pre-fetch-then-match pattern `POST /scrape-roster` already used,
+  keeping the lookup maps updated as new athletes get created mid-loop
+  (many CSV rows share the same athlete across different races in one
+  import).
+- `POST /scrape-roster` already matched by hand (never used the compound
+  key) — extended it to check `athleticAthleteId` first, and to backfill
+  the id onto an existing athlete matched by name once a scrape provides
+  one.
+- `POST /api/athletes` (`routes/athletes.js`, coach manually adds an
+  athlete) used to 409 on a duplicate `(teamId, name)` — removed that
+  check, since it would otherwise block a coach from doing exactly what the
+  relaxed schema is supposed to allow.
+
+Consolidated `routes/teams.js`'s local `normalizeRosterName` into the one
+`normalizeAthleteName` in `lib/athleteMatching.js` (rule 3 — was about to
+become a second copy of the same normalization).
+
+**Known, documented limitation, not fixed**: when a row has no
+`athleticAthleteId` (not yet re-scraped, or an unparseable link) and two
+existing athletes share that normalized name, the in-memory `byName` map
+can only hold one of them — matching falls back to whichever one it kept.
+This is the same ambiguity plain name-matching already had; it resolves
+itself once everyone's been re-scraped and picked up a stable id, which is
+the entire point of this field. Not attempting a cleverer resolution now
+since that would be guessing at intent this data can't actually support.
+
 ## Phase 2, step 2: Course model + review-mapping tooling — code done, DB steps pending on you
 
 Added `Course` (migration `20260727010000_courses`) exactly as specced: not

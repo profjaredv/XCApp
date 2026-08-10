@@ -41,7 +41,7 @@ test('extractResults against fixture HTML', async (t) => {
     assert.equal(extraction.missingGradeCount, 0);
     assert.equal(extraction.results.length, 4); // 3 in M_Table + 1 in F_Table
 
-    const [raceName, athleteName, grade, gender, time, raceDate, distance, sourceUrl, athleticMeetId] = extraction.results[0];
+    const [raceName, athleteName, grade, gender, time, raceDate, distance, sourceUrl, athleticMeetId, athleticAthleteId] = extraction.results[0];
     assert.equal(raceName, 'Season Opener');
     assert.equal(athleteName, 'Alex Runner');
     assert.equal(grade, '9');
@@ -51,6 +51,7 @@ test('extractResults against fixture HTML', async (t) => {
     assert.equal(distance, '5,000 Meters');
     assert.equal(sourceUrl, 'https://www.athletic.net/CrossCountry/meet/111222/results/all');
     assert.equal(athleticMeetId, '111222');
+    assert.equal(athleticAthleteId, 'https://www.athletic.net/athlete/1');
   });
 
   await t.test('empty preseason page: zero meets, zero results — not a canary trip', async () => {

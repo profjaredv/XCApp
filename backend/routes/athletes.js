@@ -202,10 +202,9 @@ router.post('/', authenticate, requireTeam, requireCoach, async (req, res) => {
       ? parseInt(graduationYear, 10)
       : deriveGraduationYear(grade, seasonYear);
 
-    const existing = await prisma.athlete.findFirst({ where: { teamId, name: fullName } });
-    if (existing) {
-      return res.status(409).json({ msg: 'An athlete with that name already exists on this team.' });
-    }
+    // No same-name rejection here (Build Spec Phase 2 step 5): a 120-person
+    // roster having two "Jack Smith"s is normal, and athletes(team_id, name)
+    // is no longer a unique constraint the database would enforce anyway.
 
     const athlete = await prisma.athlete.create({
       data: {

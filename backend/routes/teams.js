@@ -13,6 +13,7 @@ const {
   isEnrolled,
 } = require('../lib/season');
 const { parseDistanceToMeters } = require('../lib/distance');
+const { normalizeAthleteName, matchAthlete } = require('../lib/athleteMatching');
 
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 
@@ -164,6 +165,19 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
         const importedAthleteIds = new Set();
         const importedGradYears = new Map();
 
+        // Phase 2 step 5: athletes(team_id, name) is no longer unique (two
+        // "Jack Smith"s on one roster is normal), so athlete.upsert's old
+        // teamId_name compound key doesn't exist anymore — match by hand
+        // instead, preferring athleticAthleteId over name (see
+        // lib/athleteMatching.js). Pre-fetch once and keep the lookup maps
+        // updated as rows create new athletes, since one CSV row per result
+        // means the same athlete recurs across many rows in this loop.
+        const existingAthletes = await prisma.athlete.findMany({ where: { teamId: team.id } });
+        const athleteByAthleticId = new Map(
+          existingAthletes.filter((a) => a.athleticAthleteId).map((a) => [a.athleticAthleteId, a])
+        );
+        const athleteByName = new Map(existingAthletes.map((a) => [normalizeAthleteName(a.name), a]));
+
         const parseTimeToSeconds = (timeStr) => {
           if (!timeStr) return null;
           const parts = timeStr.split(':').map((p) => parseFloat(p));
@@ -190,6 +204,7 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
             Distance: distance,
             'Source URL': sourceUrl,
             'Athletic Meet ID': athleticMeetId,
+            'Athletic Athlete ID': athleticAthleteId,
           } = rowData;
 
           if (!raceName || !athleteName || !time || !raceDate) {
@@ -205,20 +220,43 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
 
           const gradeNum = grade ? parseInt(grade, 10) : null;
           const graduationYear = grade ? calculateGraduationYear(grade, yearNum) : null;
+          const athleticAthleteIdValue = athleticAthleteId || null;
 
           // Deliberately NOT writing `grade` onto the athlete: grade is a
           // function of (graduationYear, season) and is derived on read. The
           // old code stored it here, so importing 2025 rewrote every
           // athlete's grade for 2024 too. Only fill graduationYear when this
           // row actually told us one — a blank grade must not wipe it.
-          const athlete = await prisma.athlete.upsert({
-            where: { teamId_name: { teamId: team.id, name: athleteName } },
-            update: {
-              ...(gender ? { gender } : {}),
-              ...(graduationYear !== null ? { graduationYear } : {}),
-            },
-            create: { name: athleteName, teamId: team.id, gender, graduationYear },
-          });
+          const existingMatch = matchAthlete(
+            { athleticAthleteId: athleticAthleteIdValue, name: athleteName },
+            { byAthleticId: athleteByAthleticId, byName: athleteByName }
+          );
+
+          let athlete;
+          if (existingMatch) {
+            athlete = await prisma.athlete.update({
+              where: { id: existingMatch.id },
+              data: {
+                ...(gender ? { gender } : {}),
+                ...(graduationYear !== null ? { graduationYear } : {}),
+                // Backfill only — never overwrite a stable id with a
+                // different one from a stray/misparsed href.
+                ...(athleticAthleteIdValue && !existingMatch.athleticAthleteId
+                  ? { athleticAthleteId: athleticAthleteIdValue }
+                  : {}),
+              },
+            });
+          } else {
+            athlete = await prisma.athlete.create({
+              data: { name: athleteName, teamId: team.id, gender, graduationYear, athleticAthleteId: athleticAthleteIdValue },
+            });
+          }
+
+          // Keep the lookup maps current so later rows for this same athlete
+          // (a different race, same import) match instead of creating a
+          // duplicate.
+          if (athlete.athleticAthleteId) athleteByAthleticId.set(athlete.athleticAthleteId, athlete);
+          athleteByName.set(normalizeAthleteName(athlete.name), athlete);
 
           if (graduationYear !== null) {
             importedGradYears.set(athlete.id, graduationYear);
@@ -344,8 +382,8 @@ router.post('/scrape', authenticate, requireOwnTeam, async (req, res) => {
 // dismisses a flag (or after the athlete reappears on Athletic.net) clears
 // it again. Name matching is exact (normalized), not fuzzy — a near-miss
 // name shows up as a new athlete rather than risking silently merging two
-// different people.
-const normalizeRosterName = (name) => (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+// different people. (normalizeAthleteName, imported above, is this same
+// normalization — kept as one implementation per rule 3.)
 
 router.post('/scrape-roster', authenticate, requireOwnTeam, async (req, res) => {
   const { year } = req.body;
@@ -417,7 +455,10 @@ router.post('/scrape-roster', authenticate, requireOwnTeam, async (req, res) => 
           prisma.athlete.findMany({ where: { teamId: team.id } }),
           prisma.seasonRoster.findMany({ where: { seasonId: season.id }, include: { athlete: true } }),
         ]);
-        const athleteByName = new Map(existingAthletes.map((a) => [normalizeRosterName(a.name), a]));
+        const athleteByName = new Map(existingAthletes.map((a) => [normalizeAthleteName(a.name), a]));
+        const athleteByAthleticId = new Map(
+          existingAthletes.filter((a) => a.athleticAthleteId).map((a) => [a.athleticAthleteId, a])
+        );
         const rosterByAthleteId = new Map(existingRoster.map((r) => [r.athleteId, r]));
 
         const added = [];
@@ -432,9 +473,12 @@ router.post('/scrape-roster', authenticate, requireOwnTeam, async (req, res) => 
           const gradeNum = row.Grade ? parseInt(row.Grade, 10) : null;
           const graduationYear = Number.isFinite(gradeNum) ? deriveGraduationYear(gradeNum, yearNum) : null;
           const gender = row.Gender || null;
+          const athleticAthleteIdValue = row['Athletic Athlete ID'] || null;
 
-          const normalized = normalizeRosterName(name);
-          const existingAthlete = athleteByName.get(normalized);
+          const existingAthlete = matchAthlete(
+            { athleticAthleteId: athleticAthleteIdValue, name },
+            { byAthleticId: athleteByAthleticId, byName: athleteByName }
+          );
 
           let athleteId;
           if (existingAthlete) {
@@ -446,14 +490,20 @@ router.post('/scrape-roster', authenticate, requireOwnTeam, async (req, res) => 
             if (gender && existingAthlete.gender !== gender) {
               athleteUpdates.gender = gender;
             }
+            if (athleticAthleteIdValue && !existingAthlete.athleticAthleteId) {
+              athleteUpdates.athleticAthleteId = athleticAthleteIdValue;
+            }
             if (Object.keys(athleteUpdates).length > 0) {
-              await prisma.athlete.update({ where: { id: athleteId }, data: athleteUpdates });
+              const updatedAthlete = await prisma.athlete.update({ where: { id: athleteId }, data: athleteUpdates });
+              if (updatedAthlete.athleticAthleteId) athleteByAthleticId.set(updatedAthlete.athleticAthleteId, updatedAthlete);
             }
           } else {
             const created = await prisma.athlete.create({
-              data: { teamId: team.id, name, gender, graduationYear },
+              data: { teamId: team.id, name, gender, graduationYear, athleticAthleteId: athleticAthleteIdValue },
             });
             athleteId = created.id;
+            athleteByName.set(normalizeAthleteName(created.name), created);
+            if (created.athleticAthleteId) athleteByAthleticId.set(created.athleticAthleteId, created);
           }
           matchedAthleteIds.add(athleteId);
 
