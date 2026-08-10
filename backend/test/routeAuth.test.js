@@ -14,7 +14,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const ROUTES_DIR = path.join(__dirname, '..', 'routes');
 
-const GUARD_NAMES = new Set(['requireTeam', 'requireCoach', 'requireOwnTeam', 'requireLinkedAthlete']);
+const GUARD_NAMES = new Set(['requireTeam', 'requireRole', 'requireLinkedAthlete']);
 
 // Routes that intentionally carry no guard beyond `authenticate`, and why.
 // This is a real allowlist, not an escape hatch — every entry is a route
@@ -22,15 +22,19 @@ const GUARD_NAMES = new Set(['requireTeam', 'requireCoach', 'requireOwnTeam', 'r
 // membership in the first place) or that is provably self-scoped to the
 // caller's own row. Anything not on this list must have a guard.
 const ALLOWED_UNGUARDED = new Set([
-  // Join-by-code / secret-code upgrades: the code IS the authorization
-  // boundary, and rate-limited at 10/hour/IP in server.js. There is no team
-  // to require yet — that's what these routes grant.
+  // Join-by-code: the code IS the authorization boundary, rate-limited at
+  // 10/hour/IP in server.js. There is no team to require yet — that's what
+  // this route grants.
   'profile.js POST /join-team',
+  // Retired (T1): always responds 410 Gone, grants nothing, checks nothing
+  // team/role-scoped. Kept registered so old links get an explanation
+  // instead of an ambiguous 404 — see routes/team.js POST /staff-invite
+  // for the replacement.
   'profile.js POST /upgrade-to-coach',
   'profile.js POST /fix-coach-role',
   'team.js POST /join',
   // Creating a brand-new team: the caller isn't on any team yet by
-  // definition, so requireTeam/requireCoach is a logical contradiction here.
+  // definition, so requireTeam/requireRole is a logical contradiction here.
   'teams.js POST /',
   // Self-scoped: writes only req.user.id's own row, never a body-supplied
   // user id — no cross-user or cross-team surface exists to guard.
@@ -39,8 +43,9 @@ const ALLOWED_UNGUARDED = new Set([
   // to req.user.id / req.user.teamId, never to a body-supplied id.
   'feedback.js POST /',
   // The invite token itself is the authorization (a coach already named
-  // this exact athlete when creating it) — not team/role membership.
+  // this exact athlete/invitee when creating it) — not team/role membership.
   'athletes.js POST /accept-invite',
+  'team.js POST /accept-staff-invite',
 ]);
 
 function collectRouteMiddlewareNames(routeLayer) {

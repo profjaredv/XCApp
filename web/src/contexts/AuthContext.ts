@@ -9,6 +9,7 @@ interface AuthContextType {
     setError: (error: string | null) => void;
     getFreshToken: () => Promise<string | null>;
     acceptInvite: (token: string) => Promise<unknown>;
+    acceptStaffInvite: (token: string) => Promise<unknown>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);

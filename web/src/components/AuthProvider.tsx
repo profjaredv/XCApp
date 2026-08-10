@@ -109,6 +109,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return response.data;
   };
 
+  const acceptStaffInvite = async (token: string) => {
+    const response = await api.post('/team/accept-staff-invite', { token });
+    // Same reasoning as acceptInvite: team/role just changed, refresh now.
+    const fresh = await getFreshToken();
+    if (fresh) {
+      const refreshedUser = await fetchUserData(fresh);
+      if (refreshedUser) setCurrentUser(refreshedUser);
+    }
+    return response.data;
+  };
+
   const value = {
     currentUser,
     loading,
@@ -117,6 +128,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setError: contextSetError,
     getFreshToken,
     acceptInvite,
+    acceptStaffInvite,
   };
 
   if (loading) {

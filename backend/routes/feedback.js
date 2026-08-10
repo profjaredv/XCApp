@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireCoach } = require('../middleware/auth');
+const { authenticate, requireRole } = require('../middleware/auth');
 
 const SEVERITIES = ['blocker', 'bug', 'polish', 'idea'];
 const STATUSES = ['open', 'triaged', 'fixed', 'wontfix'];
@@ -65,7 +65,7 @@ router.post('/', authenticate, async (req, res) => {
 
 // GET /api/feedback — review queue. Coach-only: reports can contain other
 // people's email addresses and raw error output.
-router.get('/', authenticate, requireCoach, async (req, res) => {
+router.get('/', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { status, severity, mine } = req.query;
 
   try {
@@ -95,7 +95,7 @@ router.get('/', authenticate, requireCoach, async (req, res) => {
 });
 
 // PATCH /api/feedback/:id — triage.
-router.patch('/:id', authenticate, requireCoach, async (req, res) => {
+router.patch('/:id', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { status, notes } = req.body || {};
 
   try {
@@ -118,7 +118,7 @@ router.patch('/:id', authenticate, requireCoach, async (req, res) => {
 
 // GET /api/feedback/export — everything as markdown, ready to hand over
 // verbatim. This is the format that is actually useful to work from.
-router.get('/export', authenticate, requireCoach, async (req, res) => {
+router.get('/export', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const feedback = await prisma.feedback.findMany({
       where: { status: { in: ['open', 'triaged'] } },

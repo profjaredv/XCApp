@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam, requireCoach, requireLinkedAthlete } = require('../middleware/auth');
+const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
 const {
   resolveActiveSeason,
   deriveGrade,
@@ -187,7 +187,7 @@ router.get('/:athleteId/races', authenticate, requireTeam, async (req, res) => {
 // Accepts either an explicit graduationYear or a grade + season to derive it
 // from — coaches think in grades ("she's a sophomore"), the data model thinks
 // in graduation years, so translate at the edge rather than storing the grade.
-router.post('/', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { firstName, lastName, name, graduationYear, grade, season, gender } = req.body;
   const teamId = req.user.teamId;
 
@@ -242,7 +242,7 @@ router.post('/', authenticate, requireTeam, requireCoach, async (req, res) => {
   }
 });
 
-router.put('/:athleteId', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.put('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { firstName, lastName, name, graduationYear, grade, season, gender } = req.body;
   const teamId = req.user.teamId;
 
@@ -278,7 +278,7 @@ router.put('/:athleteId', authenticate, requireTeam, requireCoach, async (req, r
   }
 });
 
-router.delete('/:athleteId', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.delete('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
   try {
     const existing = await prisma.athlete.findFirst({
       where: { id: req.params.athleteId, teamId: req.user.teamId },
@@ -305,7 +305,7 @@ router.delete('/:athleteId', authenticate, requireTeam, requireCoach, async (req
 const INVITE_TTL_DAYS = 30;
 
 // POST /api/athletes/:athleteId/invite
-router.post('/:athleteId/invite', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/:athleteId/invite', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { email } = req.body;
   const teamId = req.user.teamId;
 
@@ -382,7 +382,7 @@ router.post('/accept-invite', authenticate, async (req, res) => {
       prisma.teamMember.upsert({
         where: { teamId_userId: { teamId: invite.teamId, userId } },
         update: {},
-        create: { teamId: invite.teamId, userId, role: 'athlete' },
+        create: { teamId: invite.teamId, userId, role: 'ATHLETE' },
       }),
     ]);
 

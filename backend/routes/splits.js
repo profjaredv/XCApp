@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
+const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 
 router.get('/race/:raceId', authenticate, requireTeam, async (req, res) => {
   try {
@@ -39,7 +39,7 @@ router.get('/athlete/:athleteId', authenticate, requireTeam, async (req, res) =>
   }
 });
 
-router.post('/batch', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/batch', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const { splits } = req.body;
     const teamId = req.user.teamId;
@@ -98,7 +98,7 @@ router.post('/batch', authenticate, requireTeam, requireCoach, async (req, res) 
   }
 });
 
-router.put('/:splitId', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.put('/:splitId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const { mile1, mile2, mile3 } = req.body;
 
@@ -121,7 +121,7 @@ router.put('/:splitId', authenticate, requireTeam, requireCoach, async (req, res
   }
 });
 
-router.delete('/:splitId', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.delete('/:splitId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const existing = await prisma.raceSplit.findFirst({
       where: { id: req.params.splitId, teamId: req.user.teamId },

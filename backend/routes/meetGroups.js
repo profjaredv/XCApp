@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
+const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
 // GET /api/meet-groups
@@ -31,7 +31,7 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
 });
 
 // POST /api/meet-groups
-router.post('/', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { groupName, description, raceIds } = req.body;
 
   if (!groupName) {
@@ -69,7 +69,7 @@ router.post('/', authenticate, requireTeam, requireCoach, async (req, res) => {
 });
 
 // PUT /api/meet-groups/:groupId
-router.put('/:groupId', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.put('/:groupId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { groupName, description } = req.body;
 
   try {
@@ -97,7 +97,7 @@ router.put('/:groupId', authenticate, requireTeam, requireCoach, async (req, res
 });
 
 // DELETE /api/meet-groups/:groupId
-router.delete('/:groupId', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.delete('/:groupId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const existing = await prisma.meetGroup.findFirst({
       where: { id: req.params.groupId, teamId: req.user.teamId },
@@ -115,7 +115,7 @@ router.delete('/:groupId', authenticate, requireTeam, requireCoach, async (req, 
 });
 
 // POST /api/meet-groups/:groupId/races
-router.post('/:groupId/races', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/:groupId/races', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { raceId } = req.body;
 
   if (!raceId) {
@@ -147,7 +147,7 @@ router.post('/:groupId/races', authenticate, requireTeam, requireCoach, async (r
 });
 
 // DELETE /api/meet-groups/:groupId/races/:raceId
-router.delete('/:groupId/races/:raceId', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.delete('/:groupId/races/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const group = await prisma.meetGroup.findFirst({ where: { id: req.params.groupId, teamId: req.user.teamId } });
     if (!group) {

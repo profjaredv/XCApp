@@ -55,6 +55,7 @@ model User {
   createdRaceSplits RaceSplit[]    @relation("RaceSplitCreator")
   linkedAthlete     Athlete?       @relation("AthleteAccount")
   athleteClaims     AthleteClaim[]
+  sentStaffInvites  StaffInvite[]  @relation("StaffInviteSender")
 
   @@index([teamId])
   @@map("users")
@@ -85,9 +86,26 @@ model Team {
   meetPerformanceMetrics MeetPerformanceMetrics[]
   athleteInvites         AthleteInvite[]
   athleteClaims          AthleteClaim[]
+  staffInvites           StaffInvite[]
 
   @@index([coachUid])
   @@map("teams")
+}
+
+// T1 (Team Management handoff): replaces the old free-text 'coach'|'athlete'
+// role string, which couldn't express a volunteer coach or a coach scoped
+// to specific groups. Ranked HEAD_COACH > COACH > VOLUNTEER_COACH > ATHLETE
+// by authority, but requireRole (middleware/auth.js) checks against an
+// explicit allowed-roles list per route rather than a numeric rank — every
+// route that should accept "any real coach" lists both HEAD_COACH and
+// COACH explicitly. VOLUNTEER_COACH's access is inherently group-scoped
+// (see T2's Group/GroupLeader), not a blanket route-level grant, so it
+// deliberately isn't folded into a "coach and above" shorthand here.
+enum TeamRole {
+  HEAD_COACH // full admin: roster, season config, staff management
+  COACH // paid assistant: full athlete read/write, plans, meet entry
+  VOLUNTEER_COACH // group-scoped: plans for their own groups only
+  ATHLETE
 }
 
 // Team roster membership (distinct from `users.team_id`, which is a user's
@@ -96,7 +114,11 @@ model TeamMember {
   id       String   @id @default(uuid()) @db.Uuid
   teamId   String   @map("team_id") @db.Uuid
   userId   String   @map("user_id") @db.Uuid
-  role     String // 'coach' | 'athlete'
+  role     TeamRole
+  // A former volunteer/staff member's row is deactivated rather than
+  // deleted, so join history and past group-leader/plan-author references
+  // stay intact. requireRole treats an inactive row as no access at all.
+  active   Boolean  @default(true)
   joinedAt DateTime @default(now()) @map("joined_at")
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -104,6 +126,7 @@ model TeamMember {
 
   @@unique([teamId, userId])
   @@index([teamId])
+  @@index([teamId, role])
   @@index([userId])
   @@map("team_members")
 }
@@ -202,6 +225,34 @@ model AthleteClaim {
   @@unique([athleteId, userId])
   @@index([teamId, status])
   @@map("athlete_claims")
+}
+
+// T1 (Team Management handoff): "Retire POST /api/profile/upgrade-to-coach
+// in favor of head-coach-issued invites." Structurally parallel to
+// AthleteInvite (token, pending/accepted/revoked, one row per invitee that
+// re-inviting overwrites rather than accumulates) but a genuinely different
+// concern — this grants team authority to an account, it doesn't link a
+// roster row — so it's its own model rather than overloading AthleteInvite
+// with a nullable athleteId and a role field that would only apply half
+// the time.
+model StaffInvite {
+  id          String    @id @default(uuid()) @db.Uuid
+  teamId      String    @map("team_id") @db.Uuid
+  email       String
+  role        TeamRole // HEAD_COACH | COACH | VOLUNTEER_COACH — never ATHLETE, that's AthleteInvite's job
+  token       String    @unique @default(uuid())
+  status      String    @default("pending") // pending | accepted | revoked
+  invitedById String    @map("invited_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  expiresAt   DateTime  @map("expires_at")
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy User @relation("StaffInviteSender", fields: [invitedById], references: [id])
+
+  @@unique([teamId, email])
+  @@index([teamId])
+  @@map("staff_invites")
 }
 
 // A self-reported training effort — deliberately NOT a Result. Results

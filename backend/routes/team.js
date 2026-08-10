@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { customAlphabet } = require('nanoid');
 const prisma = require('../lib/db');
-const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
+const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { resolveActiveSeason } = require('../lib/season');
 const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 
@@ -139,7 +139,7 @@ function nameMatchScore(athleteName, userName) {
 // POST /api/team/generate-join-code
 // The frontend's join-code panel (RosterPage) has called this since it was
 // built; the backend route never existed, so it 404'd every time.
-router.post('/generate-join-code', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/generate-join-code', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     let joinCode;
     // joinCode is globally unique across all teams — retry on the rare
@@ -162,6 +162,177 @@ router.post('/generate-join-code', authenticate, requireTeam, requireCoach, asyn
   }
 });
 
+// ---------------------------------------------------------------------------
+// Staff invites (T1: "Retire POST /api/profile/upgrade-to-coach in favor of
+// head-coach-issued invites"). A shared secret code let anyone who learned
+// it become a coach on whatever team they happened to be on; this replaces
+// it with a head-coach naming exactly who gets exactly which role.
+// ---------------------------------------------------------------------------
+
+const STAFF_INVITE_TTL_DAYS = 30;
+const INVITABLE_STAFF_ROLES = new Set(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']);
+
+// GET /api/team/staff
+// Current staff roster (active TeamMembers who aren't plain athletes) plus
+// pending invites, so the settings screen can show one list of "who has
+// access" instead of two.
+router.get('/staff', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+  try {
+    const [members, invites] = await Promise.all([
+      prisma.teamMember.findMany({
+        where: { teamId: req.user.teamId, role: { not: 'ATHLETE' } },
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { joinedAt: 'asc' },
+      }),
+      prisma.staffInvite.findMany({
+        where: { teamId: req.user.teamId, status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    res.json({
+      staff: members.map((m) => ({
+        userId: m.userId,
+        name: m.user.name,
+        email: m.user.email,
+        role: m.role,
+        active: m.active,
+        joinedAt: m.joinedAt,
+      })),
+      pendingInvites: invites.map((i) => ({
+        email: i.email,
+        role: i.role,
+        expiresAt: i.expiresAt,
+        createdAt: i.createdAt,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching staff:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/team/staff-invite
+// Head-coach-only: granting HEAD_COACH/COACH/VOLUNTEER_COACH authority is
+// exactly the "staff management" the Build Spec keeps head-coach-scoped.
+router.post('/staff-invite', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+  const { email, role } = req.body;
+  const teamId = req.user.teamId;
+
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ msg: 'A valid email is required.' });
+  }
+  if (!INVITABLE_STAFF_ROLES.has(role)) {
+    return res.status(400).json({ msg: `Role must be one of: ${[...INVITABLE_STAFF_ROLES].join(', ')}.` });
+  }
+
+  try {
+    const expiresAt = new Date(Date.now() + STAFF_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+    // One invite per (team, email) — resending overwrites the token and
+    // role rather than accumulating history, same pattern as AthleteInvite.
+    const invite = await prisma.staffInvite.upsert({
+      where: { teamId_email: { teamId, email } },
+      update: { role, status: 'pending', expiresAt, acceptedAt: null, invitedById: req.user.id },
+      create: { teamId, email, role, expiresAt, invitedById: req.user.id },
+    });
+
+    // No email service is wired up (see MIGRATION_STATUS.md) — the head
+    // coach copies/sends this link themselves, same as the join code and
+    // athlete invites already work.
+    res.status(201).json({
+      msg: `Invite ready for ${email}.`,
+      token: invite.token,
+      invite: { token: invite.token, email: invite.email, role: invite.role, expiresAt: invite.expiresAt },
+    });
+  } catch (error) {
+    console.error('Error creating staff invite:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/team/accept-staff-invite
+// Authenticated: the token identifies the invite (team + role); the
+// session identifies who is accepting it. Unlike claim-profile, the head
+// coach already named this exact person — accepting IS the approval, no
+// separate review step, matching AthleteInvite's model.
+router.post('/accept-staff-invite', authenticate, async (req, res) => {
+  const { token } = req.body;
+  const userId = req.user.id;
+
+  if (!token) {
+    return res.status(400).json({ msg: 'Invite token is required.' });
+  }
+
+  try {
+    const invite = await prisma.staffInvite.findUnique({
+      where: { token },
+      include: { team: true },
+    });
+
+    if (!invite || invite.status !== 'pending') {
+      return res.status(404).json({ msg: 'This invite is no longer valid.' });
+    }
+    if (invite.expiresAt < new Date()) {
+      return res.status(410).json({ msg: 'This invite has expired. Ask the head coach to resend it.' });
+    }
+
+    await prisma.$transaction([
+      prisma.staffInvite.update({
+        where: { id: invite.id },
+        data: { status: 'accepted', acceptedAt: new Date() },
+      }),
+      prisma.user.update({ where: { id: userId }, data: { teamId: invite.teamId } }),
+      prisma.teamMember.upsert({
+        where: { teamId_userId: { teamId: invite.teamId, userId } },
+        update: { role: invite.role, active: true },
+        create: { teamId: invite.teamId, userId, role: invite.role },
+      }),
+    ]);
+
+    res.json({
+      msg: `Welcome to ${invite.team.name} as ${invite.role.replace('_', ' ').toLowerCase()}.`,
+      teamId: invite.teamId,
+      role: invite.role,
+    });
+  } catch (error) {
+    console.error('Error accepting staff invite:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// PATCH /api/team/staff/:userId
+// Head-coach-only: change an existing staff member's role, or deactivate
+// them (active: false) rather than deleting the row, so past group-leader/
+// plan-author references stay intact.
+router.patch('/staff/:userId', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+  const { role, active } = req.body;
+  const teamId = req.user.teamId;
+
+  if (role !== undefined && !INVITABLE_STAFF_ROLES.has(role)) {
+    return res.status(400).json({ msg: `Role must be one of: ${[...INVITABLE_STAFF_ROLES].join(', ')}.` });
+  }
+
+  try {
+    const membership = await prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId: req.params.userId } },
+    });
+    if (!membership || membership.role === 'ATHLETE') {
+      return res.status(404).json({ msg: 'Staff member not found.' });
+    }
+
+    const updates = {};
+    if (role !== undefined) updates.role = role;
+    if (active !== undefined) updates.active = Boolean(active);
+
+    const updated = await prisma.teamMember.update({ where: { id: membership.id }, data: updates });
+    res.json({ userId: updated.userId, role: updated.role, active: updated.active });
+  } catch (error) {
+    console.error('Error updating staff member:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // POST /api/team/join
 router.post('/join', authenticate, async (req, res) => {
   const { joinCode } = req.body;
@@ -180,7 +351,7 @@ router.post('/join', authenticate, async (req, res) => {
     await prisma.teamMember.upsert({
       where: { teamId_userId: { teamId: team.id, userId } },
       update: {},
-      create: { teamId: team.id, userId, role: 'athlete' },
+      create: { teamId: team.id, userId, role: 'ATHLETE' },
     });
 
     await prisma.user.update({ where: { id: userId }, data: { teamId: team.id } });
@@ -245,7 +416,7 @@ router.post('/claim-profile', authenticate, requireTeam, async (req, res) => {
 });
 
 // GET /api/team/pending-claims
-router.get('/pending-claims', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.get('/pending-claims', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const claims = await prisma.athleteClaim.findMany({
       where: { teamId: req.user.teamId, status: 'pending' },
@@ -270,7 +441,7 @@ router.get('/pending-claims', authenticate, requireTeam, requireCoach, async (re
 });
 
 // POST /api/team/approve-claim
-router.post('/approve-claim', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/approve-claim', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { claimId, action } = req.body;
 
   if (!claimId || !['approve', 'reject'].includes(action)) {

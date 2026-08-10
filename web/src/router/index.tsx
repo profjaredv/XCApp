@@ -1,6 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom';
 import App from '../App';
-import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage } from '../pages';
+import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage } from '../pages';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
@@ -44,6 +44,10 @@ export const router = createBrowserRouter([
       {
         path: '/invite/:token',
         element: <InviteAcceptPage />,
+      },
+      {
+        path: '/staff-invite/:token',
+        element: <StaffInviteAcceptPage />,
       },
       {
         path: '/join-team',

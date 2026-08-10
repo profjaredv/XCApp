@@ -7,6 +7,7 @@ export { default as SettingsPage } from './SettingsPage';
 export { default as AnalyticsPage } from './AnalyticsPage';
 export { default as ToolsPage } from './ToolsPage';
 export { default as InviteAcceptPage } from './InviteAcceptPage';
+export { default as StaffInviteAcceptPage } from './StaffInviteAcceptPage';
 export { default as TeamAthleteProfilePage } from './TeamAthleteProfilePage';
 export { default as JoinTeamPage } from './JoinTeamPage';
 export { default as FixCoachRolePage } from './FixCoachRolePage';

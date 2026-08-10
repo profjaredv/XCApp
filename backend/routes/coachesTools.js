@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
+const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
@@ -22,7 +22,7 @@ async function resolveTargetSeason(teamId, requestedSeason) {
 /**
  * @route   GET /api/coaches-tools/athlete-performance/:season
  */
-router.get('/athlete-performance/:season', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.get('/athlete-performance/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const season = parseInt(req.params.season, 10);
@@ -77,7 +77,7 @@ router.get('/athlete-performance/:season', authenticate, requireTeam, requireCoa
  * @route   POST /api/coaches-tools/generate-training-groups/:season
  * @desc    Rule-based training groups from recent performance (no AI involved).
  */
-router.post('/generate-training-groups/:season', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/generate-training-groups/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const targetSeason = await resolveTargetSeason(teamId, req.params.season);
@@ -233,7 +233,7 @@ router.post('/generate-training-groups/:season', authenticate, requireTeam, requ
 /**
  * @route   POST /api/coaches-tools/ai-insights/:season
  */
-router.post('/ai-insights/:season', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   if (!genAI) {
     return res.status(503).json({ success: false, message: 'AI insights are not configured (GEMINI_API_KEY is not set).' });
   }
@@ -353,7 +353,7 @@ Return JSON only:
 /**
  * @route   GET /api/coaches-tools/improvement-tracking/:season
  */
-router.get('/improvement-tracking/:season', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.get('/improvement-tracking/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const targetSeason = await resolveTargetSeason(teamId, req.params.season);

@@ -1,7 +1,7 @@
 const express = require('express');
 const calculationService = require('../services/performance/calculationServiceSupabase');
 const cache = require('../services/performance/cache');
-const { authenticate, requireTeam, requireCoach } = require('../middleware/auth');
+const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
 
@@ -12,7 +12,7 @@ const router = express.Router();
  * @desc    Calculate performance metrics for the caller's team/season
  * @access  Private (Coach)
  */
-router.post('/calculate/:season', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/calculate/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const season = parseInt(req.params.season, 10);
@@ -200,7 +200,7 @@ router.get('/meet/:meetId', authenticate, requireTeam, async (req, res) => {
  * anywhere else in this app — that endpoint was unreachable by anyone.
  * Scoping it to "coach of your own team" makes it both reachable and safe.)
  */
-router.post('/cache/clear', authenticate, requireTeam, requireCoach, async (req, res) => {
+router.post('/cache/clear', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const { season } = req.body;
     const clearedCount = await cache.invalidateTeam(req.user.teamId, season || undefined);

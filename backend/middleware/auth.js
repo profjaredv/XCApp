@@ -91,57 +91,60 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-// req.user.role is a sticky, team-agnostic flag: nothing ever sets it back
-// to false. A coach who joins a DIFFERENT team via that team's join code
-// (routes/team.js POST /join, routes/profile.js POST /join-team) keeps
-// role:'coach' while req.user.teamId now points at a team they don't own —
-// checking role alone would let them act as that team's coach on every
-// requireCoach-gated route (invite athletes, approve claims, generate a
-// join code, scrape a roster...) just by learning that team's join code.
-// Coach status must be scoped to the team actually being acted on: either
-// they created it (Team.coachUid), or they hold a 'coach' TeamMember row
-// for it specifically (the shared-secret upgrade path in routes/profile.js
-// grants this, scoped to whichever team the account was on at the time —
-// see POST /upgrade-to-coach).
-const requireCoach = async (req, res, next) => {
-  if (!req.user?.teamId) {
-    return res.status(403).json({ message: 'Access denied. Coach role required.' });
-  }
+// req.user.role (the User-level string) is a sticky, team-agnostic
+// onboarding-UX hint only — never trust it for authorization. A coach who
+// joins a DIFFERENT team via
+// that team's join code (routes/team.js POST /join, routes/profile.js
+// POST /join-team) keeps that hint set while req.user.teamId now points at
+// a team they don't own — checking it alone would let them act as that
+// team's coach just by learning its join code. Authority must be scoped to
+// the team actually being acted on: either they created it (Team.coachUid,
+// checked as a fast path below), or they hold a TeamMember row for it
+// specifically with a role in the caller's allow-list.
+//
+// requireRole(['HEAD_COACH', 'COACH']) — the two are listed explicitly
+// wherever "any real coach" is intended; there is no implicit hierarchy
+// where a broader role automatically satisfies a narrower-looking check,
+// so every call site says exactly which roles it accepts. VOLUNTEER_COACH
+// is deliberately never included in a blanket route-level list — their
+// access is scoped to the specific groups they lead (see T2's
+// Group/GroupLeader), which is a data-layer filter inside the handler, not
+// something a route-level role gate can express.
+// A named function expression, not an arrow function, on purpose: every
+// call site invokes this factory inline (`requireRole([...])`), so the
+// returned middleware is never bound to a named variable — without an
+// explicit name here its function.name would be '', and
+// test/routeAuth.test.js's guard detection (which reads Express's
+// layer.name, derived from the middleware function's own .name) would
+// silently stop recognizing every route this protects.
+const requireRole = (allowedRoles) =>
+  async function requireRole(req, res, next) {
+    if (!req.user?.teamId) {
+      return res.status(403).json({ message: 'Access denied.' });
+    }
 
-  if (req.user.team?.coachUid === req.user.id) {
-    return next();
-  }
-
-  try {
-    const membership = await prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId: req.user.teamId, userId: req.user.id } },
-    });
-    if (membership?.role === 'coach') {
+    if (req.user.team?.coachUid === req.user.id && allowedRoles.includes('HEAD_COACH')) {
       return next();
     }
-  } catch (err) {
-    console.error('Error checking team membership in requireCoach:', err.message);
-    return res.status(500).json({ message: 'An unexpected error occurred.' });
-  }
 
-  return res.status(403).json({ message: 'Access denied. Coach role required.' });
-};
+    try {
+      const membership = await prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId: req.user.teamId, userId: req.user.id } },
+      });
+      if (membership?.active && allowedRoles.includes(membership.role)) {
+        return next();
+      }
+    } catch (err) {
+      console.error('Error checking team role in requireRole:', err.message);
+      return res.status(500).json({ message: 'An unexpected error occurred.' });
+    }
+
+    return res.status(403).json({ message: 'Access denied.' });
+  };
 
 const requireTeam = (req, res, next) => {
   if (!req.user?.teamId) {
     return res.status(400).json({ message: 'You are not on a team yet.' });
-  }
-  next();
-};
-
-// Use for destructive/administrative actions that must be limited to the
-// coach who actually owns the team, not just "a coach somewhere."
-const requireOwnTeam = (req, res, next) => {
-  if (!req.user?.teamId) {
-    return res.status(400).json({ message: 'You are not on a team yet.' });
-  }
-  if (req.user.team?.coachUid !== req.user.id) {
-    return res.status(403).json({ message: 'Only the coach who owns this team can do that.' });
   }
   next();
 };
@@ -158,4 +161,4 @@ const requireLinkedAthlete = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, requireCoach, requireTeam, requireOwnTeam, requireLinkedAthlete };
+module.exports = { authenticate, requireRole, requireTeam, requireLinkedAthlete };

@@ -1,14 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireOwnTeam } = require('../middleware/auth');
+const { authenticate, requireRole } = require('../middleware/auth');
 
 // POST /api/data/clear/:season
 // Wipes all race/result/metrics data for one season of the CALLER'S OWN
 // team. Previously this took teamId from the URL and only checked
 // `role === 'coach'` — any coach could wipe any other team's season. Team
-// scope now comes exclusively from the authenticated session.
-router.post('/clear/:season', authenticate, requireOwnTeam, async (req, res) => {
+// scope now comes exclusively from the authenticated session. Destructive
+// enough (deletes race/result data outright) to keep head-coach-only.
+router.post('/clear/:season', authenticate, requireRole(['HEAD_COACH']), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const season = parseInt(req.params.season, 10);

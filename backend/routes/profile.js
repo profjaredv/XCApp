@@ -35,7 +35,7 @@ router.post('/join-team', authenticate, async (req, res) => {
     await prisma.teamMember.upsert({
       where: { teamId_userId: { teamId: team.id, userId } },
       update: {},
-      create: { teamId: team.id, userId, role: 'athlete' },
+      create: { teamId: team.id, userId, role: 'ATHLETE' },
     });
 
     const updatedUser = await prisma.user.update({
@@ -55,64 +55,20 @@ router.post('/join-team', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/profile/upgrade-to-coach
-// Upgrades a user's role to 'coach' using a shared secret code.
+// POST /api/profile/upgrade-to-coach — RETIRED (T1, Team Management
+// handoff). This used to let anyone who learned COACH_UPGRADE_CODE become
+// a coach on whatever team they happened to be on at the time — a shared
+// secret with no record of who granted it or why. Replaced by
+// POST /team/staff-invite: a head coach names an exact email and exact
+// role (HEAD_COACH/COACH/VOLUNTEER_COACH), accepted at
+// POST /team/accept-staff-invite. Kept registered as 410 Gone, rather than
+// deleted outright, so a stale client/bookmark gets a clear explanation
+// instead of an ambiguous 404.
 router.post('/upgrade-to-coach', authenticate, async (req, res) => {
-  const { code } = req.body;
-  const userId = req.user.id;
-
-  if (!code) {
-    return res.status(400).json({ message: 'Upgrade code is required.' });
-  }
-
-  const expectedCode = (process.env.COACH_UPGRADE_CODE || '').replace(/^"|"$/g, '');
-  if (!expectedCode || code !== expectedCode) {
-    return res.status(401).json({ message: 'Invalid upgrade code.' });
-  }
-
-  try {
-    if (req.user.role === 'coach') {
-      return res.status(400).json({ message: 'User is already a coach.' });
-    }
-
-    // User.role is only an onboarding-UX hint now, never the authorization
-    // source of truth (see requireCoach in middleware/auth.js) — the real
-    // grant is the TeamMember row, scoped to whichever team this account is
-    // on right now. Upgrading with no team yet still flips the hint flag
-    // (existing behavior, preserved), but grants no actual coach access
-    // anywhere until they're on a team.
-    const updates = [
-      prisma.user.update({
-        where: { id: userId },
-        data: { role: 'coach' },
-        include: { team: true },
-      }),
-    ];
-    if (req.user.teamId) {
-      updates.push(
-        prisma.teamMember.upsert({
-          where: { teamId_userId: { teamId: req.user.teamId, userId } },
-          update: { role: 'coach' },
-          create: { teamId: req.user.teamId, userId, role: 'coach' },
-        })
-      );
-    }
-    const [updatedUser] = await prisma.$transaction(updates);
-
-    res.status(200).json({
-      message: 'Successfully upgraded to coach.',
-      user: {
-        uid: updatedUser.id,
-        email: updatedUser.email,
-        name: updatedUser.name,
-        role: updatedUser.role,
-        team: updatedUser.team,
-      },
-    });
-  } catch (error) {
-    console.error('Error upgrading user role:', error.message);
-    res.status(500).json({ message: 'Internal Server Error' });
-  }
+  res.status(410).json({
+    message:
+      'Self-service coach upgrade codes have been retired. Ask your head coach to send you a staff invite instead.',
+  });
 });
 
 // POST /api/profile/fix-coach-role

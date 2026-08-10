@@ -455,20 +455,109 @@ it — and writing down what was checked — felt more honest than either
 silently skipping P0 as "already done elsewhere" or re-doing work that's
 already correct.
 
-## T1 — not started, blocked on an explicit open question
+## T1 — open questions resolved, build in progress
 
-The document's own "open questions" section says, about guardian access:
-*"This changes the account model significantly and should be settled
-before T1, not retrofitted after."* T1 is exactly where that model
-(`TeamMember`/`TeamRole`, captain permissions) gets built. Per rule 7,
-stopping here rather than guessing an answer and having to unwind a
-role/permission model later. Asked the coach; waiting on:
+Asked before starting (per rule 7 and the document's own "settle before
+T1, not after" instruction on guardian access). Coach's answers:
+guardian access should exist, read-only, scoped to their own child's
+performance/info only. Captain permissions: use the document's own
+allowlist as written — it's already explicit and specific, nothing to
+loosen. Proceeding continuously/autonomously from here per the coach's
+instruction; committing and pushing incrementally rather than batching
+everything into one giant change.
 
-- Guardian access (open question 2) — does a parent need to see meet
-  logistics, entry status, or uniform obligations?
-- Also worth a explicit decision before T1, not just T5 where the document
-  raises it: captains are minors with an *explicit allowlist* of what they
-  can see, spelled out in detail in the document's most important section.
-  That's a safeguarding requirement, not a nice-to-have — building `T1`'s
-  role/permission plumbing without it already decided risks having to
-  retrofit the allowlist onto endpoints that shipped open by default.
+### T1a: `TeamRole` / `TeamMember` rewrite + `requireRole` — done
+
+Replaced `TeamMember.role` (a free-text `'coach'|'athlete'` string) with
+the `TeamRole` enum (`HEAD_COACH`, `COACH`, `VOLUNTEER_COACH`, `ATHLETE`)
+exactly as specced, plus an `active` boolean (migration
+`20260810230000_team_role`). The migration's `USING` cast only maps the
+two values this app has ever written (`'coach'`→`HEAD_COACH`,
+`'athlete'`→`ATHLETE`, per the doc's own instruction) and lets anything
+else fail the column's `NOT NULL` constraint rather than guess — this is a
+migration that **drops a unique-adjacent type change on an existing
+column**, flagged explicitly per rule 6 even though no rows are altered.
+
+`requireCoach` and `requireOwnTeam` are both gone, replaced by
+`requireRole(allowedRoles)` (`middleware/auth.js`). Explicit allow-lists at
+every call site, not an implicit hierarchy — a route that should accept
+"any real coach" lists `['HEAD_COACH', 'COACH']` itself; nothing
+auto-promotes. Went through all ~30 call sites individually rather than
+find-and-replace, per the doc's own instruction: `DELETE` routes that
+remove a roster entry, clear season results, or wipe imported data
+(`athletes.js DELETE /:athleteId`, `seasons.js DELETE /:id/roster/:athleteId`
+and `DELETE /:id/results`, `dataManagement.js POST /clear/:season`,
+`teams.js DELETE .../results` and `PUT /:id` and `POST /seasons/:year/start`)
+are `HEAD_COACH`-only; routine athlete/roster/result read-write
+(scraping, adding to roster, invites, splits, plans/calculations, claim
+approval) accepts `HEAD_COACH` and `COACH`. `VOLUNTEER_COACH` is
+deliberately in **no** route-level list yet — their access is supposed to
+be group-scoped, and groups don't exist until T2, so there's nothing yet
+for a route-level check to scope them to.
+
+Also retired `requireOwnTeam` itself, not just its name: every route that
+used to check "is this the literal `Team.coachUid`" now checks
+`requireRole(['HEAD_COACH'])`, which also passes for anyone else promoted
+to `HEAD_COACH` via a staff invite (below). Deliberate widening, not an
+oversight — multiple head coaches is the point of moving authority off a
+single owner field.
+
+**A real bug caught by testing, not guessing**: `requireRole([...])`
+returns a factory-produced anonymous function; every call site invokes it
+inline (`requireRole(['HEAD_COACH'])`), so the returned middleware's
+`function.name` was `''`. `test/routeAuth.test.js`'s guard-detection reads
+Express's `layer.name`, which comes straight from that `.name` — every
+`requireRole`-protected route would have silently shown up as
+*unguarded* the moment this shipped, the exact bug class that test exists
+to catch, caused by the fix for a different bug. Fixed by making the
+factory return a named function expression (`async function requireRole(...)`)
+instead of an arrow function. `test/requireRole.test.js` now unit-tests
+the middleware itself in isolation (owner fast-path, role-list matching,
+`active: false` rejection, DB-error-is-500-not-silent-pass) per rule 5
+("permission-related" is explicitly named alongside arithmetic) — stubbed
+`prisma.teamMember.findUnique` by direct property assignment rather than
+`node:test`'s `t.mock.method`, because Prisma's model delegates are
+Proxy-based and `Object.getOwnPropertyDescriptor` reports `value:
+undefined` for them, which `t.mock.method` rejects outright.
+
+### T1b: retire `upgrade-to-coach`, add staff invites — done
+
+`POST /api/profile/upgrade-to-coach` now always responds `410 Gone`
+(kept registered rather than deleted, so a stale bookmark/client gets an
+explanation instead of an ambiguous 404) — the shared
+`COACH_UPGRADE_CODE` secret it checked is gone from `.env.example`
+entirely, since nothing reads it anymore.
+
+Replacement: `StaffInvite` (migration `20260810231500_staff_invites`),
+structurally parallel to the existing `AthleteInvite` (token,
+pending/accepted/revoked, re-inviting overwrites rather than
+accumulates) but its own model rather than overloading `AthleteInvite`
+with a nullable `athleteId` — granting team authority and linking a
+roster row are different concerns. New routes in `routes/team.js`:
+`POST /staff-invite` (head-coach-only, names an email + exact role),
+`POST /accept-staff-invite` (token-scoped, mirrors
+`athletes.js POST /accept-invite`), `GET /staff` and
+`PATCH /staff/:userId` (head-coach+coach read / head-coach-only
+role-or-active edit).
+
+Frontend: added `StaffInviteAcceptPage.tsx` (mirrors `InviteAcceptPage.tsx`)
+at `/staff-invite/:token`, wired an `acceptStaffInvite` alongside the
+existing `acceptInvite` in `AuthProvider`/`AuthContext`. Rewrote
+`UpgradeRolePage.tsx` (was the upgrade-code entry form) to point at the
+new ask-your-head-coach flow instead of a dead endpoint. Deleted
+`UpgradeToCoachForm.tsx` — its only caller was `web/src/_archive/
+DashboardPage.tsx`, which was already dead (not reachable from the
+router; `tsc -b` already failed on it before this change over an
+unrelated missing import). Since deleting that component's last live
+reason to exist made `_archive/` even more broken than it already was,
+and both handoff documents separately list `web/src/_archive/` for
+deletion under their respective cleanup sections, deleted the whole
+directory now rather than leave increasingly-stale dead code around —
+confirmed nothing outside it imports from it first. `tsc -b` and
+`vite build` both clean afterward.
+
+Not done in this pass: an actual "Staff" settings screen using the new
+`GET /staff` / `PATCH /staff/:userId` endpoints — the backend surface
+exists, but building the UI around it felt like it belonged with T3's
+composer/settings work rather than bolted onto a security-retirement
+commit. Noting it here so it isn't lost.

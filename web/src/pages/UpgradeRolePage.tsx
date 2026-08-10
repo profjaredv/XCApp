@@ -1,75 +1,34 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { api as axios } from '../api/axios';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { useNavigate } from 'react-router-dom';
 
+// T1 (Team Management handoff): the shared-secret upgrade code this page
+// used to submit (`POST /profile/upgrade-to-coach`) is retired — anyone who
+// learned the code could become a coach on whatever team they were on.
+// Staff access is now granted by name, by a head coach, via
+// `POST /team/staff-invite` — see StaffInviteAcceptPage for the accept
+// half of that flow. This page stays registered (rather than 404ing) for
+// anyone who still has the old link, pointing them at the real next step.
 const UpgradeRolePage: React.FC = () => {
-  const { currentUser, setCurrentUser } = useAuth();
-  const [code, setCode] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const navigate = useNavigate();
-
-  const handleUpgrade = async () => {
-    setLoading(true);
-    setError('');
-    setSuccess('');
-    try {
-      const res = await axios.post('/profile/upgrade-to-coach', { code });
-      const updated = res.data?.user;
-      if (updated) {
-        setCurrentUser(updated);
-        setSuccess('Successfully upgraded to coach role!');
-        // Redirect to profile page after a short delay
-        setTimeout(() => {
-          navigate('/profile');
-        }, 2000);
-      }
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string } }, message?: string };
-      setError(error?.response?.data?.message || error?.message || 'Failed to upgrade role.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { currentUser } = useAuth();
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Upgrade to Coach</h1>
+      <h1 className="text-3xl font-bold">Coach &amp; Staff Access</h1>
 
       <Card>
         <CardHeader>
-          <CardTitle>Coach Role Upgrade</CardTitle>
-          <CardDescription>Enter your coach upgrade code to gain access to additional features.</CardDescription>
+          <CardTitle>Ask your head coach for an invite</CardTitle>
+          <CardDescription>
+            Coach and volunteer access is no longer granted by a shared upgrade code. Your head coach can send
+            you an invite link naming your exact role (head coach, coach, or volunteer coach) from their Staff
+            settings — open the link they send you to accept it.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 max-w-md">
-            <div>
-              <label className="text-sm text-muted-foreground">Current Role</label>
-              <Input value={currentUser?.role || ''} readOnly disabled className="mt-1" />
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground">Upgrade Code</label>
-              <Input 
-                type="password" 
-                value={code} 
-                onChange={(e) => setCode(e.target.value)} 
-                className="mt-1" 
-                placeholder="Enter your coach upgrade code"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Button onClick={handleUpgrade} disabled={loading || !code.trim()}>
-                {loading ? 'Upgrading...' : 'Upgrade to Coach'}
-              </Button>
-            </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            {success && <p className="text-sm text-green-600">{success}</p>}
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Current role: <span className="font-medium">{currentUser?.role || 'athlete'}</span>
+          </p>
         </CardContent>
       </Card>
     </div>
