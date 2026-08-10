@@ -490,4 +490,72 @@ router.post('/approve-claim', authenticate, requireTeam, requireRole(['HEAD_COAC
   }
 });
 
+// ---------------------------------------------------------------------------
+// Guardian link approval (T1, open question 2). Same shape as claims above —
+// a request doesn't grant access, a coach confirming it does — but scoped
+// through GuardianLink.athlete.teamId rather than a denormalized teamId
+// column, since a guardian link has no team of its own.
+// ---------------------------------------------------------------------------
+
+// GET /api/team/pending-guardian-links
+router.get('/pending-guardian-links', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+  try {
+    const links = await prisma.guardianLink.findMany({
+      where: { status: 'pending', athlete: { teamId: req.user.teamId } },
+      include: { athlete: { select: { name: true } }, user: { select: { name: true, email: true } } },
+      orderBy: { requestedAt: 'asc' },
+    });
+
+    res.json({
+      pendingLinks: links.map((l) => ({
+        _id: l.id,
+        userId: l.userId,
+        guardianName: l.user.name,
+        guardianEmail: l.user.email,
+        athleteId: l.athleteId,
+        athleteName: l.athlete.name,
+        requestedAt: l.requestedAt,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching pending guardian links:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/team/approve-guardian-link
+router.post('/approve-guardian-link', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+  const { linkId, action } = req.body;
+
+  if (!linkId || !['approve', 'reject'].includes(action)) {
+    return res.status(400).json({ msg: 'linkId and a valid action are required.' });
+  }
+
+  try {
+    const link = await prisma.guardianLink.findFirst({
+      where: { id: linkId, athlete: { teamId: req.user.teamId } },
+    });
+    if (!link) {
+      return res.status(404).json({ msg: 'Guardian link request not found.' });
+    }
+    if (link.status !== 'pending') {
+      return res.status(409).json({ msg: `Request was already ${link.status}.` });
+    }
+
+    await prisma.guardianLink.update({
+      where: { id: link.id },
+      data: {
+        status: action === 'approve' ? 'approved' : 'rejected',
+        resolvedAt: new Date(),
+        resolvedById: req.user.id,
+      },
+    });
+
+    res.json({ msg: `Guardian link ${action === 'approve' ? 'approved' : 'rejected'}.` });
+  } catch (error) {
+    console.error('Error resolving guardian link:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 module.exports = router;

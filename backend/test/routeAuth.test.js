@@ -14,7 +14,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const ROUTES_DIR = path.join(__dirname, '..', 'routes');
 
-const GUARD_NAMES = new Set(['requireTeam', 'requireRole', 'requireLinkedAthlete']);
+const GUARD_NAMES = new Set(['requireTeam', 'requireRole', 'requireLinkedAthlete', 'requireApprovedGuardianLink']);
 
 // Routes that intentionally carry no guard beyond `authenticate`, and why.
 // This is a real allowlist, not an escape hatch — every entry is a route
@@ -46,6 +46,11 @@ const ALLOWED_UNGUARDED = new Set([
   // this exact athlete/invitee when creating it) — not team/role membership.
   'athletes.js POST /accept-invite',
   'team.js POST /accept-staff-invite',
+  // A guardian isn't a team member, so requireTeam/requireRole don't apply —
+  // this only creates a *pending* GuardianLink tied to req.user.id; it
+  // grants no access by itself (see requireApprovedGuardianLink, and
+  // team.js POST /approve-guardian-link, which does require a role).
+  'guardian.js POST /request-link',
 ]);
 
 function collectRouteMiddlewareNames(routeLayer) {

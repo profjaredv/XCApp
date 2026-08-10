@@ -615,3 +615,57 @@ coach — has nothing to violate yet because captains have no elevated
 surface at all yet. That surface, and the allowlist enforcing it, arrives
 with T2 (groups) onward. Flagging this prominently rather than letting a
 task-tracker checkmark imply more coverage than exists.
+
+### T1d: guardian access — done (backend); frontend not built this pass
+
+Resolved per the coach's answer to the doc's open question 2: yes, limited
+guardian access, read-only, scoped to their own child.
+
+`GuardianLink` (migration `20260810234500_guardian_links`) mirrors
+`AthleteClaim`'s pending/approved/rejected shape deliberately — a
+guardian asserting "this is my kid" is the exact same unverified-identity
+situation as an athlete asserting "this roster row is me," so it gets the
+same coach-gated approval, not auto-grant-on-request. Routes:
+
+- `POST /api/guardian/request-link` (`routes/guardian.js`) — a guardian
+  isn't a team member and has no join flow of their own, so this reuses
+  the team's existing join code purely as the "which team is this kid on"
+  lookup (verifies the named athlete is actually on that team), then files
+  a pending link. Grants nothing by itself.
+- `GET /api/guardian/my-links` — self-scoped to `req.user.id`.
+- `GET /api/guardian/athletes/:athleteId` — the actual read surface, gated
+  entirely by a new `requireApprovedGuardianLink` middleware
+  (`middleware/guardian.js`) rather than `requireTeam`/`requireRole`,
+  since a guardian has no team role at all. Mirrors
+  `athletes.js GET /:athleteId`'s response shape (profile + current-season
+  race results) but hand-built rather than reused, and deliberately
+  returns *less*: no `userId`/`athleticAthleteId`/timestamps, just what a
+  parent needs. Neither training-log notes nor race reflections are in
+  that response — not because of a guardian-specific filter, but because
+  neither field is in the athlete-facing version either; there is nothing
+  to accidentally leak here that isn't already excluded upstream.
+- `GET /api/team/pending-guardian-links`, `POST /api/team/approve-guardian-link`
+  (`routes/team.js`, `HEAD_COACH`/`COACH`) — the coach-side review queue,
+  same shape as `pending-claims`/`approve-claim`, scoped through
+  `GuardianLink.athlete.teamId` since a guardian link has no team column
+  of its own.
+
+`test/requireApprovedGuardianLink.test.js` unit-tests the middleware in
+isolation (missing param, approved/pending/rejected/no-link, DB-error-is-
+500) per rule 5, same stubbing approach as `requireRole.test.js` (direct
+property assignment — Prisma's model delegates don't work with
+`node:test`'s `t.mock.method`). `test/routeAuth.test.js`'s guard-name set
+and allowlist both updated; full suite (45 tests) green.
+
+**Not done this pass, and unlike the other T1 gaps above this one is a
+scope call, not a sequencing block**: no frontend for any of this. A
+guardian today has no UI to request a link, no UI to see their child once
+approved, and a coach has no screen to review pending requests — the
+routes exist and are tested, but nothing calls them. Unlike staff invites
+(where `UpgradeRolePage` already existed and just needed repointing) and
+unlike captain permissions (genuinely blocked on T2 not existing yet),
+guardian access had no existing UI surface to extend and building one
+from scratch — a request form, an approval queue, a read-only child-
+performance view — is a real, separate chunk of frontend work. Chose to
+land the backend (schema, routes, auth boundary, tests) solidly rather
+than rush a UI in the same pass. Worth its own session.

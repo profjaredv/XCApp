@@ -49,13 +49,15 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  team              Team?          @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
-  coachedTeams      Team[]         @relation("TeamCoach")
-  teamMemberships   TeamMember[]
-  createdRaceSplits RaceSplit[]    @relation("RaceSplitCreator")
-  linkedAthlete     Athlete?       @relation("AthleteAccount")
-  athleteClaims     AthleteClaim[]
-  sentStaffInvites  StaffInvite[]  @relation("StaffInviteSender")
+  team                  Team?          @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
+  coachedTeams          Team[]         @relation("TeamCoach")
+  teamMemberships       TeamMember[]
+  createdRaceSplits     RaceSplit[]    @relation("RaceSplitCreator")
+  linkedAthlete         Athlete?       @relation("AthleteAccount")
+  athleteClaims         AthleteClaim[]
+  sentStaffInvites      StaffInvite[]  @relation("StaffInviteSender")
+  guardianLinks         GuardianLink[] @relation("GuardianAccount")
+  resolvedGuardianLinks GuardianLink[] @relation("GuardianLinkResolver")
 
   @@index([teamId])
   @@map("users")
@@ -136,12 +138,12 @@ model TeamMember {
 // ---------------------------------------------------------------------------
 
 model Athlete {
-  id             String   @id @default(uuid()) @db.Uuid
-  teamId         String   @map("team_id") @db.Uuid
-  name           String
-  gender         String? // 'M' | 'F'
-  grade          Int? // 9-12
-  graduationYear Int?     @map("graduation_year")
+  id                String   @id @default(uuid()) @db.Uuid
+  teamId            String   @map("team_id") @db.Uuid
+  name              String
+  gender            String? // 'M' | 'F'
+  grade             Int? // 9-12
+  graduationYear    Int?     @map("graduation_year")
   // The athlete's own Athletic.net profile link (path or full URL, as
   // scraped — not a parsed-out numeric id, since this codebase has no
   // confirmed evidence of that URL's internal structure to safely parse
@@ -150,14 +152,14 @@ model Athlete {
   // captures it (Phase 2 step 5) or for an athlete Athletic.net has no page
   // for yet. Scrapers/routes match on this first when present, falling
   // back to name — see routes/teams.js.
-  athleticAthleteId String? @unique @map("athletic_athlete_id")
+  athleticAthleteId String?  @unique @map("athletic_athlete_id")
   // The link this app never had: which signed-in account, if any, this
   // roster entry belongs to. Null means unclaimed — either nobody has
   // signed up yet, or a claim is still pending coach approval. Set only by
   // an accepted AthleteInvite or an approved AthleteClaim, never directly.
-  userId         String?  @unique @map("user_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  userId            String?  @unique @map("user_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   team                Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user                User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
@@ -169,6 +171,7 @@ model Athlete {
   invite              AthleteInvite?
   claims              AthleteClaim[]
   trainingLogs        TrainingLog[]
+  guardianLinks       GuardianLink[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -177,6 +180,32 @@ model Athlete {
   @@index([teamId, name])
   @@index([teamId])
   @@map("athletes")
+}
+
+// T1 (Team Management handoff), open question 2: "does any parent need to
+// see meet logistics, entry status, or uniform obligations?" — resolved:
+// yes, read-only, scoped to their own child. A stranger asserting "this is
+// my kid" is exactly the AthleteClaim situation (unverified identity
+// matching itself to a roster row), so this mirrors that model's
+// pending/approved/rejected coach-gated flow rather than granting access
+// on request. Read-only by design: nothing in this app writes through a
+// GuardianLink, ever — see routes/guardian.js.
+model GuardianLink {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  athleteId    String    @map("athlete_id") @db.Uuid
+  status       String    @default("pending") // pending | approved | rejected
+  requestedAt  DateTime  @default(now()) @map("requested_at")
+  resolvedAt   DateTime? @map("resolved_at")
+  resolvedById String?   @map("resolved_by") @db.Uuid
+
+  user       User    @relation("GuardianAccount", fields: [userId], references: [id], onDelete: Cascade)
+  athlete    Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  resolvedBy User?   @relation("GuardianLinkResolver", fields: [resolvedById], references: [id])
+
+  @@unique([userId, athleteId])
+  @@index([athleteId, status])
+  @@map("guardian_links")
 }
 
 // A coach-initiated invite for a SPECIFIC athlete row. The coach already
@@ -276,24 +305,24 @@ model TrainingLog {
 }
 
 model Race {
-  id             String   @id @default(uuid()) @db.Uuid
-  teamId         String   @map("team_id") @db.Uuid
-  name           String
-  date           DateTime @db.Date
-  season         Int
-  distance       String? // e.g. "5K", "5,000 Meters" (as scraped)
-  distanceMeters Float?   @map("distance_meters")
-  location       String?
+  id                 String   @id @default(uuid()) @db.Uuid
+  teamId             String   @map("team_id") @db.Uuid
+  name               String
+  date               DateTime @db.Date
+  season             Int
+  distance           String? // e.g. "5K", "5,000 Meters" (as scraped)
+  distanceMeters     Float?   @map("distance_meters")
+  location           String?
   // Populated by the season scraper's meet-key extraction (Phase 2). Points
   // at this race's own meet-results page on Athletic.net, which carries the
   // full field (every school, every athlete) — the season grid never does.
   // Null for races imported before this field existed, until re-scraped.
-  sourceUrl      String?  @map("source_url")
-  athleticMeetId String?  @map("athletic_meet_id")
+  sourceUrl          String?  @map("source_url")
+  athleticMeetId     String?  @map("athletic_meet_id")
   // Set only by the coach-confirmed course-mapping apply step (see
   // scripts/proposeCourseMapping.js / scripts/applyCourseMapping.js) —
   // never inferred/written automatically from location-string similarity.
-  courseId       String?  @map("course_id") @db.Uuid
+  courseId           String?  @map("course_id") @db.Uuid
   // Field-relative normalization (Build Spec, "Core measurement decisions").
   // Computed from FieldResult by the meet scraper's ingest step, gender-
   // specific — a single Athletic.net race entry is usually single-gender;
@@ -301,11 +330,11 @@ model Race {
   // a blended figure here. Null (not zero) when normalization wasn't
   // computed — either the field scrape hasn't run for this race yet, or
   // fieldFinisherCount fell below the 40-finisher confidence threshold.
-  fieldMeanSec       Float? @map("field_mean_sec")
-  fieldMedianSec     Float? @map("field_median_sec")
-  fieldFinisherCount Int?   @map("field_finisher_count")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  fieldMeanSec       Float?   @map("field_mean_sec")
+  fieldMedianSec     Float?   @map("field_median_sec")
+  fieldFinisherCount Int?     @map("field_finisher_count")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   team                   Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   course                 Course?                  @relation(fields: [courseId], references: [id], onDelete: SetNull)
@@ -373,15 +402,15 @@ model Course {
 }
 
 model Result {
-  id        String   @id @default(uuid()) @db.Uuid
-  raceId    String   @map("race_id") @db.Uuid
-  athleteId String   @map("athlete_id") @db.Uuid
-  teamId    String   @map("team_id") @db.Uuid
+  id        String       @id @default(uuid()) @db.Uuid
+  raceId    String       @map("race_id") @db.Uuid
+  athleteId String       @map("athlete_id") @db.Uuid
+  teamId    String       @map("team_id") @db.Uuid
   time      Float? // seconds
   place     Int?
   grade     Int? // athlete's grade at the time of this specific race
   status    ResultStatus @default(FINISHED)
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime     @default(now()) @map("created_at")
 
   race      Race       @relation(fields: [raceId], references: [id], onDelete: Cascade)
   athlete   Athlete    @relation(fields: [athleteId], references: [id], onDelete: Cascade)
@@ -620,28 +649,28 @@ model MeetPerformanceMetrics {
 // not disappear when that team is cleaned up.
 // ---------------------------------------------------------------------------
 model Feedback {
-  id        String   @id @default(uuid()) @db.Uuid
-  teamId    String?  @map("team_id") @db.Uuid
-  userId    String?  @map("user_id") @db.Uuid
-  userEmail String?  @map("user_email")
-  userRole  String?  @map("user_role")
+  id        String  @id @default(uuid()) @db.Uuid
+  teamId    String? @map("team_id") @db.Uuid
+  userId    String? @map("user_id") @db.Uuid
+  userEmail String? @map("user_email")
+  userRole  String? @map("user_role")
 
   /// Route the reporter was on, e.g. "/analytics"
-  route     String
+  route  String
   /// Human label for that route, e.g. "Analytics — Dashboard"
-  screen    String?
+  screen String?
   /// Season selected at the time; a lot of bugs are season-dependent.
-  season    Int?
+  season Int?
 
   /// blocker | bug | polish | idea
-  severity  String   @default("bug")
-  message   String
+  severity String @default("bug")
+  message  String
   /// Console errors, viewport, user agent — auto-captured.
-  context   Json?
+  context  Json?
 
   /// open | triaged | fixed | wontfix
-  status    String   @default("open")
-  notes     String?
+  status String  @default("open")
+  notes  String?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
