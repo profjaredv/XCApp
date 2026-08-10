@@ -669,3 +669,58 @@ from scratch — a request form, an approval queue, a read-only child-
 performance view — is a real, separate chunk of frontend work. Chose to
 land the backend (schema, routes, auth boundary, tests) solidly rather
 than rush a UI in the same pass. Worth its own session.
+
+## T2: Groups — backend done, frontend next
+
+`Group`/`GroupLeader`/`GroupMembership` (migration `20260810240000_groups`)
+exactly as specced: one model for training/captain/custom groups, not
+three ("three tables means three assignment screens and three copies of
+the same bug"). `GroupMembership` is effective-dated — `endDate: null`
+means current, moving an athlete never updates `groupId` in place, it
+closes the old row and opens a new one.
+
+`lib/groups.js` — `getGroupOn(athleteId, date, type='TRAINING')`, the one
+helper the doc says to write once and use everywhere rather than
+scattering date-range queries through routes, plus `moveAthleteToGroup()`,
+the one place a membership row gets closed/opened. Date-range convention
+decided and documented since the doc didn't specify one: `startDate`
+inclusive, `endDate` **exclusive** — the move date itself belongs to the
+new group, not the old one. `isMembershipActiveOn()` is pure/DB-free and
+unit-tested (`test/groups.test.js`) directly against the doc's own verify
+gate wording: move an athlete mid-season, `getGroupOn` returns the old
+group before and the new group after, and the test asserts via a fake
+in-memory table that `update()` is only ever called on the OLD row and
+only ever touches `endDate` — never `groupId`.
+
+`routes/groups.js` — CRUD, leader assignment (exactly one `primary` per
+group enforced in a transaction, not left to the DB, which can't express
+that constraint), single-athlete move (`POST /:id/members`), bulk
+assignment (`POST /assign`, one transaction for the whole save per the
+doc), and `POST /copy-from-season` (best-effort: carries a group's active
+members forward only if they're also on the new season's active roster,
+since some will have graduated).
+
+This is the **first place `TeamRole.VOLUNTEER_COACH` does anything** —
+until now it was a role with nowhere to apply (see T1 notes above). A
+volunteer can edit a group's own fields and move athletes into/out of it
+only if they're that group's `GroupLeader`; staff assignment
+(`POST /:id/leaders`) and group creation/deletion/bulk-assign stay
+`HEAD_COACH`/`COACH`. The decision logic
+(`lib/groupPermissions.js`, `decideCanManageGroup`) is DB-free and
+unit-tested on its own (rule 5) rather than only exercised indirectly
+through a route.
+
+Also wired `GET /api/groups/athlete/:athleteId/current`, a real,
+non-test consumer of `getGroupOn` (defaults to today, `TRAINING` type) —
+so "use it everywhere" has at least one route backing it up, not just its
+own test file.
+
+Full suite: 63 tests green.
+
+**Next**: the bulk assignment screen (frontend) — two columns (boys/girls),
+groups as drop targets ordered by `sortOrder`, unassigned staging column,
+copy-from-previous-season pre-populate, season-best time on each athlete
+card, one-transaction save. The doc describes drag-and-drop; building a
+multi-select-and-assign interaction first as the functional core, with
+drag-and-drop as a stretch goal on top rather than a blocker to something
+usable.

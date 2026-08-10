@@ -58,6 +58,7 @@ model User {
   sentStaffInvites      StaffInvite[]  @relation("StaffInviteSender")
   guardianLinks         GuardianLink[] @relation("GuardianAccount")
   resolvedGuardianLinks GuardianLink[] @relation("GuardianLinkResolver")
+  ledGroups             GroupLeader[]
 
   @@index([teamId])
   @@map("users")
@@ -89,6 +90,7 @@ model Team {
   athleteInvites         AthleteInvite[]
   athleteClaims          AthleteClaim[]
   staffInvites           StaffInvite[]
+  groups                 Group[]
 
   @@index([coachUid])
   @@map("teams")
@@ -172,6 +174,7 @@ model Athlete {
   claims              AthleteClaim[]
   trainingLogs        TrainingLog[]
   guardianLinks       GuardianLink[]
+  groupMemberships    GroupMembership[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -466,6 +469,7 @@ model Season {
 
   team   Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
   roster SeasonRoster[]
+  groups Group[]
 
   @@unique([teamId, year, sport])
   @@index([teamId])
@@ -503,6 +507,83 @@ model SeasonRoster {
   @@index([seasonId])
   @@index([athleteId])
   @@map("season_roster")
+}
+
+// ---------------------------------------------------------------------------
+// T2 (Team Management handoff): training groups, captain groups, and any
+// future grouping are the same shape — one model, not three, per the doc's
+// own instruction ("three tables means three assignment screens and three
+// copies of the same bug").
+// ---------------------------------------------------------------------------
+
+enum GroupType {
+  TRAINING // coach-led, ability-based, gender-split
+  CAPTAIN // captain-led
+  CUSTOM
+}
+
+model Group {
+  id        String    @id @default(uuid()) @db.Uuid
+  teamId    String    @map("team_id") @db.Uuid
+  seasonId  String    @map("season_id") @db.Uuid
+  name      String // "Boys Blue", "Girls Group 2"
+  type      GroupType
+  gender    String? // "M" | "F" | null for mixed
+  sortOrder Int       @default(0) @map("sort_order") // display order, fastest first
+  color     String?
+  archived  Boolean   @default(false)
+
+  team        Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season      Season            @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  memberships GroupMembership[]
+  leaders     GroupLeader[]
+
+  @@unique([seasonId, name])
+  @@index([teamId, seasonId])
+  @@map("groups")
+}
+
+// A group may have several leaders (a paid coach plus a volunteer, or a
+// coach plus a captain) — exactly one should be `primary`, enforced in
+// application logic (routes/groups.js) with a validation error, not
+// silently, since the DB can't express "exactly one true per groupId."
+model GroupLeader {
+  id      String  @id @default(uuid()) @db.Uuid
+  groupId String  @map("group_id") @db.Uuid
+  userId  String  @map("user_id") @db.Uuid
+  primary Boolean @default(false)
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@map("group_leaders")
+}
+
+// Effective-dated on purpose: athletes move between training groups
+// mid-season (that's the point of ability grouping), and a foreign key
+// updated in place would erase the history of every previous assignment —
+// which is exactly what lets analytics later segment race performance by
+// the training group an athlete was actually in on a given date. Moving an
+// athlete means closing this row (endDate) and opening a new one; NEVER
+// update groupId in place on an existing row. See lib/groups.js's
+// getGroupOn(athleteId, date) — the one place this table should ever be
+// date-range-queried from; don't scatter that logic through routes.
+model GroupMembership {
+  id        String    @id @default(uuid()) @db.Uuid
+  groupId   String    @map("group_id") @db.Uuid
+  athleteId String    @map("athlete_id") @db.Uuid
+  startDate DateTime  @map("start_date") @db.Date
+  endDate   DateTime? @map("end_date") @db.Date // null means current
+  movedById String?   @map("moved_by") @db.Uuid
+  reason    String?
+
+  group   Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@index([athleteId, startDate])
+  @@index([groupId])
+  @@map("group_memberships")
 }
 
 // ---------------------------------------------------------------------------

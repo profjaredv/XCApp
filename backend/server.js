@@ -92,6 +92,7 @@ const main = async () => {
     const coachesToolsRoutes = require('./routes/coachesTools');
     const feedbackRoutes = require('./routes/feedback');
     const guardianRoutes = require('./routes/guardian');
+    const groupRoutes = require('./routes/groups');
 
 
     app.get('/api', (req, res) => {
@@ -119,6 +120,7 @@ const main = async () => {
     app.use('/api/coaches-tools', coachesToolsRoutes);
     app.use('/api/feedback', feedbackRoutes);
     app.use('/api/guardian', guardianRoutes);
+    app.use('/api/groups', groupRoutes);
     
     // Enhanced performance routes
     const enhancedPerformanceRoutes = require('./routes/enhancedPerformanceRoutes');
