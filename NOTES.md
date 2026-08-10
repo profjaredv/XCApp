@@ -395,3 +395,80 @@ step 1.
 Deliberately not touched yet: `MeetGroup`/`MeetGroupRace` stay exactly as
 they are (spec: keep them read-only for one release once `Course` lands,
 then delete — that's a later cleanup pass, not this one).
+
+---
+
+# Team Management track (`XCApp Team Management: Build Handoff`)
+
+A second, separate handoff document from the same coach — the daily-use
+half of the app (roles/captains, groups, practice plans, meet ops, race
+reflections, equipment), distinct from the analytics track above (bands,
+courses, field normalization). Different product surface, same repo, same
+rules of engagement (numbered the same way, P0/T1–T6 instead of
+Phase 0–6).
+
+## P0 — audited against this document's checklist: already satisfied
+
+Went through every numbered P0 item against the current codebase before
+writing anything new, since this document's P0 overlaps heavily with the
+analytics track's own Phase 0 (already completed in an earlier session —
+see "Phase 0 — outstanding" above). Result: every code-side item is
+already done.
+
+1. **Database backup** — not code-fixable from here, same as the analytics
+   track's Phase 0 note above. Still outstanding, still needs a human.
+2. **`requireCoach` on `routes/athletes.js` (POST `/`, PUT `/:athleteId`,
+   DELETE `/:athleteId`), `routes/seasons.js` (POST `/`, PUT `/:id`, POST
+   `/:id/roster`, DELETE `/:id/roster/:athleteId`, DELETE `/:id/results`),
+   `routes/meetGroups.js` (all mutating routes)** — checked every route in
+   all three files by hand; every one of these already carries
+   `authenticate, requireTeam, requireCoach`. Nothing to fix.
+3. **`routes/splits.js` POST `/batch`** — already fixed exactly as
+   specced: `resultId`s are loaded with a `teamId` filter, count-checked
+   against the request, `athleteId`/`raceId` are read off the loaded
+   `Result` rows (never trusted from the client), and the batch runs in
+   `prisma.$transaction`. The code comment on that route already explains
+   the original vulnerability and the fix — this was S2/the splits half of
+   an earlier audit pass.
+4. **`express-rate-limit` + `helmet`, `express.json({ limit: '1mb' })`** —
+   all present in `server.js`. The rate limiter (`roleChangeLimiter`) is
+   10 requests/hour/IP as specced, applied to exactly the three routes
+   named (`/api/profile/join-team`, `/api/profile/upgrade-to-coach`,
+   `/api/team/join`).
+5. **Rotate `COACH_UPGRADE_CODE`; remove stale `MONGODB_URI`/`FIREBASE_*`
+   from `.env.example`** — `.env.example` is already clean (Neon/Prisma
+   only, no Mongo/Firebase entries — this repo's whole history is the
+   post-migration state). Rotating the actual Railway env var is a human/
+   live-access action, still outstanding, same as item 1.
+6. **`Result.status` enum** — done in the analytics track's Phase 0 (see
+   above), including the DNF backfill.
+
+**Verify gate P0**: the automated half (`backend/test/routeAuth.test.js`,
+enumerates every route, asserts a non-`authenticate` guard on every
+non-GET route) passes — `npm test`. The live half (sign in as a non-coach,
+confirm `DELETE /api/athletes/:id` returns 403 against a *deployed*
+instance) is the same outstanding item already noted under the analytics
+track's Phase 0 — still needs a live/deployed session, not code.
+
+**Net new code from this pass: none.** Confirming this instead of assuming
+it — and writing down what was checked — felt more honest than either
+silently skipping P0 as "already done elsewhere" or re-doing work that's
+already correct.
+
+## T1 — not started, blocked on an explicit open question
+
+The document's own "open questions" section says, about guardian access:
+*"This changes the account model significantly and should be settled
+before T1, not retrofitted after."* T1 is exactly where that model
+(`TeamMember`/`TeamRole`, captain permissions) gets built. Per rule 7,
+stopping here rather than guessing an answer and having to unwind a
+role/permission model later. Asked the coach; waiting on:
+
+- Guardian access (open question 2) — does a parent need to see meet
+  logistics, entry status, or uniform obligations?
+- Also worth a explicit decision before T1, not just T5 where the document
+  raises it: captains are minors with an *explicit allowlist* of what they
+  can see, spelled out in detail in the document's most important section.
+  That's a safeguarding requirement, not a nice-to-have — building `T1`'s
+  role/permission plumbing without it already decided risks having to
+  retrofit the allowlist onto endpoints that shipped open by default.
