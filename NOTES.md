@@ -561,3 +561,57 @@ Not done in this pass: an actual "Staff" settings screen using the new
 exists, but building the UI around it felt like it belonged with T3's
 composer/settings work rather than bolted onto a security-retirement
 commit. Noting it here so it isn't lost.
+
+### T1c: captain designation — schema/route done; real permission enforcement waits on T2
+
+Added `SeasonRoster.isCaptain` / `captainNotes` (migration
+`20260810233000_captain_designation`) exactly where the doc says captaincy
+belongs: per-season on the roster row, not on `Athlete` (not permanent)
+and not a `TeamRole` value (a captain is still just `TeamRole.ATHLETE` —
+"a designation, not a separate role," per the doc). Added
+`PATCH /api/seasons/:id/roster/:athleteId` (`HEAD_COACH`/`COACH`) so a
+coach can actually set it — there was no route touching these fields at
+all before this.
+
+**Read this before assuming the permission allowlist is "done," because
+it mostly isn't yet, and that's a real, considered gap, not an oversight:**
+the doc's captain section is explicit that enforcement must be an
+allowlist at the query layer, never conditional rendering, and lists what
+a captain may/may never see. Went through the "may never see" list against
+the *current* codebase:
+
+- **Training logs** — genuinely locked down already, by construction, not
+  by anything new added here: every route in `routes/athletes.js`'s
+  training-log section is hardcoded to `req.user.linkedAthlete.id`, never
+  a client-supplied `athleteId`. Added
+  `test/captainPermissions.test.js` to assert this statically (source
+  inspection, same style as `routeAuth.test.js` — this codebase has no
+  live-request integration harness to test it behaviorally).
+- **Race reflections** — don't exist yet (T5). Nothing to guard.
+- **Another athlete's analytics beyond public race results**,
+  **contact/guardian details** — here's the real gap: `routes/analytics.js`
+  is currently open to *any* `requireTeam`'d team member, and a captain is
+  indistinguishable from a regular athlete at the authorization layer
+  (both are plain `TeamRole.ATHLETE` — there is no `TeamRole.CAPTAIN`).
+  Locking this down "for captains" right now would actually mean locking
+  it down for *every* athlete, since the system has no way to tell them
+  apart yet — that's a materially bigger, unrequested product change
+  (team-wide analytics visibility might be entirely intentional; the doc
+  doesn't say), not a captain-specific fix. The allowlist only becomes
+  enforceable once a captain has something a regular athlete doesn't —
+  which is exactly what T2's `GroupLeader` is for. Did not build a
+  placeholder restriction with nothing real to scope it against; that
+  would be guessing, which rule 3/7 rule out.
+- **"The day's practice plan," "meet entry status and logistics" (the
+  "may see" side)** — can't exist yet either; `PracticePlan` is T3,
+  `MeetEntry`/`MeetPlan` are T4. The doc's own captain section already
+  assumes those exist ("for athletes in groups they lead"), so T1 was
+  never going to be able to fully close this gate by itself — it's
+  sequenced to complete across T1 through T4, not finish in T1 alone.
+
+Net: the designation itself (who is a captain, this season) is real and
+usable. The safeguarding-critical part — a captain seeing *less* than a
+coach — has nothing to violate yet because captains have no elevated
+surface at all yet. That surface, and the allowlist enforcing it, arrives
+with T2 (groups) onward. Flagging this prominently rather than letting a
+task-tracker checkmark imply more coverage than exists.

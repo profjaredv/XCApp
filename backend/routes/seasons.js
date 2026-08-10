@@ -134,6 +134,40 @@ router.post('/:id/roster', authenticate, requireTeam, requireRole(['HEAD_COACH',
   }
 });
 
+// PATCH /api/seasons/:id/roster/:athleteId
+// T1: captain designation. isCaptain/captainNotes live on the per-season
+// SeasonRoster row (captaincy is annual, per the Build Spec), not on
+// Athlete or TeamMember — being a captain grants no extra data access by
+// itself, that's entirely a function of GroupLeader once T2 exists.
+router.patch('/:id/roster/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+  const { isCaptain, captainNotes } = req.body;
+  const teamId = req.user.teamId;
+
+  try {
+    const season = await prisma.season.findFirst({ where: { id: req.params.id, teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    const entry = await prisma.seasonRoster.findUnique({
+      where: { seasonId_athleteId: { seasonId: season.id, athleteId: req.params.athleteId } },
+    });
+    if (!entry) {
+      return res.status(404).json({ msg: 'Athlete is not on this season\'s roster.' });
+    }
+
+    const updates = {};
+    if (isCaptain !== undefined) updates.isCaptain = Boolean(isCaptain);
+    if (captainNotes !== undefined) updates.captainNotes = captainNotes || null;
+
+    const updated = await prisma.seasonRoster.update({ where: { id: entry.id }, data: updates });
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating captain designation:', err.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 router.delete('/:id/roster/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
   try {
     const season = await prisma.season.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });

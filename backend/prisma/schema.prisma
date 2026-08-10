@@ -458,6 +458,15 @@ model SeasonRoster {
   flaggedForRemoval   Boolean   @default(false) @map("flagged_for_removal")
   flaggedForRemovalAt DateTime? @map("flagged_for_removal_at")
 
+  // T1: captaincy is annual — a captain is still an athlete who trains and
+  // races, so this lives on the per-season roster row (not Athlete, not a
+  // TeamRole) and its history is preserved automatically across seasons.
+  // Being a captain grants NO extra data access by itself; that's entirely
+  // a function of GroupLeader once T2's groups exist. A captain who leads
+  // no group sees exactly what any other athlete sees.
+  isCaptain    Boolean @default(false) @map("is_captain")
+  captainNotes String? @map("captain_notes")
+
   season  Season  @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
 
