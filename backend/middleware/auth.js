@@ -81,6 +81,24 @@ const authenticate = async (req, res, next) => {
         data: { role: 'coach' },
         include: { team: true, linkedAthlete: true },
       });
+    } else if (user.teamId && user.role !== 'coach') {
+      // Same sticky-hint promotion as the owner case above, extended to
+      // staff who joined via a staff invite rather than owning the team —
+      // without this, a COACH/VOLUNTEER_COACH who accepted an invite kept
+      // role: 'athlete' forever, which hid every role==='coach'-gated nav
+      // item (Coaches Tools, Data Management, Practice Plans composer)
+      // from real staff. Still just a UX hint, per the comment below —
+      // every route that matters re-checks TeamMember.role server-side.
+      const membership = await prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId: user.teamId, userId: user.id } },
+      });
+      if (membership?.active && ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'].includes(membership.role)) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { role: 'coach' },
+          include: { team: true, linkedAthlete: true },
+        });
+      }
     }
 
     req.user = user;

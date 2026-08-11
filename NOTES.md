@@ -843,3 +843,73 @@ real authorization guard beyond `authenticate`.
 
 Frontend (coach composer week view, insert/duplicate/publish actions,
 athlete "today's plan" view) is T3's remaining half — next up.
+
+### T3: coach composer + athlete "today's plan" view (frontend) — closes T3
+
+`PracticePlansPage.tsx` (`/t/:athleticTeamId/practice-plans`, nav item
+under "Manage", gated by the same `isCoach` hint as Coaches Tools/Data
+Management — athletes can't call `GET /practice-plans` at all server-side,
+so unlike Groups this one isn't shown to everyone). Week-at-a-glance:
+four-up card grid, one card per day, assignment rows grouped by the group
+they target ("Whole Team" for `groupId: null`). Per-day actions: "Add"
+(opens a dialog — pick a group or Whole Team, optionally start from a
+template which client-side-prefills the rest of the form, then
+focus/volume/duration/distance/strength/details), "Details" (title,
+start time, location, team-wide notes — saved via the same
+`POST /practice-plans` upsert the "Add" flow uses to create the day's
+shell on first use, so there's no separate "create day" step the coach
+has to remember), "Publish"/"Unpublish", and "Duplicate" (single day,
+always lands as a draft). A top-level "Duplicate week" picks a target
+week-start and copies every day that actually has a plan, matching the
+backend's "a partially-planned week stays partially planned" behavior.
+Each assignment row also has a bookmark icon that opens "save as
+template" (`POST /workout-templates/from-assignment/:id`) — same
+copy-not-reference contract as inserting from a template in the other
+direction.
+
+One real gap, flagged rather than papered over: the composer doesn't know
+a signed-in user's exact `TeamRole` (only the team-agnostic `role: 'coach'`
+hint), so the "which group" picker in the Add dialog lists every training
+group regardless of who's asking. A volunteer coach only ever *sees*
+cards for groups they lead or team-wide rows (`GET /practice-plans`
+already filters that server-side), so in practice they'd only be adding
+into sections that are already theirs — but if one manually picked a
+group they don't lead from the dropdown, they'd get a clear 403 toast
+from the real gate (`decideCanManagePracticePlanRow`) rather than a
+silently-filtered option list. Server-side enforcement doesn't depend on
+the client getting this right either way; noted as a UX rough edge, not a
+security gap.
+
+Also fixed a real pre-existing bug this surfaced: `req.user.role` (the
+sticky, team-agnostic UX hint the frontend uses for `isCoach` nav gating)
+was only ever promoted to `'coach'` for a team's *owner* — a `COACH` or
+`VOLUNTEER_COACH` who joined via a staff invite (T1) kept `role:
+'athlete'` forever, which silently hid Coaches Tools, Data Management,
+Feedback, and now Practice Plans from every real member of the coaching
+staff who isn't the head coach. `middleware/auth.js`'s `authenticate`
+now also promotes the hint on first sight of an active
+HEAD_COACH/COACH/VOLUNTEER_COACH `TeamMember` row, same one-time-persist
+pattern as the existing owner case. Still just a hint — every actual
+authorization decision was, and remains, `requireRole`/`TeamMember.role`
+server-side; this only fixes what staff can *see* a link for.
+
+Athlete side: rather than a new nav item, "Today's practice" is a card at
+the top of `MyProgressPage.tsx` (already the athlete's one-tap-from-nav
+landing page) — title/time/location, team-wide notes, and each visible
+assignment's focus/duration/distance/strength/details, sourced from
+`GET /practice-plans/mine?date=<today>`. Minimal by design: no group
+name, no other groups' rows, nothing unpublished — exactly what the
+backend already filters to (team-wide plus the athlete's own current
+`TRAINING` group via `getGroupOn`), so the frontend doesn't re-derive
+scoping the backend already got right.
+
+**Verification, and its limits (same shape as T2's)**: `tsc -b` and
+`vite build` both clean. Headless-browser check against
+`/t/:id/practice-plans` and `/t/:id/me` confirmed no client-side crash —
+both correctly redirect to the sign-in UI unauthenticated (the same
+`ERR_CONNECTION_RESET` on the underlying API calls as every prior
+headless check in this sandbox, not a code issue). Not verified: the
+actual composer/publish/duplicate flow against real data, which needs a
+live session with a real team, season, and groups.
+
+This closes T3.

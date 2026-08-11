@@ -8,6 +8,7 @@ import DataManagementPage from '../pages/DataManagementPage';
 import SettingsPage from '../pages/SettingsPage';
 import RosterPage from '../pages/RosterPage';
 import GroupsPage from '../pages/GroupsPage';
+import PracticePlansPage from '../pages/PracticePlansPage';
 import FeedbackPage from '../pages/FeedbackPage';
 import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
@@ -120,6 +121,10 @@ export const router = createBrowserRouter([
                   {
                     path: 'groups',
                     element: <GroupsPage />,
+                  },
+                  {
+                    path: 'practice-plans',
+                    element: <PracticePlansPage />,
                   },
                   {
                     path: 'roster',

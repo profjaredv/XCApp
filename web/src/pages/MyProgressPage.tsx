@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Activity, Gauge, Trash2, Trophy, Users } from 'lucide-react';
+import { Activity, CalendarDays, Gauge, Trash2, Trophy, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { athleteService } from '@/api/athleteService';
@@ -22,6 +22,7 @@ import { trainingLogService, type TrainingLogType } from '@/api/trainingLogServi
 import { trainingPacesFromRace } from '@/lib/vdotPaces';
 import { formatTime, formatPace, parseTimeToSeconds } from '@/lib/formatters';
 import { formatDateShort } from '@/lib/formatUtils';
+import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 
 const LOG_TYPES: { value: TrainingLogType; label: string }[] = [
   { value: 'easy', label: 'Easy run' },
@@ -48,6 +49,9 @@ const MyProgressPage: React.FC = () => {
     queryFn: () => athleteService.getRecentRaces(linkedAthlete!.id, 10),
     enabled: !!linkedAthlete,
   });
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const { data: todaysPlan } = useMyPracticePlan(todayIso, !!linkedAthlete);
 
   const [selectedRaceId, setSelectedRaceId] = useState<string>('');
   useEffect(() => {
@@ -134,6 +138,55 @@ const MyProgressPage: React.FC = () => {
           {linkedAthlete.graduationYear ? ` • Class of ${linkedAthlete.graduationYear}` : ''}
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <CalendarDays className="h-5 w-5" />
+            Today's practice
+          </CardTitle>
+          <CardDescription>Only what your group's on tap for — the coach hasn't published anything more than this.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!todaysPlan?.plan ? (
+            <p className="text-sm text-muted-foreground">Nothing published for today yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {(todaysPlan.plan.title || todaysPlan.plan.startTime || todaysPlan.plan.location) && (
+                <div>
+                  {todaysPlan.plan.title && <p className="font-medium">{todaysPlan.plan.title}</p>}
+                  {(todaysPlan.plan.startTime || todaysPlan.plan.location) && (
+                    <p className="text-sm text-muted-foreground">
+                      {[todaysPlan.plan.startTime, todaysPlan.plan.location].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                </div>
+              )}
+              {todaysPlan.plan.teamNotes && <p className="text-sm">{todaysPlan.plan.teamNotes}</p>}
+              {todaysPlan.plan.assignments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No workout details posted for your group yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {todaysPlan.plan.assignments.map((a, i) => (
+                    <div key={i} className="rounded-lg border p-3 text-sm">
+                      <p className="font-medium">
+                        {a.focus || (a.strength ? 'Strength' : 'Workout')}
+                      </p>
+                      <p className="text-muted-foreground">
+                        {a.durationMinutes ? `${a.durationMinutes} min` : ''}
+                        {a.durationMinutes && a.distanceMi ? ' · ' : ''}
+                        {a.distanceMi ? `${a.distanceMi} mi` : ''}
+                        {a.strength ? ' · Strength' : ''}
+                      </p>
+                      {a.details && <p className="text-muted-foreground mt-1">{a.details}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
