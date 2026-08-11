@@ -61,6 +61,7 @@ model User {
   ledGroups               GroupLeader[]
   createdPracticePlans    PracticePlan[]    @relation("PracticePlanCreator")
   createdWorkoutTemplates WorkoutTemplate[] @relation("WorkoutTemplateCreator")
+  updatedMeetEntries      MeetEntry[]       @relation("MeetEntryUpdater")
 
   @@index([teamId])
   @@map("users")
@@ -95,6 +96,7 @@ model Team {
   groups                 Group[]
   practicePlans          PracticePlan[]
   workoutTemplates       WorkoutTemplate[]
+  meets                  Meet[]
 
   @@index([coachUid])
   @@map("teams")
@@ -179,6 +181,7 @@ model Athlete {
   trainingLogs        TrainingLog[]
   guardianLinks       GuardianLink[]
   groupMemberships    GroupMembership[]
+  meetEntries         MeetEntry[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -311,6 +314,99 @@ model TrainingLog {
   @@map("training_logs")
 }
 
+// ---------------------------------------------------------------------------
+// T4 (Team Management handoff): meet operations. "A meet contains several
+// races: boys varsity, girls varsity, boys JV, girls JV. Logistics attach
+// to the meet; entry status attaches to the race." The pre-existing
+// routes/meets.js ("GET /api/meets") is unrelated to this model despite
+// the name clash — it's a legacy analytics endpoint that treats each Race
+// row as its own "meet" (the exact "Race but no parent" gap this section
+// fills), predating this entity, and is left alone here since fixing that
+// naming isn't in scope. This model's own routes are deliberately mounted
+// under a different path (routes/meetOps.js -> /api/meet-ops) to avoid
+// colliding with it. Race<->Meet grouping for existing scraped data is
+// never automatic (name+date similarity only proposes a mapping — see
+// scripts/proposeMeetMapping.js/applyMeetMapping.js, same
+// propose/coach-confirms/apply shape as Course mapping in the analytics
+// track); every Race created going forward can set meetId directly.
+model Meet {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  seasonId  String   @map("season_id") @db.Uuid
+  name      String
+  date      DateTime @db.Date
+  location  String?
+  sourceUrl String?  @map("source_url") // Athletic.net meet page
+
+  team   Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  races  Race[]
+  plan   MeetPlan?
+
+  @@index([seasonId, date])
+  @@map("meets")
+}
+
+// Deliberately meet-level, not season-level: "am I entered, injured,
+// scratched" changes per race, not once for the whole season, and
+// ACADEMIC/EXCUSED status can differ meet to meet even for a healthy
+// athlete. INJURED here is a scheduling flag only — "not racing this
+// meet" — never a place to store medical detail (see the doc's open
+// question 4: anything beyond that flag is a medical record this app
+// isn't built to carry).
+enum EntryStatus {
+  ENTERED
+  ALTERNATE
+  NOT_ENTERED
+  SCRATCHED
+  INJURED
+  ACADEMIC
+  EXCUSED
+}
+
+model MeetEntry {
+  id          String      @id @default(uuid()) @db.Uuid
+  raceId      String      @map("race_id") @db.Uuid
+  athleteId   String      @map("athlete_id") @db.Uuid
+  status      EntryStatus @default(NOT_ENTERED)
+  seedTimeSec Float?      @map("seed_time_sec")
+  bibNumber   String?     @map("bib_number")
+  notes       String?
+  updatedById String?     @map("updated_by") @db.Uuid
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  race      Race    @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  athlete   Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  updatedBy User?   @relation("MeetEntryUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([raceId, athleteId])
+  @@index([raceId, status])
+  @@map("meet_entries")
+}
+
+// Meet-day logistics — one row per Meet, not per race, since the bus and
+// uniform are the same regardless of which race an athlete runs.
+// `itinerary` is a free-form ordered list ([{ time, label }]) rather than
+// its own table: it's always read/written as a whole unit on one screen,
+// never queried by a single entry, so a table+FK would only add joins
+// with no real query this app performs.
+model MeetPlan {
+  id             String    @id @default(uuid()) @db.Uuid
+  meetId         String    @unique @map("meet_id") @db.Uuid
+  departureTime  DateTime? @map("departure_time")
+  returnTime     DateTime? @map("return_time")
+  departureLoc   String?   @map("departure_location")
+  transportNotes String?   @map("transport_notes")
+  uniformNotes   String?   @map("uniform_notes")
+  bringList      String?   @map("bring_list")
+  itinerary      Json? // [{ time, label }]
+  published      Boolean   @default(false)
+
+  meet Meet @relation(fields: [meetId], references: [id], onDelete: Cascade)
+
+  @@map("meet_plans")
+}
+
 model Race {
   id                 String   @id @default(uuid()) @db.Uuid
   teamId             String   @map("team_id") @db.Uuid
@@ -326,6 +422,10 @@ model Race {
   // Null for races imported before this field existed, until re-scraped.
   sourceUrl          String?  @map("source_url")
   athleticMeetId     String?  @map("athletic_meet_id")
+  // T4: the parent Meet this race belongs to (boys varsity, girls JV, etc.
+  // all sharing one meet day). Null until grouped — see the Meet model's
+  // own comment for how existing scraped races get backfilled.
+  meetId             String?  @map("meet_id") @db.Uuid
   // Set only by the coach-confirmed course-mapping apply step (see
   // scripts/proposeCourseMapping.js / scripts/applyCourseMapping.js) —
   // never inferred/written automatically from location-string similarity.
@@ -345,11 +445,13 @@ model Race {
 
   team                   Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   course                 Course?                  @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  meet                   Meet?                    @relation(fields: [meetId], references: [id], onDelete: SetNull)
   results                Result[]
   raceSplits             RaceSplit[]
   meetGroupRaces         MeetGroupRace[]
   meetPerformanceMetrics MeetPerformanceMetrics[]
   fieldResults           FieldResult[]
+  meetEntries            MeetEntry[]
   bestPaceForAthletes    AthleteSeasonMetrics[]   @relation("BestPaceRace")
   bestTime5kForAthletes  AthleteSeasonMetrics[]   @relation("BestTime5kRace")
 
@@ -358,6 +460,7 @@ model Race {
   @@index([teamId, season])
   @@index([athleticMeetId])
   @@index([courseId])
+  @@index([meetId])
   @@map("races")
 }
 
@@ -475,6 +578,7 @@ model Season {
   roster        SeasonRoster[]
   groups        Group[]
   practicePlans PracticePlan[]
+  meets         Meet[]
 
   @@unique([teamId, year, sport])
   @@index([teamId])

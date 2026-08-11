@@ -913,3 +913,86 @@ actual composer/publish/duplicate flow against real data, which needs a
 live session with a real team, season, and groups.
 
 This closes T3.
+
+### T4: Meet/MeetEntry/MeetPlan schema + meet mapping proposal script (backend)
+
+Added the `Meet` parent entity the schema had been missing ("the current
+schema has Race but no parent"): `Meet` (team+season scoped, one row per
+meet day), `EntryStatus` enum, `MeetEntry` (per race, per athlete —
+status/seed time/bib/notes, `@@unique([raceId, athleteId])`), and
+`MeetPlan` (one row per meet — departure/return time, transport/uniform
+notes, a free-form `itinerary` JSON list, `published`). `Race.meetId` is
+a new nullable FK (`onDelete: SetNull`) — existing scraped races aren't
+backfilled by the migration itself; grouping them is a coach-reviewed
+proposal, same shape as Course mapping (Build Spec Phase 2 step 2):
+`lib/meetMapping.js`'s `buildMeetMappingProposal` groups races by an
+*exact* `(teamId, seasonId, date)` match only — a team can't be at two
+meets on the same day, so unlike Course mapping this doesn't even need a
+fuzzy-vs-exact distinction, just the one true signal — and proposes a
+shared name by stripping a trailing "- Boys/Girls Varsity/JV/Frosh"
+suffix so "Sunfair Invite - Boys Varsity" and "... - Girls JV" propose
+one meet, not two. `scripts/proposeMeetMapping.js` (read-only, writes a
+review file) / `scripts/applyMeetMapping.js` (only processes
+`decision: "confirmed"` entries) mirror `propose/applyCourseMapping.js`
+exactly. Races whose year has no matching `Season` row are reported
+separately (`noSeason`) rather than guessed at. 5 new tests in
+`test/meetMapping.test.js`.
+
+**A genuine naming collision, not a duplicate concept**: `routes/meets.js`
+already exists and is mounted at `/api/meets` — but it predates this
+model and actually serves `Race` rows under the name "meets" for the
+analytics `MeetsTab` (each Race presented as its own meet card, which is
+exactly the "no parent" gap this section fills). Left it alone —
+renaming that legacy endpoint isn't in scope here and nothing consumes
+the real `Meet` model yet, so there's no live conflict, only a naming one
+worth flagging. The real Meet entity's own routes (next task) will mount
+under a distinct path (`/api/meet-ops`) to avoid it.
+
+### T4: meet entry + meet plan routes (backend)
+
+`routes/meetOps.js`, mounted at `/api/meet-ops` for the reason above.
+Per `TeamRole`'s own doc comment ("COACH: paid assistant: full athlete
+read/write, plans, **meet entry**"), this whole domain is head/paid-coach
+territory — the doc never scopes any part of it to `VOLUNTEER_COACH` the
+way T2/T3 explicitly do for groups, so `COACH_ROLES = ['HEAD_COACH',
+'COACH']` gates every route here, reads included.
+
+- `GET /` (list meets for a season), `POST /`, `GET/PUT /:meetId` — basic
+  Meet CRUD. `POST /` covers an upcoming meet that hasn't been scraped
+  yet and needs entries/logistics set up in advance of the mapping script
+  ever seeing it.
+- `GET /races/:raceId/entries` — the entry screen's data: every athlete
+  on that race's season's *active* roster, each row carrying either their
+  real `MeetEntry` or a synthesized (never persisted) `NOT_ENTERED`
+  default with `seedTimeSec` pre-populated from their season-best
+  (`lib/meetEntries.js`'s `seasonBestSec`, DB-free and unit-tested) —
+  "nobody types 40 seed times." Also returns `enteredCount` and
+  `entryCapWarning` (`decideEntryCapWarning`, also unit-tested per rule
+  5): "most meets limit varsity to seven" is a single warning threshold
+  applied uniformly, not a hard block and not a new per-race cap field —
+  the doc doesn't specify one, and inventing a schema field for varsity-
+  vs-JV caps wasn't asked for.
+- `PUT /races/:raceId/entries` — bulk save, one transaction (same shape
+  as T2's bulk group assignment), upserting on `(raceId, athleteId)`.
+  Rejects athlete IDs outside the team and status values outside
+  `EntryStatus` rather than trusting the client-supplied enum string
+  straight into Prisma.
+- `GET/PUT /:meetId/plan` — logistics upsert.
+- `GET /mine` (`requireLinkedAthlete`) — the athlete meet card: the next
+  upcoming `Meet` for their team, their own entry (always a real object —
+  "a non-entered athlete sees that they are not entered rather than a
+  blank screen" — never null), and logistics *only* once `MeetPlan.published`
+  is true, same draft/publish gating as T3's practice plans. "What time is
+  my race" deliberately isn't a new `Race.startTime` field — the doc's
+  schema doesn't have one, and that kind of per-race timing belongs in
+  `MeetPlan.itinerary`'s free-form `{time, label}` entries instead.
+- `GET /:meetId/roster` — the coach-facing printable roster: ENTERED/
+  ALTERNATE athletes grouped by race with bib numbers. The "blank column
+  for hand-recorded splits" is a print-layout concern for the frontend;
+  nothing new to store for it.
+
+Full suite: 83 tests green, including `routeAuth.test.js` confirming
+every new non-GET route carries a real guard.
+
+Frontend (entry management screen reusing T2's bulk pattern, meet-day
+logistics form, athlete meet card, printable roster) is next.
