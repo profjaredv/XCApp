@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Activity, CalendarDays, Gauge, Trash2, Trophy, Users } from 'lucide-react';
+import { Activity, Bus, CalendarDays, Gauge, Trash2, Trophy, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { athleteService } from '@/api/athleteService';
@@ -23,6 +23,7 @@ import { trainingPacesFromRace } from '@/lib/vdotPaces';
 import { formatTime, formatPace, parseTimeToSeconds } from '@/lib/formatters';
 import { formatDateShort } from '@/lib/formatUtils';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
+import { useMyMeetCard } from '@/hooks/useMeetOps';
 
 const LOG_TYPES: { value: TrainingLogType; label: string }[] = [
   { value: 'easy', label: 'Easy run' },
@@ -52,6 +53,7 @@ const MyProgressPage: React.FC = () => {
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const { data: todaysPlan } = useMyPracticePlan(todayIso, !!linkedAthlete);
+  const { data: meetCard } = useMyMeetCard(!!linkedAthlete);
 
   const [selectedRaceId, setSelectedRaceId] = useState<string>('');
   useEffect(() => {
@@ -187,6 +189,76 @@ const MyProgressPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {meetCard?.meet && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Bus className="h-5 w-5" />
+              Next meet: {meetCard.meet.name}
+            </CardTitle>
+            <CardDescription>
+              {formatDateShort(meetCard.meet.date)}
+              {meetCard.meet.location ? ` · ${meetCard.meet.location}` : ''}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm font-medium">
+              {meetCard.entry?.status === 'ENTERED'
+                ? `You're entered${meetCard.race ? ` in ${meetCard.race.name}` : ''}.`
+                : meetCard.entry?.status === 'ALTERNATE'
+                ? "You're an alternate for this meet."
+                : "You're not entered in this meet."}
+            </p>
+            {!meetCard.plan ? (
+              <p className="text-sm text-muted-foreground">Logistics haven't been posted yet.</p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 text-sm">
+                {meetCard.plan.departureTime && (
+                  <div>
+                    <p className="text-muted-foreground">Bus departs</p>
+                    <p className="font-medium">{new Date(meetCard.plan.departureTime).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>
+                  </div>
+                )}
+                {meetCard.plan.returnTime && (
+                  <div>
+                    <p className="text-muted-foreground">Return</p>
+                    <p className="font-medium">{new Date(meetCard.plan.returnTime).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>
+                  </div>
+                )}
+                {meetCard.plan.departureLoc && (
+                  <div>
+                    <p className="text-muted-foreground">Departs from</p>
+                    <p className="font-medium">{meetCard.plan.departureLoc}</p>
+                  </div>
+                )}
+                {meetCard.plan.uniformNotes && (
+                  <div>
+                    <p className="text-muted-foreground">Uniform</p>
+                    <p className="font-medium">{meetCard.plan.uniformNotes}</p>
+                  </div>
+                )}
+                {meetCard.plan.bringList && (
+                  <div className="sm:col-span-2">
+                    <p className="text-muted-foreground">Bring</p>
+                    <p className="font-medium">{meetCard.plan.bringList}</p>
+                  </div>
+                )}
+                {meetCard.plan.itinerary && meetCard.plan.itinerary.length > 0 && (
+                  <div className="sm:col-span-2 space-y-1">
+                    <p className="text-muted-foreground">Itinerary</p>
+                    {meetCard.plan.itinerary.map((item, i) => (
+                      <p key={i}>
+                        <span className="font-medium">{item.time}</span> — {item.label}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

@@ -996,3 +996,58 @@ every new non-GET route carries a real guard.
 
 Frontend (entry management screen reusing T2's bulk pattern, meet-day
 logistics form, athlete meet card, printable roster) is next.
+
+### T4: entry management + meet plan + athlete meet card (frontend) — closes T4
+
+`MeetOpsPage.tsx` (`/t/:athleticTeamId/meets`, nav item "Meets" — same
+`isCoach` gate as Practice Plans/Coaches Tools, since `GET /meet-ops`
+requires HEAD_COACH/COACH server-side and an athlete can't call it at
+all). Two-pane layout: a season-scoped meet list on the left ("New Meet"
+dialog for one not yet scraped), and a detail pane on the right with
+three tabs per selected meet:
+
+- **Entries** — a race picker (a meet can have several races) plus a
+  table of every athlete on that race's season's active roster: name,
+  grade, season-best (read-only, for context), status (select, all seven
+  `EntryStatus` values), seed time, bib, notes. Loads with seed times
+  already pre-populated from season-best per athlete (server-side, see
+  the backend entry above) and a red `entryCapWarning` banner when more
+  than 7 are `ENTERED`. One "Save entries" button posts the whole table
+  in one `PUT` call, same bulk-edit shape as T2's group assignment screen
+  rather than a save-per-row loop.
+- **Logistics** — the `MeetPlan` form (departure/return time, departure
+  location, transport/uniform notes, bring list, and a small add/remove
+  itinerary-row editor for the free-form `{time, label}` list), with
+  separate "Save as draft" and "Publish" actions — mirrors T3's practice
+  plan publish gating exactly, since the athlete-facing card below reads
+  the same signal.
+- **Printable roster** — entered/alternate athletes per race with bib
+  numbers and a blank "Splits" column for hand-recorded times at the
+  meet, plus a `window.print()` button. No new backend field for the
+  blank column; it's just an empty `<td>` in the print layout.
+
+Athlete side: rather than a new nav item, "Next meet" is a card on
+`MyProgressPage` (same reasoning as T3's practice-plan card — the
+athlete's existing one-tap landing page), sourced from `GET
+/meet-ops/mine`. Always renders a real status line — "You're entered in
+[race]," "You're an alternate," or "You're not entered in this meet" —
+never a blank card for a non-entered athlete, matching the verify gate's
+literal wording. Logistics (departure/return time, uniform, bring list,
+itinerary) only render once `MeetPlan.published` is true; before that it
+just says logistics haven't been posted yet.
+
+**Verification, and its limits (same shape as T2/T3's)**: `tsc -b`
+(forced, not incremental) and `vite build` both clean. Headless-browser
+check against `/t/:id/meets` and `/t/:id/me` shows no client-side
+crash — both correctly redirect to sign-in unauthenticated, same sandbox
+network limits as every prior check in this file. Not verified: the
+actual entry-save/publish/print flow against real data, which needs a
+live session with a real team, season, and scraped races.
+
+This closes T4. The doc's verify gate ("set entries for four races
+across 130 athletes in under ten minutes... a non-entered athlete sees
+that they are not entered rather than a blank screen") is
+backend-provable for the "not entered" half (GET /meet-ops/mine always
+returns a real entry object, never null) and UI-provable for the bulk-
+save shape, but the actual ten-minutes-for-130-athletes timing needs a
+human on a live team, same caveat as T2's five-minute gate.
