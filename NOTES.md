@@ -1122,3 +1122,56 @@ every new non-GET route is guarded.
 Frontend (pre-race goal form with a visible lock message, post-race
 reflection form with the sharing toggle, and a coach-side reflections
 view) is next.
+
+### T5: race reflection UI (frontend) — closes T5
+
+Athlete side lives on `MyProgressPage.tsx` — no new nav item, same
+reasoning as T3/T4's cards: it's already the athlete's one-tap landing
+page. A new "Race goals & reflections" card lists their recent races
+(reusing the same `getRecentRaces` fetch the pace calculator already
+does); clicking one opens a dialog with the sharing toggle always
+visible at the top ("Your coach can read this" / "Only you can read
+this," in the doc's own plain-language wording) and two tabs. The
+pre-race tab disables every input and shows a lock alert once
+`GET /race-reflections/mine/:raceId` reports `locked: true` — the
+lock is enforced server-side regardless of what this form does, this is
+just honest UI, not the actual gate. The post-race tab never disables.
+
+One small, additive backend change this surfaced: `GET
+/athletes/:athleteId/races` (the existing endpoint the pace calculator
+already calls) only ever returned `Result.id`, which reflections have
+no use for — added a `raceId: r.race.id` field alongside the existing
+ones rather than standing up a parallel endpoint. Purely additive; the
+calculator only reads the fields it already read.
+
+Coach side: rather than a new page, reflections got a fourth tab
+("Reflections") on the existing `MeetOpsPage.tsx`, next to Entries/
+Logistics/Printable roster — reflections are inherently per-race, and
+that page already has the race picker this needed. Read-only cards per
+athlete, sourced from `GET /race-reflections/race/:raceId`, which is
+already filtered server-side to exactly what this viewer (head/paid
+coach team-wide, or a volunteer coach's own led groups) is allowed to
+see — the frontend never receives a row it shouldn't render, so there's
+no client-side redaction logic to get wrong.
+
+**A deliberate scope cut, flagged rather than silently skipped**:
+`targetSplits` (`[{ markerMeters, elapsedSec }]`) has no editor in this
+pass — the doc specifies the field but no UI for it, and a proper
+mile-marker/split-time list editor felt disproportionate to build
+speculatively before any athlete has asked for split-level goals versus
+a single target time. The field round-trips fine through the API if a
+future pass wants to fill it in.
+
+**Verification, and its limits (same shape as T2/T3/T4's)**: `tsc -b`
+(forced) and `vite build` both clean; the backend suite still shows 95
+green after the `routes/athletes.js` addition. Headless-browser check
+against `/t/:id/meets` and `/t/:id/me` shows no client-side crash — both
+correctly redirect to sign-in unauthenticated, same sandbox network
+limits noted throughout this file. Not verified: the actual lock-at-
+race-start behavior against a real race with real results, or the
+captain-403 property end-to-end (both are unit-tested at the permission-
+logic layer in `test/raceReflections.test.js`, and the 403 is additionally
+structurally guaranteed by `requireRole` never listing ATHLETE for the
+coach-facing route — but neither was exercised against a live session).
+
+This closes T5.

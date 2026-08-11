@@ -170,6 +170,11 @@ router.get('/:athleteId/races', authenticate, requireTeam, async (req, res) => {
       .filter((r) => r.race && r.race.distanceMeters)
       .map((r) => ({
         id: r.id,
+        // T5: race reflections key off the Race, not the Result — this
+        // endpoint only ever returned Result.id before, which race
+        // reflections have no use for. Purely additive field, existing
+        // consumers (the VDOT calculator) only ever read the fields above.
+        raceId: r.race.id,
         raceName: r.race.name,
         date: r.race.date,
         distance: r.race.distanceMeters / 1609.34,

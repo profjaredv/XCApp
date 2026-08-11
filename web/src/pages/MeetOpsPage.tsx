@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,7 @@ import {
   usePrintableRoster,
 } from '@/hooks/useMeetOps';
 import { ENTRY_STATUSES, formatTimeSec, type EntryStatus, type MeetEntryRow, type MeetPlan } from '@/api/meetOpsService';
+import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 
 // T4 coach screens (Team Management handoff): meet CRUD, per-race entry
 // management (same bulk-save shape as T2's group assignment), meet-day
@@ -217,6 +218,7 @@ const MeetDetail: React.FC<{
           <TabsTrigger value="entries">Entries</TabsTrigger>
           <TabsTrigger value="logistics">Logistics</TabsTrigger>
           <TabsTrigger value="roster">Printable roster</TabsTrigger>
+          <TabsTrigger value="reflections">Reflections</TabsTrigger>
         </TabsList>
 
         <TabsContent value="entries" className="space-y-4 pt-2">
@@ -243,6 +245,24 @@ const MeetDetail: React.FC<{
 
         <TabsContent value="roster" className="pt-2">
           <PrintableRosterView meetId={meet.id} />
+        </TabsContent>
+
+        <TabsContent value="reflections" className="space-y-4 pt-2">
+          {meet.races.length === 0 ? (
+            <p className="text-sm text-muted-foreground">This meet has no races linked yet.</p>
+          ) : (
+            <>
+              <Select value={selectedRaceId ?? undefined} onValueChange={setSelectedRaceId}>
+                <SelectTrigger className="w-[280px]"><SelectValue placeholder="Choose a race…" /></SelectTrigger>
+                <SelectContent>
+                  {meet.races.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedRaceId && <ReflectionsView raceId={selectedRaceId} />}
+            </>
+          )}
         </TabsContent>
       </Tabs>
     </div>
@@ -503,6 +523,56 @@ const PrintableRosterView: React.FC<{ meetId: string }> = ({ meetId }) => {
             </Table>
           )}
         </div>
+      ))}
+    </div>
+  );
+};
+
+const ReflectionsView: React.FC<{ raceId: string }> = ({ raceId }) => {
+  const { data, isLoading } = useReflectionsForRace(raceId);
+
+  if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (!data || data.length === 0) {
+    return <p className="text-sm text-muted-foreground">No shared reflections for this race yet.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Only reflections athletes chose to share appear here — a volunteer coach only sees their own groups' athletes.
+      </p>
+      {data.map((r) => (
+        <Card key={r.athleteId}>
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm">{r.athleteName}</CardTitle>
+          </CardHeader>
+          <CardContent className="py-2 space-y-2 text-sm">
+            {(r.processGoal || r.outcomeGoal || r.keyFocus) && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">Pre-race goals</p>
+                {r.outcomeGoal && <p>Outcome: {r.outcomeGoal}</p>}
+                {r.processGoal && <p>Process: {r.processGoal}</p>}
+                {r.keyFocus && <p>Focus: {r.keyFocus}</p>}
+                {r.targetTimeSec != null && <p>Target: {formatTimeSec(r.targetTimeSec)}</p>}
+              </div>
+            )}
+            {(r.feelingRating != null || r.effortRating != null || r.whatWorked || r.whatDidnt || r.postNotes) && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">Post-race reflection</p>
+                {(r.feelingRating != null || r.effortRating != null) && (
+                  <p>
+                    {r.feelingRating != null ? `Feeling: ${r.feelingRating}/10` : ''}
+                    {r.feelingRating != null && r.effortRating != null ? ' · ' : ''}
+                    {r.effortRating != null ? `Effort: ${r.effortRating}/10` : ''}
+                  </p>
+                )}
+                {r.whatWorked && <p>What worked: {r.whatWorked}</p>}
+                {r.whatDidnt && <p>What didn't: {r.whatDidnt}</p>}
+                {r.postNotes && <p>Notes: {r.postNotes}</p>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       ))}
     </div>
   );

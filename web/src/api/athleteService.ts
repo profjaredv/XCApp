@@ -37,7 +37,7 @@ export const athleteService = {
   async getRecentRaces(
     athleteId: string,
     limit = 5
-  ): Promise<Array<{ id: string; raceName: string; date: string; distance: number; time: number }>> {
+  ): Promise<Array<{ id: string; raceId: string; raceName: string; date: string; distance: number; time: number }>> {
     const response = await axiosInstance.get(`/athletes/${athleteId}/races`, { params: { limit } });
     return response.data;
   },

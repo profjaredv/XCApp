@@ -13,8 +13,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { Activity, Bus, CalendarDays, Gauge, Trash2, Trophy, Users } from 'lucide-react';
+import { Activity, Bus, CalendarDays, Gauge, Lock, MessageCircleHeart, Trash2, Trophy, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { athleteService } from '@/api/athleteService';
@@ -24,6 +34,7 @@ import { formatTime, formatPace, parseTimeToSeconds } from '@/lib/formatters';
 import { formatDateShort } from '@/lib/formatUtils';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
+import { useMyReflection, useSavePreRace, useSavePostRace, useSetSharing } from '@/hooks/useRaceReflections';
 
 const LOG_TYPES: { value: TrainingLogType; label: string }[] = [
   { value: 'easy', label: 'Easy run' },
@@ -63,6 +74,9 @@ const MyProgressPage: React.FC = () => {
   }, [recentRaces, selectedRaceId]);
   const activeRace = recentRaces.find((r) => r.id === selectedRaceId);
   const paceResult = activeRace ? trainingPacesFromRace(activeRace.distance, activeRace.time) : null;
+
+  const [reflectionRaceId, setReflectionRaceId] = useState<string | null>(null);
+  const reflectionRace = recentRaces.find((r) => r.raceId === reflectionRaceId);
 
   const { data: logs = [] } = useQuery({
     queryKey: ['myTrainingLogs'],
@@ -411,6 +425,49 @@ const MyProgressPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <MessageCircleHeart className="h-5 w-5" />
+            Race goals & reflections
+          </CardTitle>
+          <CardDescription>
+            Write goals before you race, lock them in, and reflect afterward. You choose whether your coach can read it.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recentRaces.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No races yet.</p>
+          ) : (
+            <div className="divide-y">
+              {recentRaces.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => setReflectionRaceId(r.raceId)}
+                  className="w-full flex items-center justify-between gap-3 py-2.5 text-left hover:bg-slate-50 rounded-md px-2 -mx-2"
+                >
+                  <div>
+                    <p className="text-sm font-medium">{r.raceName}</p>
+                    <p className="text-xs text-muted-foreground">{formatDateShort(r.date)}</p>
+                  </div>
+                  <span className="text-xs text-primary">Goals & reflection →</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!reflectionRaceId} onOpenChange={(open) => !open && setReflectionRaceId(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{reflectionRace?.raceName ?? 'Race'}</DialogTitle>
+            <DialogDescription>{reflectionRace ? formatDateShort(reflectionRace.date) : ''}</DialogDescription>
+          </DialogHeader>
+          {reflectionRaceId && <RaceReflectionDialogBody raceId={reflectionRaceId} />}
+        </DialogContent>
+      </Dialog>
+
       <div className="flex flex-wrap gap-3">
         <Button variant="outline" onClick={() => navigate(teamPath(`/team/athlete/${linkedAthlete.id}`))}>
           <Trophy className="mr-2 h-4 w-4" />
@@ -421,6 +478,171 @@ const MyProgressPage: React.FC = () => {
           Team & meet results
         </Button>
       </div>
+    </div>
+  );
+};
+
+const RaceReflectionDialogBody: React.FC<{ raceId: string }> = ({ raceId }) => {
+  const { data, isLoading } = useMyReflection(raceId);
+  const savePreRace = useSavePreRace(raceId);
+  const savePostRace = useSavePostRace(raceId);
+  const setSharing = useSetSharing(raceId);
+
+  const [processGoal, setProcessGoal] = useState('');
+  const [outcomeGoal, setOutcomeGoal] = useState('');
+  const [targetTime, setTargetTime] = useState('');
+  const [keyFocus, setKeyFocus] = useState('');
+
+  const [feelingRating, setFeelingRating] = useState('');
+  const [effortRating, setEffortRating] = useState('');
+  const [whatWorked, setWhatWorked] = useState('');
+  const [whatDidnt, setWhatDidnt] = useState('');
+  const [postNotes, setPostNotes] = useState('');
+
+  useEffect(() => {
+    if (data?.reflection) {
+      const r = data.reflection;
+      setProcessGoal(r.processGoal ?? '');
+      setOutcomeGoal(r.outcomeGoal ?? '');
+      setTargetTime(r.targetTimeSec ? formatTime(r.targetTimeSec) : '');
+      setKeyFocus(r.keyFocus ?? '');
+      setFeelingRating(r.feelingRating != null ? String(r.feelingRating) : '');
+      setEffortRating(r.effortRating != null ? String(r.effortRating) : '');
+      setWhatWorked(r.whatWorked ?? '');
+      setWhatDidnt(r.whatDidnt ?? '');
+      setPostNotes(r.postNotes ?? '');
+    }
+  }, [data]);
+
+  const handleSavePreRace = async () => {
+    const targetTimeSec = targetTime.trim() ? parseTimeToSeconds(targetTime) : undefined;
+    if (targetTime.trim() && (targetTimeSec === undefined || Number.isNaN(targetTimeSec))) {
+      toast.error('Target time must look like MM:SS');
+      return;
+    }
+    try {
+      await savePreRace.mutateAsync({
+        processGoal: processGoal.trim() || undefined,
+        outcomeGoal: outcomeGoal.trim() || undefined,
+        targetTimeSec,
+        keyFocus: keyFocus.trim() || undefined,
+      });
+      toast.success('Goals saved.');
+    } catch (err) {
+      const message =
+        (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ?? 'Could not save goals.';
+      toast.error(message);
+    }
+  };
+
+  const handleSavePostRace = async () => {
+    try {
+      await savePostRace.mutateAsync({
+        feelingRating: feelingRating ? Number(feelingRating) : undefined,
+        effortRating: effortRating ? Number(effortRating) : undefined,
+        whatWorked: whatWorked.trim() || undefined,
+        whatDidnt: whatDidnt.trim() || undefined,
+        postNotes: postNotes.trim() || undefined,
+      });
+      toast.success('Reflection saved.');
+    } catch {
+      toast.error('Could not save reflection.');
+    }
+  };
+
+  const handleToggleSharing = async (shared: boolean) => {
+    try {
+      await setSharing.mutateAsync(shared);
+    } catch {
+      toast.error('Could not update sharing.');
+    }
+  };
+
+  if (isLoading || !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
+
+  return (
+    <div className="space-y-4">
+      <label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={data.reflection.sharedWithCoach} onCheckedChange={(v) => handleToggleSharing(Boolean(v))} />
+        {data.reflection.sharedWithCoach ? 'Your coach can read this' : 'Only you can read this'}
+      </label>
+
+      <Tabs defaultValue="pre">
+        <TabsList>
+          <TabsTrigger value="pre">Pre-race goals</TabsTrigger>
+          <TabsTrigger value="post">Post-race reflection</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="pre" className="space-y-3 pt-2">
+          {data.locked && (
+            <Alert>
+              <Lock className="h-4 w-4" />
+              <AlertDescription>Goals are locked — this race has already started.</AlertDescription>
+            </Alert>
+          )}
+          <div>
+            <Label>Process goal</Label>
+            <Input
+              className="mt-1"
+              disabled={data.locked}
+              value={processGoal}
+              onChange={(e) => setProcessGoal(e.target.value)}
+              placeholder="Stay relaxed through mile 1"
+            />
+          </div>
+          <div>
+            <Label>Outcome goal</Label>
+            <Input
+              className="mt-1"
+              disabled={data.locked}
+              value={outcomeGoal}
+              onChange={(e) => setOutcomeGoal(e.target.value)}
+              placeholder="Top 20, sub 18:00"
+            />
+          </div>
+          <div>
+            <Label>Target time (MM:SS)</Label>
+            <Input className="mt-1" disabled={data.locked} value={targetTime} onChange={(e) => setTargetTime(e.target.value)} placeholder="18:00" />
+          </div>
+          <div>
+            <Label>Key focus</Label>
+            <Input className="mt-1" disabled={data.locked} value={keyFocus} onChange={(e) => setKeyFocus(e.target.value)} />
+          </div>
+          {!data.locked && (
+            <Button onClick={handleSavePreRace} disabled={savePreRace.isPending}>
+              {savePreRace.isPending ? 'Saving…' : 'Save goals'}
+            </Button>
+          )}
+        </TabsContent>
+
+        <TabsContent value="post" className="space-y-3 pt-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Feeling (1-10)</Label>
+              <Input type="number" min="1" max="10" className="mt-1" value={feelingRating} onChange={(e) => setFeelingRating(e.target.value)} />
+            </div>
+            <div>
+              <Label>Effort (1-10)</Label>
+              <Input type="number" min="1" max="10" className="mt-1" value={effortRating} onChange={(e) => setEffortRating(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label>What worked</Label>
+            <Textarea className="mt-1" rows={2} value={whatWorked} onChange={(e) => setWhatWorked(e.target.value)} />
+          </div>
+          <div>
+            <Label>What didn't</Label>
+            <Textarea className="mt-1" rows={2} value={whatDidnt} onChange={(e) => setWhatDidnt(e.target.value)} />
+          </div>
+          <div>
+            <Label>Notes</Label>
+            <Textarea className="mt-1" rows={2} value={postNotes} onChange={(e) => setPostNotes(e.target.value)} />
+          </div>
+          <Button onClick={handleSavePostRace} disabled={savePostRace.isPending}>
+            {savePostRace.isPending ? 'Saving…' : 'Save reflection'}
+          </Button>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
