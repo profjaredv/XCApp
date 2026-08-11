@@ -1051,3 +1051,74 @@ backend-provable for the "not entered" half (GET /meet-ops/mine always
 returns a real entry object, never null) and UI-provable for the bulk-
 save shape, but the actual ten-minutes-for-130-athletes timing needs a
 human on a live team, same caveat as T2's five-minute gate.
+
+### T5: RaceReflection schema + lock/visibility logic + routes (backend)
+
+`RaceReflection` added exactly per the doc: pre-race fields
+(processGoal/outcomeGoal/targetTimeSec/targetSplits/keyFocus,
+`preSubmittedAt`), post-race fields (feelingRating/effortRating/
+whatWorked/whatDidnt/postNotes, `postSubmittedAt`), and
+`sharedWithCoach` (default `true`, matching paper). `targetSplits` is
+kept deliberately distinct from `RaceSplit` (a coach's transcription of
+what actually happened) — neither writes to the other; a future athlete
+race page compares them, it doesn't merge them.
+
+**The locking rule, and the honest reasoning behind it.** The doc says
+"enforce server-side against race start time, falling back to earliest
+recorded finish time if no start time exists." `Race` has no start-time
+field anywhere in this schema — it was never specified for any phase —
+so that fallback isn't a rare edge case here, it's the *only* rule that
+will ever fire: `lib/raceReflections.js`'s `computeLockAt` takes the
+earliest `Result.createdAt` across a race's results and treats that as
+the lock instant; a race with zero results yet has no lock. This is a
+real interpretive judgment call, not something the doc spelled out in
+data-model terms, so flagging it plainly: `Result.createdAt` is *when
+the row was inserted into this database* (import/data-entry time), not
+a literal race-morning gun time — for a race whose results get entered
+same-day this is a faithful proxy for "the race already happened"; for
+one entered well after the fact it locks later than a purist reading of
+"race start" would. Given the schema has no other signal to use, this
+is the best available implementation of the doc's own stated rule, not
+an invented substitute for it — worth a coach's eyes if the exact timing
+ever matters at the margin. `isPreRaceLocked` is the pure now-vs-lockAt
+comparison; both are unit-tested (rule 5) ahead of the route in
+`test/raceReflections.test.js`.
+
+**Visibility, as an explicit allowlist** (`decideCanViewReflection`,
+same posture as T1's captain permission set — never "coach minus a few
+things"): the owner always sees their own row regardless of the toggle;
+an unshared reflection is invisible to everyone else, full stop;
+HEAD_COACH/COACH see any shared reflection team-wide; VOLUNTEER_COACH
+only for an athlete in a group they lead (checked via T2's `getGroupOn`
+at the race's own date, so a mid-season group move is respected) *and*
+only if shared; ATHLETE never sees another athlete's reflection under
+any condition. A captain is still a plain `TeamRole.ATHLETE` — captaincy
+is a `SeasonRoster` flag, not a role — so this single branch is what
+makes "a captain returns 403 on every reflection endpoint" true for the
+coach-facing surface without needing a captain-specific check anywhere:
+`routes/raceReflections.js`'s `GET /race/:raceId` gates on
+`requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'])`, so an ATHLETE
+account (captain or not) never even reaches the per-row filter — it 403s
+at the route guard itself, the same structural guarantee
+`test/requireRole.test.js` already proves for the middleware generally.
+
+`routes/raceReflections.js`: `GET /mine/:raceId` and
+`PUT /mine/:raceId/{pre-race,post-race,sharing}` are all
+`requireLinkedAthlete`-scoped self-service (own row only, keyed off
+`req.user.linkedAthlete.id` — never a client-supplied athleteId, same
+pattern `test/captainPermissions.test.js` already established for
+TrainingLog); `PUT .../pre-race` 403s with a plain-language message when
+`raceLockState` reports locked, `PUT .../post-race` never checks the
+lock, `PUT .../sharing` is available regardless of lock state since the
+privacy toggle shouldn't itself be lockable. `GET /race/:raceId` is the
+one coach-facing route, filtering every reflection for that race through
+`decideCanViewReflection` before it's ever serialized into the response
+— never returning an unshared/out-of-scope row and redacting it
+client-side.
+
+Full suite: 95 tests green, including `routeAuth.test.js` confirming
+every new non-GET route is guarded.
+
+Frontend (pre-race goal form with a visible lock message, post-race
+reflection form with the sharing toggle, and a coach-side reflections
+view) is next.

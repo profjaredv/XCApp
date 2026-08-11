@@ -96,6 +96,7 @@ const main = async () => {
     const practicePlanRoutes = require('./routes/practicePlans');
     const workoutTemplateRoutes = require('./routes/workoutTemplates');
     const meetOpsRoutes = require('./routes/meetOps');
+    const raceReflectionRoutes = require('./routes/raceReflections');
 
     app.get('/api', (req, res) => {
         res.send('XC Analytics Backend API is running!');
@@ -126,6 +127,7 @@ const main = async () => {
     app.use('/api/practice-plans', practicePlanRoutes);
     app.use('/api/workout-templates', workoutTemplateRoutes);
     app.use('/api/meet-ops', meetOpsRoutes);
+    app.use('/api/race-reflections', raceReflectionRoutes);
 
     // Enhanced performance routes
     const enhancedPerformanceRoutes = require('./routes/enhancedPerformanceRoutes');

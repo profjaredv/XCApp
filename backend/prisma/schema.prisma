@@ -182,6 +182,7 @@ model Athlete {
   guardianLinks       GuardianLink[]
   groupMemberships    GroupMembership[]
   meetEntries         MeetEntry[]
+  raceReflections     RaceReflection[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -312,6 +313,51 @@ model TrainingLog {
 
   @@index([athleteId, date])
   @@map("training_logs")
+}
+
+// T5 (Team Management handoff): "the most emotionally valuable thing in
+// the app and the most sensitive." Pre-race fields (processGoal through
+// keyFocus) lock server-side once the race has started — see
+// lib/raceReflections.js's computeLockAt/isPreRaceLocked, enforced in
+// routes/raceReflections.js, never just hidden client-side. Post-race
+// fields never lock. `targetSplits` is the athlete's own pre-race plan,
+// distinct from RaceSplit (a coach's transcription of what actually
+// happened) — neither one writes to the other; they only meet as a
+// target-vs-actual comparison on the athlete's own race page.
+// `sharedWithCoach` defaults true (matching paper, where handing over the
+// sheet was the default) and is enforced as a query-layer filter
+// (decideCanViewReflection), never a component-level hide — see that
+// function's own comment for the exact allowlist, including that a
+// captain (a TeamRole.ATHLETE, same as any other athlete) never sees
+// this endpoint at all, let alone another athlete's row.
+model RaceReflection {
+  id        String @id @default(uuid()) @db.Uuid
+  athleteId String @map("athlete_id") @db.Uuid
+  raceId    String @map("race_id") @db.Uuid
+
+  // Pre-race, locks at race start
+  processGoal    String?   @map("process_goal") // "stay relaxed through mile 1"
+  outcomeGoal    String?   @map("outcome_goal") // "top 20", "sub 18"
+  targetTimeSec  Float?    @map("target_time_sec")
+  targetSplits   Json?     @map("target_splits") // [{ markerMeters, elapsedSec }]
+  keyFocus       String?   @map("key_focus")
+  preSubmittedAt DateTime? @map("pre_submitted_at")
+
+  // Post-race
+  feelingRating   Int?      @map("feeling_rating") // 1-10
+  effortRating    Int?      @map("effort_rating") // 1-10
+  whatWorked      String?   @map("what_worked")
+  whatDidnt       String?   @map("what_didnt")
+  postNotes       String?   @map("post_notes")
+  postSubmittedAt DateTime? @map("post_submitted_at")
+
+  sharedWithCoach Boolean @default(true) @map("shared_with_coach")
+
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  race    Race    @relation(fields: [raceId], references: [id], onDelete: Cascade)
+
+  @@unique([athleteId, raceId])
+  @@map("race_reflections")
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +498,7 @@ model Race {
   meetPerformanceMetrics MeetPerformanceMetrics[]
   fieldResults           FieldResult[]
   meetEntries            MeetEntry[]
+  raceReflections        RaceReflection[]
   bestPaceForAthletes    AthleteSeasonMetrics[]   @relation("BestPaceRace")
   bestTime5kForAthletes  AthleteSeasonMetrics[]   @relation("BestTime5kRace")
 
