@@ -3,7 +3,7 @@ const router = express.Router();
 const { customAlphabet } = require('nanoid');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
-const calculationService = require('../services/performance/calculationServiceSupabase');
+const calculationService = require('../services/performance/calculationService');
 const {
   resolveActiveSeason,
   deriveGrade,

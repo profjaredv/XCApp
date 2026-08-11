@@ -1,5 +1,5 @@
 const express = require('express');
-const calculationService = require('../services/performance/calculationServiceSupabase');
+const calculationService = require('../services/performance/calculationService');
 const cache = require('../services/performance/cache');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');

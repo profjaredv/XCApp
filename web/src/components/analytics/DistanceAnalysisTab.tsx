@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Target } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import enhancedAnalyticsService, { DistanceAnalysis } from '../../api/enhancedAnalyticsService';
-import { formatTime } from '../../utils/formatters';
+import { formatTime } from '../../lib/formatUtils';
 
 interface DistanceAnalysisTabProps {
   teamId: string;

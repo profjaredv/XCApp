@@ -1301,3 +1301,107 @@ level route, not new logic — nothing here is arithmetic or a permission
 decision, it's a pass-through toggle of an existing field, so no new
 unit test was added per rule 5's actual scope). Headless-browser check
 on `/t/:id/roster` shows no client-side crash.
+
+### Cleanup list, from the handoff doc's "Cleanup, alongside the phases above"
+
+`web/src/_archive/` was already gone by the time this ran — nothing to
+do there. The rest, one at a time, each verified rather than assumed:
+
+- **Duplicate `RaceVisualization.tsx`**: `components/RaceVisualization.tsx`
+  (root) was never imported anywhere — confirmed by grep, not assumed —
+  while `components/analytics/RaceVisualization.tsx` is the real one
+  `AnalyticsPage.tsx` renders. Deleted the dead one; nothing to migrate,
+  they'd already diverged into different prop shapes.
+- **Duplicate `SeasonModeSelector.tsx`**: unlike the above, both copies
+  were actually live — `components/analytics/SeasonModeSelector.tsx`
+  (used by `AnalyticsHeader.tsx`) and `components/SeasonModeSelector.tsx`
+  (used by `TeamAthleteProfilePage.tsx`) — with genuinely different prop
+  APIs (`mode` vs `currentMode`, plus two props on the root-level one,
+  `selectedSeason`/`onSeasonChange`, that its own code comment admitted
+  were accepted but never used). Kept the analytics version as canonical
+  (it's the more current implementation — its own comment describes
+  deduplicating a previously-doubled season picker) and updated
+  `TeamAthleteProfilePage.tsx`'s call site to match its real prop names,
+  dropping the two dead props rather than carrying them forward. The
+  root-level file also exported an unused `SeasonSelector` component
+  (built on `hooks/useSeasons.ts`, itself flagged as partly dead back in
+  the T2 notes) — confirmed zero imports before deleting it as part of
+  the same file.
+- **Three formatter modules** (`lib/formatters.ts`, `lib/formatUtils.ts`,
+  `utils/formatters.ts`): audited every import site before touching
+  anything — `formatUtils.ts` had 17 consumers (the entire analytics
+  module), `formatters.ts` had 3, `utils/formatters.ts` had 1, and one
+  file (`MyProgressPage.tsx`) was already importing from *two* of the
+  three in the same file, which is exactly the fragmentation the doc's
+  talking about. Kept `formatUtils.ts` as canonical since moving the
+  minority onto the majority is the lower-risk direction; added the one
+  missing function it didn't have (`parseTimeToSeconds`) rather than
+  losing it. `utils/formatters.ts` additionally exported
+  `formatDistance`/`formatPercentage`/`formatDate`/`formatNumber` — grepped
+  for each and confirmed none were imported anywhere, so those were
+  simply dropped, not migrated; nothing used them. The behavioral edge
+  case worth flagging: `formatUtils.ts`'s `formatTime`/`formatPace`
+  render `'0:00.0'`/`'0:00/mi'` for zero-or-negative input, while the two
+  deleted modules mostly returned `'-'` for null/NaN — every call site
+  that switched formatters was checked and either already guards its
+  input with a ternary/truthiness check, or only ever passes a computed
+  positive number, so this is a real (if narrow) behavior change only in
+  the theoretical case of a genuinely zero-second value reaching one of
+  these calls — and it makes the switched call sites *consistent* with
+  the 17 screens already using this convention, not inconsistent with
+  them.
+  **Found but deliberately NOT touched**: `lib/utils.ts` (the shadcn
+  `cn()` utility file) also has its own `formatTime`/`formatPace`/
+  `formatDateShort`, used by `TeamPerformanceView.tsx`/
+  `TeamPerformanceCard.tsx` — a fourth copy the doc's cleanup list didn't
+  name. Its `formatTime` does real HH:MM:SS hour-rollover (the other
+  version doesn't) and its `formatPace` takes a `unit: 'mile'|'km'`
+  parameter the other version doesn't have, so consolidating it isn't a
+  drop-in replacement the way the other three were — flagging it here
+  per rule 2 rather than expanding scope into a riskier edit that wasn't
+  asked for.
+- **`lib/api.ts` vs `api/api.ts`**: not actually a duplication of the
+  same thing — `api/api.ts` is the real, live axios client re-export;
+  `lib/api.ts` was leftover mock-data scaffolding from early development
+  (`getAnalytics`/`getSeasons`, both literally commented "In a real
+  implementation, this would be an actual API call" and returning
+  hardcoded fake data). Confirmed zero imports, deleted outright — there
+  was nothing real to merge.
+- **`calculationServiceSupabase.js` → `calculationService.js`**: pure
+  rename, no behavior change. Already ran against Prisma/Neon internally
+  (`require('../../lib/db')`) — only the filename and three `require()`
+  call sites (`routes/teams.js`, `routes/enhancedPerformanceRoutes.js`,
+  `routes/performanceRoutes.js`) plus one explanatory comment still said
+  "Supabase."
+- **`docs/history/`**: deleted (the doc offered move-or-delete; these
+  were ~29 stale AI-development-session status notes — `URGENT_FIX_
+  NEEDED.md`, `WORKING_NOW.md`, and similar — not documentation anyone
+  currently needs, confirmed by checking that nothing in the live app or
+  build referenced the directory). **Found something worth flagging
+  while checking references first**: `docs/history/RAILWAY_ENV_VARS.md`
+  had a real-looking Supabase anon key and a plaintext
+  `COACH_UPGRADE_CODE=runnderland` secret committed in it —
+  `MIGRATION_STATUS.md` had already caught and documented both back at
+  the start of this migration. Verified before deleting, not assumed:
+  `COACH_UPGRADE_CODE` is dead code now (grepped — the only remaining
+  reference anywhere is a comment in `routes/profile.js` explaining that
+  T1 retired the whole upgrade-to-coach-by-code flow in favor of staff
+  invites), and the Supabase project itself is confirmed gone per
+  `MIGRATION_STATUS.md`, so neither secret is live-exploitable through
+  this app today. Deleting the file removes it from the tree going
+  forward; it does **not** remove it from git history, and rewriting git
+  history is a destructive action nobody asked for and this pass didn't
+  do — if either credential could still matter anywhere outside this
+  app, that's still worth an explicit rotation/history-scrub decision
+  from a human, not something to silently attempt here. Updated
+  `README.md`'s project-structure tree, which pointed at the
+  now-deleted path.
+
+Verified across all of the above: `tsc -b` (forced) and `vite build`
+both clean, backend suite 95 green, headless-browser check against
+`/t/:id/roster`, `/t/:id/analytics`, `/t/:id/tools`, and
+`/t/:id/team/athlete/:id` (the four screens this pass actually touched)
+shows no client-side crash on any of them.
+
+This closes every item on the handoff doc's cleanup list except the one
+flagged as deliberately deferred (`lib/utils.ts`'s formatter functions).

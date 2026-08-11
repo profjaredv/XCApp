@@ -8,7 +8,8 @@ import { useMultiSeasonTrends } from '@/hooks/useMultiSeasonTrends';
 import { performanceService } from '@/api/performanceService';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
-import { SeasonModeSelector, SeasonMode } from '@/components/SeasonModeSelector';
+import { SeasonModeSelector } from '@/components/analytics/SeasonModeSelector';
+import type { SeasonMode } from '@/components/analytics/types';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
 import { formatDateShort } from '@/lib/formatUtils';
 import type { Athlete, Race, AthleteSeasonData } from '@/types/analytics';
@@ -261,11 +262,9 @@ const TeamAthleteProfilePage = () => {
         </div>
         
         <div className="flex items-center gap-4">
-          <SeasonModeSelector 
-            currentMode={seasonMode as SeasonMode}
+          <SeasonModeSelector
+            mode={seasonMode as SeasonMode}
             onModeChange={handleSeasonModeChange as (mode: SeasonMode) => void}
-            selectedSeason={selectedSeason}
-            onSeasonChange={setSelectedSeason}
           />
         </div>
       </div>

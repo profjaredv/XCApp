@@ -23,3 +23,16 @@ export const formatDateShort = (date: string | Date | undefined | null): string 
   const yyyy = d.getFullYear();
   return `${mm} ${dd} ${yyyy}`;
 };
+
+/**
+ * Parse a MM:SS or H:MM:SS string into seconds. Returns NaN if unparseable.
+ */
+export const parseTimeToSeconds = (timeStr: string): number => {
+  const parts = timeStr.trim().split(':');
+  if (parts.length === 2) {
+    return parseInt(parts[0], 10) * 60 + parseFloat(parts[1]);
+  } else if (parts.length === 3) {
+    return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2]);
+  }
+  return NaN;
+};

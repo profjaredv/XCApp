@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { axiosInstance as api } from '@/api/axios';
-import { formatTime, formatPace } from '../../lib/formatters';
+import { formatTime, formatPace } from '../../lib/formatUtils';
 import { trainingPacesFromRace, type TrainingPaceZone } from '../../lib/vdotPaces';
 import { Calculator, TrendingUp, User, Clock, Target, Gauge } from 'lucide-react';
 import { toast } from 'sonner';

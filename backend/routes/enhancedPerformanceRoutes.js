@@ -1,12 +1,12 @@
 const express = require('express');
-const calculationService = require('../services/performance/calculationServiceSupabase');
+const calculationService = require('../services/performance/calculationService');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
 
 const router = express.Router();
 
-// Note: Enhanced metrics are part of the main calculationServiceSupabase.
+// Note: Enhanced metrics are part of the main calculationService.
 // This route file exists for backward compatibility with the frontend's
 // "enhanced" views but delegates to the main service.
 

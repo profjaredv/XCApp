@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { axiosInstance as api } from '@/api/axios';
-import { formatTime } from '../../lib/formatters';
+import { formatTime } from '../../lib/formatUtils';
 import { Check, ChevronsUpDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 

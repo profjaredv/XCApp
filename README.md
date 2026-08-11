@@ -19,7 +19,7 @@ This is a from-scratch migration off Supabase (sunsetted) and a half-finished Mo
 .
 ├── web/                 # React frontend
 ├── backend/              # Express API server + Prisma schema/migrations
-└── docs/history/         # Archived design/debug notes from earlier iterations
+└── docs/                # Architecture and workflow reference docs
 ```
 
 ## Local Development
