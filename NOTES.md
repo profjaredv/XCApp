@@ -1273,3 +1273,31 @@ two api modules, rename `calculationServiceSupabase.js`, move
 multi-team support — injury tracking and guardian access were already
 resolved and built as part of T1/T4) remain the only unbuilt items from
 this document.
+
+### Post-T6: captain-designation UI (closing a T1-era gap)
+
+Asked directly: "how do I elevate a student to captain without them
+having to log in?" The honest answer was that the backend had supported
+this since T1 (`PATCH /api/seasons/:id/roster/:athleteId`, coach-only,
+entirely server-side — an athlete's `TeamRole` stays `ATHLETE` and they
+never see a prompt of any kind) but no button existed for it anywhere.
+The T1c entry in this file flagged that gap at the time and it sat
+unaddressed until now.
+
+Closed it: `GET /api/athletes` (`routes/athletes.js`) already loaded
+each athlete's `SeasonRoster` row for other fields (grade, active
+status) — added `isCaptain`, `captainNotes`, and `seasonId` to its
+response purely additively, so the roster screen doesn't need a second
+request just to know which season it's looking at. `RosterPage.tsx` gets
+a "Make Captain"/"Remove Captain" toggle per athlete (coach-only, same
+`isCoach` gating as every other roster action) plus a "Captain" badge
+next to their name, and a small notes dialog for the optional
+`captainNotes` field. Toggling calls the existing T1 endpoint directly —
+no new backend route needed, just the missing UI on top of it.
+
+`tsc -b` (forced) and `vite build` both clean; backend suite still 95
+green (this was an additive field on an already-untested-at-the-field-
+level route, not new logic — nothing here is arithmetic or a permission
+decision, it's a pass-through toggle of an existing field, so no new
+unit test was added per rule 5's actual scope). Headless-browser check
+on `/t/:id/roster` shows no client-side crash.

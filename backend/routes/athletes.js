@@ -94,6 +94,13 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         invite: invite
           ? { status: invite.status, email: invite.email, sentAt: invite.createdAt, acceptedAt: invite.acceptedAt }
           : undefined,
+        // T1: captain designation lives on the per-season SeasonRoster row.
+        // seasonId is included so the roster UI can call
+        // PATCH /api/seasons/:id/roster/:athleteId without a second request
+        // just to look up which season it's looking at.
+        isCaptain: Boolean(rosterEntry?.isCaptain),
+        captainNotes: rosterEntry?.captainNotes ?? null,
+        seasonId: seasonRow?.id ?? null,
       };
     });
 

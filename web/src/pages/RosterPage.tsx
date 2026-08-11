@@ -23,7 +23,8 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle } from 'lucide-react';
+import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 import { rosterService, type RosterAthlete } from '@/api/rosterService';
 import { athleteService } from '@/api/athleteService';
 import { teamService } from '@/api/teamService';
@@ -165,6 +166,32 @@ const RosterPage: React.FC = () => {
       invalidate();
     },
     onError: () => toast.error('Could not update roster'),
+  });
+
+  // T1: captain designation — coach-only, no action required from the
+  // athlete's side at all. isCaptain toggles instantly; captainNotes gets
+  // its own small dialog since it's optional detail, not the common case.
+  const setCaptain = useMutation({
+    mutationFn: ({ athlete, isCaptain }: { athlete: RosterAthlete; isCaptain: boolean }) =>
+      rosterService.setCaptain(athlete.seasonId!, athlete.id, isCaptain),
+    onSuccess: (_data, { athlete, isCaptain }) => {
+      toast.success(isCaptain ? `${athlete.name} is now a captain` : `${athlete.name} is no longer a captain`);
+      invalidate();
+    },
+    onError: () => toast.error('Could not update captain status'),
+  });
+
+  const [captainNotesTarget, setCaptainNotesTarget] = useState<RosterAthlete | null>(null);
+  const [captainNotesDraft, setCaptainNotesDraft] = useState('');
+  const saveCaptainNotes = useMutation({
+    mutationFn: () =>
+      rosterService.setCaptain(captainNotesTarget!.seasonId!, captainNotesTarget!.id, true, captainNotesDraft.trim()),
+    onSuccess: () => {
+      toast.success('Captain notes saved');
+      setCaptainNotesTarget(null);
+      invalidate();
+    },
+    onError: () => toast.error('Could not save captain notes'),
   });
 
   const byGrade = useMemo(() => {
@@ -465,6 +492,12 @@ const RosterPage: React.FC = () => {
                   <div className="min-w-0">
                     <p className="truncate font-medium flex items-center gap-2">
                       <span>{athlete.name}</span>
+                      {athlete.isCaptain && (
+                        <Badge variant="default" className="flex items-center gap-1">
+                          <Star className="h-3 w-3" />
+                          Captain
+                        </Badge>
+                      )}
                       {inviteBadgeFor(athlete) && (
                         <Badge variant={inviteBadgeFor(athlete)!.variant}>
                           {inviteBadgeFor(athlete)!.label}
@@ -485,6 +518,29 @@ const RosterPage: React.FC = () => {
                   <div className="flex items-center gap-2">
                     {athlete.graduated && <Badge variant="secondary">Graduated</Badge>}
                     {!athlete.graduationYear && <Badge variant="outline">Needs class year</Badge>}
+                    {isCoach && athlete.seasonId && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCaptain.mutate({ athlete, isCaptain: !athlete.isCaptain })}
+                        disabled={setCaptain.isPending}
+                      >
+                        <Star className="mr-2 h-4 w-4" />
+                        {athlete.isCaptain ? 'Remove Captain' : 'Make Captain'}
+                      </Button>
+                    )}
+                    {isCoach && athlete.isCaptain && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setCaptainNotesTarget(athlete);
+                          setCaptainNotesDraft(athlete.captainNotes ?? '');
+                        }}
+                      >
+                        Notes
+                      </Button>
+                    )}
                     {isCoach && !athlete.user && (
                       <Button variant="outline" size="sm" onClick={() => openInviteDialog(athlete)}>
                         <Mail className="mr-2 h-4 w-4" />
@@ -642,6 +698,29 @@ const RosterPage: React.FC = () => {
             </Button>
             <Button onClick={handleInviteSubmit} disabled={inviteLoading}>
               {inviteLoading ? 'Sending…' : 'Send Invite'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!captainNotesTarget} onOpenChange={(open) => !open && setCaptainNotesTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Captain notes — {captainNotesTarget?.name}</DialogTitle>
+            <DialogDescription>Private to coaching staff. Not visible to the athlete.</DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={captainNotesDraft}
+            onChange={(e) => setCaptainNotesDraft(e.target.value)}
+            rows={4}
+            placeholder="e.g. leads the Boys Blue group's warmup"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCaptainNotesTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => saveCaptainNotes.mutate()} disabled={saveCaptainNotes.isPending}>
+              {saveCaptainNotes.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

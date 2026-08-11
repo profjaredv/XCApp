@@ -22,6 +22,11 @@ export interface RosterAthlete {
   };
   /** Active on the roster, but missing from the last Athletic.net sync — needs a coach's review. */
   flaggedForRemoval?: boolean;
+  /** Captaincy is annual — lives on the per-season roster row, not the athlete. */
+  isCaptain?: boolean;
+  captainNotes?: string | null;
+  /** The season row's id, needed to call setCaptain below. Null if no explicit Season row exists yet. */
+  seasonId?: string | null;
 }
 
 export interface RosterSyncResult {
@@ -110,6 +115,19 @@ export const rosterService = {
   /** Clears a "flagged for removal" review flag without touching roster membership. */
   async clearRemovalFlag(season: number, athleteId: string) {
     const response = await api.post(`/teams/seasons/${season}/roster/${athleteId}/clear-flag`);
+    return response.data;
+  },
+
+  /**
+   * Sets or clears the captain designation for one athlete on one season's
+   * roster. Coach-only, entirely server-side — the athlete never needs to
+   * sign in or accept anything for this to take effect.
+   */
+  async setCaptain(seasonId: string, athleteId: string, isCaptain: boolean, captainNotes?: string) {
+    const response = await api.patch(`/seasons/${seasonId}/roster/${athleteId}`, {
+      isCaptain,
+      ...(captainNotes !== undefined ? { captainNotes } : {}),
+    });
     return response.data;
   },
 };
