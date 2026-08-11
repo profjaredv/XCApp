@@ -1175,3 +1175,50 @@ structurally guaranteed by `requireRole` never listing ATHLETE for the
 coach-facing route — but neither was exercised against a live session).
 
 This closes T5.
+
+### T6: Equipment/EquipmentAssignment schema + routes (backend)
+
+Added exactly per the doc: `EquipmentType`/`EquipmentCondition` enums,
+`Equipment` (`@@unique([teamId, type, identifier])`), and
+`EquipmentAssignment` — "an item is out when an assignment row exists
+with `returnedAt` null." That invariant gets a real database guarantee,
+not just an application-level check: a **partial unique index**
+(`CREATE UNIQUE INDEX ... ON equipment_assignments(equipment_id) WHERE
+returned_at IS NULL`) in the migration SQL, since Prisma's schema
+language has no way to express a `WHERE` clause on an `@@index`/
+`@@unique` — the `EquipmentAssignment` model comment points at the
+migration file so this doesn't get "cleaned up" later by someone who
+doesn't know it's there. `routes/equipment.js` still does the
+application-level check first (so the common case gets a message naming
+the current holder, not a raw constraint-violation error), and falls
+back to catching the DB-level `P2002` for the genuine race — two coaches
+checking out the same item in the same second.
+
+Every route is `HEAD_COACH`/`COACH` only — same reasoning as T4's meet
+operations: the doc never scopes any part of equipment to
+`VOLUNTEER_COACH`.
+
+- `POST /checkout` is the "type-and-enter flow" itself: `{type,
+  identifier, athleteId, seasonId, ...}` in one call. It **upserts** the
+  `Equipment` row by `(teamId, type, identifier)` rather than requiring
+  a separate "add to inventory" step first — a coach checking out jersey
+  #14 for the first time this season shouldn't need to go create #14 as
+  a database row before they can hand it to someone. `POST /` still
+  exists for pre-seeding inventory (sizes, condition) ahead of time,
+  it's just not required.
+- `POST /assignments/:assignmentId/return` — sets `returnedAt`,
+  `returnedById`, optional `conditionIn`.
+- `GET /outstanding?seasonId=` — the season-end report the doc says
+  justifies the whole build: every unreturned item, grouped by athlete.
+- `PUT /:id` — edit condition/size/notes, or retire an item (`retired:
+  true` — `POST /checkout` refuses to check out a retired item).
+
+Full suite: 95 tests green (no new pure-logic file this time — unlike
+T2/T3/T5, there wasn't a real arithmetic/permission decision to extract;
+"is there already an active assignment for this item" is a
+straightforward existence check against the DB, not a rule worth a
+DB-free unit test on its own). `routeAuth.test.js` still confirms every
+new non-GET route is guarded.
+
+Frontend (the type-and-enter bulk checkout screen, return flow, and the
+outstanding report) is next.

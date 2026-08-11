@@ -49,19 +49,21 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  team                    Team?             @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
-  coachedTeams            Team[]            @relation("TeamCoach")
+  team                    Team?                 @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
+  coachedTeams            Team[]                @relation("TeamCoach")
   teamMemberships         TeamMember[]
-  createdRaceSplits       RaceSplit[]       @relation("RaceSplitCreator")
-  linkedAthlete           Athlete?          @relation("AthleteAccount")
+  createdRaceSplits       RaceSplit[]           @relation("RaceSplitCreator")
+  linkedAthlete           Athlete?              @relation("AthleteAccount")
   athleteClaims           AthleteClaim[]
-  sentStaffInvites        StaffInvite[]     @relation("StaffInviteSender")
-  guardianLinks           GuardianLink[]    @relation("GuardianAccount")
-  resolvedGuardianLinks   GuardianLink[]    @relation("GuardianLinkResolver")
+  sentStaffInvites        StaffInvite[]         @relation("StaffInviteSender")
+  guardianLinks           GuardianLink[]        @relation("GuardianAccount")
+  resolvedGuardianLinks   GuardianLink[]        @relation("GuardianLinkResolver")
   ledGroups               GroupLeader[]
-  createdPracticePlans    PracticePlan[]    @relation("PracticePlanCreator")
-  createdWorkoutTemplates WorkoutTemplate[] @relation("WorkoutTemplateCreator")
-  updatedMeetEntries      MeetEntry[]       @relation("MeetEntryUpdater")
+  createdPracticePlans    PracticePlan[]        @relation("PracticePlanCreator")
+  createdWorkoutTemplates WorkoutTemplate[]     @relation("WorkoutTemplateCreator")
+  updatedMeetEntries      MeetEntry[]           @relation("MeetEntryUpdater")
+  equipmentCheckedOut     EquipmentAssignment[] @relation("EquipmentCheckedOutBy")
+  equipmentReturned       EquipmentAssignment[] @relation("EquipmentReturnedBy")
 
   @@index([teamId])
   @@map("users")
@@ -97,6 +99,7 @@ model Team {
   practicePlans          PracticePlan[]
   workoutTemplates       WorkoutTemplate[]
   meets                  Meet[]
+  equipment              Equipment[]
 
   @@index([coachUid])
   @@map("teams")
@@ -169,20 +172,21 @@ model Athlete {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  team                Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user                User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
-  results             Result[]
-  raceSplits          RaceSplit[]
-  seasonRosterEntries SeasonRoster[]
-  seasonMetrics       AthleteSeasonMetrics[]
-  bestInMeets         MeetPerformanceMetrics[] @relation("BestAthlete")
-  invite              AthleteInvite?
-  claims              AthleteClaim[]
-  trainingLogs        TrainingLog[]
-  guardianLinks       GuardianLink[]
-  groupMemberships    GroupMembership[]
-  meetEntries         MeetEntry[]
-  raceReflections     RaceReflection[]
+  team                 Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user                 User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
+  results              Result[]
+  raceSplits           RaceSplit[]
+  seasonRosterEntries  SeasonRoster[]
+  seasonMetrics        AthleteSeasonMetrics[]
+  bestInMeets          MeetPerformanceMetrics[] @relation("BestAthlete")
+  invite               AthleteInvite?
+  claims               AthleteClaim[]
+  trainingLogs         TrainingLog[]
+  guardianLinks        GuardianLink[]
+  groupMemberships     GroupMembership[]
+  meetEntries          MeetEntry[]
+  raceReflections      RaceReflection[]
+  equipmentAssignments EquipmentAssignment[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -621,11 +625,12 @@ model Season {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  team          Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  roster        SeasonRoster[]
-  groups        Group[]
-  practicePlans PracticePlan[]
-  meets         Meet[]
+  team                 Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  roster               SeasonRoster[]
+  groups               Group[]
+  practicePlans        PracticePlan[]
+  meets                Meet[]
+  equipmentAssignments EquipmentAssignment[]
 
   @@unique([teamId, year, sport])
   @@index([teamId])
@@ -997,4 +1002,80 @@ model Feedback {
   @@index([teamId])
   @@index([status])
   @@map("feedback")
+}
+
+// ---------------------------------------------------------------------------
+// T6 (Team Management handoff): equipment and uniform checkout. "Fully
+// separable. Build whenever there is a gap." The feature that justifies
+// the build is the season-end outstanding report (GET /equipment/outstanding
+// in routes/equipment.js) — every unreturned item grouped by athlete.
+// ---------------------------------------------------------------------------
+
+enum EquipmentType {
+  UNIFORM_TOP
+  UNIFORM_BOTTOM
+  WARMUP_TOP
+  WARMUP_BOTTOM
+  SPIKES
+  BAG
+  OTHER
+}
+
+enum EquipmentCondition {
+  NEW
+  GOOD
+  FAIR
+  POOR
+  RETIRED
+}
+
+model Equipment {
+  id         String             @id @default(uuid()) @db.Uuid
+  teamId     String             @map("team_id") @db.Uuid
+  type       EquipmentType
+  identifier String // jersey number or asset tag
+  size       String?
+  condition  EquipmentCondition @default(GOOD)
+  retired    Boolean            @default(false)
+  notes      String?
+
+  team        Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  assignments EquipmentAssignment[]
+
+  @@unique([teamId, type, identifier])
+  @@map("equipment")
+}
+
+// "An item is out when an assignment row exists with returnedAt null.
+// Enforce one active assignment per item." Application code checks this
+// before creating a row (routes/equipment.js), but the real guarantee
+// against two coaches checking out the same item at once is a DB-level
+// partial unique index on (equipment_id) WHERE returned_at IS NULL —
+// Prisma's schema language can't express a WHERE clause on an @@index/
+// @@unique, so that constraint exists ONLY in the migration SQL
+// (20260811040000_equipment/migration.sql), not here. Don't remove it
+// there without adding an equivalent guard.
+model EquipmentAssignment {
+  id             String              @id @default(uuid()) @db.Uuid
+  equipmentId    String              @map("equipment_id") @db.Uuid
+  athleteId      String              @map("athlete_id") @db.Uuid
+  seasonId       String              @map("season_id") @db.Uuid
+  checkedOutAt   DateTime            @map("checked_out_at")
+  checkedOutById String?             @map("checked_out_by") @db.Uuid
+  dueDate        DateTime?           @map("due_date") @db.Date
+  returnedAt     DateTime?           @map("returned_at")
+  returnedById   String?             @map("returned_by") @db.Uuid
+  conditionOut   EquipmentCondition? @map("condition_out")
+  conditionIn    EquipmentCondition? @map("condition_in")
+  notes          String?
+
+  equipment    Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  athlete      Athlete   @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  season       Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  checkedOutBy User?     @relation("EquipmentCheckedOutBy", fields: [checkedOutById], references: [id], onDelete: SetNull)
+  returnedBy   User?     @relation("EquipmentReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
+
+  @@index([athleteId, seasonId])
+  @@index([equipmentId, returnedAt])
+  @@map("equipment_assignments")
 }
