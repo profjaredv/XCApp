@@ -717,10 +717,55 @@ own test file.
 
 Full suite: 63 tests green.
 
-**Next**: the bulk assignment screen (frontend) — two columns (boys/girls),
-groups as drop targets ordered by `sortOrder`, unassigned staging column,
-copy-from-previous-season pre-populate, season-best time on each athlete
-card, one-transaction save. The doc describes drag-and-drop; building a
-multi-select-and-assign interaction first as the functional core, with
-drag-and-drop as a stretch goal on top rather than a blocker to something
-usable.
+### T2: bulk assignment screen (frontend) — done, with real limits on how it was verified
+
+`GroupsPage.tsx` (`/t/:athleticTeamId/groups`, added to the sidebar under
+"Manage", visible to everyone — an athlete should be able to see their own
+group same as Roster is visible to everyone). Two columns, boys and
+girls, each rendered as an "Unassigned" staging list plus one card per
+`TRAINING` group for that gender, ordered by `sortOrder`. Checkbox
+multi-select across any column plus a floating "N selected → assign to
+[group]" action bar, rather than drag-and-drop — noted in the previous
+entry as the planned scope, and it held: multi-select is arguably faster
+than dragging for a real 130-athlete bulk move anyway, and it was
+buildable without pulling in a drag-and-drop library this pass. Save
+batches every locally-pending change into one `POST /groups/assign` call.
+"Copy from previous season" button appears when the selected season has
+zero groups and a previous season with groups exists. Season-best time
+per athlete card is computed client-side (`seasonBestTime()` in
+`api/groupService.ts`) from `/api/athletes`'s existing per-race results —
+no new backend endpoint needed for that part.
+
+One real gap surfaced while wiring this up: `hooks/useSeasons.ts`
+(`Season._id`) is dead/mistyped — nothing in the live app actually reads
+`._id`, only `.year` — so groups (keyed by a real `seasonId` UUID) needed
+a season source that actually carries a working id. `useAvailableSeasons`
+already does (`Season.id: string | null`, null when a year exists only
+implicitly from race data with no `Season` row yet) — used that instead
+of fixing the stale hook, since fixing unrelated dead code wasn't this
+pass's job. Handled the null case with an inline "set up this season"
+button that creates the `Season` row via `POST /seasons` before the
+groups screen will show group-creation UI.
+
+**Verification, and its real limits**: `tsc -b` and `vite build` both
+clean. Also started the Vite dev server and loaded the route in a headless
+browser to confirm no client-side crash — but this sandbox has no live
+backend/DB (same constraint noted throughout this file), and the app
+requires an authenticated session before `GroupsPage` itself ever mounts
+(unauthenticated, it correctly redirects to the sign-in UI, which is what
+the headless check actually showed). So: confirmed the bundle is valid
+and the app shell doesn't break, **not** that the assignment flow itself
+behaves correctly end-to-end against real data — that needs a live-access
+session with an actual team, roster, and season. Also: no frontend test
+framework exists anywhere in this project (no vitest/jest, no existing
+`*.test.ts` files) — didn't stand one up just to cover
+`seasonBestTime`/`formatTime`, which felt disproportionate for two small
+pure functions; flagging rather than silently skipping.
+
+This closes out T2. Verify gate T2 as literally worded ("assign 130
+athletes across eight groups in under five minutes... move one athlete
+mid-season, confirm getGroupOn returns old-then-new, confirm no
+membership row updated in place") is backend-provable now (the
+`getGroupOn`/no-in-place-update half is unit-tested in
+`test/groups.test.js`) but the "under five minutes" UX half needs a human
+actually using the screen against real data — noted, not faked.
