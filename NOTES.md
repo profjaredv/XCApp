@@ -1222,3 +1222,54 @@ new non-GET route is guarded.
 
 Frontend (the type-and-enter bulk checkout screen, return flow, and the
 outstanding report) is next.
+
+### T6: equipment checkout UI (frontend) — closes T6
+
+`EquipmentPage.tsx` (`/t/:athleticTeamId/equipment`, nav item gated the
+same `isCoach` way as Practice Plans/Meets/Coaches Tools — the backend
+is `HEAD_COACH`/`COACH` only). Three tabs:
+
+- **Checkout** — the type-and-enter flow itself: a persistent Type
+  select, an athlete picker, and an identifier field with a ref so
+  focus returns to it after each submission (React 19 lets a plain
+  function component accept `ref` as a normal prop now, so `ui/input.tsx`
+  needed no `forwardRef` wrapper change to support this — first time this
+  codebase has passed a ref through it, worth noting since it's a newer
+  pattern than the rest of the UI kit uses). On success the identifier
+  (and athlete, since the next scan is usually someone else) clear and
+  refocus immediately — "not a modal per item," per the doc. A 409 from
+  an already-checked-out item surfaces the backend's own message naming
+  the current holder directly via toast, no re-derivation on the client.
+- **Outstanding report** — grouped by athlete exactly as
+  `GET /equipment/outstanding` already returns it, each item with a
+  one-click "Mark returned" (posts with no `conditionIn`/notes — a
+  fuller return form with condition-in tracking would be a reasonable
+  next increment, not built here since the verify gate only requires the
+  report to be accurate, not the return flow to capture condition).
+- **Inventory** — a flat list with inline condition edit and a
+  retire/un-retire toggle per item. No standalone "add new item" dialog
+  — checkout itself creates the `Equipment` row on first use (see the
+  backend commit), so this tab is for adjusting condition/retiring
+  existing items, not seeding new ones from scratch.
+
+**Verification, and its limits (same shape as every prior phase's)**:
+`tsc -b` (forced) and `vite build` both clean; backend suite still 95
+green. Headless-browser check against `/t/:id/equipment` shows no
+client-side crash — redirects to sign-in unauthenticated, same sandbox
+network limits noted throughout this file. Not verified: the actual
+"check out 40 uniforms in under five minutes" timing, or the DB-level
+partial-unique-index race-condition guard, both of which need a live
+session against a real database (Postgres, which this sandbox has never
+had access to) rather than something a headless check without a backend
+can exercise.
+
+This closes T6 — the last phase in the handoff doc's P0 → T6 build
+order. The doc's own "Cleanup, alongside the phases above" list (delete
+`web/src/_archive/`, duplicate `RaceVisualization.tsx`/
+`SeasonModeSelector.tsx`, consolidate the three formatter modules and
+two api modules, rename `calculationServiceSupabase.js`, move
+`docs/history/`) and its six "ask before building" open questions
+(attendance, communication/announcements, preseason time trials,
+multi-team support — injury tracking and guardian access were already
+resolved and built as part of T1/T4) remain the only unbuilt items from
+this document.

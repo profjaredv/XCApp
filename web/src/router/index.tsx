@@ -10,6 +10,7 @@ import RosterPage from '../pages/RosterPage';
 import GroupsPage from '../pages/GroupsPage';
 import PracticePlansPage from '../pages/PracticePlansPage';
 import MeetOpsPage from '../pages/MeetOpsPage';
+import EquipmentPage from '../pages/EquipmentPage';
 import FeedbackPage from '../pages/FeedbackPage';
 import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
@@ -130,6 +131,10 @@ export const router = createBrowserRouter([
                   {
                     path: 'meets',
                     element: <MeetOpsPage />,
+                  },
+                  {
+                    path: 'equipment',
+                    element: <EquipmentPage />,
                   },
                   {
                     path: 'roster',
