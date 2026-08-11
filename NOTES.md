@@ -769,3 +769,77 @@ membership row updated in place") is backend-provable now (the
 `getGroupOn`/no-in-place-update half is unit-tested in
 `test/groups.test.js`) but the "under five minutes" UX half needs a human
 actually using the screen against real data — noted, not faked.
+
+### T3: practice plans, per-group assignments, and workout templates (backend)
+
+Schema: `PracticePlan` (one row per team per day, `@@unique([seasonId,
+date])` so "the shell for a given day" is unambiguous), `PracticePlanAssignment`
+(one row per group per day, `groupId` nullable meaning "whole team" — a
+strength session or a meeting isn't any one group's workout), and
+`WorkoutTemplate` (`@@unique([teamId, name])`). Inserting from a template
+**copies** its fields onto the new assignment row; there is no FK from an
+assignment to the template it came from anywhere in the schema, so
+editing or archiving a template later can never retroactively change a
+plan that already used it — same pattern as `SeasonRoster` never
+referencing a live athlete-import source. Migration:
+`20260811010000_practice_plans/migration.sql`, hand-written to match
+Prisma's generated shape (`group_id` FK is `ON DELETE SET NULL` — deleting
+a group orphans its past assignments to "whole team" rather than cascading
+deletes into practice history).
+
+`routes/practicePlans.js`:
+- `GET /` — the coach composer's week-at-a-glance (`seasonId`, `from`,
+  `to` query params), `HEAD_COACH`/`COACH`/`VOLUNTEER_COACH`. A volunteer
+  coach's read is filtered to team-wide rows plus their own led groups'
+  rows (`ledGroupIds()`), matching the doc's "sees and edits only rows
+  targeting their own groups" — that constraint applies to reads, not
+  just writes, so it's enforced in the query result, not just the mutation
+  routes.
+- `GET /mine?date=` — the athlete phone view (`requireLinkedAthlete`),
+  published-only, filtered to team-wide rows plus whatever the athlete's
+  *own current* `TRAINING` group is on that date via `getGroupOn` — this
+  is the second real, non-test consumer of that helper (the first was
+  T2's `/groups/athlete/:id/current`).
+- `POST /` (day shell upsert) and `PUT /:id/publish` are `HEAD_COACH`/
+  `COACH` only — a volunteer's authority doesn't extend to the whole
+  day's title/notes/location or to deciding when athletes see it, only to
+  their own groups' assignment rows.
+- `POST /:id/assignments`, `PUT /assignments/:id`, `DELETE
+  /assignments/:id` — `requireTeam` plus an inline
+  `canManageGroupOrTeamWide(req, groupId)` check (same shape as T2's
+  `canManageGroup` wrapper in `routes/groups.js`: `requireTeam` alone
+  satisfies `routeAuth.test.js`, and the real gate is the inline call).
+  `POST .../assignments` accepts an optional `templateId`; template
+  fields are copied in first, then any body fields override them, so
+  "insert from template, then tweak" is one call instead of two.
+- `POST /:id/duplicate-day` and `POST /duplicate-week` — `HEAD_COACH`/
+  `COACH`, always land **unpublished** regardless of the source plan's
+  published state, per the doc, so a coach reviews before athletes see a
+  copied day. `duplicate-week` only copies days that actually have a
+  `PracticePlan` row in the source week — a partially-planned week stays
+  partially planned in the copy, it doesn't get padded with empty days.
+
+The team-wide-vs-group-scoped distinction (a volunteer coach can never
+touch a `groupId: null` row, no matter what) is real enough to need its
+own decision function rather than living inline in the route:
+`decideCanManagePracticePlanRow` in `lib/groupPermissions.js`, which
+collapses to "owner or active HEAD_COACH/COACH only" when `groupId` is
+null and otherwise defers to T2's `decideCanManageGroup`. Five new cases
+added to `test/groupPermissions.test.js` covering both branches
+(team-wide allowed for HEAD_COACH/COACH and the owner, team-wide denied
+for a VOLUNTEER_COACH even when `isGroupLeader` is true, group-scoped
+falling through correctly in both directions).
+
+`routes/workoutTemplates.js` — `GET /` (list active, any staff role),
+`POST /` and `PUT /:id` (`HEAD_COACH`/`COACH`; `PUT` doubles as
+archive via `archived: true`), and `POST /from-assignment/:assignmentId`
+("save as template" — copies an existing assignment's fields into a new
+named template, same copy-not-reference rule as the reverse direction).
+
+Both route files mounted in `server.js` (`/api/practice-plans`,
+`/api/workout-templates`). Full suite: 69 tests green, including
+`routeAuth.test.js` confirming every new non-GET route still carries a
+real authorization guard beyond `authenticate`.
+
+Frontend (coach composer week view, insert/duplicate/publish actions,
+athlete "today's plan" view) is T3's remaining half — next up.

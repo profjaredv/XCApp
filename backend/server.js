@@ -93,7 +93,8 @@ const main = async () => {
     const feedbackRoutes = require('./routes/feedback');
     const guardianRoutes = require('./routes/guardian');
     const groupRoutes = require('./routes/groups');
-
+    const practicePlanRoutes = require('./routes/practicePlans');
+    const workoutTemplateRoutes = require('./routes/workoutTemplates');
 
     app.get('/api', (req, res) => {
         res.send('XC Analytics Backend API is running!');
@@ -121,7 +122,9 @@ const main = async () => {
     app.use('/api/feedback', feedbackRoutes);
     app.use('/api/guardian', guardianRoutes);
     app.use('/api/groups', groupRoutes);
-    
+    app.use('/api/practice-plans', practicePlanRoutes);
+    app.use('/api/workout-templates', workoutTemplateRoutes);
+
     // Enhanced performance routes
     const enhancedPerformanceRoutes = require('./routes/enhancedPerformanceRoutes');
     app.use('/api/enhanced-performance', enhancedPerformanceRoutes);
