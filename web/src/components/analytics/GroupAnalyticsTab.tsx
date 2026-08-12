@@ -1,10 +1,14 @@
 import { useMemo, useState, useEffect } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { formatPace } from '@/lib/formatUtils';
-import { useGroups, useGroupAnalytics } from '@/hooks/useGroups';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { LineChart as LineChartIcon } from 'lucide-react';
+import { formatPace, formatDateShort } from '@/lib/formatUtils';
+import { useGroups, useGroupAnalytics, useGroupTrend } from '@/hooks/useGroups';
 
 const GENDER_LABEL: Record<string, string> = { M: 'Boys', F: 'Girls' };
 
@@ -54,6 +58,7 @@ export const GroupAnalyticsTab = ({ groupSeasonId, dataYear }: GroupAnalyticsTab
   }, [groupSeasonId, trainingGroups.length]);
 
   const { data: groups = [], isLoading } = useGroupAnalytics(groupSeasonId, selectedIds ?? [], dataYear);
+  const [exploreGroup, setExploreGroup] = useState<{ id: string; name: string } | null>(null);
 
   const toggleGroup = (groupId: string) => {
     setSelectedIds((prev) => {
@@ -116,7 +121,13 @@ export const GroupAnalyticsTab = ({ groupSeasonId, dataYear }: GroupAnalyticsTab
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">{group.name}</CardTitle>
-                {group.gender && <Badge variant="secondary">{GENDER_LABEL[group.gender] ?? group.gender}</Badge>}
+                <div className="flex items-center gap-2">
+                  {group.gender && <Badge variant="secondary">{GENDER_LABEL[group.gender] ?? group.gender}</Badge>}
+                  <Button variant="outline" size="sm" onClick={() => setExploreGroup({ id: group.id, name: group.name })}>
+                    <LineChartIcon className="h-3.5 w-3.5 mr-1.5" />
+                    Explore
+                  </Button>
+                </div>
               </div>
               <CardDescription>
                 {group.summary.currentSeasonCount} of {group.summary.athleteCount} athlete{group.summary.athleteCount === 1 ? '' : 's'} with
@@ -177,6 +188,73 @@ export const GroupAnalyticsTab = ({ groupSeasonId, dataYear }: GroupAnalyticsTab
           </Card>
         ))}
       </div>
+
+      <GroupTrendDialog group={exploreGroup} dataYear={dataYear} onClose={() => setExploreGroup(null)} />
     </div>
+  );
+};
+
+// Meet-by-meet pace trend and range for one group — the "click a group,
+// explore" view, mirroring the Dashboard's Season Pace Trend chart (same
+// recharts LineChart, same pace-formatted axis) but scoped to this
+// group's roster instead of the whole team, and computed live rather
+// than off the MeetPerformanceMetrics cache that team-wide chart depends
+// on. Min/max are drawn as dashed lines around the solid average line —
+// a simple, honest "range" without needing full per-runner gap data.
+const GroupTrendDialog = ({
+  group,
+  dataYear,
+  onClose,
+}: {
+  group: { id: string; name: string } | null;
+  dataYear?: number;
+  onClose: () => void;
+}) => {
+  const { data: trend, isLoading } = useGroupTrend(group?.id ?? null, dataYear);
+
+  const chartData = useMemo(
+    () =>
+      (trend?.points ?? []).map((p) => ({
+        name: p.raceName.length > 15 ? `${p.raceName.slice(0, 12)}...` : p.raceName,
+        date: formatDateShort(p.date),
+        avg: p.avgPaceSecPerMile,
+        min: p.minPaceSecPerMile,
+        max: p.maxPaceSecPerMile,
+        athleteCount: p.athleteCount,
+      })),
+    [trend]
+  );
+
+  return (
+    <Dialog open={!!group} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{group?.name} — {trend?.dataYear ?? dataYear}</DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
+        ) : chartData.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-8 text-center">No results for this group in {trend?.dataYear ?? dataYear}.</p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Average pace per meet (solid), with the group's fastest-to-slowest range (dashed) — how tight the pack ran that day.
+            </p>
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" interval={0} fontSize={12} tickFormatter={(v) => (v.length > 15 ? `${v.slice(0, 12)}...` : v)} />
+                <YAxis domain={['dataMin - 15', 'dataMax + 15']} tickFormatter={(val) => formatPace(val)} fontSize={12} />
+                <Tooltip formatter={(value: number, key: string) => [formatPace(value), key]} labelStyle={{ color: '#000' }} />
+                <Legend />
+                <Line type="monotone" dataKey="avg" stroke="#8884d8" strokeWidth={2} dot={{ r: 4 }} name="Group avg" />
+                <Line type="monotone" dataKey="min" stroke="#82ca9d" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Fastest" />
+                <Line type="monotone" dataKey="max" stroke="#ffc658" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Slowest" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 };

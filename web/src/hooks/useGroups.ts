@@ -57,6 +57,15 @@ export function useGroupAnalytics(seasonId: string | null, groupIds: string[] = 
   });
 }
 
+/** Meet-by-meet pace trend/spread for one group — the "explore" chart. */
+export function useGroupTrend(groupId: string | null, dataYear?: number) {
+  return useQuery({
+    queryKey: ['groupTrend', groupId, dataYear],
+    queryFn: () => groupService.getGroupTrend(groupId as string, dataYear),
+    enabled: !!groupId,
+  });
+}
+
 export function useCreateGroup(seasonId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({

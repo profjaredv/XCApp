@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { paceSecPerMile, summarizeRaces, buildAthleteSeasonSummary, summarizeGroup } = require('../lib/groupAnalytics');
+const { paceSecPerMile, summarizeRaces, buildAthleteSeasonSummary, summarizeGroup, summarizeGroupAtRace } = require('../lib/groupAnalytics');
 
 test('paceSecPerMile: 5000m in 1000s', () => {
   // 5000m = 3.10686 mi; 1000s / 3.10686mi = 321.868 s/mile
@@ -98,4 +98,31 @@ test('summarizeGroup: no current-season data at all yields null aggregate number
   assert.equal(g.avgPaceSecPerMile, null);
   assert.equal(g.bestPaceSecPerMile, null);
   assert.equal(g.fallbackCount, 1);
+});
+
+test('summarizeGroupAtRace: min/avg/max across the group finishers at one meet', () => {
+  const s = summarizeGroupAtRace([300, 320, 340]);
+  assert.equal(s.athleteCount, 3);
+  assert.equal(s.minPaceSecPerMile, 300);
+  assert.equal(s.maxPaceSecPerMile, 340);
+  assert.equal(s.avgPaceSecPerMile, 320);
+});
+
+test('summarizeGroupAtRace: a single finisher has min === avg === max', () => {
+  const s = summarizeGroupAtRace([310]);
+  assert.equal(s.minPaceSecPerMile, 310);
+  assert.equal(s.avgPaceSecPerMile, 310);
+  assert.equal(s.maxPaceSecPerMile, 310);
+});
+
+test('summarizeGroupAtRace: nulls/zeros/negatives are excluded, not treated as a fast pace', () => {
+  const s = summarizeGroupAtRace([300, null, 0, -5, 320]);
+  assert.equal(s.athleteCount, 2);
+  assert.equal(s.minPaceSecPerMile, 300);
+  assert.equal(s.maxPaceSecPerMile, 320);
+});
+
+test('summarizeGroupAtRace: no valid paces returns null, not zeros', () => {
+  assert.equal(summarizeGroupAtRace([]), null);
+  assert.equal(summarizeGroupAtRace([null, 0, -1]), null);
 });

@@ -2027,3 +2027,53 @@ clean. Not yet built: the "click a group, explore — charts, ranges,
 performance over time as a group" follow-up request from the same
 message, mirroring the Dashboard's existing Season Pace Trend/Pack
 Running charts but scoped to one group. Investigating that next.
+
+## Group Analytics: "explore" chart (pace trend + range, per group)
+
+Follow-up: "we only need last best times and averages... click on a
+group explore can then show charts and ranges. and performance over
+time, but as a group. we have similar features, this one just focuses
+on the current set of athletes." Confirmed the Dashboard's existing
+Season Pace Trend chart (`components/analytics/DashboardTab.tsx`,
+recharts `LineChart` fed by `useTeamSeasonSeries` /
+`calculationService.getSeasonSeries`) was the feature being pointed at —
+but that hook reads from `MeetPerformanceMetrics`, the same
+calculation-cache table the rest of this session has been keeping
+Group Analytics deliberately independent of. Building the group-scoped
+version on top of it would have quietly reintroduced the "needs
+calculation first" gate this whole feature exists to avoid, so it's a
+new, live-computed sibling instead, not a reuse of that hook.
+
+**Backend.** Added `summarizeGroupAtRace(paces)` to `lib/groupAnalytics.js`
+— pure, given the group's pace values at one meet, returns
+`{athleteCount, avgPaceSecPerMile, minPaceSecPerMile, maxPaceSecPerMile}`
+(or `null` for no valid paces, never a zero). 4 new tests
+(`test/groupAnalytics.test.js`), including "one finisher has min=avg=max"
+and "invalid values are excluded, not treated as a fast time." New route
+`GET /api/groups/:id/trend?dataYear=`: active roster for that group,
+their `Result`s in `dataYear` (defaults to the group's own season year,
+same independence from the roster season as the `/analytics` endpoint's
+`dataYear`), grouped by race and summarized with the new pure function,
+sorted by race date.
+
+**Frontend.** `GroupAnalyticsTab.tsx` gained an "Explore" button per
+group card, opening a dialog with a recharts `LineChart` — deliberately
+built to visually match the Dashboard's Season Pace Trend chart (same
+axis formatting via `formatPace`, same `CartesianGrid`/`Tooltip`/`Legend`
+setup) so it reads as "the same kind of chart, just for one group,"
+per the user's own framing. Group average pace is the solid line; min
+("Fastest") and max ("Slowest") are dashed lines around it — a range
+band without needing full per-runner finish-gap data the way the
+Dashboard's separate Pack Running section computes (that's a genuinely
+different, heavier calculation; a min/max spread satisfies "ranges"
+without taking on that complexity for a first version).
+
+Verification: `node --check`; backend suite 118/119 green (same
+pre-existing unrelated failure); `tsc -b --force` and `vite build`
+clean; headless-browser check on `/t/:id/analytics?tab=byGroup` with a
+past-year query param shows no client-side crash. Not verified: the
+actual chart rendering against real multi-meet data (no authenticated
+session reachable from this sandbox, same limitation as every UI
+change this session) — the dialog's empty/loading states were
+exercised, but a coach's own team's shape (how many meets per season,
+how tight/spread the pack actually is) will be the real test.

@@ -70,6 +70,23 @@ export interface GroupAnalytics {
   summary: GroupAnalyticsSummary;
 }
 
+export interface GroupTrendPoint {
+  raceId: string;
+  raceName: string;
+  date: string;
+  athleteCount: number;
+  avgPaceSecPerMile: number;
+  minPaceSecPerMile: number;
+  maxPaceSecPerMile: number;
+}
+
+export interface GroupTrend {
+  groupId: string;
+  groupName: string;
+  dataYear: number;
+  points: GroupTrendPoint[];
+}
+
 export const groupService = {
   async listGroups(seasonId: string): Promise<Group[]> {
     const response = await api.get<Group[]>('/groups', { params: { seasonId } });
@@ -170,6 +187,14 @@ export const groupService = {
         ...(groupIds.length > 0 ? { groupIds: groupIds.join(',') } : {}),
         ...(dataYear !== undefined ? { dataYear } : {}),
       },
+    });
+    return response.data;
+  },
+
+  /** Meet-by-meet pace trend and spread for one group, for the "explore" chart. Omit dataYear for the group's own season year. */
+  async getGroupTrend(groupId: string, dataYear?: number): Promise<GroupTrend> {
+    const response = await api.get<GroupTrend>(`/groups/${groupId}/trend`, {
+      params: dataYear !== undefined ? { dataYear } : {},
     });
     return response.data;
   },

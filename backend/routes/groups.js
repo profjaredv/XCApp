@@ -7,7 +7,7 @@ const { decideCanManageGroup } = require('../lib/groupPermissions');
 const { normalizeGender } = require('../lib/gender');
 const { deriveGrade } = require('../lib/season');
 const { parseDistanceToMeters } = require('../lib/distance');
-const { buildAthleteSeasonSummary, summarizeGroup } = require('../lib/groupAnalytics');
+const { buildAthleteSeasonSummary, summarizeGroup, paceSecPerMile, summarizeGroupAtRace } = require('../lib/groupAnalytics');
 
 const GROUP_TYPES = new Set(['TRAINING', 'CAPTAIN', 'CUSTOM']);
 
@@ -218,6 +218,68 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
     );
   } catch (error) {
     console.error('Error building group analytics:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/groups/:id/trend?dataYear= — meet-by-meet pace trend and
+// spread for one group's current roster, the group-scoped analog of the
+// team-wide Season Pace Trend/Pack Running dashboard charts. Computed
+// live from Result/Race rows for the same reason as GET /analytics above
+// (no dependency on the MeetPerformanceMetrics cache those team-wide
+// charts use, which needs a calculation step to exist first). `dataYear`
+// defaults to the group's own season year; explicit past years work the
+// same "no fallback substitution, just that year's real data" way
+// GET /analytics's dataYear does.
+router.get('/:id/trend', authenticate, requireTeam, async (req, res) => {
+  try {
+    const group = await prisma.group.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
+    if (!group) {
+      return res.status(404).json({ msg: 'Group not found.' });
+    }
+    const season = await prisma.season.findFirst({ where: { id: group.seasonId } });
+    const parsedDataYear = parseInt(req.query.dataYear, 10);
+    const dataYear = Number.isFinite(parsedDataYear) ? parsedDataYear : season?.year;
+    if (!Number.isFinite(dataYear)) {
+      return res.status(400).json({ msg: 'No data year could be resolved for this group.' });
+    }
+
+    const memberships = await prisma.groupMembership.findMany({
+      where: { groupId: group.id, endDate: null },
+      select: { athleteId: true },
+    });
+    const athleteIds = memberships.map((m) => m.athleteId);
+
+    if (athleteIds.length === 0) {
+      return res.json({ groupId: group.id, groupName: group.name, dataYear, points: [] });
+    }
+
+    const results = await prisma.result.findMany({
+      where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: dataYear } },
+      select: { time: true, race: { select: { id: true, name: true, date: true, distance: true, distanceMeters: true } } },
+    });
+
+    const pacesByRace = new Map(); // raceId -> { raceName, date, paces: number[] }
+    for (const r of results) {
+      const distanceMeters = r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance);
+      const paceValue = paceSecPerMile(r.time, distanceMeters);
+      if (paceValue == null) continue;
+      const entry = pacesByRace.get(r.race.id) || { raceName: r.race.name, date: r.race.date, paces: [] };
+      entry.paces.push(paceValue);
+      pacesByRace.set(r.race.id, entry);
+    }
+
+    const points = [...pacesByRace.entries()]
+      .map(([raceId, { raceName, date, paces }]) => {
+        const summary = summarizeGroupAtRace(paces);
+        return summary && { raceId, raceName, date, ...summary };
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    res.json({ groupId: group.id, groupName: group.name, dataYear, points });
+  } catch (error) {
+    console.error('Error building group trend:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

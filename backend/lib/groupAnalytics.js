@@ -77,4 +77,23 @@ function summarizeGroup(athleteSummaries) {
   };
 }
 
-module.exports = { paceSecPerMile, summarizeRaces, buildAthleteSeasonSummary, summarizeGroup };
+// Meet-by-meet trend, group-scoped: for one race, the group's spread of
+// paces across whichever of its athletes raced it — min/avg/max, so the
+// "explore" chart can show both a pace trend line and a range band per
+// meet, the group-scoped analog of the team-wide Season Pace Trend/Pack
+// Running charts (which both depend on the AthleteSeasonMetrics-adjacent
+// MeetPerformanceMetrics cache; this stays live/uncached like the rest
+// of this file, same reasoning as the module comment above).
+// paces: number[] (sec/mile, already computed) for one race.
+function summarizeGroupAtRace(paces) {
+  const valid = paces.filter((p) => p != null && p > 0);
+  if (valid.length === 0) return null;
+  return {
+    athleteCount: valid.length,
+    avgPaceSecPerMile: valid.reduce((sum, p) => sum + p, 0) / valid.length,
+    minPaceSecPerMile: Math.min(...valid),
+    maxPaceSecPerMile: Math.max(...valid),
+  };
+}
+
+module.exports = { paceSecPerMile, summarizeRaces, buildAthleteSeasonSummary, summarizeGroup, summarizeGroupAtRace };
