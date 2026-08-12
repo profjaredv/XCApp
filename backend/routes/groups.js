@@ -72,20 +72,35 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-// GET /api/groups/analytics?seasonId=&groupIds=id1,id2 — filter analytics
-// to one or more groups' current rosters and compare them against each
-// other, normalized to pace (lib/groupAnalytics.js) so groups racing
-// different distances are still comparable. Computed live from
-// Result/Race rows — deliberately not dependent on the
+// GET /api/groups/analytics?seasonId=&groupIds=id1,id2&dataYear=2024 —
+// filter analytics to one or more groups' current rosters and compare
+// them against each other, normalized to pace (lib/groupAnalytics.js) so
+// groups racing different distances are still comparable. Computed live
+// from Result/Race rows — deliberately not dependent on the
 // AthleteSeasonMetrics cache table or any "run analysis first" step (the
 // same gap that used to block viewing an athlete's profile before that
-// season's metrics had been calculated). An athlete with no races yet
-// this season falls back to their most recent prior season's data
-// instead of showing blank, always flagged (`isFallback`) and always
-// excluded from the group's own "this season" numbers, so a coach never
-// mistakes a blended number for this year's actual pace.
+// season's metrics had been calculated).
+//
+// `seasonId` picks which Group rows define the roster — always the
+// season the coach is actively managing groups for, typically the
+// current one. `dataYear` (defaults to that season's own year) picks
+// which year of results to display for that fixed roster — they're
+// deliberately independent: a coach setting up preseason groups for 2026
+// can look at what today's roster did in 2024 without 2024 needing its
+// own Group rows or even its own Season row (`dataYear` is matched
+// straight off `Race.season`, a plain int, same as everywhere else in
+// this app that reasons about "which year," including seasons that
+// predate the Season table being populated for every year).
+//
+// The per-athlete "no race yet, fall back to their most recent prior
+// season" affordance only applies when `dataYear` equals the group's own
+// season — that's the live/preseason case this exists for. Explicitly
+// picking a past year is a coach asking "what did this year look like,"
+// and substituting a different year's number there would be actively
+// misleading, so no fallback happens: an athlete with nothing in that
+// specific year just shows no data, honestly.
 router.get('/analytics', authenticate, requireTeam, async (req, res) => {
-  const { seasonId, groupIds } = req.query;
+  const { seasonId, groupIds, dataYear: dataYearRaw } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
   }
@@ -95,6 +110,10 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
     if (!season) {
       return res.status(404).json({ msg: 'Season not found.' });
     }
+
+    const parsedDataYear = parseInt(dataYearRaw, 10);
+    const dataYear = Number.isFinite(parsedDataYear) ? parsedDataYear : season.year;
+    const allowFallback = dataYear === season.year;
 
     const requestedIds =
       typeof groupIds === 'string'
@@ -129,13 +148,15 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
     if (athleteIds.length > 0) {
       const [currentResults, priorResults] = await Promise.all([
         prisma.result.findMany({
-          where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: season.year } },
+          where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: dataYear } },
           select: { athleteId: true, time: true, race: { select: { distance: true, distanceMeters: true } } },
         }),
-        prisma.result.findMany({
-          where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: { lt: season.year } } },
-          select: { athleteId: true, time: true, race: { select: { season: true, distance: true, distanceMeters: true } } },
-        }),
+        allowFallback
+          ? prisma.result.findMany({
+              where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: { lt: dataYear } } },
+              select: { athleteId: true, time: true, race: { select: { season: true, distance: true, distanceMeters: true } } },
+            })
+          : Promise.resolve([]),
       ]);
 
       for (const r of currentResults) {
@@ -162,7 +183,7 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
       summaryByAthlete.set(
         athleteId,
         buildAthleteSeasonSummary({
-          targetSeason: season.year,
+          targetSeason: dataYear,
           currentSeasonRaces: currentByAthlete.get(athleteId) || [],
           priorSeasonsByYearDesc,
         })
@@ -176,7 +197,7 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
           return {
             athleteId: m.athleteId,
             name: m.athlete.name,
-            grade: deriveGrade(m.athlete.graduationYear, season.year),
+            grade: deriveGrade(m.athlete.graduationYear, dataYear),
             season: summary?.season ?? null,
             isFallback: summary?.isFallback ?? null,
             raceCount: summary?.raceCount ?? 0,
@@ -189,6 +210,7 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
           name: g.name,
           type: g.type,
           gender: normalizeGender(g.gender),
+          dataYear,
           athletes,
           summary: summarizeGroup(g.memberships.map((m) => summaryByAthlete.get(m.athleteId))),
         };

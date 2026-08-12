@@ -43,11 +43,16 @@ export function useRosterWithRaces(season: number | undefined) {
   });
 }
 
-/** Omit groupIds (or pass []) for "all training groups this season." */
-export function useGroupAnalytics(seasonId: string | null, groupIds: string[] = []) {
+/**
+ * `seasonId` is the roster-defining season (the one whose Group rows to
+ * use — usually the current season). `dataYear` is which year of results
+ * to display for that roster; omit for the roster season's own year.
+ * Omit groupIds (or pass []) for "all training groups this season."
+ */
+export function useGroupAnalytics(seasonId: string | null, groupIds: string[] = [], dataYear?: number) {
   return useQuery({
-    queryKey: ['groupAnalytics', seasonId, groupIds],
-    queryFn: () => groupService.getGroupAnalytics(seasonId as string, groupIds),
+    queryKey: ['groupAnalytics', seasonId, groupIds, dataYear],
+    queryFn: () => groupService.getGroupAnalytics(seasonId as string, groupIds, dataYear),
     enabled: !!seasonId,
   });
 }

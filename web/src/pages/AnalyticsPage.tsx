@@ -102,6 +102,13 @@ const AnalyticsPage = () => {
   const activeSeason = teamContext?.activeSeason;
   const viewedSeason = selectedSeason ?? activeSeason;
   const viewedSeasonMeta = availableSeasons.find((s) => s.year === viewedSeason);
+  // The Groups tab's roster always comes from the team's actively-managed
+  // season, not whichever year is being viewed — a coach setting up 2026
+  // groups in the preseason should be able to look at what that same
+  // roster did in 2024 without 2024 needing its own Group rows (see
+  // GroupAnalyticsTab's own comment for why those are deliberately
+  // decoupled).
+  const activeSeasonMeta = availableSeasons.find((s) => s.year === activeSeason);
   // A season can have real races imported but no computed metrics yet — an
   // older season that predates the last recalculation, say. That state was
   // previously invisible: the overview endpoint just returns zeros for
@@ -571,7 +578,7 @@ const AnalyticsPage = () => {
             cache table, so it works in preseason before anything has been
             calculated. That's the whole point of it. */}
         <TabsContent value="byGroup">
-          <GroupAnalyticsTab seasonId={viewedSeasonMeta?.id ?? null} />
+          <GroupAnalyticsTab groupSeasonId={activeSeasonMeta?.id ?? null} dataYear={viewedSeason} />
         </TabsContent>
       </Tabs>
       <AthleteDetailModal 

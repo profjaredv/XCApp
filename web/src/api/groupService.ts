@@ -64,6 +64,8 @@ export interface GroupAnalytics {
   name: string;
   type: GroupType;
   gender: string | null;
+  /** The year of results actually shown — echoes the request's dataYear (or the group's own season year if omitted). */
+  dataYear: number;
   athletes: GroupAnalyticsAthlete[];
   summary: GroupAnalyticsSummary;
 }
@@ -150,10 +152,24 @@ export const groupService = {
     return response.data;
   },
 
-  /** Filter/compare groups' current rosters, normalized to pace. Omit groupIds for "all training groups this season." */
-  async getGroupAnalytics(seasonId: string, groupIds?: string[]): Promise<GroupAnalytics[]> {
+  /**
+   * Filter/compare groups' current rosters, normalized to pace. `seasonId`
+   * picks which season's Group rows define the roster (always the season
+   * being actively managed — usually the current one); `dataYear` picks
+   * which year of results to show for that fixed roster, independent of
+   * `seasonId` — pass a past year to see what today's roster did back
+   * then, no Season row required for that past year. Omit `dataYear` for
+   * "the roster season's own year" (the live/preseason case, with
+   * per-athlete prior-season fallback). Omit groupIds for "all training
+   * groups this season."
+   */
+  async getGroupAnalytics(seasonId: string, groupIds: string[] = [], dataYear?: number): Promise<GroupAnalytics[]> {
     const response = await api.get<GroupAnalytics[]>('/groups/analytics', {
-      params: { seasonId, ...(groupIds && groupIds.length > 0 ? { groupIds: groupIds.join(',') } : {}) },
+      params: {
+        seasonId,
+        ...(groupIds.length > 0 ? { groupIds: groupIds.join(',') } : {}),
+        ...(dataYear !== undefined ? { dataYear } : {}),
+      },
     });
     return response.data;
   },

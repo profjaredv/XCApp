@@ -1978,3 +1978,52 @@ completed seasons?) worth asking about rather than assuming, not
 something to guess at while fixing an empty-state message.
 
 `tsc -b --force` and `vite build` clean.
+
+## Group Analytics: decouple roster season from viewed data year
+
+User feedback after the previous fix: "what doesn't happen now, is that
+in analytics, I can't view 2024 data and click on groups and see what my
+current group did. i only can see group data by choosing 2026 current
+season." Confirmed this was a real gap, not a misunderstanding — the
+endpoint was using the same `seasonId` for two different things at once:
+which `Group` rows to use as the roster, AND which year of results to
+treat as "current" for the per-athlete fallback. Picking 2024 in the
+season selector meant "show me 2024's own Group rows" (which mostly
+don't exist for a preseason-created 2026 group), not "show me 2026's
+current groups' 2024 results," which is what the user actually wanted.
+
+Fixed by splitting those into two independent inputs:
+`routes/groups.js`'s `/analytics` route now takes `seasonId` (still: the
+roster-defining season, always the team's actively-managed one) and a
+new `dataYear` (which year of results to display for that fixed roster,
+defaulting to the roster season's own year). They're genuinely
+independent — `dataYear` reads straight off `Race.season` the same way
+prior-season fallback already did, so a past year with no `Season` row
+at all (like the legacy 2025 season from the last fix) works fine as a
+`dataYear`, it just can't be a roster-defining `seasonId`.
+
+The per-athlete "no race yet, fall back to their most recent prior
+season" affordance now only fires when `dataYear` equals the roster
+season's own year — that's specifically the live/preseason case it
+exists for. Explicitly picking a past year is a coach asking "what did
+this look like," and silently substituting a different year's number
+there would be actively misleading, so no fallback happens in that mode:
+an athlete with nothing in that specific year just shows blank, honestly.
+
+Frontend: `AnalyticsPage.tsx` now resolves the team's active season's id
+separately from whichever year is selected in the picker
+(`activeSeasonMeta` vs. the existing `viewedSeasonMeta`/`viewedSeason`),
+and passes them to `GroupAnalyticsTab` as two distinct props
+(`groupSeasonId`, `dataYear`) instead of one conflated `seasonId`. The
+existing top-level season selector now doubles as "which year to view
+through your current groups" for this one tab, without changing what it
+means for the other four tabs (their own team-wide snapshots are
+unaffected). Added a "Showing {year} results for your current groups"
+line so that dual meaning doesn't have to be inferred.
+
+Verification: `node --check`, backend suite 114/115 green (same
+pre-existing unrelated failure), `tsc -b --force` and `vite build`
+clean. Not yet built: the "click a group, explore — charts, ranges,
+performance over time as a group" follow-up request from the same
+message, mirroring the Dashboard's existing Season Pace Trend/Pack
+Running charts but scoped to one group. Investigating that next.
