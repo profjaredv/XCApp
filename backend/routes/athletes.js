@@ -10,6 +10,7 @@ const {
   hasGraduated,
 } = require('../lib/season');
 const { normalizeGender } = require('../lib/gender');
+const calculationService = require('../services/performance/calculationService');
 
 // GET /api/athletes?season=&activeOnly=&search=
 //
@@ -253,6 +254,13 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
       });
     }
 
+    // A new athlete changes the roster calculateAllMetrics derives its
+    // grade/gender breakdowns from, even before they've raced — same
+    // fire-and-forget trigger every other roster-affecting write uses.
+    calculationService
+      .calculateAllMetrics(teamId, seasonYear)
+      .catch((calcError) => console.error(`Error recalculating metrics after adding athlete for season ${seasonYear}:`, calcError.message));
+
     res.status(201).json({ ...athlete, grade: deriveGrade(gradYear, seasonYear) });
   } catch (error) {
     console.error('Error in POST /athletes:', error.message);
@@ -289,6 +297,15 @@ router.put('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 
     }
 
     const athlete = await prisma.athlete.update({ where: { id: existing.id }, data: updates });
+
+    // Only gender/graduationYear feed calculationService's breakdowns —
+    // a bare name edit doesn't need a recompute.
+    if ('gender' in updates || 'graduationYear' in updates) {
+      calculationService
+        .calculateAllMetrics(teamId, seasonYear)
+        .catch((calcError) => console.error(`Error recalculating metrics after editing athlete for season ${seasonYear}:`, calcError.message));
+    }
+
     res.json({ ...athlete, grade: deriveGrade(athlete.graduationYear, seasonYear) });
   } catch (error) {
     console.error('Error in PUT /athletes/:athleteId:', error.message);
@@ -297,16 +314,35 @@ router.put('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 
 });
 
 router.delete('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+  const teamId = req.user.teamId;
   try {
     const existing = await prisma.athlete.findFirst({
-      where: { id: req.params.athleteId, teamId: req.user.teamId },
+      where: { id: req.params.athleteId, teamId },
     });
 
     if (!existing) {
       return res.status(404).json({ msg: 'Athlete not found' });
     }
 
+    // The athlete's own AthleteSeasonMetrics rows cascade-delete with them
+    // (schema FK), but TeamSeasonMetrics (team-wide totals/averages) has no
+    // FK to Athlete at all — it would keep counting this athlete's results
+    // in the team's numbers forever otherwise. Read which seasons they
+    // actually raced in before the delete cascades their Results away.
+    const seasonsRaced = await prisma.result.findMany({
+      where: { athleteId: existing.id },
+      select: { race: { select: { season: true } } },
+    });
+    const affectedSeasons = [...new Set(seasonsRaced.map((r) => r.race.season))];
+
     await prisma.athlete.delete({ where: { id: existing.id } });
+
+    for (const season of affectedSeasons) {
+      calculationService
+        .calculateAllMetrics(teamId, season)
+        .catch((calcError) => console.error(`Error recalculating metrics after deleting athlete for season ${season}:`, calcError.message));
+    }
+
     res.json({ msg: 'Athlete deleted successfully' });
   } catch (error) {
     console.error('Error in DELETE /athletes/:athleteId:', error.message);

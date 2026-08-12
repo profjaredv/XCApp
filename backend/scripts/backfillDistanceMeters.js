@@ -14,12 +14,13 @@
 
 const prisma = require('../lib/db');
 const { parseDistanceToMeters } = require('../lib/distance');
+const calculationService = require('../services/performance/calculationService');
 
 async function main() {
   const dryRun = process.argv.includes('--dry-run');
 
   const races = await prisma.race.findMany({
-    select: { id: true, teamId: true, name: true, date: true, distance: true, distanceMeters: true },
+    select: { id: true, teamId: true, season: true, name: true, date: true, distance: true, distanceMeters: true },
   });
 
   console.log(`Checking ${races.length} races${dryRun ? ' (dry run, no writes)' : ''}...`);
@@ -27,6 +28,12 @@ async function main() {
   let unchanged = 0;
   let updated = 0;
   const unparseable = [];
+  // distanceMeters feeds pace math directly in calculationService
+  // (getAthleteRacesSeasonOnly, calculateMeetPerformance) — every
+  // team+season whose races this backfill actually changes needs its
+  // cached metrics recomputed, or their pace/mileage figures stay wrong
+  // until the next unrelated re-scrape happens to trigger a recalc.
+  const affectedTeamSeasons = new Map(); // teamId -> Set(season)
 
   for (const race of races) {
     const parsed = parseDistanceToMeters(race.distance);
@@ -46,6 +53,8 @@ async function main() {
 
     if (!dryRun) {
       await prisma.race.update({ where: { id: race.id }, data: { distanceMeters: parsed } });
+      if (!affectedTeamSeasons.has(race.teamId)) affectedTeamSeasons.set(race.teamId, new Set());
+      affectedTeamSeasons.get(race.teamId).add(race.season);
     }
     updated++;
     console.log(
@@ -65,6 +74,21 @@ async function main() {
     for (const r of unparseable) {
       console.log(`  id=${r.id} teamId=${r.teamId} distance=${JSON.stringify(r.distance)} name=${r.name} date=${r.date.toISOString().slice(0, 10)}`);
     }
+  }
+
+  const pairCount = [...affectedTeamSeasons.values()].reduce((sum, seasons) => sum + seasons.size, 0);
+  if (pairCount > 0) {
+    console.log(`\nRecalculating metrics for ${pairCount} affected team+season pair(s)...`);
+    for (const [teamId, seasons] of affectedTeamSeasons) {
+      for (const season of seasons) {
+        try {
+          await calculationService.calculateAllMetrics(teamId, season);
+        } catch (calcError) {
+          console.error(`  Failed to recalculate metrics for team ${teamId}, season ${season}: ${calcError.message}`);
+        }
+      }
+    }
+    console.log('Done recalculating.');
   }
 }
 

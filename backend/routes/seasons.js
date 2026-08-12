@@ -218,6 +218,14 @@ router.delete('/:id/results', authenticate, requireTeam, requireRole(['HEAD_COAC
       await prisma.result.deleteMany({ where: { raceId: { in: races.map((r) => r.id) } } });
     }
 
+    // Race rows survive this endpoint (only Result rows are cleared), so
+    // MeetPerformanceMetrics doesn't cascade away on its own either — all
+    // three cache tables were computed from the results just deleted and
+    // would otherwise keep showing this season's old totals.
+    await prisma.teamSeasonMetrics.deleteMany({ where: { teamId, season: season.year } });
+    await prisma.athleteSeasonMetrics.deleteMany({ where: { teamId, season: season.year } });
+    await prisma.meetPerformanceMetrics.deleteMany({ where: { teamId, season: season.year } });
+
     res.json({ success: true, message: `Cleared results for season ${season.year}` });
   } catch (err) {
     console.error('Error clearing season results:', err.message);

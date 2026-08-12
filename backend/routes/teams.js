@@ -543,6 +543,15 @@ router.post('/scrape-roster', authenticate, requireRole(['HEAD_COACH', 'COACH'])
           }
         }
 
+        // Writes gender/graduationYear, both read directly by
+        // calculationService's gender/grade breakdowns — same fire-and-
+        // forget trigger the main results scrape uses below, so a roster
+        // sync that corrects an athlete's grade doesn't leave those
+        // breakdowns stale until the next full re-scrape.
+        calculationService
+          .calculateAllMetrics(team.id, yearNum)
+          .catch((calcError) => console.error(`Error recalculating metrics after roster sync for season ${yearNum}:`, calcError.message));
+
         res.status(200).json({
           success: true,
           season: yearNum,
@@ -955,11 +964,13 @@ router.post('/seasons/:year/roster', authenticate, requireRole(['HEAD_COACH', 'C
 
     // Adding someone to a season is also the moment to fix their graduation
     // year if the coach supplied a grade — otherwise the two disagree.
+    let graduationYearChanged = false;
     if (Number.isFinite(parseInt(grade, 10))) {
       await prisma.athlete.update({
         where: { id: athlete.id },
         data: { graduationYear: deriveGraduationYear(grade, year) },
       });
+      graduationYearChanged = true;
     }
 
     const entry = await prisma.seasonRoster.upsert({
@@ -967,6 +978,12 @@ router.post('/seasons/:year/roster', authenticate, requireRole(['HEAD_COACH', 'C
       update: { isActive: true, grade: resolvedGrade },
       create: { seasonId: season.id, athleteId, grade: resolvedGrade, isActive: true },
     });
+
+    if (graduationYearChanged) {
+      calculationService
+        .calculateAllMetrics(teamId, year)
+        .catch((calcError) => console.error(`Error recalculating metrics after roster grade change for season ${year}:`, calcError.message));
+    }
 
     res.json({ success: true, season: year, entry });
   } catch (error) {
@@ -1056,13 +1073,23 @@ router.delete('/:athleticTeamId/results', authenticate, requireRole(['HEAD_COACH
 
     const races = await prisma.race.findMany({
       where: { teamId, ...seasonFilter },
-      select: { id: true },
+      select: { id: true, season: true },
     });
     const raceIds = races.map((r) => r.id);
+    const clearedSeasons = [...new Set(races.map((r) => r.season))];
 
     if (raceIds.length > 0) {
       await prisma.result.deleteMany({ where: { raceId: { in: raceIds } } });
       await prisma.race.deleteMany({ where: { id: { in: raceIds } } });
+    }
+
+    // The races/results just deleted are exactly what AthleteSeasonMetrics/
+    // TeamSeasonMetrics were computed from — neither table cascades off
+    // Race (only MeetPerformanceMetrics does, via its Race FK), so without
+    // this a coach clearing a season would still see its old totals.
+    if (clearedSeasons.length > 0) {
+      await prisma.teamSeasonMetrics.deleteMany({ where: { teamId, season: { in: clearedSeasons } } });
+      await prisma.athleteSeasonMetrics.deleteMany({ where: { teamId, season: { in: clearedSeasons } } });
     }
 
     const remaining = await listSeasonsWithData(teamId);

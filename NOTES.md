@@ -1829,3 +1829,95 @@ for a team with several seasons of gaps in between (e.g. raced 2023,
 skipped 2024, group set up in 2025 — the "walk seasons newest-first"
 logic should handle it per the pure-function tests, but only real data
 would confirm it feels right to a coach looking at it).
+
+## Closing the metrics-cache staleness gaps (audit → fix)
+
+Follow-up to the group-analytics conversation above: the user asked
+whether depending on `AthleteSeasonMetrics`/`TeamSeasonMetrics` at all was
+the right call, worried live computation "across hundreds of teams at
+once" would be slow. Answered that concern first — every query in this
+app is already `teamId`-scoped, so "live" means per-request/per-team, not
+a shared expensive computation; hundreds of teams means hundreds of cheap
+independent queries, not one big one. Then audited every write path that
+touches `Result`/`Race`/`Athlete` to find where the *existing* cache
+(which is legitimate for the genuinely expensive whole-team aggregates)
+goes stale.
+
+**What the audit found.** `calculationService.calculateAllMetrics` is a
+full recompute, not incremental — it re-derives the whole roster's
+metrics and every race in the season from scratch on every call, no
+diffing. The main Athletic.net season-results scrape (`routes/teams.js`
+~353) already fire-and-forgets this after every bulk import — that path
+was always correct. Nearly everything else wasn't:
+
+- `DELETE /api/teams/:athleticTeamId/results` and `DELETE /api/seasons/
+  :id/results` deleted the underlying `Result`/`Race` rows but left
+  `AthleteSeasonMetrics`/`TeamSeasonMetrics` rows behind — worse than
+  merely stale, since a coach clearing a season would still see its old
+  totals displayed for data that no longer exists. (`MeetPerformanceMetrics`
+  does cascade automatically via its `Race` FK — `onDelete: Cascade` — so
+  only the other two tables had the gap.) A third endpoint,
+  `POST /api/data/clear/:season` (`routes/dataManagement.js`), already
+  did this correctly — explicit `deleteMany` on all three cache tables in
+  the same request. That's the pattern every other clear/delete path
+  needed to match.
+- Roster-sync scrape (`POST /api/teams/scrape-roster`), adding an athlete
+  to a season roster with a grade (`POST /api/teams/seasons/:year/
+  roster`), and every single-athlete create/update/delete in
+  `routes/athletes.js` write `gender`/`graduationYear` — both read
+  directly by `calculationService`'s gender/grade breakdowns — with no
+  recalculation trigger anywhere.
+- `scripts/backfillDistanceMeters.js` writes `Race.distanceMeters`, which
+  feeds pace math directly (`getAthleteRacesSeasonOnly`,
+  `calculateMeetPerformance`) — running it silently invalidated every
+  affected team's cached pace/mileage figures with nothing to refresh
+  them, and it runs across every team in one pass (not scoped to one
+  team's request), so this was the one write path in the audit that
+  actually touches many teams at once.
+
+**Fixes, all mirroring patterns already proven elsewhere in the codebase
+rather than inventing anything new:**
+- `routes/teams.js`'s `DELETE /:athleticTeamId/results` and
+  `routes/seasons.js`'s `DELETE /:id/results` now `deleteMany` the cache
+  tables for whichever team+season(s) were actually cleared, in the same
+  request — same tables, same pattern `routes/dataManagement.js` already
+  used correctly.
+- `routes/teams.js`'s roster-sync scrape and roster-add-with-grade, and
+  `routes/athletes.js`'s POST/PUT/DELETE, now fire-and-forget
+  `calculationService.calculateAllMetrics(teamId, season)` after any
+  write that actually changes gender or graduationYear — same
+  fire-and-forget call the main scrape already uses, only triggered when
+  something metrics-relevant changed (a bare name edit doesn't recompute
+  anything). DELETE is the one that needed real care: an athlete's own
+  `AthleteSeasonMetrics` rows cascade away automatically (FK to
+  `Athlete`), but `TeamSeasonMetrics` has no FK to `Athlete` at all, so
+  team-wide totals would keep counting a deleted athlete's results
+  forever without an explicit trigger — the route now reads which
+  seasons the athlete actually raced in *before* the delete cascades
+  their `Result` rows away, and recalculates each of those seasons
+  afterward.
+- `scripts/backfillDistanceMeters.js` now tracks which (team, season)
+  pairs it actually changed a `distanceMeters` value for (skipped
+  entirely in `--dry-run`, since nothing was written) and awaits a
+  recalculation for each at the end of the run, reporting failures per
+  pair rather than letting one team's error abort the whole backfill.
+
+**Deliberately left alone:** the two meet-import routes (`routes/
+meetOps.js`'s race-based and calendar-based imports) and the CLI
+`scripts/applyMeetMapping.js`/`applyCourseMapping.js` all write `Race.
+meetId`/`courseId` with no recalc trigger — confirmed via the audit that
+neither field is read anywhere in `calculationService.js`'s queries (it
+groups by `teamId`/`season` only), so there's no actual staleness to fix
+there; adding a trigger would just be wasted work with nothing to show
+for it.
+
+Verification: `node --check` on every touched file; backend suite
+114/115 green (same pre-existing Playwright-binary gap, unrelated — no
+regressions from these changes). No frontend changes — every fix here is
+either a cache-cleanup addition or a new fire-and-forget call alongside
+existing writes, none of it changes any response shape. Not verified:
+the actual recalculation running end-to-end against a real database (no
+DB access from this sandbox, same limitation as every schema/migration
+change this session) — the logic was checked by reading the exact
+pattern it mirrors (`routes/dataManagement.js`'s already-correct clear
+endpoint) rather than by executing it.
