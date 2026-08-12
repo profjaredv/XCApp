@@ -1528,3 +1528,81 @@ crash. Not verified: the actual propose-then-import flow against real
 scraped race data, or that the grouping produces sensible results for
 this specific team's real meet names — same live-session caveat as
 everything else in this file.
+
+## Groups page showing zero athletes (real user report, live 2026 team)
+
+After the Groups CRUD/leader/membership fixes above, the coach sent a
+screenshot of their live Groups page: every column — Boys, Girls, and
+"Unassigned" — showed 0 athletes and "No athletes," even though the same
+team's Roster page (same 2026 season) correctly listed everyone. Asked
+directly via `AskUserQuestion` whether Roster shows athletes for 2026 —
+confirmed yes — which ruled out a shared visibility bug (`isEnrolled`/
+`deriveGrade` in `lib/season.js`) and narrowed it to something specific to
+Groups.
+
+**Root cause.** `GroupsPage.tsx` buckets athletes into the Boys/Girls
+columns with `athletes.filter((a) => a.gender === gender)` iterating over
+`(['M', 'F'] as const)` — an exact-match check. `Athlete.gender` is free
+text, though, and multiple write paths never normalized it:
+
+- The Athletic.net roster-scrape sync (`routes/teams.js`, the
+  `/scrape-roster`-style import loop) wrote whatever the scraped `Gender`
+  column contained straight onto the athlete record.
+- The coach-uploaded CSV roster-sync import (`routes/teams.js` ~line 476,
+  a separate code path from the scrape sync) did the same:
+  `const gender = row.Gender || null;`, written on both create and update
+  with no validation.
+- `services/performance/calculationService.js:113` already had its own
+  local `'Men'/'Women'` → `'M'/'F'` ternary — proof this codebase's real
+  data contains values other than exactly `'M'`/`'F'` (a CSV export or a
+  hand-typed roster column reading "Men"/"Women" rather than "M"/"F" is
+  enough to trigger it), and `routes/analytics.js` separately had its own
+  ad hoc `normalizeGender` for the same reason. Neither of those covered
+  Groups.
+
+Roster page wasn't affected because it groups by grade, not gender, so it
+never touched the broken field. Any athlete whose stored `gender` wasn't
+exactly `'M'` or `'F'` was invisible in every Groups column on every team
+that had ever gone through the CSV import or the scrape sync with
+non-canonical gender text — not just this user's team, just the first one
+where a coach actually looked.
+
+**Fix.** Added `lib/gender.js` — a single `normalizeGender(value)` that
+maps common variants (`m/male/men/boy/boys` → `'M'`, `f/female/women/
+girl/girls` → `'F'`, case/whitespace-insensitive) and returns `null` for
+anything else, never guessing. Unit-tested in `test/gender.test.js`
+(exact values, known variants, case/whitespace, and the "don't guess"
+case for genuinely unknown/missing values). Wired in at both ends:
+
+- **Write-time** (`routes/teams.js`, both the scrape-sync and CSV-import
+  athlete create/update blocks) — new imports and syncs write canonical
+  `'M'`/`'F'`/`null` going forward.
+- **Read-time** (`routes/athletes.js` `GET /` and `GET /:athleteId`,
+  `routes/groups.js` `GET /` group list, `GET /:id/members`, and `POST /`
+  group create) — every already-written value, however it got there, is
+  normalized before it reaches the frontend. This was the piece that
+  actually unblocks the live bug without needing a data migration: the
+  coach's existing (unmodified) database rows show up correctly the next
+  time the page loads, no backfill required. `POST /athletes` and
+  `PUT /athletes/:id` (manual add/edit) also normalize on write, since a
+  free-text `gender` field in a request body is no different from a CSV
+  column.
+
+Deliberately did NOT touch the DB rows themselves (no backfill script, no
+migration) — normalizing on every read path makes the display correct
+immediately, and normalizing on every write path stops new bad data from
+being created, so a backfill would only matter for a direct DB query
+bypassing the API, which nothing in this app does. Also deliberately left
+`routes/coachesTools.js` and `routes/enhancedPerformanceRoutes.js` alone —
+they already do their own inclusive array-membership checks
+(`['M','Male','Boys','Men'].includes(...)`) for boys/girls splits, so
+they were never affected by this bug; consolidating them onto the new
+shared helper would be a pure refactor with no behavior change, out of
+scope for a bug fix.
+
+Verification: `node --check` on every touched file, backend suite 96/97
+green (the 1 failure is `scraper.test.js`'s pre-existing Playwright
+browser-binary gap in this sandbox, unrelated — same known limitation as
+every prior session). No frontend files changed, so no `tsc`/`vite build`
+re-run needed this time — `GroupsPage.tsx`'s gender comparisons were
+already correct, they just needed the data reaching them to be honest.

@@ -14,6 +14,7 @@ const {
 } = require('../lib/season');
 const { parseDistanceToMeters } = require('../lib/distance');
 const { normalizeAthleteName, matchAthlete } = require('../lib/athleteMatching');
+const { normalizeGender } = require('../lib/gender');
 
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 
@@ -222,6 +223,7 @@ router.post('/scrape', authenticate, requireRole(['HEAD_COACH', 'COACH']), async
           const gradeNum = grade ? parseInt(grade, 10) : null;
           const graduationYear = grade ? calculateGraduationYear(grade, yearNum) : null;
           const athleticAthleteIdValue = athleticAthleteId || null;
+          const genderValue = normalizeGender(gender);
 
           // Deliberately NOT writing `grade` onto the athlete: grade is a
           // function of (graduationYear, season) and is derived on read. The
@@ -238,7 +240,7 @@ router.post('/scrape', authenticate, requireRole(['HEAD_COACH', 'COACH']), async
             athlete = await prisma.athlete.update({
               where: { id: existingMatch.id },
               data: {
-                ...(gender ? { gender } : {}),
+                ...(genderValue ? { gender: genderValue } : {}),
                 ...(graduationYear !== null ? { graduationYear } : {}),
                 // Backfill only — never overwrite a stable id with a
                 // different one from a stray/misparsed href.
@@ -249,7 +251,7 @@ router.post('/scrape', authenticate, requireRole(['HEAD_COACH', 'COACH']), async
             });
           } else {
             athlete = await prisma.athlete.create({
-              data: { name: athleteName, teamId: team.id, gender, graduationYear, athleticAthleteId: athleticAthleteIdValue },
+              data: { name: athleteName, teamId: team.id, gender: genderValue, graduationYear, athleticAthleteId: athleticAthleteIdValue },
             });
           }
 
@@ -473,7 +475,7 @@ router.post('/scrape-roster', authenticate, requireRole(['HEAD_COACH', 'COACH'])
 
           const gradeNum = row.Grade ? parseInt(row.Grade, 10) : null;
           const graduationYear = Number.isFinite(gradeNum) ? deriveGraduationYear(gradeNum, yearNum) : null;
-          const gender = row.Gender || null;
+          const gender = normalizeGender(row.Gender);
           const athleticAthleteIdValue = row['Athletic Athlete ID'] || null;
 
           const existingAthlete = matchAthlete(

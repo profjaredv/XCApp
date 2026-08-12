@@ -4,6 +4,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { getGroupOn, moveAthleteToGroup, removeAthleteFromGroup } = require('../lib/groups');
 const { decideCanManageGroup } = require('../lib/groupPermissions');
+const { normalizeGender } = require('../lib/gender');
 
 const GROUP_TYPES = new Set(['TRAINING', 'CAPTAIN', 'CUSTOM']);
 
@@ -54,7 +55,7 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         id: g.id,
         name: g.name,
         type: g.type,
-        gender: g.gender,
+        gender: normalizeGender(g.gender),
         sortOrder: g.sortOrder,
         color: g.color,
         archived: g.archived,
@@ -89,7 +90,7 @@ router.get('/:id/members', authenticate, requireTeam, async (req, res) => {
         membershipId: m.id,
         athleteId: m.athleteId,
         name: m.athlete.name,
-        gender: m.athlete.gender,
+        gender: normalizeGender(m.athlete.gender),
         grade: m.athlete.grade,
         startDate: m.startDate,
       }))
@@ -150,7 +151,7 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
         seasonId,
         name,
         type,
-        gender: gender || null,
+        gender: normalizeGender(gender),
         sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0,
         color: color || null,
       },

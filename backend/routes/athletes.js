@@ -9,6 +9,7 @@ const {
   isEnrolled,
   hasGraduated,
 } = require('../lib/season');
+const { normalizeGender } = require('../lib/gender');
 
 // GET /api/athletes?season=&activeOnly=&search=
 //
@@ -77,6 +78,10 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
       const grade = rosterEntry?.grade ?? deriveGrade(a.graduationYear, seasonYear);
       return {
         ...a,
+        // Old imports/scrapes wrote raw values like 'Men'/'Women' before
+        // write-time normalization existed — normalize on read too so
+        // already-bad rows don't vanish from gender-split views (Groups).
+        gender: normalizeGender(a.gender),
         grade,
         races,
         raceCount: races.length,
@@ -136,6 +141,7 @@ router.get('/:athleteId', authenticate, requireTeam, async (req, res) => {
 
     res.json({
       ...athlete,
+      gender: normalizeGender(athlete.gender),
       grade: deriveGrade(athlete.graduationYear, seasonYear),
       season: seasonYear,
       results: sortedResults,
@@ -223,7 +229,7 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
         teamId,
         name: fullName,
         graduationYear: gradYear,
-        gender: gender || null,
+        gender: normalizeGender(gender),
       },
     });
 
@@ -272,7 +278,7 @@ router.put('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 
     const updates = {};
     const fullName = (name || [firstName, lastName].filter(Boolean).join(' ')).trim();
     if (fullName) updates.name = fullName;
-    if (gender) updates.gender = gender;
+    if (gender) updates.gender = normalizeGender(gender) ?? undefined;
 
     // Correcting a grade means correcting the graduation year it implies —
     // that keeps every other season's view of this athlete consistent.
