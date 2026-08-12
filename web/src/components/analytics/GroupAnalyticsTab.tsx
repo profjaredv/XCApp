@@ -47,7 +47,21 @@ export const GroupAnalyticsTab = ({ seasonId }: { seasonId: string | null }) => 
     });
   };
 
-  if (!seasonId) return null;
+  // A season can have real race data with no Season DB row behind it yet
+  // (GET /teams/seasons deliberately allows id: null for that — usually an
+  // older season imported before Season rows were created for every year).
+  // Groups are modeled with a required seasonId FK, so there's genuinely
+  // nothing to show here rather than a loading gap — but that must be an
+  // explained empty state, not a blank screen a coach can't tell apart
+  // from a broken page.
+  if (!seasonId) {
+    return (
+      <p className="text-sm text-muted-foreground py-4">
+        This season doesn't have groups set up (it predates group tracking for this team). Group analytics will be available for
+        seasons managed from the Groups page.
+      </p>
+    );
+  }
 
   const allSelectableGroups = [...trainingGroups, ...otherGroups];
 

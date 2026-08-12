@@ -1947,3 +1947,34 @@ reading that confirm dialog before this fix was being warned about
 deleting their whole roster when the action never did that.
 
 `tsc -b --force` and `vite build` clean.
+
+## Group Analytics tab: blank screen on a legacy season with no Season row
+
+User testing on the real deployed app: the "By Group" tab appeared (after
+a redeploy + hard refresh cleared up the earlier "tab missing" report,
+which was just deploy lag) but showed a blank screen under it for the
+team's 2025 season.
+
+Root cause: `GET /teams/seasons` (`routes/teams.js:612`) deliberately
+returns `id: null` for a season that has real race data but no `Season`
+DB row yet — the comment there and the `Season.id: string | null` type in
+`useAvailableSeasons.ts` both already document this as an expected state,
+not a bug: it covers a team whose older seasons were imported before the
+`Season` model existed for every year (`Season` rows only started getting
+created reliably around item #10, "Populate Season + SeasonRoster on
+import"). `GroupAnalyticsTab` assumed every viewable season had a real
+`seasonId` and silently `return null`ed when it didn't — indistinguishable
+from a broken page to a coach looking at it. Groups themselves are
+modeled with a required `seasonId` FK, so there's genuinely no group data
+possible for a season with no `Season` row — that part isn't fixable
+without a broader backfill — but the empty state needed to say so
+instead of rendering nothing. Now shows: "This season doesn't have
+groups set up (it predates group tracking for this team)."
+
+Did not build a Season-row backfill for old seasons — that's a separate,
+bigger question (would it also try to reconstruct SeasonRoster/grades
+retroactively? does the user even want Groups usable for old, already-
+completed seasons?) worth asking about rather than assuming, not
+something to guess at while fixing an empty-state message.
+
+`tsc -b --force` and `vite build` clean.
