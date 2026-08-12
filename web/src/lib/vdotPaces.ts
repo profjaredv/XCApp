@@ -91,3 +91,35 @@ export function trainingPacesFromRace(
   if (vdot === null) return null;
   return { vdot, paces: trainingPacesFromVDOT(vdot) };
 }
+
+export type IntervalSplit = {
+  key: string;
+  label: string;
+  meters: number;
+  /** Split time, in seconds, at the zone's pace. */
+  seconds: number;
+};
+
+const SPLIT_DISTANCES: Array<{ key: string; label: string; meters: number }> = [
+  { key: '400m', label: '400m', meters: 400 },
+  { key: '800m', label: '800m', meters: 800 },
+  { key: '1000m', label: '1000m', meters: 1000 },
+  { key: '1200m', label: '1200m', meters: 1200 },
+  { key: 'mile', label: 'Mile', meters: 1609.34 },
+];
+
+/** Split time (seconds) at a given pace (sec/mile) over a specific distance. */
+export function splitTimeSec(paceSecPerMile: number, meters: number): number {
+  return paceSecPerMile * (meters / 1609.34);
+}
+
+// Per-distance splits (the "what should my 800m T-pace be" question) are
+// only meaningful for the workout zones an athlete actually runs on a
+// track as repeats — Threshold, Interval, Repetition. Easy and Marathon
+// pace describe continuous running, not something you'd hit a stopwatch
+// split for every 800m, so those return no splits rather than a number
+// nobody would use.
+export function intervalSplitsForZone(zone: Pick<TrainingPaceZone, 'key' | 'paceSecPerMile'>): IntervalSplit[] {
+  if (zone.key === 'easy' || zone.key === 'marathon') return [];
+  return SPLIT_DISTANCES.map((d) => ({ ...d, seconds: splitTimeSec(zone.paceSecPerMile, d.meters) }));
+}

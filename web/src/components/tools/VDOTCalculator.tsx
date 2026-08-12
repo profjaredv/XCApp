@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { axiosInstance as api } from '@/api/axios';
 import { formatTime, formatPace } from '../../lib/formatUtils';
-import { trainingPacesFromRace, type TrainingPaceZone } from '../../lib/vdotPaces';
+import { trainingPacesFromRace, intervalSplitsForZone, type TrainingPaceZone } from '../../lib/vdotPaces';
 import { Calculator, TrendingUp, User, Clock, Target, Gauge } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -85,7 +85,10 @@ const VDOTCalculator: React.FC = () => {
       try {
         const response = await api.get(`/athletes/${selectedAthlete}/races?limit=5&sort=date:desc`);
         setRecentRaces(response.data);
-        setSelectedRace(''); // Reset selected race when athlete changes
+        // Default to the most recent race rather than leaving this blank —
+        // "what should my training paces be" is almost always answered by
+        // the newest result, not one a coach has to remember to pick.
+        setSelectedRace(response.data[0]?.id ?? '');
       } catch (error) {
         console.error('Error fetching races:', error);
         toast.error('Failed to load races');
@@ -199,15 +202,23 @@ const VDOTCalculator: React.FC = () => {
           )}
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {paces.map((zone) => (
-            <Card key={zone.key}>
-              <CardContent className="p-4">
-                <p className="font-medium">{zone.label}</p>
-                <p className="text-xl font-bold text-primary">{formatPace(zone.paceSecPerMile)}</p>
-                <p className="text-xs text-muted-foreground">{zone.description}</p>
-              </CardContent>
-            </Card>
-          ))}
+          {paces.map((zone) => {
+            const splits = intervalSplitsForZone(zone);
+            return (
+              <Card key={zone.key}>
+                <CardContent className="p-4">
+                  <p className="font-medium">{zone.label}</p>
+                  <p className="text-xl font-bold text-primary">{formatPace(zone.paceSecPerMile)}</p>
+                  <p className="text-xs text-muted-foreground">{zone.description}</p>
+                  {splits.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
+                      {splits.map((s) => `${s.label} ${formatTime(s.seconds)}`).join(' · ')}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
     );
@@ -269,8 +280,8 @@ const VDOTCalculator: React.FC = () => {
             From Athlete
           </TabsTrigger>
           <TabsTrigger value="predictions" className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" />
-            Predictions
+            <Gauge className="h-4 w-4" />
+            Training Paces
           </TabsTrigger>
         </TabsList>
 
@@ -398,24 +409,29 @@ const VDOTCalculator: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="predictions" className="mt-6 space-y-8">
+          {/* Training paces lead — day-to-day useful (what pace to run
+              easy/tempo/interval work at, including per-distance splits
+              like an 800m T-pace). Predicted race times at other
+              distances follow, smaller and after — a curiosity, not
+              something a coach plans a workout around. */}
           {Object.keys(predictedTimes).length > 0 && (
             <>
-              {renderPredictions(predictedTimes, 'Predicted Race Times')}
               {renderTrainingPaces(trainingPaces, vdotScore, 'Training Paces')}
+              <div className="pt-2 border-t">{renderPredictions(predictedTimes, 'Predicted Race Times (for reference)')}</div>
             </>
           )}
           {Object.keys(athletePredictions).length > 0 && (
             <>
-              {renderPredictions(athletePredictions, "Athlete's Predicted Times")}
               {renderTrainingPaces(athleteTrainingPaces, athleteVdotScore, "Athlete's Training Paces")}
+              <div className="pt-2 border-t">{renderPredictions(athletePredictions, "Athlete's Predicted Times (for reference)")}</div>
             </>
           )}
           {Object.keys(predictedTimes).length === 0 && Object.keys(athletePredictions).length === 0 && (
             <Card>
               <CardContent className="p-8 text-center">
-                <Calculator className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <Gauge className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">
-                  No predictions yet. Calculate from a time or select an athlete's race to get started.
+                  No paces yet. Calculate from a time or select an athlete's race to get started.
                 </p>
               </CardContent>
             </Card>

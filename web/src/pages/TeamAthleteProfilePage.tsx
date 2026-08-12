@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SeasonModeSelector } from '@/components/analytics/SeasonModeSelector';
 import type { SeasonMode } from '@/components/analytics/types';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
+import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { formatDateShort } from '@/lib/formatUtils';
 import type { Athlete, Race, AthleteSeasonData } from '@/types/analytics';
 import { useAuth } from '@/contexts/AuthContext';
@@ -59,6 +60,16 @@ const TeamAthleteProfilePage = () => {
   const [isRecalculating, setIsRecalculating] = useState(false);
 
   const { data: athleteAllSeasons } = useAthleteAllSeasons(athleteId || '', { enabled: !!athleteId });
+
+  // Independent of the metrics-calculation-gated data below on purpose —
+  // training paces (and specifically "what should my 800m T-pace be")
+  // shouldn't need a season's analytics to have been run first, same
+  // reasoning as this session's group-analytics work.
+  const { data: recentRaces = [] } = useQuery({
+    queryKey: ['athleteRecentRaces', athleteId],
+    queryFn: () => athleteService.getRecentRaces(athleteId as string, 10),
+    enabled: !!athleteId,
+  });
 
   // When landing with no explicit ?season= and this athlete has no races in
   // the team's current/active season but does have races in a past one,
@@ -267,6 +278,10 @@ const TeamAthleteProfilePage = () => {
             onModeChange={handleSeasonModeChange as (mode: SeasonMode) => void}
           />
         </div>
+      </div>
+
+      <div className="mb-6">
+        <TrainingPacesCard recentRaces={recentRaces} />
       </div>
 
       {!enhancedAthlete ? (

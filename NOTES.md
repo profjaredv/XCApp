@@ -2193,3 +2193,74 @@ same limitation as every UI change this session) — in particular,
 `SUPER_ADMIN_EMAILS` needs to actually be set in the production Railway
 environment for vallejo+xc@gmail.com to see any of this; it does nothing
 until that env var exists there.
+
+## Training paces (800m T-pace), surfaced automatically, ahead of race predictions
+
+User: "the race predictions are not as useful as training paces. an
+athlete and coach should know what their 800m t-pace should be based on
+their most recent performance."
+
+**What was already there, found by reading before building.**
+`lib/vdotPaces.ts` already implements the real Daniels-Gilbert VDOT
+formulas and already derives all 5 named training-pace zones (Easy/
+Marathon/Threshold/Interval/Repetition) from a race performance —
+correctly, verified against a published reference point (a 17:00 5K →
+VDOT ~60 → Threshold ~5:53/mile, matching Daniels' tables). `athlete
+Service.getRecentRaces` and `MyProgressPage.tsx`'s "Recommended training
+paces" card already existed too: an athlete's own self-service view
+already defaults to their most recent race and shows zone paces, no
+manual entry required. What was actually missing was narrower than it
+first sounded: (1) no per-distance split times (sec/mile is useful for a
+long run, useless for "what should I hit at the 800m mark of an interval
+workout"), and (2) none of this existed on the *coach-facing* athlete
+profile — a coach had to go to a separate, manual, standalone "Tools"
+calculator and pick both an athlete and a specific race by hand.
+
+**What got built.**
+- `lib/vdotPaces.ts`: `intervalSplitsForZone(zone)` — given a training
+  pace zone, returns split times (seconds) at 400m/800m/1000m/1200m/mile.
+  Deliberately returns `[]` for Easy/Marathon: those describe continuous
+  running, not something anyone hits a stopwatch split for every 800m,
+  so showing splits there would be a number nobody uses, not a feature.
+  No frontend test runner exists in this repo (checked — no test script,
+  no `.test.` files anywhere under `web/src`), so this was hand-verified
+  against the same published VDOT reference point above (an 800m
+  Threshold split of ~2:56 for a VDOT-60 runner) rather than left
+  unverified.
+- New shared `components/TrainingPacesCard.tsx` — extracted from
+  `MyProgressPage.tsx`'s existing card (which now just renders it) so
+  the exact same "most-recent-race, live-computed, per-distance splits"
+  behavior is available in one place instead of two copies. No behavior
+  change on the athlete self-service view beyond the new split-time line
+  per workout zone.
+- Added the same card to `TeamAthleteProfilePage.tsx` (the coach-facing
+  profile) — new, wasn't there before. Fetches recent races
+  independently via the same `getRecentRaces` endpoint, deliberately NOT
+  gated behind the page's `enhancedAthlete`/metrics-calculation check —
+  same reasoning as every other "don't require a calculation step first"
+  fix this session (group analytics, the original athlete-profile fix
+  from item #4 much earlier). A coach now sees training paces for any
+  athlete immediately, calculated metrics or not.
+- `components/tools/VDOTCalculator.tsx` (the standalone manual tool):
+  added the same per-distance splits to its training-pace cards for
+  consistency; reordered its "Predictions" tab so Training Paces render
+  first and Predicted Race Times render second, sub-labeled "(for
+  reference)" — de-emphasized per the user's framing ("not as useful
+  as"), not removed, since Riegel-formula equivalent-time predictions
+  are still a real, if secondary, use case. Renamed that tab from
+  "Predictions" to "Training Paces" to match the new priority. Also
+  fixed the "From Athlete" flow to default to the athlete's most recent
+  race instead of leaving the race dropdown blank — matches "based on
+  their most recent performance" instead of requiring a coach to
+  remember to pick it.
+
+Verification: `tsc -b --force` and `vite build` clean; backend suite
+126/127 green (unrelated, unaffected — no backend changes this round);
+headless-browser check on `/me`, `/tools`, and `/athlete/:id` (the three
+pages touched) shows no client-side crash (one smoke-test URL typo of my
+own — `/athletes/abc` instead of the real singular `/athlete/abc` route —
+briefly looked like a router error before I corrected the test itself;
+not a real bug, confirmed by re-running against the correct path). Not
+verified: the actual numbers against a real coach's real athletes and
+real race history — the VDOT math was checked against one published
+reference point, not a full table.

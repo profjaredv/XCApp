@@ -24,13 +24,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { Activity, Bus, CalendarDays, Gauge, Lock, MessageCircleHeart, Trash2, Trophy, Users } from 'lucide-react';
+import { Activity, Bus, CalendarDays, Lock, MessageCircleHeart, Trash2, Trophy, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { athleteService } from '@/api/athleteService';
 import { trainingLogService, type TrainingLogType } from '@/api/trainingLogService';
-import { trainingPacesFromRace } from '@/lib/vdotPaces';
-import { formatTime, formatPace, parseTimeToSeconds, formatDateShort } from '@/lib/formatUtils';
+import { TrainingPacesCard } from '@/components/TrainingPacesCard';
+import { formatTime, parseTimeToSeconds, formatDateShort } from '@/lib/formatUtils';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
 import { useMyReflection, useSavePreRace, useSavePostRace, useSetSharing } from '@/hooks/useRaceReflections';
@@ -65,14 +65,6 @@ const MyProgressPage: React.FC = () => {
   const { data: todaysPlan } = useMyPracticePlan(todayIso, !!linkedAthlete);
   const { data: meetCard } = useMyMeetCard(!!linkedAthlete);
 
-  const [selectedRaceId, setSelectedRaceId] = useState<string>('');
-  useEffect(() => {
-    if (recentRaces.length > 0 && !recentRaces.some((r) => r.id === selectedRaceId)) {
-      setSelectedRaceId(recentRaces[0].id);
-    }
-  }, [recentRaces, selectedRaceId]);
-  const activeRace = recentRaces.find((r) => r.id === selectedRaceId);
-  const paceResult = activeRace ? trainingPacesFromRace(activeRace.distance, activeRace.time) : null;
 
   const [reflectionRaceId, setReflectionRaceId] = useState<string | null>(null);
   const reflectionRace = recentRaces.find((r) => r.raceId === reflectionRaceId);
@@ -273,58 +265,7 @@ const MyProgressPage: React.FC = () => {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Gauge className="h-5 w-5" />
-            Recommended training paces
-          </CardTitle>
-          <CardDescription>
-            Based on a recent race — an estimate, not a guarantee. Adjust for how you feel and
-            weather/terrain.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {recentRaces.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No race results yet — training paces will appear here once you've raced.
-            </p>
-          ) : (
-            <>
-              <div className="max-w-sm space-y-2">
-                <Label>Based on</Label>
-                <Select value={selectedRaceId} onValueChange={setSelectedRaceId}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {recentRaces.map((r) => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {r.raceName} — {formatTime(r.time)} ({formatDateShort(r.date)})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {paceResult ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                  {paceResult.paces.map((zone) => (
-                    <div key={zone.key} className="rounded-lg border p-3">
-                      <p className="font-medium">{zone.label}</p>
-                      <p className="text-xl font-bold text-primary">{formatPace(zone.paceSecPerMile)}</p>
-                      <p className="text-xs text-muted-foreground">{zone.description}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Couldn't estimate paces from that result.
-                </p>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <TrainingPacesCard recentRaces={recentRaces} />
 
       <Card>
         <CardHeader>
