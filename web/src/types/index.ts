@@ -40,4 +40,17 @@ export interface User {
     // never raced, or an athlete who hasn't been invited/claimed yet, has
     // none of these and this is null.
     linkedAthlete?: LinkedAthlete | null;
+    // Platform super admin (see backend lib/superAdmin.js) — a small,
+    // server-side email allowlist. True for every request regardless of
+    // whether impersonation is currently active; use isImpersonating to
+    // know whether a team has actually been selected.
+    isSuperAdmin?: boolean;
+    // True only when the server actually resolved an X-Admin-Team-Id header
+    // to a real team for this request — team/linkedAthlete above already
+    // reflect the impersonated team when this is true.
+    isImpersonating?: boolean;
+    // True only when the server actually resolved an X-Preview-Athlete-Id
+    // header (a coach previewing as one of their own athletes) —
+    // linkedAthlete above already reflects that athlete when this is true.
+    isPreviewingAthlete?: boolean;
 }

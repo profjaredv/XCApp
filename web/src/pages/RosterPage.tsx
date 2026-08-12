@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star } from 'lucide-react';
+import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star, Eye } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { rosterService, type RosterAthlete } from '@/api/rosterService';
 import { athleteService } from '@/api/athleteService';
@@ -35,6 +35,7 @@ import { useQueryParamNumber } from '@/hooks/useQueryState';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { PendingClaimsCard } from '@/components/PendingClaimsCard';
+import { setPreviewAthlete } from '@/lib/impersonation';
 
 // The roster is the thing a coach actually manages day to day: who is on the
 // team this season, what grade they're in, who just graduated. Before this
@@ -554,6 +555,17 @@ const RosterPage: React.FC = () => {
                     >
                       View Profile
                     </Button>
+                    {isCoach && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title="See the app as this athlete would — their own profile, log-a-run, race reflections, etc."
+                        onClick={() => setPreviewAthlete(athlete.id, athlete.name, teamPath)}
+                      >
+                        <Eye className="mr-2 h-4 w-4" />
+                        Preview as athlete
+                      </Button>
+                    )}
                     {isCoach && athlete.flaggedForRemoval && (
                       <Button
                         variant="outline"

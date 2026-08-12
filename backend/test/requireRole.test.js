@@ -46,6 +46,30 @@ function stubFindUnique(t, impl) {
 }
 
 test('requireRole', async (t) => {
+  await t.test('a super admin actively impersonating a team passes any role check without a DB lookup', async (t) => {
+    const findUnique = stubFindUnique(t, () => {
+      throw new Error('should not be called — the impersonation bypass should short-circuit');
+    });
+    const req = { user: { id: 'admin1', teamId: 'someTeam', isSuperAdmin: true, isImpersonating: true } };
+    const res = mockRes();
+    let nextCalled = false;
+    await requireRole(['HEAD_COACH'])(req, res, () => { nextCalled = true; });
+
+    assert.equal(nextCalled, true);
+    assert.equal(findUnique.callCount(), 0);
+  });
+
+  await t.test('isSuperAdmin alone, with no active impersonation, does not bypass anything', async (t) => {
+    stubFindUnique(t, () => null);
+    const req = { user: { id: 'admin1', teamId: 'someTeam', isSuperAdmin: true, isImpersonating: false } };
+    const res = mockRes();
+    let nextCalled = false;
+    await requireRole(['HEAD_COACH'])(req, res, () => { nextCalled = true; });
+
+    assert.equal(nextCalled, false);
+    assert.equal(res.statusCode, 403);
+  });
+
   await t.test('denies when the caller has no teamId', async () => {
     const req = { user: { id: 'u1', teamId: null } };
     const res = mockRes();

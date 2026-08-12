@@ -23,6 +23,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           role: userData.role,
           team: userData.team,
           linkedAthlete: userData.linkedAthlete ?? null,
+          isSuperAdmin: userData.isSuperAdmin ?? false,
+          isImpersonating: userData.isImpersonating ?? false,
+          isPreviewingAthlete: userData.isPreviewingAthlete ?? false,
         };
       }
       return null;

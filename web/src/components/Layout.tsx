@@ -5,6 +5,8 @@ import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { FeedbackWidget } from './FeedbackWidget';
 import { useTeamPath } from '../hooks/useTeamRoute';
+import { AdminTeamSwitcher } from './AdminTeamSwitcher';
+import { ImpersonationBanner } from './ImpersonationBanner';
 
 interface SidebarProps {
   isMobileOpen: boolean;
@@ -119,6 +121,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
       </nav>
 
       <div className="absolute bottom-0 w-full border-t border-slate-200/60 bg-white/80 backdrop-blur-sm">
+        {currentUser?.isSuperAdmin && (
+          <div className="p-3 border-b border-slate-200/60">
+            <AdminTeamSwitcher isCollapsed={isCollapsed} />
+          </div>
+        )}
         <div className="p-4">
           <div className="flex items-center">
             <img src={currentUser?.photoURL || `https://ui-avatars.com/api/?name=${currentUser?.name}&background=random`} alt="User Avatar" className="h-10 w-10 rounded-full ring-2 ring-slate-200 ring-offset-2" />
@@ -150,19 +157,22 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
 const Layout: React.FC = () => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 overflow-hidden md:overflow-auto">
-      <Sidebar isMobileOpen={isMobileOpen} setIsMobileOpen={setIsMobileOpen} />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-3 md:p-4 flex items-center">
-          <button onClick={() => setIsMobileOpen(true)} className="md:hidden mr-2 p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-            <Menu className="h-6 w-6" />
-          </button>
-        </header>
-        <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 md:p-6">
-          <Outlet />
-        </main>
+    <div className="flex flex-col h-screen">
+      <ImpersonationBanner />
+      <div className="flex flex-1 bg-gradient-to-br from-slate-50 via-white to-slate-50 overflow-hidden md:overflow-auto">
+        <Sidebar isMobileOpen={isMobileOpen} setIsMobileOpen={setIsMobileOpen} />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-3 md:p-4 flex items-center">
+            <button onClick={() => setIsMobileOpen(true)} className="md:hidden mr-2 p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+              <Menu className="h-6 w-6" />
+            </button>
+          </header>
+          <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 md:p-6">
+            <Outlet />
+          </main>
+        </div>
+        <FeedbackWidget />
       </div>
-      <FeedbackWidget />
     </div>
   );
 };

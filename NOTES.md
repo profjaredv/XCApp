@@ -2077,3 +2077,119 @@ session reachable from this sandbox, same limitation as every UI
 change this session) — the dialog's empty/loading states were
 exercised, but a coach's own team's shape (how many meets per season,
 how tight/spread the pack actually is) will be the real test.
+
+## Platform super admin + coach "preview as athlete"
+
+Two requests handled together since they share the same underlying
+mechanism: "temporarily act as a different identity, for viewing/testing,
+without a real account switch." (1) A single super-admin account
+(vallejo+xc@gmail.com) that can view/edit any team, keeping full delete
+ability. (2) A head/paid coach previewing the app as one of their own
+athletes, to catch gaps in the athlete-facing experience they've never
+actually used.
+
+**Why this is a bigger deal than it looks, and what was checked before
+touching anything.** `middleware/auth.js` has a comment (predating this
+change) citing a past real vulnerability: an earlier version of this app
+let a client-supplied teamId influence authorization, and the whole
+rewrite's authority model exists specifically to remove that footgun —
+`req.user.teamId` is resolved server-side, from a DB lookup keyed by the
+verified JWT subject, and every route scopes by it, never by anything a
+client sends. Building admin impersonation is, on its face, reintroducing
+a client-influenced team-scoping decision — the exact bug class this
+codebase was rewritten to eliminate. The design below is deliberately
+built so that's not actually true: a client-supplied value (which team to
+view) is only ever *honored* after the server has independently verified,
+via a DB-backed lookup on the authenticated identity — never a client
+claim — that this specific account is on a hardcoded-at-deploy-time
+allowlist. For every other account, the header is inert, identical to it
+never being sent.
+
+**Backend.**
+- `lib/superAdmin.js` — `isSuperAdminEmail(email)`, checking against a
+  `SUPER_ADMIN_EMAILS` env var (comma-separated, case-insensitive),
+  parsed fresh on every call rather than cached at module load (so tests
+  can set `process.env` per-case). An env var rather than a `User.isAdmin`
+  DB column on purpose: "there will only be one for now," so this avoids
+  a migration and keeps the whole allowlist auditable/changeable in one
+  place (a Railway env var) without a code deploy. 6 tests
+  (`test/superAdmin.test.js`) — case-insensitivity, comma-list support, a
+  never-matches-by-accident case for an empty/unset allowlist, and
+  non-string input denying rather than throwing.
+- `middleware/auth.js`'s `authenticate` now, after resolving the real
+  user row: sets `req.user.isSuperAdmin` (always, for every request,
+  regardless of whether impersonation is active — the frontend needs
+  this to know whether to show the team-switcher UI at all); if
+  `isSuperAdmin` and an `X-Admin-Team-Id` header names a real team,
+  overrides `req.user.teamId`/`req.user.team` for that request only
+  (nothing persists server-side — the frontend re-sends the header on
+  every request via an axios interceptor) and sets
+  `req.user.isImpersonating`; separately, if an `X-Preview-Athlete-Id`
+  header names an athlete on the (possibly now-impersonated)
+  `req.user.teamId` and the caller actually has HEAD_COACH/COACH
+  authority there, overrides `req.user.linkedAthlete` and sets
+  `req.user.isPreviewingAthlete`. Order matters and is deliberate: admin
+  impersonation resolves first, so a super admin impersonating a team can
+  also preview as that team's athletes — the preview check's authority
+  test runs against whichever team is currently in effect.
+- Extracted `hasTeamRole(user, allowedRoles)` out of `requireRole` (same
+  owner-fast-path-then-TeamMember-lookup logic it always had, no
+  behavior change — `test/requireRole.test.js`'s full existing suite
+  still passes unchanged) so the preview-athlete authority check in
+  `authenticate` doesn't duplicate it.
+- `requireRole` gets one new branch, checked first: a super admin with
+  `isImpersonating` true passes any role check outright — "keeps all
+  ability to delete," per the request. `isSuperAdmin` alone, with no
+  team actively selected, bypasses nothing (new test covers this
+  specifically — being the admin account isn't enough on its own, a real
+  team selection has to be in effect for a given request).
+- New `requireSuperAdmin` middleware (checks the flag `authenticate` set,
+  nothing else) and new `routes/admin.js`: `GET /api/admin/teams`,
+  admin-only, lists every team for the picker (id, name,
+  athleticTeamId, athlete count, current season) — this route grants no
+  access itself, it's purely "what can I pick from." Added to
+  `test/routeAuth.test.js`'s `GUARD_NAMES` set.
+
+**Frontend.**
+- `lib/impersonation.ts` — sessionStorage (not localStorage: survives
+  navigation/refresh within the active tab, cleared when the tab closes,
+  never silently lingers across devices/sessions) holding the currently-
+  selected admin team id/name and preview athlete id/name, plus
+  set/clear functions that do a full page reload/navigation rather than
+  trying to invalidate every react-query cache key by hand for a feature
+  used rarely and always followed by a real navigation anyway.
+- `api/axios.ts` gets a request interceptor attaching `X-Admin-Team-Id`/
+  `X-Preview-Athlete-Id` from that storage to every request when active.
+- `router/TeamRouteGuard.tsx` needed no changes — it already redirects
+  based on `currentUser.team.athleticTeamId` vs. the URL, and since
+  `currentUser.team` now naturally reflects whichever team is currently
+  impersonated (the same `GET /users/me` call the interceptor also
+  headers), the existing "stale URL" redirect logic handles both
+  entering and exiting impersonation for free. `clearAdminTeam()`
+  deliberately just reloads the current URL rather than navigating
+  anywhere specific, for the same reason — once the header stops being
+  sent, the guard corrects the URL back to the admin's own real team (or
+  `/onboarding` if they have none) on its own.
+- New `components/AdminTeamSwitcher.tsx` (search-filtered team picker
+  dialog, only rendered in `Layout.tsx`'s sidebar when
+  `currentUser.isSuperAdmin`) and `components/ImpersonationBanner.tsx`
+  (always-visible, non-dismissible-without-exiting banner for both
+  admin-team-view and athlete-preview modes — deliberately impossible to
+  forget you're acting as someone else mid-session, especially before a
+  destructive action). `Layout.tsx` restructured slightly so the banner
+  spans the full width above the sidebar+content row, not just the
+  content column.
+- `RosterPage.tsx` gained a "Preview as athlete" button per roster row
+  (same `isCoach` visibility gate the page's other coach-only actions
+  already use), calling `setPreviewAthlete` and navigating to `/me`.
+
+Verification: `node --check` on every backend file; backend suite 126/127
+green (only the pre-existing unrelated Playwright-binary gap fails);
+`tsc -b --force` and `vite build` clean; headless-browser check on
+`/roster` and `/settings` (the two pages touched) shows no client-side
+crash. Not verified: the actual admin flow end-to-end against real
+teams/accounts (no authenticated session reachable from this sandbox,
+same limitation as every UI change this session) — in particular,
+`SUPER_ADMIN_EMAILS` needs to actually be set in the production Railway
+environment for vallejo+xc@gmail.com to see any of this; it does nothing
+until that env var exists there.

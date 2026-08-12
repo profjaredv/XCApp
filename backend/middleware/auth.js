@@ -1,5 +1,6 @@
 const { createRemoteJWKSet, jwtVerify } = require('jose');
 const prisma = require('../lib/db');
+const { isSuperAdminEmail } = require('../lib/superAdmin');
 
 // Neon Auth is Better Auth under the hood. The frontend signs users in with
 // Neon Auth's React client and sends the resulting JWT as a bearer token;
@@ -102,6 +103,54 @@ const authenticate = async (req, res, next) => {
     }
 
     req.user = user;
+
+    // Platform super admin (see lib/superAdmin.js): a small, server-side
+    // email allowlist, checked against the DB-resolved user row above —
+    // never a client-supplied claim. isSuperAdmin is attached for every
+    // request regardless of whether impersonation is active, so the
+    // frontend can show the team-switcher UI to that one account.
+    req.user.isSuperAdmin = isSuperAdminEmail(user.email);
+
+    // X-Admin-Team-Id: only ever honored once isSuperAdmin has been
+    // independently verified above — for anyone else this header is
+    // silently ignored, exactly as if it were never sent. Overrides
+    // req.user.teamId/team for this request only; nothing persists
+    // server-side, so every request must carry the header again (the
+    // frontend does this via an axios interceptor reading a
+    // session-scoped "currently viewing" value).
+    const adminTeamId = req.headers['x-admin-team-id'];
+    if (req.user.isSuperAdmin && typeof adminTeamId === 'string' && adminTeamId) {
+      const targetTeam = await prisma.team.findUnique({ where: { id: adminTeamId } });
+      if (targetTeam) {
+        req.user.homeTeamId = user.teamId;
+        req.user.teamId = targetTeam.id;
+        req.user.team = targetTeam;
+        req.user.isImpersonating = true;
+      }
+    }
+
+    // X-Preview-Athlete-Id: lets a coach view/use the app as a specific
+    // athlete on their own roster (never cross-team — hasTeamRole checks
+    // the CURRENT req.user.teamId, which by this point already reflects
+    // admin impersonation above if that's active, so a super admin
+    // impersonating a team can preview as that team's athletes too).
+    // Overrides req.user.linkedAthlete for the request the same way
+    // admin impersonation overrides teamId — request-scoped, re-sent
+    // every time by the frontend, nothing persisted server-side.
+    const previewAthleteId = req.headers['x-preview-athlete-id'];
+    if (typeof previewAthleteId === 'string' && previewAthleteId && req.user.teamId) {
+      const canPreview = await hasTeamRole(req.user, ['HEAD_COACH', 'COACH']);
+      if (canPreview) {
+        const previewAthlete = await prisma.athlete.findFirst({
+          where: { id: previewAthleteId, teamId: req.user.teamId },
+        });
+        if (previewAthlete) {
+          req.user.linkedAthlete = previewAthlete;
+          req.user.isPreviewingAthlete = true;
+        }
+      }
+    }
+
     next();
   } catch (err) {
     console.error('Error resolving user profile for', authUserId, ':', err.message);
@@ -135,21 +184,37 @@ const authenticate = async (req, res, next) => {
 // test/routeAuth.test.js's guard detection (which reads Express's
 // layer.name, derived from the middleware function's own .name) would
 // silently stop recognizing every route this protects.
+// Shared by requireRole and authenticate's X-Preview-Athlete-Id handling
+// above — same owner-fast-path-then-TeamMember-lookup logic requireRole
+// always used, just extracted so the preview check doesn't duplicate it.
+async function hasTeamRole(user, allowedRoles) {
+  if (!user?.teamId) return false;
+  if (user.team?.coachUid === user.id && allowedRoles.includes('HEAD_COACH')) return true;
+  const membership = await prisma.teamMember.findUnique({
+    where: { teamId_userId: { teamId: user.teamId, userId: user.id } },
+  });
+  return Boolean(membership?.active && allowedRoles.includes(membership.role));
+}
+
 const requireRole = (allowedRoles) =>
   async function requireRole(req, res, next) {
+    // Super admin actively impersonating a team (see authenticate above,
+    // and lib/superAdmin.js) — full authority on whichever team they've
+    // selected, by design ("keeps all ability to delete"). isSuperAdmin
+    // alone is never enough; isImpersonating only gets set once a real
+    // X-Admin-Team-Id has resolved to a real team for this specific
+    // request, so this can't be satisfied just by being the admin account
+    // with no team selected.
+    if (req.user?.isSuperAdmin && req.user?.isImpersonating) {
+      return next();
+    }
+
     if (!req.user?.teamId) {
       return res.status(403).json({ message: 'Access denied.' });
     }
 
-    if (req.user.team?.coachUid === req.user.id && allowedRoles.includes('HEAD_COACH')) {
-      return next();
-    }
-
     try {
-      const membership = await prisma.teamMember.findUnique({
-        where: { teamId_userId: { teamId: req.user.teamId, userId: req.user.id } },
-      });
-      if (membership?.active && allowedRoles.includes(membership.role)) {
+      if (await hasTeamRole(req.user, allowedRoles)) {
         return next();
       }
     } catch (err) {
@@ -179,4 +244,15 @@ const requireLinkedAthlete = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, requireRole, requireTeam, requireLinkedAthlete };
+// Platform-admin-only routes (currently just GET /api/admin/teams, the
+// team-switcher's list). Deliberately separate from requireRole: this
+// checks the email-allowlist flag set in authenticate, not any
+// team/TeamRole concept — there is no team context yet when picking one.
+const requireSuperAdmin = (req, res, next) => {
+  if (!req.user?.isSuperAdmin) {
+    return res.status(403).json({ message: 'Access denied.' });
+  }
+  next();
+};
+
+module.exports = { authenticate, requireRole, requireTeam, requireLinkedAthlete, requireSuperAdmin };

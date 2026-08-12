@@ -14,7 +14,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const ROUTES_DIR = path.join(__dirname, '..', 'routes');
 
-const GUARD_NAMES = new Set(['requireTeam', 'requireRole', 'requireLinkedAthlete', 'requireApprovedGuardianLink']);
+const GUARD_NAMES = new Set(['requireTeam', 'requireRole', 'requireLinkedAthlete', 'requireApprovedGuardianLink', 'requireSuperAdmin']);
 
 // Routes that intentionally carry no guard beyond `authenticate`, and why.
 // This is a real allowlist, not an escape hatch — every entry is a route
