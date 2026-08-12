@@ -79,6 +79,17 @@ export interface ProposedMeet {
   raceIds: string[];
 }
 
+export interface ProposedCalendarMeet {
+  athleticMeetId: string;
+  name: string;
+  date: string;
+  location: string | null;
+  /** A Meet already exists for this Athletic.net meet ID — confirming again just refreshes name/date/location. */
+  alreadyImported: boolean;
+  /** Races already scraped for this meet ID but not yet linked to a Meet — confirming links them. */
+  unlinkedRaceCount: number;
+}
+
 export interface PrintableRoster {
   meet: { id: string; name: string; date: string; location: string | null };
   races: Array<{
@@ -158,5 +169,19 @@ export const meetOpsService = {
   async confirmImport(seasonId: string, meets: Array<{ name: string; date: string; location?: string | null; raceIds: string[] }>) {
     const response = await api.post('/meet-ops/import', { seasonId, meets });
     return response.data as { msg: string; meets: Array<{ id: string; name: string; raceCount: number }> };
+  },
+
+  /** Pulls this season's schedule straight from the team's own Athletic.net calendar feed — works before any races have been scraped. Proposes only, writes nothing. */
+  async proposeCalendarImport(seasonId: string): Promise<ProposedCalendarMeet[]> {
+    const response = await api.get<ProposedCalendarMeet[]>('/meet-ops/import/propose-calendar', { params: { seasonId } });
+    return response.data;
+  },
+
+  async confirmCalendarImport(
+    seasonId: string,
+    meets: Array<{ athleticMeetId: string; name: string; date: string; location?: string | null }>
+  ) {
+    const response = await api.post('/meet-ops/import-calendar', { seasonId, meets });
+    return response.data as { msg: string; meets: Array<{ id: string; name: string; linkedRaceCount: number }> };
   },
 };

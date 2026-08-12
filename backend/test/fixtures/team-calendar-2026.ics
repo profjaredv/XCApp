@@ -1,0 +1,110 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Athletic.net//Cross Country Team Calendar v1.1//EN
+X-WR-CALNAME;VALUE=TEXT:Ellensburg - 2026 Cross Country
+X-PUBLISHED-TTL:PT240M
+BEGIN:VEVENT
+UID:vcal_xc_4905189@www.athletic.net
+DTSTAMP:20260824T000000Z
+DTSTART;VALUE=DATE:20260824
+SUMMARY:
+ First Day of Practice
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4655060@www.athletic.net
+DTSTAMP:20260911T000000Z
+DTSTART;VALUE=DATE:20260911
+LOCATION:Irene Rinehart Riverfront Park, Ellensburg, WA 98926
+SUMMARY:
+ Ellensburg Invitational Relays
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/271958
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4671364@www.athletic.net
+DTSTAMP:20260919T000000Z
+DTSTART;VALUE=DATE:20260919
+LOCATION:Lake Sammamish State Park, Issaquah, WA 98027
+SUMMARY:
+ Bellevue Cross Country Invitational 
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/267986
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4905173@www.athletic.net
+DTSTAMP:20260924T000000Z
+DTSTART;VALUE=DATE:20260924
+LOCATION:Rotary Park, Ellensburg, WA 98926
+SUMMARY:
+ CWAC: East Valley & Toppenish @Ellensburg
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/277246
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4671363@www.athletic.net
+DTSTAMP:20261003T000000Z
+DTSTART;VALUE=DATE:20261003
+LOCATION:Franklin Park-Yakima, Yakima, WA 98902
+SUMMARY:
+ Sunfair Invitational
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/268791
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4905176@www.athletic.net
+DTSTAMP:20261008T000000Z
+DTSTART;VALUE=DATE:20261008
+LOCATION:Lakeview Golf & Country Club, Soap Lake, WA 98851
+SUMMARY:
+ CWAC: Ellensburg & Quincy @ Ephrata
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/275545
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4678485@www.athletic.net
+DTSTAMP:20261010T000000Z
+DTSTART;VALUE=DATE:20261010
+LOCATION:Lakewood High School, Arlington, WA 98223
+SUMMARY:
+ NIKE -- HOLE IN THE WALL XC INVITATIONAL
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/269885
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4739840@www.athletic.net
+DTSTAMP:20261015T000000Z
+DTSTART;VALUE=DATE:20261015
+LOCATION:Apple Ridge XC Course, Yakima, WA 98908
+SUMMARY:
+ CWAC: Ellensburg & Grandview @ Selah
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/274458
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4653786@www.athletic.net
+DTSTAMP:20261017T000000Z
+DTSTART;VALUE=DATE:20261017
+LOCATION:Lents Park, Portland, OR 97266
+SUMMARY:
+ Stumptown Showdown
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/271718
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4905177@www.athletic.net
+DTSTAMP:20261022T000000Z
+DTSTART;VALUE=DATE:20261022
+LOCATION:Rotary Park, Ellensburg, WA 98926
+SUMMARY:
+ CWAC: Prosser & Othello @Ellensburg
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/277249
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4685790@www.athletic.net
+DTSTAMP:20261031T000000Z
+DTSTART;VALUE=DATE:20261031
+SUMMARY:
+ District Meet Placeholder
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_xc_4749364@www.athletic.net
+DTSTAMP:20261107T000000Z
+DTSTART;VALUE=DATE:20261107
+LOCATION:Sun Willows Golf Course, Pasco, WA 99301
+SUMMARY:
+ 2026 WIAA State XC Championships
+DESCRIPTION:https://www.athletic.net/CrossCountry/meet/275514
+END:VEVENT
+END:VCALENDAR

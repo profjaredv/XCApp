@@ -93,3 +93,18 @@ export function useConfirmImport(seasonId: string | null) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', seasonId] }),
   });
 }
+
+export function useProposeCalendarImport(seasonId: string | null) {
+  return useMutation({
+    mutationFn: () => meetOpsService.proposeCalendarImport(seasonId as string),
+  });
+}
+
+export function useConfirmCalendarImport(seasonId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (meets: Array<{ athleticMeetId: string; name: string; date: string; location?: string | null }>) =>
+      meetOpsService.confirmCalendarImport(seasonId as string, meets),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', seasonId] }),
+  });
+}

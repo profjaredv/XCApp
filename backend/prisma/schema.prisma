@@ -387,12 +387,21 @@ model Meet {
   date      DateTime @db.Date
   location  String?
   sourceUrl String?  @map("source_url") // Athletic.net meet page
+  // Athletic.net's own meet ID — same value Race.athleticMeetId stores from
+  // results scraping. Nullable (a coach can hand-create a Meet with no
+  // Athletic.net counterpart) but the dedup key when one exists: importing
+  // the team's calendar feed twice, or importing the calendar then later
+  // scraping results for the same meet, must land on one Meet row, not two.
+  // Postgres treats NULLs as distinct in a unique index, so hand-created
+  // rows never collide with each other here.
+  athleticMeetId String? @map("athletic_meet_id")
 
   team   Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
   season Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   races  Race[]
   plan   MeetPlan?
 
+  @@unique([teamId, seasonId, athleticMeetId])
   @@index([seasonId, date])
   @@map("meets")
 }

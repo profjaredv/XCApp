@@ -1606,3 +1606,121 @@ browser-binary gap in this sandbox, unrelated — same known limitation as
 every prior session). No frontend files changed, so no `tsc`/`vite build`
 re-run needed this time — `GroupsPage.tsx`'s gender comparisons were
 already correct, they just needed the data reaching them to be honest.
+
+## Import a team's season schedule from Athletic.net (preseason + midseason)
+
+User request: pull in the meet schedule for the current season directly
+from Athletic.net, ahead of any results being scraped — needed so race
+plans and journals have something to attach to before a single result
+exists (preseason), and to pick up schedule changes mid-season. User also
+flagged, correctly, that this needed real thought around duplicates: not
+just "don't create the same meet name twice within a team," but "many
+different XCApp teams go to the same invitational — we shouldn't end up
+with 20 near-duplicate rows for one physical event."
+
+**Finding the actual source.** The team's Athletic.net homepage
+(`/team/{id}/cross-country/{year}`) turned out to be an Angular SPA — its
+page source is just an empty `<anet-site-app>` shell, the schedule loads
+client-side afterward. A copied cURL of the underlying API call didn't
+replay outside the browser (session/fingerprint-bound, as expected). The
+actual answer came from the page's own "Download options ▾" menu: it
+exposes `https://www.athletic.net/CrossCountry/Print/ical.ashx?SchoolID=
+&S=` — a plain, unauthenticated iCal (.ics) feed meant for calendar-app
+subscriptions (Google Calendar, Apple Calendar, etc.), so by design it's a
+simple public GET, no login, no Angular rendering, no bot-detection
+issues the way the HTML pages have. Confirmed reachable with a plain
+`fetch`/curl from this environment — no Playwright needed for this one,
+unlike the roster/season scrapers.
+
+The feed mixes real meets with calendar-only entries ("First Day of
+Practice," a "District Meet Placeholder" with no actual meet behind it).
+Real meets carry a `DESCRIPTION` line with the direct meet URL
+(`.../CrossCountry/meet/271958`) — that trailing number is Athletic.net's
+own meet ID, the same value `Race.athleticMeetId` already stores from
+results scraping. Placeholder entries have no `DESCRIPTION`/`LOCATION` at
+all, which is what makes filtering them out unambiguous rather than a
+guess based on the name text.
+
+**Duplicate strategy (the user's actual question).** Two different
+problems, two different answers, worked out with the user before writing
+code:
+
+1. *Within one team*, re-running this import (preseason, then again
+   mid-season) must not create a second row for a meet it already
+   imported. Fixed by keying `Meet` on Athletic.net's own meet ID —
+   added `Meet.athleticMeetId` (nullable, so hand-created meets with no
+   Athletic.net counterpart never collide with each other) with a
+   `@@unique([teamId, seasonId, athleticMeetId])` constraint
+   (`prisma/migrations/20260812010000_meet_athletic_id`). Confirming an
+   import is an upsert on that key, not a blind create.
+2. *Across teams*, `Meet` was already `teamId`-scoped, so 20 different
+   XCApp teams at the same invitational already get 20 separate rows
+   today — deliberately NOT changed. That's normal multi-tenancy: each
+   team's plan (departure time, transport notes, entries, roster) is
+   inherently team-specific and has to stay separate regardless of how
+   many other teams share the physical event. Building a shared
+   "canonical meet" entity would be a real schema change (a shared meet +
+   a per-team sub-plan) with no feature yet that needs it — deliberately
+   out of scope. What *is* in scope, and done: `Meet` now captures
+   Athletic.net's meet ID the same way `Race` does, so a future cross-team
+   feature has the join key already sitting there if it's ever built.
+
+**What got built.**
+- `lib/icalMeets.js` — pure `parseTeamCalendar(icsText)`: unfolds RFC 5545
+  line-folding (CRLF + one leading space/tab), unescapes `\,`/`\;`/`\\`/
+  `\n`, and returns only VEVENTs with a real meet link
+  (`{uid, athleticMeetId, name, date, location}`). Unit-tested
+  (`test/icalMeets.test.js`) against `test/fixtures/team-calendar-2026.ics`
+  — the actual feed for a real team (Ellensburg HS, SchoolID 460),
+  captured live during this conversation, not a synthetic fixture. 7
+  tests: real-meet extraction, placeholder exclusion, meet ID extraction,
+  date conversion, location capture, UID capture, line-fold handling, and
+  an empty-feed edge case.
+- `routes/meetOps.js`: `GET /import/propose-calendar?seasonId=` — looks up
+  the team's `athleticTeamId`, fetches
+  `.../ical.ashx?SchoolID=&S=`, parses it, and flags each proposed meet
+  with `alreadyImported` (a Meet already exists for that Athletic.net ID)
+  and `unlinkedRaceCount` (races already scraped for that meet ID but not
+  yet linked to any Meet — so the coach can see up front that confirming
+  will attach existing results, not just create a bare shell). Read-only,
+  same "propose then a coach confirms" posture as every other import path
+  in this app. `POST /import-calendar` — upserts a `Meet` per confirmed
+  entry keyed on `(teamId, seasonId, athleticMeetId)`, then links any
+  already-scraped, still-unlinked `Race` rows sharing that same
+  `athleticMeetId`.
+- Closed the reverse gap too: the existing race-based `POST /import` (the
+  T4-era "group already-scraped races into a meet" flow) used to always
+  `create` a new `Meet` unconditionally. If a coach ran the calendar
+  import first (creating a Meet with an Athletic.net ID) and later
+  scraped results before re-running the calendar import, the race-based
+  flow would have created a second, ID-less `Meet` for the same real
+  event — exactly the duplicate the user was worried about, just via the
+  other import path. Fixed: it now looks up the Athletic.net meet ID
+  shared by the races being grouped and `upsert`s against the same
+  `(teamId, seasonId, athleticMeetId)` key when one exists, only falling
+  back to a plain `create` when the races carry no ID (older scraped data
+  from before `Race.athleticMeetId` existed).
+- Frontend: `meetOpsService.ts` (`ProposedCalendarMeet`,
+  `proposeCalendarImport`, `confirmCalendarImport`), `useMeetOps.ts`
+  (`useProposeCalendarImport`, `useConfirmCalendarImport`),
+  `MeetOpsPage.tsx` — a second button, "Import from Athletic.net," next
+  to the existing "Import from races" one, opening `ImportCalendarDialog`
+  (same review-then-confirm checkbox-list UX as the races importer, plus
+  an "Already on schedule" badge and a "N scraped results will be linked"
+  hint per row so a re-run is legible rather than mysterious).
+
+Verification: `node --check` on every touched backend file; `npx prisma
+generate` succeeds against the updated schema (confirms the migration
+and Prisma schema agree — actually applying it needs the real DB, which
+this sandbox can't reach, same as every prior migration this session);
+backend suite 103/104 green (only the pre-existing Playwright-binary gap
+fails, unrelated); `routeAuth.test.js` confirms both new routes carry
+proper guards; `tsc -b --force` and `vite build` clean; headless-browser
+check on `/t/:id/meets` shows no client-side crash. Not verified: the
+actual end-to-end import against a real logged-in session (this sandbox
+has no way to authenticate against the deployed app), or how the iCal
+feed behaves for a team with zero scheduled meets yet, or an
+Athletic.net-side rename of an already-imported meet's `SUMMARY` (the
+upsert would silently rename our copy to match on next import — a
+deliberate choice, not an oversight, but worth knowing about if a coach
+ever asks "why did this meet's name change").

@@ -4,6 +4,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
 const { seasonBestSec, decideEntryCapWarning, VALID_ENTRY_STATUSES } = require('../lib/meetEntries');
 const { buildMeetMappingProposal } = require('../lib/meetMapping');
+const { parseTeamCalendar } = require('../lib/icalMeets');
 
 // T4 (Team Management handoff): meet operations — the Meet parent entity,
 // per-race entry management, and meet-day logistics. Mounted at
@@ -153,15 +154,41 @@ router.post('/import', authenticate, requireTeam, requireRole(COACH_ROLES), asyn
         if (!entry.name || !String(entry.name).trim() || !entry.date || !Array.isArray(entry.raceIds) || entry.raceIds.length === 0) {
           continue;
         }
-        const meet = await tx.meet.create({
-          data: {
-            teamId: req.user.teamId,
-            seasonId,
-            name: String(entry.name).trim(),
-            date: new Date(entry.date),
-            location: entry.location || null,
-          },
+
+        // These races may already carry the Athletic.net meet ID from
+        // results scraping. If a Meet already exists for that ID (e.g. a
+        // coach imported this meet from the team's calendar feed before
+        // results were scraped), attach to it instead of creating a
+        // second Meet row for the same real-world meet.
+        const groupRaces = await tx.race.findMany({
+          where: { id: { in: entry.raceIds }, teamId: req.user.teamId },
+          select: { athleticMeetId: true },
         });
+        const distinctIds = new Set(groupRaces.map((r) => r.athleticMeetId).filter(Boolean));
+        const sharedAthleticMeetId = distinctIds.size === 1 ? [...distinctIds][0] : null;
+
+        const meet = sharedAthleticMeetId
+          ? await tx.meet.upsert({
+              where: { teamId_seasonId_athleticMeetId: { teamId: req.user.teamId, seasonId, athleticMeetId: sharedAthleticMeetId } },
+              update: {},
+              create: {
+                teamId: req.user.teamId,
+                seasonId,
+                athleticMeetId: sharedAthleticMeetId,
+                name: String(entry.name).trim(),
+                date: new Date(entry.date),
+                location: entry.location || null,
+              },
+            })
+          : await tx.meet.create({
+              data: {
+                teamId: req.user.teamId,
+                seasonId,
+                name: String(entry.name).trim(),
+                date: new Date(entry.date),
+                location: entry.location || null,
+              },
+            });
         const updateResult = await tx.race.updateMany({
           where: { id: { in: entry.raceIds }, teamId: req.user.teamId, meetId: null },
           data: { meetId: meet.id },
@@ -174,6 +201,146 @@ router.post('/import', authenticate, requireTeam, requireRole(COACH_ROLES), asyn
     res.status(201).json({ msg: `Imported ${results.length} meet(s).`, meets: results });
   } catch (error) {
     console.error('Error importing meets:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/meet-ops/import/propose-calendar?seasonId= — an alternative
+// source for the same "propose, coach confirms, then import" flow above,
+// meant for preseason (before any results exist to group) or mid-season
+// schedule changes: pulls the team's own Athletic.net calendar feed
+// (https://www.athletic.net/CrossCountry/Print/ical.ashx) rather than
+// grouping already-scraped races. That feed is a plain public .ics
+// endpoint meant for calendar-app subscriptions — no login, no browser
+// rendering needed, unlike the team's Angular schedule page. Read-only.
+router.get('/import/propose-calendar', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { seasonId } = req.query;
+  if (!seasonId) {
+    return res.status(400).json({ msg: 'seasonId is required.' });
+  }
+
+  try {
+    const [season, team] = await Promise.all([
+      prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } }),
+      prisma.team.findUnique({ where: { id: req.user.teamId }, select: { athleticTeamId: true } }),
+    ]);
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+    if (!team?.athleticTeamId) {
+      return res.status(400).json({ msg: 'This team has no linked Athletic.net school ID to import from.' });
+    }
+
+    const url = `https://www.athletic.net/CrossCountry/Print/ical.ashx?SchoolID=${encodeURIComponent(team.athleticTeamId)}&S=${season.year}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    let icsText;
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) {
+        return res.status(502).json({ msg: `Athletic.net returned an error (${response.status}) fetching the team calendar.` });
+      }
+      icsText = await response.text();
+    } catch (fetchError) {
+      console.error('Error fetching Athletic.net calendar feed:', fetchError.message);
+      return res.status(502).json({ msg: 'Could not reach Athletic.net to fetch the team calendar.' });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const calendarMeets = parseTeamCalendar(icsText);
+    const athleticMeetIds = calendarMeets.map((m) => m.athleticMeetId);
+
+    const [existingMeets, unlinkedRaces] = await Promise.all([
+      prisma.meet.findMany({
+        where: { teamId: req.user.teamId, seasonId, athleticMeetId: { in: athleticMeetIds } },
+        select: { athleticMeetId: true },
+      }),
+      prisma.race.findMany({
+        where: { teamId: req.user.teamId, season: season.year, meetId: null, athleticMeetId: { in: athleticMeetIds } },
+        select: { athleticMeetId: true },
+      }),
+    ]);
+    const alreadyImported = new Set(existingMeets.map((m) => m.athleticMeetId));
+    const unlinkedCountById = new Map();
+    for (const r of unlinkedRaces) {
+      unlinkedCountById.set(r.athleticMeetId, (unlinkedCountById.get(r.athleticMeetId) || 0) + 1);
+    }
+
+    res.json(
+      calendarMeets.map((m) => ({
+        athleticMeetId: m.athleticMeetId,
+        name: m.name,
+        date: m.date,
+        location: m.location,
+        alreadyImported: alreadyImported.has(m.athleticMeetId),
+        unlinkedRaceCount: unlinkedCountById.get(m.athleticMeetId) || 0,
+      }))
+    );
+  } catch (error) {
+    console.error('Error proposing calendar import:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/meet-ops/import-calendar — creates/updates a Meet per confirmed
+// calendar entry, keyed on Athletic.net's own meet ID so re-running this
+// (or running it after the race-based import above has already created
+// some of these meets from scraped results) never duplicates a row. Any
+// already-scraped, not-yet-linked races for the same meet ID get linked in
+// the same pass, so a coach doesn't have to separately group them later.
+router.post('/import-calendar', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { seasonId, meets } = req.body;
+  if (!seasonId || !Array.isArray(meets) || meets.length === 0) {
+    return res.status(400).json({ msg: 'seasonId and a non-empty meets array are required.' });
+  }
+
+  try {
+    const season = await prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    const results = await prisma.$transaction(async (tx) => {
+      const applied = [];
+      for (const entry of meets) {
+        if (!entry.athleticMeetId || !entry.name || !String(entry.name).trim() || !entry.date) {
+          continue;
+        }
+        const meet = await tx.meet.upsert({
+          where: {
+            teamId_seasonId_athleticMeetId: {
+              teamId: req.user.teamId,
+              seasonId,
+              athleticMeetId: String(entry.athleticMeetId),
+            },
+          },
+          update: {
+            name: String(entry.name).trim(),
+            date: new Date(entry.date),
+            location: entry.location || null,
+          },
+          create: {
+            teamId: req.user.teamId,
+            seasonId,
+            athleticMeetId: String(entry.athleticMeetId),
+            name: String(entry.name).trim(),
+            date: new Date(entry.date),
+            location: entry.location || null,
+          },
+        });
+        const linkResult = await tx.race.updateMany({
+          where: { teamId: req.user.teamId, athleticMeetId: String(entry.athleticMeetId), meetId: null },
+          data: { meetId: meet.id },
+        });
+        applied.push({ id: meet.id, name: meet.name, linkedRaceCount: linkResult.count });
+      }
+      return applied;
+    });
+
+    res.status(201).json({ msg: `Imported ${results.length} meet(s).`, meets: results });
+  } catch (error) {
+    console.error('Error importing meets from calendar:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

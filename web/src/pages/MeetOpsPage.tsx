@@ -24,7 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Plus, Loader2, AlertTriangle, Printer, Trash2, Download } from 'lucide-react';
+import { Plus, Loader2, AlertTriangle, Printer, Trash2, Download, CalendarDays } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import {
@@ -38,8 +38,18 @@ import {
   usePrintableRoster,
   useProposeImport,
   useConfirmImport,
+  useProposeCalendarImport,
+  useConfirmCalendarImport,
 } from '@/hooks/useMeetOps';
-import { ENTRY_STATUSES, formatTimeSec, type EntryStatus, type MeetEntryRow, type MeetPlan, type ProposedMeet } from '@/api/meetOpsService';
+import {
+  ENTRY_STATUSES,
+  formatTimeSec,
+  type EntryStatus,
+  type MeetEntryRow,
+  type MeetPlan,
+  type ProposedMeet,
+  type ProposedCalendarMeet,
+} from '@/api/meetOpsService';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 
 // T4 coach screens (Team Management handoff): meet CRUD, per-race entry
@@ -90,6 +100,7 @@ const MeetOpsPage: React.FC = () => {
   const [newMeetLocation, setNewMeetLocation] = useState('');
 
   const [importOpen, setImportOpen] = useState(false);
+  const [calendarImportOpen, setCalendarImportOpen] = useState(false);
 
   const handleCreateMeet = async () => {
     if (!newMeetName.trim() || !newMeetDate) return;
@@ -127,6 +138,10 @@ const MeetOpsPage: React.FC = () => {
               ))}
             </SelectContent>
           </Select>
+          <Button variant="outline" onClick={() => setCalendarImportOpen(true)}>
+            <CalendarDays className="h-4 w-4 mr-2" />
+            Import from Athletic.net
+          </Button>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Download className="h-4 w-4 mr-2" />
             Import from races
@@ -206,6 +221,15 @@ const MeetOpsPage: React.FC = () => {
       <ImportMeetsDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        seasonId={seasonId}
+        onImported={(firstMeetId) => {
+          if (firstMeetId) setSelectedMeetId(firstMeetId);
+        }}
+      />
+
+      <ImportCalendarDialog
+        open={calendarImportOpen}
+        onClose={() => setCalendarImportOpen(false)}
         seasonId={seasonId}
         onImported={(firstMeetId) => {
           if (firstMeetId) setSelectedMeetId(firstMeetId);
@@ -686,6 +710,131 @@ const ImportMeetsDialog: React.FC<{
                   <p className="text-xs text-muted-foreground">
                     {row.date.slice(0, 10)}
                     {row.location ? ` · ${row.location}` : ''} · {row.raceCount} race{row.raceCount === 1 ? '' : 's'}: {row.raceNames.join(', ')}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleImport} disabled={selectedCount === 0 || confirmImport.isPending}>
+            {confirmImport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Import {selectedCount > 0 ? `${selectedCount} meet${selectedCount === 1 ? '' : 's'}` : ''}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+interface CalendarImportRow extends ProposedCalendarMeet {
+  included: boolean;
+  editedName: string;
+}
+
+// Sourced from the team's own Athletic.net calendar feed rather than
+// scraped races — the only way to pull in a season's schedule before any
+// results exist (preseason), and the way to pick up midseason schedule
+// changes (a rescheduled or added meet) without waiting for results to be
+// scraped first. Keyed on Athletic.net's own meet ID (lib/icalMeets.js),
+// so re-running this — even after the "Import from races" flow already
+// created some of these meets from scraped results — never creates a
+// second Meet row for the same real-world meet; it just refreshes it and
+// links any newly-scraped, still-unlinked races.
+const ImportCalendarDialog: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  seasonId: string | null;
+  onImported: (firstMeetId?: string) => void;
+}> = ({ open, onClose, seasonId, onImported }) => {
+  const proposeImport = useProposeCalendarImport(seasonId);
+  const confirmImport = useConfirmCalendarImport(seasonId);
+  const [rows, setRows] = useState<CalendarImportRow[]>([]);
+  const [proposed, setProposed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open && !proposed) {
+      setLoadError(null);
+      proposeImport.mutate(undefined, {
+        onSuccess: (data) => {
+          setRows(data.map((m) => ({ ...m, included: true, editedName: m.name })));
+          setProposed(true);
+        },
+        onError: (err: unknown) => {
+          const message =
+            (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ??
+            "Could not load this team's Athletic.net schedule.";
+          setLoadError(message);
+        },
+      });
+    }
+    if (!open) {
+      setProposed(false);
+      setRows([]);
+      setLoadError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const handleImport = async () => {
+    const selected = rows.filter((r) => r.included && r.editedName.trim());
+    if (selected.length === 0) return;
+    try {
+      const result = await confirmImport.mutateAsync(
+        selected.map((r) => ({ athleticMeetId: r.athleticMeetId, name: r.editedName.trim(), date: r.date, location: r.location }))
+      );
+      toast.success(result.msg);
+      onImported(result.meets[0]?.id);
+      onClose();
+    } catch {
+      toast.error('Could not import meets.');
+    }
+  };
+
+  const selectedCount = rows.filter((r) => r.included).length;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Import meets from Athletic.net</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Pulls this season's schedule straight from your team's Athletic.net calendar — works before results exist, and safe to
+          re-run for midseason changes. Nothing is created until you confirm.
+        </p>
+        {proposeImport.isPending ? (
+          <p className="text-sm text-muted-foreground py-4">Loading schedule…</p>
+        ) : loadError ? (
+          <p className="text-sm text-destructive py-4">{loadError}</p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">No meets found on this team's Athletic.net schedule for this season.</p>
+        ) : (
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+            {rows.map((row, i) => (
+              <div key={row.athleticMeetId} className="flex items-start gap-3 rounded-md border p-3">
+                <Checkbox
+                  checked={row.included}
+                  onCheckedChange={(v) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, included: Boolean(v) } : r)))}
+                  className="mt-2"
+                />
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      className="h-8"
+                      value={row.editedName}
+                      onChange={(e) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, editedName: e.target.value } : r)))}
+                    />
+                    {row.alreadyImported && <Badge variant="secondary" className="text-[10px] shrink-0">Already on schedule</Badge>}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {row.date.slice(0, 10)}
+                    {row.location ? ` · ${row.location}` : ''}
+                    {row.unlinkedRaceCount > 0
+                      ? ` · ${row.unlinkedRaceCount} scraped result${row.unlinkedRaceCount === 1 ? '' : 's'} will be linked`
+                      : ''}
                   </p>
                 </div>
               </div>
