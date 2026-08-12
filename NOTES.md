@@ -1494,3 +1494,37 @@ check on `/t/:id/groups` shows no client-side crash. Not verified: the
 actual click-through flows against real data (add a coach as a leader,
 move an athlete into a captain group, restore an archived group) — same
 live-session caveat noted throughout this file for every prior UI pass.
+
+**#5 fixed: no way to get a season's meets into the app short of shell
+access.** T4 built `Meet` rows and the propose/apply grouping logic
+(`lib/meetMapping.js`), but the only thing that ever called it was two
+CLI-only scripts (`scripts/proposeMeetMapping.js` /
+`applyMeetMapping.js`) — reasonable for a one-time backfill during
+development, useless for a coach who just wants this season's races to
+show up as meets so entries/logistics/reflections have something to
+attach to. Exposed the same grouping logic as two routes in
+`routes/meetOps.js`: `GET /import/propose?seasonId=` (read-only — groups
+that season's races with no `Meet` yet by the same exact
+(team, season, date) match, returns the proposal, writes nothing) and
+`POST /import` (creates a `Meet` per confirmed entry and links its
+races — only ever acts on what was actually confirmed, never re-derives
+groupings itself). No new logic to unit-test here; both routes are thin
+wrappers around the already-tested `buildMeetMappingProposal`.
+
+`MeetOpsPage.tsx` got an "Import from races" button next to "New Meet."
+The dialog proposes on open, shows each grouped meet with an editable
+name, date, location, and the race names/count that would be linked,
+with a checkbox to include/exclude each one (all checked by default) —
+a coach reviews and can rename before anything is created, matching the
+doc's own "never auto-merge, a coach confirms" posture for this exact
+kind of grouping decision (same one Course mapping and the CLI meet
+scripts already follow). Confirming calls the import route and selects
+the first newly-created meet.
+
+`tsc -b` (forced), `vite build`, and the backend suite (97 green,
+`routeAuth.test.js` confirming the new `POST` route is guarded) all
+clean. Headless-browser check on `/t/:id/meets` shows no client-side
+crash. Not verified: the actual propose-then-import flow against real
+scraped race data, or that the grouping produces sensible results for
+this specific team's real meet names — same live-session caveat as
+everything else in this file.

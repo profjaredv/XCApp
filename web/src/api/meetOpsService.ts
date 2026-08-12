@@ -70,6 +70,15 @@ export interface MyMeetCard {
   plan: MeetPlan | null;
 }
 
+export interface ProposedMeet {
+  proposedName: string;
+  location: string | null;
+  date: string;
+  raceNames: string[];
+  raceCount: number;
+  raceIds: string[];
+}
+
 export interface PrintableRoster {
   meet: { id: string; name: string; date: string; location: string | null };
   races: Array<{
@@ -138,5 +147,16 @@ export const meetOpsService = {
   async myMeetCard(): Promise<MyMeetCard> {
     const response = await api.get<MyMeetCard>('/meet-ops/mine');
     return response.data;
+  },
+
+  /** Groups this season's races that don't already belong to a Meet, by an exact (team, season, date) match — proposes only, writes nothing. */
+  async proposeImport(seasonId: string): Promise<ProposedMeet[]> {
+    const response = await api.get<ProposedMeet[]>('/meet-ops/import/propose', { params: { seasonId } });
+    return response.data;
+  },
+
+  async confirmImport(seasonId: string, meets: Array<{ name: string; date: string; location?: string | null; raceIds: string[] }>) {
+    const response = await api.post('/meet-ops/import', { seasonId, meets });
+    return response.data as { msg: string; meets: Array<{ id: string; name: string; raceCount: number }> };
   },
 };

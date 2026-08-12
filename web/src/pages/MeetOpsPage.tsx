@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select,
@@ -23,7 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Plus, Loader2, AlertTriangle, Printer, Trash2 } from 'lucide-react';
+import { Plus, Loader2, AlertTriangle, Printer, Trash2, Download } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import {
@@ -35,8 +36,10 @@ import {
   useMeetPlan,
   useSaveMeetPlan,
   usePrintableRoster,
+  useProposeImport,
+  useConfirmImport,
 } from '@/hooks/useMeetOps';
-import { ENTRY_STATUSES, formatTimeSec, type EntryStatus, type MeetEntryRow, type MeetPlan } from '@/api/meetOpsService';
+import { ENTRY_STATUSES, formatTimeSec, type EntryStatus, type MeetEntryRow, type MeetPlan, type ProposedMeet } from '@/api/meetOpsService';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 
 // T4 coach screens (Team Management handoff): meet CRUD, per-race entry
@@ -86,6 +89,8 @@ const MeetOpsPage: React.FC = () => {
   const [newMeetDate, setNewMeetDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [newMeetLocation, setNewMeetLocation] = useState('');
 
+  const [importOpen, setImportOpen] = useState(false);
+
   const handleCreateMeet = async () => {
     if (!newMeetName.trim() || !newMeetDate) return;
     try {
@@ -122,6 +127,10 @@ const MeetOpsPage: React.FC = () => {
               ))}
             </SelectContent>
           </Select>
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <Download className="h-4 w-4 mr-2" />
+            Import from races
+          </Button>
           <Button variant="outline" onClick={() => setNewMeetOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
             New Meet
@@ -193,6 +202,15 @@ const MeetOpsPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ImportMeetsDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        seasonId={seasonId}
+        onImported={(firstMeetId) => {
+          if (firstMeetId) setSelectedMeetId(firstMeetId);
+        }}
+      />
     </div>
   );
 };
@@ -575,6 +593,114 @@ const ReflectionsView: React.FC<{ raceId: string }> = ({ raceId }) => {
         </Card>
       ))}
     </div>
+  );
+};
+
+interface ImportRow extends ProposedMeet {
+  included: boolean;
+  editedName: string;
+}
+
+// Meets don't exist for a season until something groups its scraped races
+// into them — previously that only happened via CLI-only propose/apply
+// scripts (scripts/proposeMeetMapping.js), leaving a coach with no way to
+// populate the Meets page short of shell access. This is the same
+// exact-(team, season, date)-match grouping (lib/meetMapping.js) exposed
+// as a review-then-confirm step in the UI instead.
+const ImportMeetsDialog: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  seasonId: string | null;
+  onImported: (firstMeetId?: string) => void;
+}> = ({ open, onClose, seasonId, onImported }) => {
+  const proposeImport = useProposeImport(seasonId);
+  const confirmImport = useConfirmImport(seasonId);
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [proposed, setProposed] = useState(false);
+
+  useEffect(() => {
+    if (open && !proposed) {
+      proposeImport.mutate(undefined, {
+        onSuccess: (data) => {
+          setRows(data.map((m) => ({ ...m, included: true, editedName: m.proposedName })));
+          setProposed(true);
+        },
+        onError: () => toast.error('Could not load races for this season.'),
+      });
+    }
+    if (!open) {
+      setProposed(false);
+      setRows([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const handleImport = async () => {
+    const selected = rows.filter((r) => r.included && r.editedName.trim());
+    if (selected.length === 0) return;
+    try {
+      const result = await confirmImport.mutateAsync(
+        selected.map((r) => ({ name: r.editedName.trim(), date: r.date, location: r.location, raceIds: r.raceIds }))
+      );
+      toast.success(result.msg);
+      onImported(result.meets[0]?.id);
+      onClose();
+    } catch {
+      toast.error('Could not import meets.');
+    }
+  };
+
+  const selectedCount = rows.filter((r) => r.included).length;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Import meets from this season's races</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Races on the same day are grouped into one proposed meet (boys/girls, varsity/JV races at the same event share a day).
+          Nothing is created until you confirm.
+        </p>
+        {proposeImport.isPending ? (
+          <p className="text-sm text-muted-foreground py-4">Loading races…</p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">
+            No unlinked races found for this season — either everything's already grouped into a meet, or nothing's been scraped yet.
+          </p>
+        ) : (
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+            {rows.map((row, i) => (
+              <div key={i} className="flex items-start gap-3 rounded-md border p-3">
+                <Checkbox
+                  checked={row.included}
+                  onCheckedChange={(v) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, included: Boolean(v) } : r)))}
+                  className="mt-2"
+                />
+                <div className="flex-1 space-y-1">
+                  <Input
+                    className="h-8"
+                    value={row.editedName}
+                    onChange={(e) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, editedName: e.target.value } : r)))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {row.date.slice(0, 10)}
+                    {row.location ? ` · ${row.location}` : ''} · {row.raceCount} race{row.raceCount === 1 ? '' : 's'}: {row.raceNames.join(', ')}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleImport} disabled={selectedCount === 0 || confirmImport.isPending}>
+            {confirmImport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Import {selectedCount > 0 ? `${selectedCount} meet${selectedCount === 1 ? '' : 's'}` : ''}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

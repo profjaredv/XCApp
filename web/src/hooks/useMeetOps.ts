@@ -78,3 +78,18 @@ export function useMyMeetCard(enabled = true) {
     enabled,
   });
 }
+
+export function useProposeImport(seasonId: string | null) {
+  return useMutation({
+    mutationFn: () => meetOpsService.proposeImport(seasonId as string),
+  });
+}
+
+export function useConfirmImport(seasonId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (meets: Array<{ name: string; date: string; location?: string | null; raceIds: string[] }>) =>
+      meetOpsService.confirmImport(seasonId as string, meets),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', seasonId] }),
+  });
+}

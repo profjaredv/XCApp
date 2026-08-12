@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
 const { seasonBestSec, decideEntryCapWarning, VALID_ENTRY_STATUSES } = require('../lib/meetEntries');
+const { buildMeetMappingProposal } = require('../lib/meetMapping');
 
 // T4 (Team Management handoff): meet operations — the Meet parent entity,
 // per-race entry management, and meet-day logistics. Mounted at
@@ -83,6 +84,96 @@ router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req
     res.status(201).json(meet);
   } catch (error) {
     console.error('Error creating meet:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/meet-ops/import/propose?seasonId= — groups this season's races
+// that don't already belong to a Meet by an exact (team, season, date)
+// match (lib/meetMapping.js — the same logic scripts/proposeMeetMapping.js
+// uses for a whole-team, all-seasons CLI pass, scoped here to one season
+// and reachable without shell access). Read-only: proposes, writes
+// nothing. A coach reviews and edits names in the UI, then POSTs the
+// confirmed list to /import below — never auto-created.
+router.get('/import/propose', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { seasonId } = req.query;
+  if (!seasonId) {
+    return res.status(400).json({ msg: 'seasonId is required.' });
+  }
+
+  try {
+    const season = await prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    const races = await prisma.race.findMany({
+      where: { teamId: req.user.teamId, season: season.year, meetId: null },
+      select: { id: true, name: true, date: true, location: true },
+    });
+
+    const { meets } = buildMeetMappingProposal({
+      races: races.map((r) => ({ ...r, teamId: req.user.teamId, seasonId: season.id })),
+    });
+
+    res.json(
+      meets.map((m) => ({
+        proposedName: m.proposedName,
+        location: m.location,
+        date: m.date,
+        raceNames: m.raceNames,
+        raceCount: m.raceCount,
+        raceIds: m.raceIds,
+      }))
+    );
+  } catch (error) {
+    console.error('Error proposing meet import:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/meet-ops/import — creates a Meet per confirmed entry and links
+// its races. Only ever called with what a coach reviewed from the
+// propose step above; nothing here re-derives groupings on its own.
+router.post('/import', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { seasonId, meets } = req.body;
+  if (!seasonId || !Array.isArray(meets) || meets.length === 0) {
+    return res.status(400).json({ msg: 'seasonId and a non-empty meets array are required.' });
+  }
+
+  try {
+    const season = await prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    const results = await prisma.$transaction(async (tx) => {
+      const applied = [];
+      for (const entry of meets) {
+        if (!entry.name || !String(entry.name).trim() || !entry.date || !Array.isArray(entry.raceIds) || entry.raceIds.length === 0) {
+          continue;
+        }
+        const meet = await tx.meet.create({
+          data: {
+            teamId: req.user.teamId,
+            seasonId,
+            name: String(entry.name).trim(),
+            date: new Date(entry.date),
+            location: entry.location || null,
+          },
+        });
+        const updateResult = await tx.race.updateMany({
+          where: { id: { in: entry.raceIds }, teamId: req.user.teamId, meetId: null },
+          data: { meetId: meet.id },
+        });
+        applied.push({ id: meet.id, name: meet.name, raceCount: updateResult.count });
+      }
+      return applied;
+    });
+
+    res.status(201).json({ msg: `Imported ${results.length} meet(s).`, meets: results });
+  } catch (error) {
+    console.error('Error importing meets:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
