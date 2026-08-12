@@ -53,10 +53,15 @@ export const athleteService = {
   },
 
   /**
-   * Get a single athlete by ID with their complete history
+   * Get a single athlete by ID — name/gender/grade plus that season's raw
+   * results. Always 200s (unlike the performance-metrics endpoints, which
+   * 404 until someone runs the team's season calculation), so this is what
+   * a profile header should read from rather than waiting on analytics.
    */
-  async getAthlete(athleteId: string): Promise<Athlete> {
-    const response = await axiosInstance.get<Athlete>(`/athletes/${athleteId}`);
+  async getAthlete(athleteId: string, season?: number): Promise<Athlete> {
+    const response = await axiosInstance.get<Athlete>(`/athletes/${athleteId}`, {
+      params: season ? { season } : {},
+    });
     return response.data;
   },
 

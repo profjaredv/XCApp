@@ -1,11 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronLeft } from 'lucide-react';
 import { useAthletePerformance, useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
 import { useMultiSeasonTrends } from '@/hooks/useMultiSeasonTrends';
 import { performanceService } from '@/api/performanceService';
+import { athleteService } from '@/api/athleteService';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeasonModeSelector } from '@/components/analytics/SeasonModeSelector';
@@ -86,10 +88,19 @@ const TeamAthleteProfilePage = () => {
     setSeasonMode(newMode as 'current' | 'all' | 'custom');
   };
 
+  // Identity (name/grade/gender) — always 200s, unlike the performance-
+  // metrics endpoints below, which 404 until someone runs the team's season
+  // calculation. A coach should be able to see who an athlete is without
+  // that step; only the deeper stats/charts need computed metrics.
+  const { data: athleteIdentity, isLoading: isLoadingIdentity, isError: identityError } = useQuery({
+    queryKey: ['athleteIdentity', athleteId, selectedSeason],
+    queryFn: () => athleteService.getAthlete(athleteId as string, selectedSeason),
+    enabled: !!athleteId,
+  });
+
   // Fetch athlete data
   const {
     data: athletePerf,
-    isLoading: isLoadingAthlete,
     refetch: refetchAthletePerf,
   } = useAthletePerformance(athleteId || '', selectedSeason);
   const { data: multiSeasonTrendsData, isLoading: isLoadingMultiSeasonTrends } = useMultiSeasonTrends(teamId || '', selectedSeason);
@@ -193,7 +204,7 @@ const TeamAthleteProfilePage = () => {
     }
   };
 
-  if (isLoadingAthlete) {
+  if (isLoadingIdentity) {
     return (
       <div className="container py-8">
         <div className="flex items-center mb-6">
@@ -211,13 +222,10 @@ const TeamAthleteProfilePage = () => {
     );
   }
 
-  // The season query settled but returned nothing — almost always because
-  // this season's metrics were never calculated (a separate step from
-  // importing results), not a genuine "this athlete has no data" state.
-  // Previously this fell through to `!enhancedAthlete` and stayed on the
-  // loading skeleton forever, which is exactly what "the athlete screen is
-  // largely blank" looked like.
-  if (!enhancedAthlete) {
+  // A genuine 404 — this athlete doesn't exist on this team. Distinct from
+  // "metrics not calculated yet" below, which still has a real athlete to
+  // show a header for.
+  if (identityError || !athleteIdentity) {
     return (
       <div className="container py-8">
         <div className="flex items-center mb-6">
@@ -226,6 +234,48 @@ const TeamAthleteProfilePage = () => {
             Back to Team
           </Button>
         </div>
+        <Card className="mx-auto max-w-xl">
+          <CardHeader className="text-center">
+            <CardTitle>Athlete not found</CardTitle>
+            <CardDescription>This athlete doesn't exist on your team, or you don't have access to it.</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container py-8">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <Button variant="ghost" onClick={handleBack} className="mr-4">
+            <ChevronLeft className="h-5 w-5 mr-1" />
+            Back to Team
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold">{athleteIdentity.name}</h1>
+            <p className="text-muted-foreground">
+              {athleteIdentity.grade ? `Grade ${athleteIdentity.grade}` : 'Grade unknown'}
+              {athleteIdentity.gender ? ` • ${athleteIdentity.gender === 'M' ? 'Boys' : 'Girls'}` : ''}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <SeasonModeSelector
+            mode={seasonMode as SeasonMode}
+            onModeChange={handleSeasonModeChange as (mode: SeasonMode) => void}
+          />
+        </div>
+      </div>
+
+      {!enhancedAthlete ? (
+        // The season query settled but returned nothing — almost always
+        // because this season's metrics were never calculated (a separate
+        // step from importing results), not a genuine "no data" state. The
+        // header above still renders (identity doesn't depend on this), so
+        // a coach can at least confirm who they're looking at before being
+        // asked to run analytics.
         <Card className="mx-auto max-w-xl">
           <CardHeader className="text-center">
             <CardTitle>Metrics haven't been calculated for {selectedSeason} yet</CardTitle>
@@ -241,64 +291,37 @@ const TeamAthleteProfilePage = () => {
             </CardContent>
           )}
         </Card>
-      </div>
-    );
-  }
-
-  return (
-    <div className="container py-8">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center">
-          <Button variant="ghost" onClick={handleBack} className="mr-4">
-            <ChevronLeft className="h-5 w-5 mr-1" />
-            Back to Team
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold">{enhancedAthlete.name}</h1>
-            <p className="text-muted-foreground">
-              Grade {enhancedAthlete.currentGrade} • {enhancedAthlete.gender === 'M' ? 'Boys' : 'Girls'}
-            </p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <SeasonModeSelector
-            mode={seasonMode as SeasonMode}
-            onModeChange={handleSeasonModeChange as (mode: SeasonMode) => void}
-          />
-        </div>
-      </div>
-      
-      {/* Use the AthleteDetailModal component as a full page */}
-      <AthleteDetailModal 
-        selectedAthlete={{
-          id: enhancedAthlete.id,
-          name: enhancedAthlete.name,
-          firstName: enhancedAthlete.firstName,
-          lastName: enhancedAthlete.lastName,
-          currentGrade: enhancedAthlete.currentGrade,
-          gender: enhancedAthlete.gender,
-          teamName: enhancedAthlete.teamName,
-          seasons: enhancedAthlete.seasons,
-          currentSeason: enhancedAthlete.currentSeason,
-          personalBests: enhancedAthlete.personalBests,
-          races: enhancedAthlete.races,
-          bestTime: enhancedAthlete.bestTime,
-          avgPace: enhancedAthlete.avgPace,
-          improvementPercent: enhancedAthlete.improvementPercent,
-          raceCount: enhancedAthlete.raceCount,
-          firstRaceTime: enhancedAthlete.firstRaceTime,
-          lastRaceTime: enhancedAthlete.lastRaceTime,
-          bestTimeDate: enhancedAthlete.bestTimeDate
-        }}
-        enhancedSelectedAthlete={enhancedAthlete}
-        careerSummary={careerSummary}
-        seasonBreakdown={seasonBreakdown}
-        allSeasonsRaces={allSeasonsRaces}
-        multiSeasonTrendsData={multiSeasonTrendsData}
-        isLoadingMultiSeasonTrends={isLoadingMultiSeasonTrends}
-        onClose={() => {}} // No-op since this is a dedicated page
-      />
+      ) : (
+        <AthleteDetailModal
+          selectedAthlete={{
+            id: enhancedAthlete.id,
+            name: enhancedAthlete.name,
+            firstName: enhancedAthlete.firstName,
+            lastName: enhancedAthlete.lastName,
+            currentGrade: enhancedAthlete.currentGrade,
+            gender: enhancedAthlete.gender,
+            teamName: enhancedAthlete.teamName,
+            seasons: enhancedAthlete.seasons,
+            currentSeason: enhancedAthlete.currentSeason,
+            personalBests: enhancedAthlete.personalBests,
+            races: enhancedAthlete.races,
+            bestTime: enhancedAthlete.bestTime,
+            avgPace: enhancedAthlete.avgPace,
+            improvementPercent: enhancedAthlete.improvementPercent,
+            raceCount: enhancedAthlete.raceCount,
+            firstRaceTime: enhancedAthlete.firstRaceTime,
+            lastRaceTime: enhancedAthlete.lastRaceTime,
+            bestTimeDate: enhancedAthlete.bestTimeDate
+          }}
+          enhancedSelectedAthlete={enhancedAthlete}
+          careerSummary={careerSummary}
+          seasonBreakdown={seasonBreakdown}
+          allSeasonsRaces={allSeasonsRaces}
+          multiSeasonTrendsData={multiSeasonTrendsData}
+          isLoadingMultiSeasonTrends={isLoadingMultiSeasonTrends}
+          onClose={() => {}} // No-op since this is a dedicated page
+        />
+      )}
     </div>
   );
 };

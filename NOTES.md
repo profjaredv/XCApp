@@ -1405,3 +1405,36 @@ shows no client-side crash on any of them.
 
 This closes every item on the handoff doc's cleanup list except the one
 flagged as deliberately deferred (`lib/utils.ts`'s formatter functions).
+
+### Post-cleanup: real usage feedback, five items
+
+The user actually used the built T2–T6 screens and reported five gaps.
+Each investigated against the real code before touching anything.
+
+**#4 fixed: athlete profile required season analytics to exist first.**
+`TeamAthleteProfilePage.tsx` fetched `GET /performance/athlete/:id/season/:season`
+for *everything*, including the header — and that route 404s until a
+coach runs the team's season-wide metrics calculation, which a brand-new
+2026 preseason athlete (or honestly most athletes most of the time)
+never has yet. The whole page fell through to a "Metrics haven't been
+calculated" block-screen, hiding even the athlete's name. Fixed by
+pulling the header (name/grade/gender) from `GET /athletes/:athleteId`
+instead — an endpoint that always 200s, since identity doesn't depend on
+computed analytics — and narrowing the "calculate metrics first" gate to
+just the stats/charts section (`AthleteDetailModal`), which genuinely
+does need computed metrics. `athleteService.getAthlete` (which already
+existed, hitting the same endpoint) got an optional `season` param
+rather than adding a second function that does the same thing.
+
+**Found but deliberately not touched while investigating #4**: the
+`enhancedAthlete` `useMemo` derivation reads `data.metrics?.best?.bestTime`,
+`data.metrics?.current?.avgMilePace?.overall`, and `data.athleteName` —
+but the real `AthleteSeasonMetrics` row (and this route's response) is
+flat (`data.bestTime5k`, `data.averagePace`, `data.name`, no nested
+`.metrics` key at all). That means every stat `AthleteDetailModal`
+renders from this path is silently falling back to its `|| 0` / `|| ''`
+default, regardless of whether metrics were actually calculated. This is
+a real, separate, pre-existing bug — not something introduced by this
+fix — and it's a deeper one (touches the shape `AthleteDetailModal`
+expects, which several other callers may also share). Flagging it here
+rather than fixing it blind; it needs its own pass.
