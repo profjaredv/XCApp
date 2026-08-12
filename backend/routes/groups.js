@@ -5,6 +5,9 @@ const { authenticate, requireTeam, requireRole } = require('../middleware/auth')
 const { getGroupOn, moveAthleteToGroup, removeAthleteFromGroup } = require('../lib/groups');
 const { decideCanManageGroup } = require('../lib/groupPermissions');
 const { normalizeGender } = require('../lib/gender');
+const { deriveGrade } = require('../lib/season');
+const { parseDistanceToMeters } = require('../lib/distance');
+const { buildAthleteSeasonSummary, summarizeGroup } = require('../lib/groupAnalytics');
 
 const GROUP_TYPES = new Set(['TRAINING', 'CAPTAIN', 'CUSTOM']);
 
@@ -65,6 +68,134 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
     );
   } catch (error) {
     console.error('Error fetching groups:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/groups/analytics?seasonId=&groupIds=id1,id2 — filter analytics
+// to one or more groups' current rosters and compare them against each
+// other, normalized to pace (lib/groupAnalytics.js) so groups racing
+// different distances are still comparable. Computed live from
+// Result/Race rows — deliberately not dependent on the
+// AthleteSeasonMetrics cache table or any "run analysis first" step (the
+// same gap that used to block viewing an athlete's profile before that
+// season's metrics had been calculated). An athlete with no races yet
+// this season falls back to their most recent prior season's data
+// instead of showing blank, always flagged (`isFallback`) and always
+// excluded from the group's own "this season" numbers, so a coach never
+// mistakes a blended number for this year's actual pace.
+router.get('/analytics', authenticate, requireTeam, async (req, res) => {
+  const { seasonId, groupIds } = req.query;
+  if (!seasonId) {
+    return res.status(400).json({ msg: 'seasonId is required.' });
+  }
+
+  try {
+    const season = await prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    const requestedIds =
+      typeof groupIds === 'string'
+        ? groupIds.split(',').map((s) => s.trim()).filter(Boolean)
+        : null;
+
+    const groups = await prisma.group.findMany({
+      where: {
+        seasonId,
+        archived: false,
+        // No explicit selection: default to comparing the season's
+        // training groups (the natural "compare my squads" case).
+        // Captain/Custom groups are only included when asked for by id —
+        // they're leadership designations, not performance cohorts.
+        ...(requestedIds && requestedIds.length > 0 ? { id: { in: requestedIds } } : { type: 'TRAINING' }),
+      },
+      include: {
+        memberships: {
+          where: { endDate: null },
+          include: { athlete: { select: { id: true, name: true, graduationYear: true } } },
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+
+    const athleteIds = [...new Set(groups.flatMap((g) => g.memberships.map((m) => m.athleteId)))];
+
+    const distanceMeters = (race) => race.distanceMeters ?? parseDistanceToMeters(race.distance);
+
+    let currentByAthlete = new Map();
+    let priorByAthlete = new Map();
+    if (athleteIds.length > 0) {
+      const [currentResults, priorResults] = await Promise.all([
+        prisma.result.findMany({
+          where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: season.year } },
+          select: { athleteId: true, time: true, race: { select: { distance: true, distanceMeters: true } } },
+        }),
+        prisma.result.findMany({
+          where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: { lt: season.year } } },
+          select: { athleteId: true, time: true, race: { select: { season: true, distance: true, distanceMeters: true } } },
+        }),
+      ]);
+
+      for (const r of currentResults) {
+        const list = currentByAthlete.get(r.athleteId) || [];
+        list.push({ timeSec: r.time, distanceMeters: distanceMeters(r.race) });
+        currentByAthlete.set(r.athleteId, list);
+      }
+
+      for (const r of priorResults) {
+        const yearMap = priorByAthlete.get(r.athleteId) || new Map();
+        const list = yearMap.get(r.race.season) || [];
+        list.push({ timeSec: r.time, distanceMeters: distanceMeters(r.race) });
+        yearMap.set(r.race.season, list);
+        priorByAthlete.set(r.athleteId, yearMap);
+      }
+    }
+
+    const summaryByAthlete = new Map();
+    for (const athleteId of athleteIds) {
+      const yearMap = priorByAthlete.get(athleteId) || new Map();
+      const priorSeasonsByYearDesc = [...yearMap.entries()]
+        .sort((a, b) => b[0] - a[0])
+        .map(([year, races]) => ({ year, races }));
+      summaryByAthlete.set(
+        athleteId,
+        buildAthleteSeasonSummary({
+          targetSeason: season.year,
+          currentSeasonRaces: currentByAthlete.get(athleteId) || [],
+          priorSeasonsByYearDesc,
+        })
+      );
+    }
+
+    res.json(
+      groups.map((g) => {
+        const athletes = g.memberships.map((m) => {
+          const summary = summaryByAthlete.get(m.athleteId);
+          return {
+            athleteId: m.athleteId,
+            name: m.athlete.name,
+            grade: deriveGrade(m.athlete.graduationYear, season.year),
+            season: summary?.season ?? null,
+            isFallback: summary?.isFallback ?? null,
+            raceCount: summary?.raceCount ?? 0,
+            bestPaceSecPerMile: summary?.bestPaceSecPerMile ?? null,
+            avgPaceSecPerMile: summary?.avgPaceSecPerMile ?? null,
+          };
+        });
+        return {
+          id: g.id,
+          name: g.name,
+          type: g.type,
+          gender: normalizeGender(g.gender),
+          athletes,
+          summary: summarizeGroup(g.memberships.map((m) => summaryByAthlete.get(m.athleteId))),
+        };
+      })
+    );
+  } catch (error) {
+    console.error('Error building group analytics:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

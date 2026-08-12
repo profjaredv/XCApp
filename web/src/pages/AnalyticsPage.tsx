@@ -23,6 +23,7 @@ import type { Athlete, Race, RaceResult } from '@/types/analytics';
 import { AuthContext } from '@/contexts/AuthContext';
 import { DistanceAnalysisTab } from '@/components/analytics/DistanceAnalysisTab';
 import { RaceComparisonTab } from '@/components/analytics/RaceComparisonTab';
+import { GroupAnalyticsTab } from '@/components/analytics/GroupAnalyticsTab';
 import { useEnhancedTeamMetrics } from '@/hooks/useEnhancedAnalytics';
 import { useQueryParam, useQueryParamNumber, useSetQueryParams } from '@/hooks/useQueryState';
 import { useTeamContext } from '@/hooks/useTeamContext';
@@ -463,93 +464,103 @@ const AnalyticsPage = () => {
         handleClearTeamData={handleClearTeamData}
         seasonDisplay={seasonDisplay}
       />
-      {needsCalculation ? (
-        <Card className="mx-auto max-w-xl">
-          <CardHeader className="text-center">
-            <CardTitle>Metrics haven't been calculated for {viewedSeason} yet</CardTitle>
-            <CardDescription>
-              This season has {viewedSeasonMeta?.raceCount} race
-              {viewedSeasonMeta?.raceCount === 1 ? '' : 's'} imported, but analytics haven't been
-              calculated from them — that's a separate step from importing.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex justify-center">
-            <Button onClick={handleRecalculateMetrics} disabled={isRecalculating}>
-              {isRecalculating ? 'Calculating…' : `Calculate Metrics for ${viewedSeason}`}
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <div className="overflow-x-auto mb-4 -mx-3 px-3 md:mx-0 md:px-0">
-            <TabsList className="inline-flex w-auto min-w-full md:grid md:w-full md:grid-cols-4">
-              <TabsTrigger value="dashboard" className="whitespace-nowrap">Dashboard</TabsTrigger>
-              <TabsTrigger value="athletes" className="whitespace-nowrap">Athletes</TabsTrigger>
-              <TabsTrigger value="meets" className="whitespace-nowrap">Meets</TabsTrigger>
-              <TabsTrigger value="performance" className="whitespace-nowrap">Performance</TabsTrigger>
-            </TabsList>
-          </div>
-          <TabsContent value="dashboard">
-            <DashboardTab
-              displayedStats={displayedStats}
-              mostImproved={mostImproved}
-              seasonSeriesData={seasonSeriesData}
-              enhancedMetrics={enhancedTeamMetrics || null}
-              isLoadingEnhanced={isLoadingEnhanced}
-            />
-          </TabsContent>
-          <TabsContent value="athletes">
-            <AthletesTab
-              searchTerm={searchTerm}
-              handleSearch={handleSearch}
-              genderFilter={genderFilter}
-              handleGenderFilterChange={handleGenderFilterChange}
-              gradeFilter={gradeFilter}
-              handleGradeFilterChange={handleGradeFilterChange}
-              grades={grades}
-              filteredAthletes={filteredAthletes}
-              setSelectedAthlete={handleAthleteSelect}
-              getGradeBorderColor={getGradeBorderColor}
-            />
-          </TabsContent>
-          <TabsContent value="meets">
-            <MeetsTab meets={meets} athletes={athletes} setSelectedRace={setSelectedRace} />
-          </TabsContent>
-          <TabsContent value="performance">
-            <Tabs defaultValue="distance" className="w-full">
-              <TabsList className="mb-4">
-                  <TabsTrigger value="distance">Distance Analysis</TabsTrigger>
-                  <TabsTrigger value="compare">Head-to-Head</TabsTrigger>
-              </TabsList>
-              <TabsContent value="distance">
-                   {isLoadingEnhanced ? (
-                      <div className="flex items-center justify-center py-12">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                      <span className="ml-2">Loading distance analysis...</span>
-                      </div>
-                  ) : enhancedTeamMetrics ? (
-                      <DistanceAnalysisTab teamId={teamId || ''} season={selectedSeason?.toString() || '2025'} />
-                  ) : (
-                      <div className="text-center py-12">
-                      <p className="text-muted-foreground">Distance analysis not available. Please calculate enhanced metrics first.</p>
-                      </div>
-                  )}
-              </TabsContent>
-              <TabsContent value="compare">
-                  {athletes.length > 0 ? (
-                      <RaceComparisonTab
-                      teamId={teamId || ''}
-                      />
-                  ) : (
-                      <div className="text-center py-12">
-                      <p className="text-muted-foreground">No athlete data available for race comparison.</p>
-                      </div>
-                  )}
-              </TabsContent>
-            </Tabs>
-          </TabsContent>
-        </Tabs>
-      )}
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+        <div className="overflow-x-auto mb-4 -mx-3 px-3 md:mx-0 md:px-0">
+          <TabsList className="inline-flex w-auto min-w-full md:grid md:w-full md:grid-cols-5">
+            <TabsTrigger value="dashboard" className="whitespace-nowrap">Dashboard</TabsTrigger>
+            <TabsTrigger value="athletes" className="whitespace-nowrap">Athletes</TabsTrigger>
+            <TabsTrigger value="meets" className="whitespace-nowrap">Meets</TabsTrigger>
+            <TabsTrigger value="performance" className="whitespace-nowrap">Performance</TabsTrigger>
+            <TabsTrigger value="byGroup" className="whitespace-nowrap">By Group</TabsTrigger>
+          </TabsList>
+        </div>
+        {needsCalculation ? (
+          <Card className="mx-auto max-w-xl">
+            <CardHeader className="text-center">
+              <CardTitle>Metrics haven't been calculated for {viewedSeason} yet</CardTitle>
+              <CardDescription>
+                This season has {viewedSeasonMeta?.raceCount} race
+                {viewedSeasonMeta?.raceCount === 1 ? '' : 's'} imported, but analytics haven't been
+                calculated from them — that's a separate step from importing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-center">
+              <Button onClick={handleRecalculateMetrics} disabled={isRecalculating}>
+                {isRecalculating ? 'Calculating…' : `Calculate Metrics for ${viewedSeason}`}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <TabsContent value="dashboard">
+              <DashboardTab
+                displayedStats={displayedStats}
+                mostImproved={mostImproved}
+                seasonSeriesData={seasonSeriesData}
+                enhancedMetrics={enhancedTeamMetrics || null}
+                isLoadingEnhanced={isLoadingEnhanced}
+              />
+            </TabsContent>
+            <TabsContent value="athletes">
+              <AthletesTab
+                searchTerm={searchTerm}
+                handleSearch={handleSearch}
+                genderFilter={genderFilter}
+                handleGenderFilterChange={handleGenderFilterChange}
+                gradeFilter={gradeFilter}
+                handleGradeFilterChange={handleGradeFilterChange}
+                grades={grades}
+                filteredAthletes={filteredAthletes}
+                setSelectedAthlete={handleAthleteSelect}
+                getGradeBorderColor={getGradeBorderColor}
+              />
+            </TabsContent>
+            <TabsContent value="meets">
+              <MeetsTab meets={meets} athletes={athletes} setSelectedRace={setSelectedRace} />
+            </TabsContent>
+            <TabsContent value="performance">
+              <Tabs defaultValue="distance" className="w-full">
+                <TabsList className="mb-4">
+                    <TabsTrigger value="distance">Distance Analysis</TabsTrigger>
+                    <TabsTrigger value="compare">Head-to-Head</TabsTrigger>
+                </TabsList>
+                <TabsContent value="distance">
+                     {isLoadingEnhanced ? (
+                        <div className="flex items-center justify-center py-12">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                        <span className="ml-2">Loading distance analysis...</span>
+                        </div>
+                    ) : enhancedTeamMetrics ? (
+                        <DistanceAnalysisTab teamId={teamId || ''} season={selectedSeason?.toString() || '2025'} />
+                    ) : (
+                        <div className="text-center py-12">
+                        <p className="text-muted-foreground">Distance analysis not available. Please calculate enhanced metrics first.</p>
+                        </div>
+                    )}
+                </TabsContent>
+                <TabsContent value="compare">
+                    {athletes.length > 0 ? (
+                        <RaceComparisonTab
+                        teamId={teamId || ''}
+                        />
+                    ) : (
+                        <div className="text-center py-12">
+                        <p className="text-muted-foreground">No athlete data available for race comparison.</p>
+                        </div>
+                    )}
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
+          </>
+        )}
+        {/* Deliberately outside the needsCalculation gate above — this tab is
+            computed live from race results, not the AthleteSeasonMetrics
+            cache table, so it works in preseason before anything has been
+            calculated. That's the whole point of it. */}
+        <TabsContent value="byGroup">
+          <GroupAnalyticsTab seasonId={viewedSeasonMeta?.id ?? null} />
+        </TabsContent>
+      </Tabs>
       <AthleteDetailModal 
         selectedAthlete={selectedAthlete}
         enhancedSelectedAthlete={enhancedSelectedAthlete}

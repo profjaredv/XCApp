@@ -35,6 +35,39 @@ export interface RosterAthleteWithRaces {
   races: Array<{ time: number | null; race: { date: string; distanceMeters: number | null } }>;
 }
 
+export interface GroupAnalyticsAthlete {
+  athleteId: string;
+  name: string;
+  grade: number | null;
+  /** The season this athlete's numbers actually come from — equals the requested season unless isFallback is true. */
+  season: number | null;
+  /** True when this athlete had no races in the requested season and these numbers are their most recent prior season instead. */
+  isFallback: boolean | null;
+  raceCount: number;
+  bestPaceSecPerMile: number | null;
+  avgPaceSecPerMile: number | null;
+}
+
+export interface GroupAnalyticsSummary {
+  athleteCount: number;
+  /** Athletes whose numbers are from the requested season itself — the only ones counted in avgPaceSecPerMile/bestPaceSecPerMile below. */
+  currentSeasonCount: number;
+  /** Athletes shown via prior-season fallback — visible per-athlete, deliberately excluded from this group's own aggregate. */
+  fallbackCount: number;
+  neverRacedCount: number;
+  avgPaceSecPerMile: number | null;
+  bestPaceSecPerMile: number | null;
+}
+
+export interface GroupAnalytics {
+  id: string;
+  name: string;
+  type: GroupType;
+  gender: string | null;
+  athletes: GroupAnalyticsAthlete[];
+  summary: GroupAnalyticsSummary;
+}
+
 export const groupService = {
   async listGroups(seasonId: string): Promise<Group[]> {
     const response = await api.get<Group[]>('/groups', { params: { seasonId } });
@@ -114,6 +147,14 @@ export const groupService = {
   /** Roster with per-race results, for computing each athlete's season-best on the card. */
   async getRosterWithRaces(season: number): Promise<RosterAthleteWithRaces[]> {
     const response = await api.get<RosterAthleteWithRaces[]>('/athletes', { params: { season } });
+    return response.data;
+  },
+
+  /** Filter/compare groups' current rosters, normalized to pace. Omit groupIds for "all training groups this season." */
+  async getGroupAnalytics(seasonId: string, groupIds?: string[]): Promise<GroupAnalytics[]> {
+    const response = await api.get<GroupAnalytics[]>('/groups/analytics', {
+      params: { seasonId, ...(groupIds && groupIds.length > 0 ? { groupIds: groupIds.join(',') } : {}) },
+    });
     return response.data;
   },
 };

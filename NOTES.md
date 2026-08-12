@@ -1724,3 +1724,108 @@ Athletic.net-side rename of an already-imported meet's `SUMMARY` (the
 upsert would silently rename our copy to match on next import — a
 deliberate choice, not an oversight, but worth knowing about if a coach
 ever asks "why did this meet's name change").
+
+## Analytics by group: filter, compare, prior-season fallback
+
+User request: a group-scoped view of analytics — filter to one group,
+show only its athletes, compare groups against each other — plus a
+specific requirement they flagged as the important part: an athlete with
+no races yet this season should show their most recent prior season's
+performance instead of nothing, since a group often gets set before the
+first meet.
+
+**Why this isn't built on the existing metrics pipeline.** The obvious
+approach would reuse `services/performance/calculationService.js`'s
+`AthleteSeasonMetrics` cache table — same numbers shown elsewhere. Ruled
+out on purpose: that table only exists once a coach explicitly runs
+"Calculate Metrics" for a season (`AnalyticsPage.tsx`'s `needsCalculation`
+gate), which is the *exact same blocker* item #4 from the "five items"
+round fixed for the athlete profile page ("I should be able to view the
+profile... without having to have created 2026 analysis first"). Building
+group analytics on top of that cache would reintroduce the same complaint
+in a new place — a coach setting up groups in the preseason, before a
+single result exists, is precisely when this view matters most. Instead
+it's computed live from `Result`/`Race` rows directly, same as the
+meet-entries screen's `seasonBestSec` helper already does — always
+correct, never blocked on a separate step.
+
+**Design decisions, worked out before writing code (this was flagged by
+the user as possibly unspecified, so worth recording the reasoning):**
+- *Pace, not raw time* — a group mixes athletes who race different
+  distances at different meets, so raw seconds aren't comparable across
+  athletes or across a season. Normalized to sec/mile via
+  `Race.distanceMeters` (falling back to parsing `Race.distance` when
+  unbackfilled), matching the normalization already used everywhere else
+  pace is shown in this app.
+- *Group roster = current active membership, not per-race historical
+  membership.* Considered using `getGroupOn(athleteId, raceDate)` (already
+  built for T2) to attribute each individual historical race to whichever
+  group the athlete was in on that specific day — rejected as more
+  surprising than useful: "filter by group, show only athletes within the
+  group" reads as present-tense roster, and groups are already
+  season-scoped rows that reset each season, so "who's actively in this
+  group" (`GroupMembership.endDate: null`) is the same simple query the
+  existing `GET /groups/:id/members` endpoint already uses. A mid-season
+  group-switcher's full season shows up under their *current* group, not
+  split across old and new.
+- *Prior-season fallback is per-athlete, never blended into the group's
+  own aggregate.* An athlete with zero current-season races falls back to
+  their most recent prior season with data (walking seasons newest-first,
+  not just "last year" — a gap year needs to keep looking). That fallback
+  is always labeled (`isFallback: true`, badge in the UI showing which
+  season the number is actually from) and always excluded from the
+  group's own average/best pace — a fast returner's old data must never
+  quietly make a group's "this season" number look better than the group
+  has actually run yet. Considered whole-view fallback (if literally
+  nobody in the group has raced yet, show last season for everyone,
+  labeled once) instead of per-athlete — went with per-athlete since it
+  degrades gracefully mid-season too (new group member joins in October,
+  everyone else has current data, only the new member needs the fallback)
+  rather than only working as an all-or-nothing preseason special case.
+
+**What got built.**
+- `lib/groupAnalytics.js` — pure, DB-free: `paceSecPerMile`,
+  `summarizeRaces` (best/avg pace + race counts, races with no parseable
+  distance counted but excluded from pace math, never treated as a zero),
+  `buildAthleteSeasonSummary` (current season if it has data, else walks
+  prior seasons newest-first, returns `null` only for a genuine
+  never-raced athlete — not a zero-pace object), `summarizeGroup`
+  (aggregates only non-fallback athletes). 11 tests
+  (`test/groupAnalytics.test.js`), including the specific "a blazing prior
+  -season pace must not pull the group's current aggregate down" case and
+  the "no current-season data at all yields null, not zero/NaN" case.
+- `routes/groups.js`: `GET /analytics?seasonId=&groupIds=id1,id2` —
+  `groupIds` optional, defaults to the season's non-archived TRAINING
+  groups (the "compare my squads" default); explicit ids can include
+  Captain/Custom groups too, since a coach might reasonably want that,
+  just not as the default (those are leadership designations, not
+  performance cohorts). Batches one query for current-season results and
+  one for every prior season across every requested group's athletes,
+  groups them in memory — no N+1 per athlete.
+- Frontend: `groupService.ts` (`GroupAnalytics`/`GroupAnalyticsAthlete`/
+  `GroupAnalyticsSummary` types, `getGroupAnalytics`), `useGroups.ts`
+  (`useGroupAnalytics`), new `components/analytics/GroupAnalyticsTab.tsx`
+  — a checkbox row to pick which groups to compare (defaults to all
+  training groups), a card per group with the this-season avg/best pace
+  and a per-athlete table, fallback athletes shown with a "{year} data —
+  no races yet this season" badge inline rather than hidden.
+- `AnalyticsPage.tsx` restructured: the "By Group" tab is a 5th tab
+  alongside Dashboard/Athletes/Meets/Performance, but deliberately placed
+  *outside* the `needsCalculation` gate that blocks the other four — the
+  whole point of this feature is working before that gate would ever
+  clear. `formatPace`/`formatTime` reused from `lib/formatUtils.ts`
+  (already imported on this page) rather than adding a fourth copy — see
+  the still-open note elsewhere in this file about `lib/utils.ts`'s
+  formatter duplicates; this was a chance to not make that worse.
+
+Verification: `node --check` on every touched backend file; backend suite
+114/115 green (only the pre-existing Playwright-binary gap fails,
+unrelated); `tsc -b --force` and `vite build` clean; headless-browser
+check on `/t/:id/analytics?tab=byGroup` (plus `/groups` and `/meets` as a
+regression check on everything else touched this session) shows no
+client-side crash. Not verified: real group/result data end-to-end (no
+authenticated session reachable from this sandbox), or how the view reads
+for a team with several seasons of gaps in between (e.g. raced 2023,
+skipped 2024, group set up in 2025 — the "walk seasons newest-first"
+logic should handle it per the pure-function tests, but only real data
+would confirm it feels right to a coach looking at it).

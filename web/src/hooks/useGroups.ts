@@ -43,6 +43,15 @@ export function useRosterWithRaces(season: number | undefined) {
   });
 }
 
+/** Omit groupIds (or pass []) for "all training groups this season." */
+export function useGroupAnalytics(seasonId: string | null, groupIds: string[] = []) {
+  return useQuery({
+    queryKey: ['groupAnalytics', seasonId, groupIds],
+    queryFn: () => groupService.getGroupAnalytics(seasonId as string, groupIds),
+    enabled: !!seasonId,
+  });
+}
+
 export function useCreateGroup(seasonId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
