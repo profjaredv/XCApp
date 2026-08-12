@@ -256,11 +256,24 @@ const AnalyticsPage = () => {
   }, [teamId, selectedSeason, refetch, invalidatePerf, toast]);
 
   const handleClearTeamData = useCallback(async () => {
-    if (!window.confirm('This will delete ALL athletes, races, and results for your team. This action cannot be undone. Continue?')) return;
+    // Athletes and roster membership survive this endpoint (see its own
+    // comment in routes/teams.js) — only imported races/results are
+    // removed, so the confirm/success copy below says that, not "all
+    // athletes."
+    if (!window.confirm('This will delete all imported races and results for your team. Athletes and rosters are not affected. This action cannot be undone. Continue?')) return;
+    const athleticTeamId = currentUser?.team?.athleticTeamId;
+    if (!athleticTeamId) {
+      toast({ title: 'Error', description: 'No team selected.', variant: 'destructive' });
+      return;
+    }
     try {
-      await api.delete('/teams/data');
+      // Was hitting the nonexistent /teams/data (a bare, param-less path
+      // that never matched any route — DELETE /:athleticTeamId/results is
+      // two segments — so this always 404'd). SettingsPage's "Clear Data"
+      // action already calls the real endpoint; mirrored here.
+      await api.delete(`/teams/${athleticTeamId}/results`);
       await refetch();
-      toast({ title: 'Team data cleared', description: 'All team data was deleted.', variant: 'default' });
+      toast({ title: 'Race data cleared', description: 'Imported races and results were deleted.', variant: 'default' });
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
       const msg = status === 403 ? 'You must be the coach to clear team data.' : 'Failed to clear team data';

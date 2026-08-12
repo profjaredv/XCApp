@@ -1921,3 +1921,29 @@ DB access from this sandbox, same limitation as every schema/migration
 change this session) — the logic was checked by reading the exact
 pattern it mirrors (`routes/dataManagement.js`'s already-correct clear
 endpoint) rather than by executing it.
+
+## Found while writing testing steps: AnalyticsPage's "Clear team data" button 404'd
+
+Working out how the user should test the delete-cache-purge fix above led
+to checking which UI buttons actually reach
+`routes/teams.js`'s `DELETE /:athleticTeamId/results` (the one I fixed).
+`SettingsPage.tsx`'s "Clear Data" action calls it correctly
+(`/teams/${team.athleticTeamId}/results`). `AnalyticsPage.tsx`'s "Clear
+team data" button did not — it called `api.delete('/teams/data')`, a
+bare, param-less path. No route matches it (the real route needs a
+`/:athleticTeamId/results` two-segment path), so every click of that
+button was a silent 404 with a generic "Failed to clear team data" toast
+— unrelated to anything this session touched, a pre-existing bug, found
+only because accurate testing instructions required tracing every UI
+button back to a real endpoint.
+
+Fixed to call the correct URL with the team's `athleticTeamId` (mirroring
+`SettingsPage.tsx`), guarding for a missing team id the same way
+`SettingsPage.tsx` does. Also corrected the confirm-dialog and success
+copy while touching this code: it said "delete ALL athletes, races, and
+results," but the endpoint's own comment is explicit that athletes and
+roster membership survive — only races/results are removed. A coach
+reading that confirm dialog before this fix was being warned about
+deleting their whole roster when the action never did that.
+
+`tsc -b --force` and `vite build` clean.
