@@ -1,5 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { groupService, type GroupType } from '../api/groupService';
+import { teamService } from '../api/teamService';
+
+/** Coaching staff eligible to lead a group — HEAD_COACH/COACH/VOLUNTEER_COACH, active only. */
+export function useStaff() {
+  return useQuery({
+    queryKey: ['teamStaff'],
+    queryFn: () => teamService.getStaff(),
+    select: (data) => data.staff.filter((s) => s.active),
+  });
+}
 
 export function useGroups(seasonId: string | null) {
   return useQuery({
@@ -61,6 +71,49 @@ export function useDeleteGroup(seasonId: string | null) {
     mutationFn: (groupId: string) => groupService.deleteGroup(groupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
+    },
+  });
+}
+
+export function useAssignLeader(seasonId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, userId, primary }: { groupId: string; userId: string; primary?: boolean }) =>
+      groupService.assignLeader(groupId, userId, primary),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
+    },
+  });
+}
+
+export function useRemoveLeader(seasonId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, userId }: { groupId: string; userId: string }) => groupService.removeLeader(groupId, userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
+    },
+  });
+}
+
+export function useAddMember(seasonId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, athleteId }: { groupId: string; athleteId: string }) => groupService.addMember(groupId, athleteId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
+      queryClient.invalidateQueries({ queryKey: ['groupMembers'] });
+    },
+  });
+}
+
+export function useRemoveMember(seasonId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, athleteId }: { groupId: string; athleteId: string }) => groupService.removeMember(groupId, athleteId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
+      queryClient.invalidateQueries({ queryKey: ['groupMembers'] });
     },
   });
 }

@@ -80,6 +80,24 @@ export const groupService = {
     await api.delete(`/groups/${groupId}`);
   },
 
+  async assignLeader(groupId: string, userId: string, primary = false): Promise<void> {
+    await api.post(`/groups/${groupId}/leaders`, { userId, primary });
+  },
+
+  async removeLeader(groupId: string, userId: string): Promise<void> {
+    await api.delete(`/groups/${groupId}/leaders/${userId}`);
+  },
+
+  /** Moves one athlete into a group (effective-dated — see lib/groups.js), for CAPTAIN/CUSTOM groups the bulk TRAINING screen doesn't cover. */
+  async addMember(groupId: string, athleteId: string): Promise<void> {
+    await api.post(`/groups/${groupId}/members`, { athleteId });
+  },
+
+  /** Takes an athlete OUT of a group with nothing opening in its place. */
+  async removeMember(groupId: string, athleteId: string): Promise<void> {
+    await api.delete(`/groups/${groupId}/members/${athleteId}`);
+  },
+
   async bulkAssign(input: {
     assignments: Array<{ athleteId: string; groupId: string }>;
     effectiveDate?: string;

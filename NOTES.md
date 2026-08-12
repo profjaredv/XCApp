@@ -1438,3 +1438,59 @@ a real, separate, pre-existing bug — not something introduced by this
 fix — and it's a deeper one (touches the shape `AthleteDetailModal`
 expects, which several other callers may also share). Flagging it here
 rather than fixing it blind; it needs its own pass.
+
+**#1/#2/#3 fixed: Groups — could create but never edit/delete a group,
+never create a Captain-type group, never add coaches as leaders, and
+"Unassign" silently did nothing.** All the backend routes for this
+(`PUT /groups/:id`, `DELETE /groups/:id`, `POST`/`DELETE
+/groups/:id/leaders/:userId`) were built and tested back in T2 — the
+frontend just never grew the UI to call them. Investigated before
+building anything, not assumed:
+
+- **A real backend gap found along the way**: there was no way to take
+  an athlete OUT of a group with nothing replacing it.
+  `moveAthleteToGroup` (T2) only ever moves someone INTO a group, closing
+  whatever they were in before as a side effect — there was no
+  close-with-no-replacement operation. That's exactly what "Unassign" in
+  the bulk screen needs, and its absence is why `GroupsPage.tsx`'s old
+  `handleSave` **silently filtered `UNASSIGNED` entries out before
+  sending the request** — setting someone to Unassigned and clicking Save
+  did nothing at all, with no error, which is indistinguishable from a
+  bug. Added `removeAthleteFromGroup` to `lib/groups.js` (closes the
+  athlete's active membership in that specific group, creates no new
+  row — the "Never hard-delete a membership. Removal sets endDate" half
+  of the doc's own rule that T2 never actually built) plus
+  `DELETE /api/groups/:id/members/:athleteId`, unit-tested per rule 5.
+  `GroupsPage.tsx`'s save now actually calls this for every athlete moved
+  to Unassigned, instead of dropping the change.
+- **New Group dialog** gained a Type select (Training/Captain/Custom —
+  previously hardcoded to `'TRAINING'`) and a Gender select that now
+  includes "Mixed / not split" (`null`), since a captain or custom group
+  isn't necessarily gender-split the way training groups are.
+- **Every group card** (training columns and the new "Captain & Custom
+  Groups" section below them) got edit (rename), archive/restore, delete,
+  and a "manage leaders" action. Archived training groups previously just
+  vanished with no way back — added a small "Archived" list per gender
+  column with a Restore button.
+- **"Add existing coaches to a group"** is what "manage leaders" is:
+  `ManageLeadersDialog` lists a group's current leaders (with a Primary
+  badge) and a picker (sourced from `GET /team/staff`, filtered to active
+  staff) to add another. `teamService.getStaff` and
+  `groupService.assignLeader`/`removeLeader` are new; the backend route
+  was already there.
+- **CAPTAIN/CUSTOM groups have no natural home in the two-column
+  TRAINING bulk-assign UI** — a captain-group membership runs concurrently
+  with a training-group one (per T2's own effective-dating rules,
+  `GroupMembership` is scoped "at most one active per `GroupType`", not
+  globally), so the checkbox-and-assign flow doesn't apply to them at all.
+  Built a separate `ManageMembersDialog` for these — a plain add/remove
+  list per group, using the new `removeAthleteFromGroup` for removal and
+  the existing single-athlete `POST /:id/members` for adding.
+
+`tsc -b` (forced), `vite build`, and the backend suite (97 green,
+including 2 new `removeAthleteFromGroup` tests and `routeAuth.test.js`
+confirming the new `DELETE` route is guarded) all clean. Headless-browser
+check on `/t/:id/groups` shows no client-side crash. Not verified: the
+actual click-through flows against real data (add a coach as a leader,
+move an athlete into a captain group, restore an archived group) — same
+live-session caveat noted throughout this file for every prior UI pass.

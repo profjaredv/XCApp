@@ -123,5 +123,14 @@ export const teamService = {
   async getPendingClaims(): Promise<{ pendingClaims: PendingClaim[] }> {
     const response = await axiosInstance.get<{ pendingClaims: PendingClaim[] }>('/team/pending-claims');
     return response.data;
-  }
+  },
+
+  /** Active coaching staff (HEAD_COACH/COACH/VOLUNTEER_COACH) plus pending invites. */
+  async getStaff(): Promise<{
+    staff: Array<{ userId: string; name: string | null; email: string; role: string; active: boolean }>;
+    pendingInvites: Array<{ email: string; role: string; expiresAt: string }>;
+  }> {
+    const response = await axiosInstance.get('/team/staff');
+    return response.data;
+  },
 };

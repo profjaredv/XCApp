@@ -80,4 +80,26 @@ async function moveAthleteToGroup({ athleteId, groupId, effectiveDate, movedById
   });
 }
 
-module.exports = { getGroupOn, moveAthleteToGroup, isMembershipActiveOn, normalizeDate };
+// "Never hard-delete a membership. Removal sets endDate." — the doc's own
+// rule, but T2's first pass only ever built the "move into a new group"
+// half (moveAthleteToGroup, which always opens a replacement row). This is
+// the other half: take an athlete OUT of a group with nothing opening in
+// its place — closes their currently-active membership in exactly this
+// group, if one exists. A no-op (returns null) if they aren't currently in
+// it, rather than throwing, since "remove someone who's already not there"
+// is a reasonable double-click/race to just ignore.
+async function removeAthleteFromGroup({ athleteId, groupId, effectiveDate = new Date(), movedById = null, reason = null }) {
+  const normalizedDate = normalizeDate(effectiveDate);
+
+  const active = await prisma.groupMembership.findFirst({
+    where: { athleteId, groupId, endDate: null },
+  });
+  if (!active) return null;
+
+  return prisma.groupMembership.update({
+    where: { id: active.id },
+    data: { endDate: normalizedDate, movedById, reason },
+  });
+}
+
+module.exports = { getGroupOn, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn, normalizeDate };

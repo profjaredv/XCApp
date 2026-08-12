@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const prisma = require('../lib/db');
-const { getGroupOn, moveAthleteToGroup, isMembershipActiveOn, normalizeDate } = require('../lib/groups');
+const { getGroupOn, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn, normalizeDate } = require('../lib/groups');
 
 test('normalizeDate collapses to a UTC midnight Date regardless of input time-of-day', () => {
   const a = normalizeDate('2024-09-15T18:30:00Z');
@@ -117,5 +117,46 @@ test('getGroupOn / moveAthleteToGroup', async (t) => {
 
     const afterMove = await getGroupOn(athleteId, '2024-11-01');
     assert.equal(afterMove.groupId, 'gB');
+  });
+});
+
+test('removeAthleteFromGroup', async (t) => {
+  await t.test('closes the active membership with no replacement row, and no-ops if none is active', async (t) => {
+    const rows = [{ id: 'm1', athleteId: 'ath1', groupId: 'gA', startDate: normalizeDate('2024-09-01'), endDate: null, movedById: null, reason: null }];
+
+    const originalFindFirst = prisma.groupMembership.findFirst;
+    const originalUpdate = prisma.groupMembership.update;
+    const originalCreate = prisma.groupMembership.create;
+    let createCalls = 0;
+
+    prisma.groupMembership.findFirst = async ({ where }) =>
+      rows.find((r) => r.athleteId === where.athleteId && r.groupId === where.groupId && r.endDate === null) ?? null;
+    prisma.groupMembership.update = async ({ where, data }) => {
+      const row = rows.find((r) => r.id === where.id);
+      Object.assign(row, data);
+      return row;
+    };
+    prisma.groupMembership.create = async () => {
+      createCalls++;
+      throw new Error('removeAthleteFromGroup must never create a row');
+    };
+
+    t.after(() => {
+      prisma.groupMembership.findFirst = originalFindFirst;
+      prisma.groupMembership.update = originalUpdate;
+      prisma.groupMembership.create = originalCreate;
+    });
+
+    const removed = await removeAthleteFromGroup({ athleteId: 'ath1', groupId: 'gA', effectiveDate: '2024-10-15', movedById: 'coach1', reason: 'cut from squad' });
+    assert.equal(removed.id, 'm1');
+    assert.equal(removed.groupId, 'gA', 'groupId on the closed row is untouched');
+    assert.equal(removed.endDate.getTime(), normalizeDate('2024-10-15').getTime());
+    assert.equal(removed.movedById, 'coach1');
+    assert.equal(rows.length, 1, 'no new row created');
+    assert.equal(createCalls, 0);
+
+    // Calling it again (already removed) is a no-op, not an error.
+    const noOp = await removeAthleteFromGroup({ athleteId: 'ath1', groupId: 'gA', effectiveDate: '2024-10-20' });
+    assert.equal(noOp, null);
   });
 });

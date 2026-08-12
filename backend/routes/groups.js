@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
-const { getGroupOn, moveAthleteToGroup } = require('../lib/groups');
+const { getGroupOn, moveAthleteToGroup, removeAthleteFromGroup } = require('../lib/groups');
 const { decideCanManageGroup } = require('../lib/groupPermissions');
 
 const GROUP_TYPES = new Set(['TRAINING', 'CAPTAIN', 'CUSTOM']);
@@ -299,6 +299,45 @@ router.post('/:id/members', authenticate, requireTeam, async (req, res) => {
     res.status(201).json(membership);
   } catch (error) {
     console.error('Error moving athlete to group:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// DELETE /api/groups/:id/members/:athleteId
+// Takes an athlete OUT of this group with nothing opening in its place —
+// the other half of POST /:id/members, which only ever moves someone IN.
+// Same authorization shape as moving: a volunteer coach may only do this
+// for a group they lead.
+router.delete('/:id/members/:athleteId', authenticate, requireTeam, async (req, res) => {
+  const { effectiveDate, reason } = req.body;
+
+  try {
+    const group = await prisma.group.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
+    if (!group) {
+      return res.status(404).json({ msg: 'Group not found.' });
+    }
+    if (!(await canManageGroup(req, group.id))) {
+      return res.status(403).json({ msg: 'You do not lead this group.' });
+    }
+    const athlete = await prisma.athlete.findFirst({ where: { id: req.params.athleteId, teamId: req.user.teamId } });
+    if (!athlete) {
+      return res.status(404).json({ msg: 'Athlete not found.' });
+    }
+
+    const removed = await removeAthleteFromGroup({
+      athleteId: athlete.id,
+      groupId: group.id,
+      effectiveDate: effectiveDate ? new Date(effectiveDate) : new Date(),
+      movedById: req.user.id,
+      reason: reason || null,
+    });
+    if (!removed) {
+      return res.status(404).json({ msg: 'That athlete is not currently in this group.' });
+    }
+
+    res.json(removed);
+  } catch (error) {
+    console.error('Error removing athlete from group:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
