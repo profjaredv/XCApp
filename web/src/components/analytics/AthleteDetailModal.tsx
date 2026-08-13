@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { X, ChevronUp, ChevronDown } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import AthleteProgressChart from './AthleteProgressChart';
@@ -67,6 +68,7 @@ export const AthleteDetailModal = ({
   // Sorting state for races table
   const [sortField, setSortField] = useState<'meet' | 'season' | 'distance' | 'time' | 'pace'>('season');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [detailTab, setDetailTab] = useState('summary');
 
   // Deduplicate races by creating a unique key (before early return)
   const uniqueRaces = useMemo(() => {
@@ -277,15 +279,14 @@ export const AthleteDetailModal = ({
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>
         <div className="mt-6">
-          <Tabs defaultValue="summary">
-            {/* Scrollable tabs on mobile */}
-            <div className="overflow-x-auto mb-4 -mx-4 px-4 md:mx-0 md:px-0">
-              <TabsList className="inline-flex w-auto min-w-full md:w-full">
+          <Tabs value={detailTab} onValueChange={setDetailTab}>
+            <div className="mb-4">
+              <ResponsiveTabsList value={detailTab} onValueChange={setDetailTab} className="md:w-full">
                 <TabsTrigger value="summary" className="whitespace-nowrap">Career Summary</TabsTrigger>
                 <TabsTrigger value="seasons" className="whitespace-nowrap">Season Breakdown</TabsTrigger>
                 <TabsTrigger value="races" className="whitespace-nowrap">All Races</TabsTrigger>
                 <TabsTrigger value="highlights" className="whitespace-nowrap">Highlights</TabsTrigger>
-              </TabsList>
+              </ResponsiveTabsList>
             </div>
             <TabsContent value="summary">
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6 text-center">

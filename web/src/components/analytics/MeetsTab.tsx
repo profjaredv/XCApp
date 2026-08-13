@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatPace, formatDateShort, formatTime } from '@/lib/formatUtils';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -24,6 +25,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
   const [gradeFilter, setGradeFilter] = useState<'all' | number>('all');
   const [splitsModalOpen, setSplitsModalOpen] = useState(false);
   const [splitsModalMeet, setSplitsModalMeet] = useState<Meet | null>(null);
+  const [meetStatsTab, setMeetStatsTab] = useState('overview');
 
   // Fetch full meet details when a meet is selected
   useEffect(() => {
@@ -377,14 +379,18 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
             )}
             
             {meetStats && (
-              <Tabs defaultValue="overview" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+              <Tabs value={meetStatsTab} onValueChange={setMeetStatsTab} className="w-full">
+                <ResponsiveTabsList
+                  value={meetStatsTab}
+                  onValueChange={setMeetStatsTab}
+                  className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+                >
                   <TabsTrigger value="overview">Overview</TabsTrigger>
                   <TabsTrigger value="cohort">Cohort Analysis</TabsTrigger>
                   <TabsTrigger value="team-scoring">Team Scoring</TabsTrigger>
                   <TabsTrigger value="grade-cohorts">Grade Analysis</TabsTrigger>
                   <TabsTrigger value="swarmplot">Performance Plot</TabsTrigger>
-                </TabsList>
+                </ResponsiveTabsList>
 
                 <TabsContent value="overview" className="mt-6">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

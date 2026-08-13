@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { Tabs, TabsContent, TabsTrigger } from "../ui/tabs";
+import { ResponsiveTabsList } from "../ui/responsive-tabs";
 import { Badge } from "../../components/ui/badge";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Loader2, TrendingUp, TrendingDown } from "lucide-react";
@@ -24,6 +25,7 @@ export function EnhancedAthleteProfile({ athleteId, athleteName, season }: Enhan
   const [athleteMetrics, setAthleteMetrics] = useState<EnhancedAthleteMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [enhancedTab, setEnhancedTab] = useState('distances');
 
   useEffect(() => {
     const fetchAthleteMetrics = async () => {
@@ -145,13 +147,13 @@ export function EnhancedAthleteProfile({ athleteId, athleteName, season }: Enhan
       </Card>
 
       {/* Enhanced Analytics Tabs */}
-      <Tabs defaultValue="distances" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+      <Tabs value={enhancedTab} onValueChange={setEnhancedTab} className="space-y-4">
+        <ResponsiveTabsList value={enhancedTab} onValueChange={setEnhancedTab} className="grid w-full grid-cols-4">
           <TabsTrigger value="distances">Distance Analysis</TabsTrigger>
           <TabsTrigger value="progression">Season Progression</TabsTrigger>
           <TabsTrigger value="courses">Course Performance</TabsTrigger>
           <TabsTrigger value="comparisons">Race Comparisons</TabsTrigger>
-        </TabsList>
+        </ResponsiveTabsList>
 
         <TabsContent value="distances" className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

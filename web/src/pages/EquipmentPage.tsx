@@ -11,7 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { toast } from 'sonner';
 import { Loader2, Package } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
@@ -56,6 +57,7 @@ const EquipmentPage: React.FC = () => {
   const activeYear = selectedYear ?? context?.activeSeason ?? seasons[0]?.year ?? null;
   const selectedSeason = seasons.find((s) => s.year === activeYear) ?? null;
   const seasonId = selectedSeason?.id ?? null;
+  const [equipmentTab, setEquipmentTab] = useState('checkout');
 
   if (!activeYear || !seasonId) {
     return (
@@ -80,12 +82,12 @@ const EquipmentPage: React.FC = () => {
         </Select>
       </div>
 
-      <Tabs defaultValue="checkout">
-        <TabsList>
+      <Tabs value={equipmentTab} onValueChange={setEquipmentTab}>
+        <ResponsiveTabsList value={equipmentTab} onValueChange={setEquipmentTab}>
           <TabsTrigger value="checkout">Checkout</TabsTrigger>
           <TabsTrigger value="outstanding">Outstanding report</TabsTrigger>
           <TabsTrigger value="inventory">Inventory</TabsTrigger>
-        </TabsList>
+        </ResponsiveTabsList>
 
         <TabsContent value="checkout" className="pt-4">
           <CheckoutForm seasonId={seasonId} year={activeYear} />

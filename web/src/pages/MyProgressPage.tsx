@@ -20,7 +20,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
@@ -438,6 +439,7 @@ const RaceReflectionDialogBody: React.FC<{ raceId: string }> = ({ raceId }) => {
   const [whatWorked, setWhatWorked] = useState('');
   const [whatDidnt, setWhatDidnt] = useState('');
   const [postNotes, setPostNotes] = useState('');
+  const [reflectionTab, setReflectionTab] = useState('pre');
 
   useEffect(() => {
     if (data?.reflection) {
@@ -507,11 +509,11 @@ const RaceReflectionDialogBody: React.FC<{ raceId: string }> = ({ raceId }) => {
         {data.reflection.sharedWithCoach ? 'Your coach can read this' : 'Only you can read this'}
       </label>
 
-      <Tabs defaultValue="pre">
-        <TabsList>
+      <Tabs value={reflectionTab} onValueChange={setReflectionTab}>
+        <ResponsiveTabsList value={reflectionTab} onValueChange={setReflectionTab}>
           <TabsTrigger value="pre">Pre-race goals</TabsTrigger>
           <TabsTrigger value="post">Post-race reflection</TabsTrigger>
-        </TabsList>
+        </ResponsiveTabsList>
 
         <TabsContent value="pre" className="space-y-3 pt-2">
           {data.locked && (

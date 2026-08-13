@@ -6,7 +6,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDateShort } from '@/lib/formatUtils';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { api } from '@/api/axios';
 import { useTeamSeasonSeries } from '@/hooks/useTeamSeasonSeries';
 import { useInvalidatePerformanceCache } from '@/hooks/useInvalidatePerformanceCache';
@@ -92,6 +93,11 @@ const AnalyticsPage = () => {
   const [selectedSeason, setSelectedSeasonParam] = useQueryParamNumber('season');
   const [urlSelectedAthleteId, setUrlSelectedAthleteId] = useQueryParam('athlete');
   const setQueryParams = useSetQueryParams();
+  // Not URL-backed like activeTab above — this one's nested inside the
+  // Performance tab and doesn't need to survive a refresh/share. Plain
+  // local state, but still needs to be controlled (not defaultValue) so
+  // ResponsiveTabsList's mobile dropdown can stay in sync with it.
+  const [performanceSubTab, setPerformanceSubTab] = useState('distance');
 
   const { data: analyticsData, isLoading, error, refetch } = useAnalyticsData(selectedSeason);
 
@@ -485,14 +491,14 @@ const AnalyticsPage = () => {
         seasonDisplay={seasonDisplay}
       />
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <div className="overflow-x-auto mb-4 -mx-3 px-3 md:mx-0 md:px-0">
-          <TabsList className="inline-flex w-auto min-w-full md:grid md:w-full md:grid-cols-5">
+        <div className="mb-4">
+          <ResponsiveTabsList value={activeTab} onValueChange={handleTabChange} className="md:grid md:w-full md:grid-cols-5">
             <TabsTrigger value="dashboard" className="whitespace-nowrap">Dashboard</TabsTrigger>
             <TabsTrigger value="athletes" className="whitespace-nowrap">Athletes</TabsTrigger>
             <TabsTrigger value="meets" className="whitespace-nowrap">Meets</TabsTrigger>
             <TabsTrigger value="performance" className="whitespace-nowrap">Performance</TabsTrigger>
             <TabsTrigger value="byGroup" className="whitespace-nowrap">By Group</TabsTrigger>
-          </TabsList>
+          </ResponsiveTabsList>
         </div>
         {needsCalculation ? (
           <Card className="mx-auto max-w-xl">
@@ -539,11 +545,11 @@ const AnalyticsPage = () => {
               <MeetsTab meets={meets} athletes={athletes} setSelectedRace={setSelectedRace} />
             </TabsContent>
             <TabsContent value="performance">
-              <Tabs defaultValue="distance" className="w-full">
-                <TabsList className="mb-4">
+              <Tabs value={performanceSubTab} onValueChange={setPerformanceSubTab} className="w-full">
+                <ResponsiveTabsList value={performanceSubTab} onValueChange={setPerformanceSubTab} className="mb-4">
                     <TabsTrigger value="distance">Distance Analysis</TabsTrigger>
                     <TabsTrigger value="compare">Head-to-Head</TabsTrigger>
-                </TabsList>
+                </ResponsiveTabsList>
                 <TabsContent value="distance">
                      {isLoadingEnhanced ? (
                         <div className="flex items-center justify-center py-12">

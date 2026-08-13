@@ -1,5 +1,6 @@
-import React from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import React, { useState } from 'react';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { formatTime, formatPace, formatDateShort } from '@/lib/formatUtils';
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, BarChart, Bar } from 'recharts';
@@ -87,6 +88,8 @@ const AthleteProfile: React.FC<AthleteProfileProps> = ({
   derivedAvgPaceSec,
   selectedSeason
 }) => {
+  const [profileTab, setProfileTab] = useState('overview');
+
   // Calculate current season races
   const currentSeasonRaces = athleteRaces.filter(race => {
     const raceYear = race.date ? new Date(race.date).getFullYear() : selectedSeason;
@@ -117,12 +120,12 @@ const AthleteProfile: React.FC<AthleteProfileProps> = ({
 
   return (
     <div className="w-full">
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 mb-6">
+      <Tabs value={profileTab} onValueChange={setProfileTab} className="w-full">
+        <ResponsiveTabsList value={profileTab} onValueChange={setProfileTab} className="grid w-full grid-cols-3 mb-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="races">Race History</TabsTrigger>
           <TabsTrigger value="trends">Trends</TabsTrigger>
-        </TabsList>
+        </ResponsiveTabsList>
 
         <TabsContent value="overview" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Tabs, TabsContent, TabsTrigger } from "../components/ui/tabs";
+import { ResponsiveTabsList } from "../components/ui/responsive-tabs";
 import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { useToast } from "../components/ui/use-toast";
@@ -140,7 +141,11 @@ export function DataManagementPage() {
       </div>
 
       <Tabs value={activeStep} onValueChange={(value) => setActiveStep(value as DataManagementStep)}>
-        <TabsList className="grid w-full grid-cols-3">
+        <ResponsiveTabsList
+          className="grid w-full grid-cols-3"
+          value={activeStep}
+          onValueChange={(value) => setActiveStep(value as DataManagementStep)}
+        >
           <TabsTrigger value={DataManagementStep.CLEAR} disabled={isProcessing}>
             Step 1: Clear Data
             {isStepCompleted(DataManagementStep.CLEAR) && <span className="ml-2 text-green-500">✓</span>}
@@ -153,7 +158,7 @@ export function DataManagementPage() {
             Step 3: Calculate Metrics
             {isStepCompleted(DataManagementStep.CALCULATE) && <span className="ml-2 text-green-500">✓</span>}
           </TabsTrigger>
-        </TabsList>
+        </ResponsiveTabsList>
         
         <TabsContent value={DataManagementStep.CLEAR}>
           <ClearDataPanel 

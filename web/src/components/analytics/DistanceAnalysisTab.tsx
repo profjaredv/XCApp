@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Target } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
@@ -17,6 +18,7 @@ export function DistanceAnalysisTab({ teamId, season }: DistanceAnalysisTabProps
   const [distanceData, setDistanceData] = useState<DistanceAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [distanceTab, setDistanceTab] = useState('team');
 
   useEffect(() => {
     const fetchDistanceAnalysis = async () => {
@@ -170,12 +172,12 @@ export function DistanceAnalysisTab({ teamId, season }: DistanceAnalysisTabProps
       </div>
 
       {/* Distance Analysis Tabs */}
-      <Tabs defaultValue="team" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3">
+      <Tabs value={distanceTab} onValueChange={setDistanceTab} className="space-y-4">
+        <ResponsiveTabsList value={distanceTab} onValueChange={setDistanceTab} className="grid w-full grid-cols-3">
           <TabsTrigger value="team">Team Performance</TabsTrigger>
           <TabsTrigger value="athletes">Athlete Comparison</TabsTrigger>
           <TabsTrigger value="specialists">Distance Specialists</TabsTrigger>
-        </TabsList>
+        </ResponsiveTabsList>
 
         <TabsContent value="team" className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

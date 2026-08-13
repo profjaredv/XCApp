@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -389,11 +390,11 @@ const PaceCalculator: React.FC = () => {
       </CardHeader>
       <CardContent>
         <div className="space-y-6">
-          <Tabs defaultValue="athlete" onValueChange={handleTabChange}>
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs value={paceSource} onValueChange={handleTabChange}>
+            <ResponsiveTabsList value={paceSource} onValueChange={handleTabChange} className="grid w-full grid-cols-2">
               <TabsTrigger value="athlete">Select Athlete</TabsTrigger>
               <TabsTrigger value="custom">Custom Time</TabsTrigger>
-            </TabsList>
+            </ResponsiveTabsList>
             <TabsContent value="athlete" className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">

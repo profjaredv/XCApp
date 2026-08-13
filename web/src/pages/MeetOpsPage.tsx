@@ -21,7 +21,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { Plus, Loader2, AlertTriangle, Printer, Trash2, Download, CalendarDays } from 'lucide-react';
@@ -245,6 +246,8 @@ const MeetDetail: React.FC<{
   setSelectedRaceId: (id: string) => void;
   seasonId: string | null;
 }> = ({ meet, selectedRaceId, setSelectedRaceId, seasonId }) => {
+  const [detailTab, setDetailTab] = useState('entries');
+
   return (
     <div className="space-y-4">
       <div>
@@ -255,13 +258,13 @@ const MeetDetail: React.FC<{
         </p>
       </div>
 
-      <Tabs defaultValue="entries">
-        <TabsList>
+      <Tabs value={detailTab} onValueChange={setDetailTab}>
+        <ResponsiveTabsList value={detailTab} onValueChange={setDetailTab}>
           <TabsTrigger value="entries">Entries</TabsTrigger>
           <TabsTrigger value="logistics">Logistics</TabsTrigger>
           <TabsTrigger value="roster">Printable roster</TabsTrigger>
           <TabsTrigger value="reflections">Reflections</TabsTrigger>
-        </TabsList>
+        </ResponsiveTabsList>
 
         <TabsContent value="entries" className="space-y-4 pt-2">
           {meet.races.length === 0 ? (

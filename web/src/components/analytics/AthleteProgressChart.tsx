@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { formatTime, formatPace } from '@/lib/formatUtils';
 
@@ -73,10 +74,10 @@ const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2">
+          <ResponsiveTabsList value={activeTab} onValueChange={setActiveTab} className="grid w-full grid-cols-2">
             <TabsTrigger value="5k-times">5K Times</TabsTrigger>
             <TabsTrigger value="pace">Average Pace</TabsTrigger>
-          </TabsList>
+          </ResponsiveTabsList>
           
           <TabsContent value="5k-times" className="mt-4">
             <ResponsiveContainer width="100%" height={400}>

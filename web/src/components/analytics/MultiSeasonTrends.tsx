@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
+import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { formatTime, formatPace } from '@/lib/formatUtils';
 
@@ -153,10 +154,10 @@ const MultiSeasonTrends: React.FC<MultiSeasonTrendsProps> = ({ data, isLoading, 
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid grid-cols-2 mb-4">
+          <ResponsiveTabsList value={activeTab} onValueChange={setActiveTab} className="grid grid-cols-2 mb-4">
             <TabsTrigger value="avg5k">{selectedAthlete ? 'Best 5K Times' : 'Average 5K Times'}</TabsTrigger>
             <TabsTrigger value="avgpace">{selectedAthlete ? 'Average Pace' : 'Average Mile Pace'}</TabsTrigger>
-          </TabsList>
+          </ResponsiveTabsList>
           
           <TabsContent value="avg5k" className="min-h-[400px]">
             <h3 className="text-lg font-medium mb-2">
