@@ -29,6 +29,7 @@ export function StaffManager() {
   const [role, setRole] = useState<StaffRole>('COACH');
   const [isSending, setIsSending] = useState(false);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
+  const [lastInviteEmailSent, setLastInviteEmailSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { data, isLoading, refetch } = useStaffQuery();
@@ -44,8 +45,9 @@ export function StaffManager() {
       const result = await teamService.sendStaffInvite(email.trim(), role);
       const link = `${window.location.origin}/staff-invite/${result.token}`;
       setLastInviteLink(link);
+      setLastInviteEmailSent(result.emailSent);
       setEmail('');
-      toast.success(`Invite ready for ${result.invite.email}.`);
+      toast.success(result.emailSent ? `Invite emailed to ${result.invite.email}.` : `Invite ready for ${result.invite.email}.`);
       refetch();
     } catch (err) {
       const message = getErrorMessage(err) || 'Failed to send invite.';
@@ -101,7 +103,11 @@ export function StaffManager() {
         {lastInviteLink && (
           <Alert>
             <AlertDescription className="space-y-2">
-              <p>Send this link to the person you invited — there's no email service wired up, so it isn't sent automatically.</p>
+              <p>
+                {lastInviteEmailSent
+                  ? "We've emailed this invite link. You can also copy it and send it yourself:"
+                  : "We couldn't send the invite email (or it isn't configured yet) — copy this link and send it to them yourself:"}
+              </p>
               <div className="flex items-center gap-2">
                 <span className="break-all font-mono text-xs">{lastInviteLink}</span>
                 <Button size="sm" variant="outline" onClick={handleCopyLink}>

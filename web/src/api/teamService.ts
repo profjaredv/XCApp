@@ -138,13 +138,15 @@ export const teamService = {
    * Head-coach-only: name an exact person (by email) and an exact role.
    * Resending an invite to the same email overwrites the pending one rather
    * than creating a duplicate. Returns the invite token so the caller can
-   * build a shareable `/staff-invite/:token` link — there's no email
-   * service wired up (see MIGRATION_STATUS.md), so the head coach sends
-   * the link themselves.
+   * build a shareable `/staff-invite/:token` link. The backend also tries to
+   * email that link via eusend — `emailSent` reflects whether that succeeded
+   * (false when EUSEND_API_KEY isn't configured or the send failed), so the
+   * caller can fall back to a copy-link UI either way.
    */
   async sendStaffInvite(email: string, role: 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH'): Promise<{
     msg: string;
     token: string;
+    emailSent: boolean;
     invite: { token: string; email: string; role: string; expiresAt: string };
   }> {
     const response = await axiosInstance.post('/team/staff-invite', { email, role });

@@ -5,6 +5,10 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { resolveActiveSeason } = require('../lib/season');
 const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
+const { sendEmail } = require('../lib/email');
+
+const FRONTEND_URL = process.env.FRONTEND_URL
+  || (process.env.NODE_ENV === 'production' ? 'https://leadpack.cc' : 'http://localhost:5173');
 
 const generateJoinCode = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 
@@ -237,12 +241,28 @@ router.post('/staff-invite', authenticate, requireTeam, requireRole(['HEAD_COACH
       create: { teamId, email, role, expiresAt, invitedById: req.user.id },
     });
 
-    // No email service is wired up (see MIGRATION_STATUS.md) — the head
-    // coach copies/sends this link themselves, same as the join code and
-    // athlete invites already work.
+    // Best-effort send — the head coach still gets the token/link back
+    // either way, so a down or unconfigured eusend never blocks issuing
+    // the invite; the frontend's existing copy-link fallback covers it.
+    const inviteLink = `${FRONTEND_URL}/staff-invite/${invite.token}`;
+    let emailSent = false;
+    try {
+      const result = await sendEmail({
+        to: email,
+        subject: `You're invited to coach on ${req.user.team.name}'s LeadPack XC team`,
+        html: `<p>${req.user.name || 'Your head coach'} invited you to join <strong>${req.user.team.name}</strong> on LeadPack XC as ${role.replace('_', ' ').toLowerCase()}.</p>`
+          + `<p><a href="${inviteLink}">${inviteLink}</a></p>`
+          + `<p>This invite expires on ${expiresAt.toDateString()}.</p>`,
+      });
+      emailSent = result.sent;
+    } catch (error) {
+      console.error('Error sending staff invite email:', error.message);
+    }
+
     res.status(201).json({
-      msg: `Invite ready for ${email}.`,
+      msg: emailSent ? `Invite sent to ${email}.` : `Invite ready for ${email}.`,
       token: invite.token,
+      emailSent,
       invite: { token: invite.token, email: invite.email, role: invite.role, expiresAt: invite.expiresAt },
     });
   } catch (error) {
