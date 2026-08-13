@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronLeft } from 'lucide-react';
 import { useAthletePerformance, useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
-import { useMultiSeasonTrends } from '@/hooks/useMultiSeasonTrends';
 import { performanceService } from '@/api/performanceService';
 import { athleteService } from '@/api/athleteService';
 import { toast } from 'sonner';
@@ -114,7 +113,6 @@ const TeamAthleteProfilePage = () => {
     data: athletePerf,
     refetch: refetchAthletePerf,
   } = useAthletePerformance(athleteId || '', selectedSeason);
-  const { data: multiSeasonTrendsData, isLoading: isLoadingMultiSeasonTrends } = useMultiSeasonTrends(teamId || '', selectedSeason);
 
   // Derived values
   const enhancedAthlete: (Athlete & { bestTimeDate?: string; raceCount?: number; firstRaceTime?: number; lastRaceTime?: number; races: Race[] }) | null = useMemo(() => {
@@ -332,8 +330,6 @@ const TeamAthleteProfilePage = () => {
           careerSummary={careerSummary}
           seasonBreakdown={seasonBreakdown}
           allSeasonsRaces={allSeasonsRaces}
-          multiSeasonTrendsData={multiSeasonTrendsData}
-          isLoadingMultiSeasonTrends={isLoadingMultiSeasonTrends}
           onClose={() => {}} // No-op since this is a dedicated page
         />
       )}

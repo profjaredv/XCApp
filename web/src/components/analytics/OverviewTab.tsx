@@ -1,6 +1,5 @@
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import MultiSeasonTrends from './MultiSeasonTrends';
 import { formatPace, formatDateShort, formatTime } from '@/lib/formatUtils';
 import type { MostImprovedAthlete } from '@/types/analytics';
 import type { TeamSeasonSeriesPoint } from '@/types/performance';
@@ -20,31 +19,14 @@ interface OverviewTabProps {
   seasonSeriesData?: {
     series: TeamSeasonSeriesPoint[];
   };
-  multiSeasonTrendsData: {
-    seasons: number[];
-    trends: {
-      season: number;
-      avg5K: { girls: number; boys: number; team: number; };
-      avgPace: { girls: number; boys: number; team: number; };
-      stateMeet: {
-        avg5K: { girls: number; boys: number; team: number; };
-        avgPace: { girls: number; boys: number; team: number; };
-        hasData: boolean;
-      };
-      hasData: boolean;
-    }[];
-  };
-  isLoadingMultiSeasonTrends: boolean;
 }
 
 const tooltipFormatter = (value: number) => formatPace(value || 0);
 
-export const OverviewTab = ({ 
-  displayedStats, 
-  mostImproved, 
-  seasonSeriesData, 
-  multiSeasonTrendsData, 
-  isLoadingMultiSeasonTrends 
+export const OverviewTab = ({
+  displayedStats,
+  mostImproved,
+  seasonSeriesData,
 }: OverviewTabProps) => {
   return (
     <div className="space-y-4">
@@ -107,15 +89,6 @@ export const OverviewTab = ({
               <Line type="monotone" dataKey="girls" stroke="#ffc658" strokeWidth={3} name="Girls Avg Pace" />
             </LineChart>
           </ResponsiveContainer>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>Multi-Season Trends</CardTitle></CardHeader>
-        <CardContent>
-          <MultiSeasonTrends 
-            data={multiSeasonTrendsData || { seasons: [], trends: [] }} 
-            isLoading={isLoadingMultiSeasonTrends}
-          />
         </CardContent>
       </Card>
     </div>

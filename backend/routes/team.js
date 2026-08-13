@@ -35,7 +35,7 @@ router.get('/performance', authenticate, requireTeam, async (req, res) => {
 
     const raceIds = races.map((r) => r.id);
     const results = await prisma.result.findMany({
-      where: { raceId: { in: raceIds }, time: { gt: 0 } },
+      where: { raceId: { in: raceIds }, status: 'FINISHED', time: { gt: 0 } },
     });
 
     const parseDistanceToMiles = (distStr, distMeters) => {

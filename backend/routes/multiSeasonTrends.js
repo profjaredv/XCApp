@@ -2,7 +2,7 @@ const express = require('express');
 const { authenticate, requireTeam } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
-const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
+const { parseDistanceToMeters, metersToMiles, MILE_IN_METERS } = require('../lib/distance');
 
 const router = express.Router();
 
@@ -17,7 +17,22 @@ const parseDistanceMiles = (race) => {
 };
 
 // GET /api/multi-season/trends
+//
+// F4 (pre-season fix): this view silently dropped every state/championship
+// race (line below, /state|championship/i) and took an unweighted mean
+// across every athlete and every course — wrong, and live. Disabled below
+// rather than deleted: Part B replaces it with GET /api/analytics/bands,
+// a real band-based (top/middle/bottom) implementation with none of that.
+// The route stays registered and its logic below stays correct/up to date
+// (F1's divisor fix, F3's status filter both still applied) in case Part B
+// slips — better a maintained-but-off endpoint than a disabled-and-rotting
+// one — but every caller gets 501 until that lands.
 router.get('/trends', authenticate, requireTeam, async (req, res) => {
+  return res.status(501).json({
+    success: false,
+    message: 'Multi-season analysis is being rebuilt. Check back soon.',
+  });
+
   try {
     const teamId = req.user.teamId;
 
@@ -43,7 +58,7 @@ router.get('/trends', authenticate, requireTeam, async (req, res) => {
         };
 
         const results = await prisma.result.findMany({
-          where: { teamId, time: { gt: 0 }, race: { season } },
+          where: { teamId, status: 'FINISHED', time: { gt: 0 }, race: { season } },
           include: { athlete: { select: { id: true, name: true, gender: true, grade: true } }, race: true },
         });
 
@@ -70,7 +85,12 @@ router.get('/trends', authenticate, requireTeam, async (req, res) => {
         const girlsAvgPace = avgPace(girls);
         const boysAvgPace = avgPace(boys);
 
-        const milesPer5k = 3.10686;
+        // Not the F1 bug itself — resultsWithPace above already converts
+        // each result through its own real race distance. This just turns
+        // an already-correct pace into a nominal 5K-equivalent display
+        // time, so the magic number is sourced from lib/distance.js
+        // instead of a bare literal.
+        const milesPer5k = 5000 / MILE_IN_METERS;
         const teamAvg5K = teamAvgPace > 0 ? teamAvgPace * milesPer5k : 0;
         const girlsAvg5K = girlsAvgPace > 0 ? girlsAvgPace * milesPer5k : 0;
         const boysAvg5K = boysAvgPace > 0 ? boysAvgPace * milesPer5k : 0;

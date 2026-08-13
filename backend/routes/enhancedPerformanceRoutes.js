@@ -3,6 +3,7 @@ const calculationService = require('../services/performance/calculationService')
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
+const { paceSecPerMile } = require('../lib/groupAnalytics');
 
 const router = express.Router();
 
@@ -250,7 +251,7 @@ router.get('/meet-comparison/:meetName', authenticate, requireTeam, async (req, 
     const seasonStats = await Promise.all(
       races.map(async (race) => {
         const results = await prisma.result.findMany({
-          where: { raceId: race.id, teamId, time: { gt: 0 } },
+          where: { raceId: race.id, teamId, status: 'FINISHED', time: { gt: 0 } },
           select: { time: true, place: true, athlete: { select: { gender: true } } },
         });
 
@@ -259,17 +260,20 @@ router.get('/meet-comparison/:meetName', authenticate, requireTeam, async (req, 
         const boys = results.filter((r) => ['M', 'Male', 'Boys', 'Men'].includes(r.athlete?.gender));
         const girls = results.filter((r) => ['F', 'Female', 'Girls', 'Women'].includes(r.athlete?.gender));
 
+        // F1 fix: was avgTime / 3.10686 (assumed 5K). Every result here is
+        // from this one `race`, so its real distanceMeters applies to all
+        // of them — paceSecPerMile(avgTime, race.distanceMeters) instead.
         const calculateStats = (resultSet) => {
           if (resultSet.length === 0) return null;
           const times = resultSet.map((r) => r.time).sort((a, b) => a - b);
           const places = resultSet.map((r) => r.place).filter((p) => p != null);
           const avgTime = times.reduce((sum, t) => sum + t, 0) / times.length;
-          const avgPace = avgTime / 3.10686;
+          const avgPace = paceSecPerMile(avgTime, race.distanceMeters);
           const fastestTime = times[0];
 
           const top10Times = times.slice(0, Math.min(10, times.length));
           const top10AvgTime = top10Times.reduce((sum, t) => sum + t, 0) / top10Times.length;
-          const top10AvgPace = top10AvgTime / 3.10686;
+          const top10AvgPace = paceSecPerMile(top10AvgTime, race.distanceMeters);
 
           const avgPlace = places.length > 0 ? places.reduce((sum, p) => sum + p, 0) / places.length : null;
 
@@ -305,15 +309,20 @@ router.get('/meet-athlete/:meetName/:athleteId', authenticate, requireTeam, asyn
 
     const races = await prisma.race.findMany({
       where: { teamId, name: decodedMeetName },
-      select: { id: true, season: true, date: true },
+      select: { id: true, season: true, date: true, distanceMeters: true },
       orderBy: { season: 'asc' },
     });
 
     const athleteResults = await Promise.all(
       races.map(async (race) => {
-        const result = await prisma.result.findFirst({ where: { raceId: race.id, athleteId }, select: { time: true, place: true } });
+        const result = await prisma.result.findFirst({
+          where: { raceId: race.id, athleteId, status: 'FINISHED' },
+          select: { time: true, place: true },
+        });
         if (!result) return null;
-        return { season: race.season, raceDate: race.date, time: result.time, pace: result.time / 3.10686, place: result.place };
+        // F1 fix: was result.time / 3.10686 (assumed 5K) regardless of
+        // this meet's actual distance in a given season.
+        return { season: race.season, raceDate: race.date, time: result.time, pace: paceSecPerMile(result.time, race.distanceMeters), place: result.place };
       })
     );
 

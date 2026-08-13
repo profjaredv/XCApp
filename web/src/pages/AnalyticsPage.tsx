@@ -12,7 +12,6 @@ import { api } from '@/api/axios';
 import { useTeamSeasonSeries } from '@/hooks/useTeamSeasonSeries';
 import { useInvalidatePerformanceCache } from '@/hooks/useInvalidatePerformanceCache';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
-import { useMultiSeasonTrends } from '@/hooks/useMultiSeasonTrends';
 import RaceVisualization from '@/components/analytics/RaceVisualization';
 import { AnalyticsHeader } from '@/components/analytics/AnalyticsHeader';
 import { DashboardTab } from '@/components/analytics/DashboardTab';
@@ -125,7 +124,6 @@ const AnalyticsPage = () => {
     Boolean(viewedSeasonMeta?.hasData) &&
     !isLoading &&
     (analyticsData?.team?.overview?.totalRaces ?? 0) === 0;
-  const { data: multiSeasonTrendsData, isLoading: isLoadingMultiSeasonTrends } = useMultiSeasonTrends(teamId || '', seasonMode === 'historical' ? selectedSeason : undefined);
   const { data: enhancedTeamMetrics, isLoading: isLoadingEnhanced } = useEnhancedTeamMetrics(
     teamId || '',
     viewedSeason?.toString() ?? '',
@@ -593,8 +591,6 @@ const AnalyticsPage = () => {
         careerSummary={careerSummary}
         seasonBreakdown={seasonBreakdown}
         allSeasonsRaces={allSeasonsRaces}
-        multiSeasonTrendsData={multiSeasonTrendsData}
-        isLoadingMultiSeasonTrends={isLoadingMultiSeasonTrends}
         onClose={() => handleAthleteSelect(null)}
       />
     </div>

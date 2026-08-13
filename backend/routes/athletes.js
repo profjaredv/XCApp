@@ -181,7 +181,7 @@ router.get('/:athleteId/races', authenticate, requireTeam, async (req, res) => {
     }
 
     const results = await prisma.result.findMany({
-      where: { athleteId: athlete.id, time: { gt: 0 } },
+      where: { athleteId: athlete.id, status: 'FINISHED', time: { gt: 0 } },
       include: { race: true },
       orderBy: { race: { date: 'desc' } },
       take: limit,

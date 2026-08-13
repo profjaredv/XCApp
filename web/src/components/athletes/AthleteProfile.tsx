@@ -34,7 +34,11 @@ interface AthleteProfileProps {
     [key: string]: string | number | undefined;
   }>;
   allTimeAvgPace: number;
+  // best5kTime is zero for a team that doesn't race 5Ks (F2, XCApp
+  // pre-season fixes doc) — bestPaceSecPerMile is the distance-agnostic
+  // replacement, added alongside per that doc's instruction.
   best5kTime: number;
+  bestPaceSecPerMile?: number;
   best5kMeet: string;
   best5kYear: number | null;
   seasonBest5kTime: number;

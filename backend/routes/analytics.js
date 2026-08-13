@@ -209,10 +209,14 @@ router.get('/athletes/:athleteId', authenticate, requireTeam, async (req, res) =
       orderBy: { race: { date: 'asc' } },
     });
 
+    // F3 (pre-season fix): totalRaces counts every entry (a DNF still
+    // means they raced), but bestTime/avgTime must never include a
+    // non-finish — split rather than picking one filter for both.
+    const finishedResults = results.filter((r) => r.status === 'FINISHED');
     const stats = {
       totalRaces: results.length,
-      bestTime: results.length > 0 ? Math.min(...results.map((r) => r.time)) : 0,
-      avgTime: results.length > 0 ? results.reduce((sum, r) => sum + r.time, 0) / results.length : 0,
+      bestTime: finishedResults.length > 0 ? Math.min(...finishedResults.map((r) => r.time)) : 0,
+      avgTime: finishedResults.length > 0 ? finishedResults.reduce((sum, r) => sum + r.time, 0) / finishedResults.length : 0,
     };
 
     res.json({ athlete, results, stats });

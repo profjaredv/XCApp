@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');
+const { paceSecPerMile } = require('../lib/groupAnalytics');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // No fallback literal here on purpose — a hardcoded key was committed to
@@ -35,7 +36,7 @@ router.get('/athlete-performance/:season', authenticate, requireTeam, requireRol
     const athletePerformance = await Promise.all(
       athletes.map(async (athlete) => {
         const races = await prisma.result.findMany({
-          where: { athleteId: athlete.id, teamId, time: { gt: 0 }, race: { season } },
+          where: { athleteId: athlete.id, teamId, status: 'FINISHED', time: { gt: 0 }, race: { season } },
           select: { id: true, time: true, place: true, race: { select: { id: true, name: true, date: true } } },
           orderBy: { race: { date: 'desc' } },
           take: 3,
@@ -104,8 +105,8 @@ router.post('/generate-training-groups/:season', authenticate, requireTeam, requ
     const athleteData = await Promise.all(
       athletes.map(async (athlete) => {
         const results = await prisma.result.findMany({
-          where: { athleteId: athlete.id, teamId, raceId: { in: raceIds }, time: { gt: 0 } },
-          select: { time: true, race: { select: { date: true } } },
+          where: { athleteId: athlete.id, teamId, raceId: { in: raceIds }, status: 'FINISHED', time: { gt: 0 } },
+          select: { time: true, race: { select: { date: true, distanceMeters: true } } },
         });
 
         const sortedResults = results.sort((a, b) => new Date(b.race.date) - new Date(a.race.date)).slice(0, 3);
@@ -113,7 +114,15 @@ router.post('/generate-training-groups/:season', authenticate, requireTeam, requ
 
         const times = sortedResults.map((r) => r.time);
         const avgTime = times.reduce((sum, t) => sum + t, 0) / times.length;
-        const avgPacePerMile = avgTime / 3.10686;
+        // F1 fix: was avgTime / 3.10686 — assumed every race was a 5K
+        // regardless of its real distance. Each race's pace is computed
+        // through its own distance first, then averaged (not the other
+        // way around — averaging raw times across different distances
+        // before converting would still be wrong).
+        const racePaces = sortedResults
+          .map((r) => paceSecPerMile(r.time, r.race.distanceMeters))
+          .filter((p) => p != null);
+        const avgPacePerMile = racePaces.length > 0 ? racePaces.reduce((sum, p) => sum + p, 0) / racePaces.length : null;
 
         const mean = avgTime;
         const variance = times.reduce((sum, t) => sum + Math.pow(t - mean, 2), 0) / times.length;
@@ -136,7 +145,11 @@ router.post('/generate-training-groups/:season', authenticate, requireTeam, requ
       })
     );
 
-    const validAthletes = athleteData.filter((a) => a !== null);
+    // avgPacePerMile can now be null (a race with no parseable distance) —
+    // excluded here rather than defaulted to 0, which would otherwise sort
+    // that athlete as if they had the fastest pace on the team (null - n
+    // coerces to 0 in the sort below).
+    const validAthletes = athleteData.filter((a) => a !== null && a.avgPacePerMile != null);
 
     if (validAthletes.length === 0) {
       return res.json({ success: true, data: { groups: [], rationale: `No athlete data available for the ${targetSeason} season.` } });
@@ -272,7 +285,7 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
     const athleteData = await Promise.all(
       athletes.map(async (athlete) => {
         const results = await prisma.result.findMany({
-          where: { athleteId: athlete.id, teamId, raceId: { in: raceIds }, time: { gt: 0 } },
+          where: { athleteId: athlete.id, teamId, raceId: { in: raceIds }, status: 'FINISHED', time: { gt: 0 } },
           select: { time: true, place: true, race: { select: { date: true } } },
         });
 
@@ -376,7 +389,7 @@ router.get('/improvement-tracking/:season', authenticate, requireTeam, requireRo
     const improvements = await Promise.all(
       athletes.map(async (athlete) => {
         const results = await prisma.result.findMany({
-          where: { athleteId: athlete.id, teamId, raceId: { in: raceIds }, time: { gt: 0 } },
+          where: { athleteId: athlete.id, teamId, raceId: { in: raceIds }, status: 'FINISHED', time: { gt: 0 } },
           select: { time: true, place: true, race: { select: { name: true, date: true, distance: true } } },
         });
 

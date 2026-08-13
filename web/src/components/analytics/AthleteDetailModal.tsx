@@ -44,6 +44,14 @@ interface AthleteDetailModalProps {
   careerSummary: CareerSummary;
   seasonBreakdown: SeasonBreakdown[];
   allSeasonsRaces: RaceData[];
+  // F4 (pre-season fix): the team/gender comparison lines this used to
+  // feed (getTeamGenderAverages below) came from GET /api/multi-season/
+  // trends, which silently dropped every state/championship race and took
+  // an unweighted mean — disabled (501) until Part B's real band-based
+  // replacement lands. Left optional here (rather than removed outright)
+  // so the existing null-safe fallback in getTeamGenderAverages keeps
+  // working — the athlete's own progress line still renders, just without
+  // team/gender comparison lines, instead of the modal breaking.
   multiSeasonTrendsData?: {
     trends: Array<{
       season: number;
@@ -51,19 +59,19 @@ interface AthleteDetailModalProps {
       avgPace?: { boys?: number; girls?: number; team?: number };
     }>;
   };
-  isLoadingMultiSeasonTrends: boolean;
+  isLoadingMultiSeasonTrends?: boolean;
   onClose: () => void;
 }
 
-export const AthleteDetailModal = ({ 
+export const AthleteDetailModal = ({
   selectedAthlete,
   enhancedSelectedAthlete,
   careerSummary,
   seasonBreakdown,
   allSeasonsRaces,
   multiSeasonTrendsData,
-  isLoadingMultiSeasonTrends,
-  onClose 
+  isLoadingMultiSeasonTrends = false,
+  onClose
 }: AthleteDetailModalProps) => {
   // Sorting state for races table
   const [sortField, setSortField] = useState<'meet' | 'season' | 'distance' | 'time' | 'pace'>('season');
@@ -565,29 +573,36 @@ export const AthleteDetailModal = ({
                     ? Math.min(...currentSeasonRaces.map(r => r.time / r.distanceMi))
                     : 0;
                   
-                  // Get best races by distance category
+                  // Get best races by distance category. Labels come from
+                  // rounding to a nearby common XC/track distance — a fixed
+                  // 4-bucket enum used to merge every race >=3.0mi (5K, 6K,
+                  // 8K...) into one "5K" bucket, so an 8K time could wrongly
+                  // "win" a 5K's spot, and the old order array below had no
+                  // way to sort 4K/6K/8K correctly. Sorting by the actual
+                  // distanceMi of the winning race (not a label lookup) is
+                  // what makes any distance order correctly.
                   const getDistanceCategory = (miles: number) => {
-                    if (miles >= 3.0) return '5K'; // 3.0+ miles is 5K
-                    if (miles >= 2.5) return '3 Mile';
+                    if (miles >= 4.5) return '8K';
+                    if (miles >= 3.5) return '6K';
+                    if (miles >= 2.75) return '5K';
+                    if (miles >= 2.25) return '4K';
+                    if (miles >= 1.75) return '2 Mile';
                     if (miles >= 1.25) return '1.5 Mile';
                     return '1 Mile';
                   };
-                  
+
                   const racesByDistance = allSeasonsRaces
                     .filter(r => r.season === currentSeasonData.season)
                     .reduce((acc, race) => {
                       const category = getDistanceCategory(race.distanceMi);
                       if (!acc[category] || race.time < acc[category].time) {
-                        acc[category] = { distance: category, time: race.time, raceName: race.name };
+                        acc[category] = { distance: category, time: race.time, raceName: race.name, distanceMi: race.distanceMi };
                       }
                       return acc;
-                    }, {} as Record<string, { distance: string; time: number; raceName: string }>);
-                  
+                    }, {} as Record<string, { distance: string; time: number; raceName: string; distanceMi: number }>);
+
                   const bestRacesByDistance = Object.values(racesByDistance)
-                    .sort((a, b) => {
-                      const order = ['1 Mile', '1.5 Mile', '3 Mile', '5K'];
-                      return order.indexOf(a.distance) - order.indexOf(b.distance);
-                    });
+                    .sort((a, b) => a.distanceMi - b.distanceMi);
                   
                   return (
                     <div>
@@ -644,28 +659,30 @@ export const AthleteDetailModal = ({
                       ? Math.min(...all5KRaces.map(r => r.time / r.distanceMi))
                       : 0;
                     
-                    // Get best races by distance category for career
+                    // Get best races by distance category for career — see
+                    // the season-scoped version above for why this sorts by
+                    // distanceMi rather than a fixed label order array.
                     const getDistanceCategory = (miles: number) => {
-                      if (miles >= 3.0) return '5K'; // 3.0+ miles is 5K
-                      if (miles >= 2.5) return '3 Mile';
+                      if (miles >= 4.5) return '8K';
+                      if (miles >= 3.5) return '6K';
+                      if (miles >= 2.75) return '5K';
+                      if (miles >= 2.25) return '4K';
+                      if (miles >= 1.75) return '2 Mile';
                       if (miles >= 1.25) return '1.5 Mile';
                       return '1 Mile';
                     };
-                    
+
                     const careerRacesByDistance = allSeasonsRaces
                       .reduce((acc, race) => {
                         const category = getDistanceCategory(race.distanceMi);
                         if (!acc[category] || race.time < acc[category].time) {
-                          acc[category] = { distance: category, time: race.time, raceName: race.name };
+                          acc[category] = { distance: category, time: race.time, raceName: race.name, distanceMi: race.distanceMi };
                         }
                         return acc;
-                      }, {} as Record<string, { distance: string; time: number; raceName: string }>);
-                    
+                      }, {} as Record<string, { distance: string; time: number; raceName: string; distanceMi: number }>);
+
                     const careerBestRacesByDistance = Object.values(careerRacesByDistance)
-                      .sort((a, b) => {
-                        const order = ['1 Mile', '1.5 Mile', '3 Mile', '5K'];
-                        return order.indexOf(a.distance) - order.indexOf(b.distance);
-                      });
+                      .sort((a, b) => a.distanceMi - b.distanceMi);
                     
                     return (
                       <AthleteHighlightCard

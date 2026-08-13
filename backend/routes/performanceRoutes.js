@@ -4,6 +4,7 @@ const cache = require('../services/performance/cache');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
+const { MILE_IN_METERS } = require('../lib/distance');
 
 const router = express.Router();
 
@@ -59,7 +60,11 @@ router.get('/multi-season/trends', authenticate, requireTeam, async (req, res) =
       const overallPace = d.averagePace || 0;
       const totalRaces = d.totalRaces || 0;
       const hasData = overallPace > 0 && totalRaces > 0;
-      const milesPer5k = 3.10686;
+      // Not the F1 bug (this converts an already-correct sec/mile pace into
+      // a nominal 5K-equivalent display time, not raw time -> pace) — but
+      // still a hardcoded 5K-in-miles literal, so sourced from the same
+      // constant lib/distance.js exports rather than a bare magic number.
+      const milesPer5k = 5000 / MILE_IN_METERS;
       const team5k = overallPace > 0 ? Math.round(overallPace * milesPer5k) : 0;
 
       return {
@@ -152,7 +157,11 @@ router.get('/athlete/:athleteId/season/:season', authenticate, requireTeam, asyn
         distance: Number(r.distance),
         time: Number(r.time),
       }));
+      // best5kTime kept for backward compat (zero for a team that doesn't
+      // race 5Ks); bestPaceSecPerMile is the real, distance-agnostic
+      // primary metric — see calculationService.calculateAthleteRaceMetrics.
       enriched.best5kTime = metrics.bestTime5k || 0;
+      enriched.bestPaceSecPerMile = metrics.bestPace || 0;
     } catch (err) {
       enriched.races = [];
       logger.warn(`Failed to attach season-only races for athlete ${athleteId}, season ${seasonNum}: ${err.message}`);
@@ -246,6 +255,7 @@ router.get('/athlete/:athleteId/all-seasons', authenticate, requireTeam, async (
           const races = await calculationService.getAthleteRacesSeasonOnly(athleteId, seasonMetric.season);
           enriched.races = races;
           enriched.best5kTime = seasonMetric.bestTime5k || 0;
+          enriched.bestPaceSecPerMile = seasonMetric.bestPace || 0;
         } catch (err) {
           enriched.races = [];
           logger.warn(`Failed to attach races for athlete ${athleteId}, season ${seasonMetric.season}: ${err.message}`);

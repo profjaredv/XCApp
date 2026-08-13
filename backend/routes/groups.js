@@ -210,12 +210,12 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
     if (athleteIds.length > 0) {
       const [currentResults, priorResults] = await Promise.all([
         prisma.result.findMany({
-          where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: dataYear } },
+          where: { athleteId: { in: athleteIds }, status: 'FINISHED', time: { gt: 0 }, race: { season: dataYear } },
           select: { athleteId: true, time: true, race: { select: { distance: true, distanceMeters: true } } },
         }),
         allowFallback
           ? prisma.result.findMany({
-              where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: { lt: dataYear } } },
+              where: { athleteId: { in: athleteIds }, status: 'FINISHED', time: { gt: 0 }, race: { season: { lt: dataYear } } },
               select: { athleteId: true, time: true, race: { select: { season: true, distance: true, distanceMeters: true } } },
             })
           : Promise.resolve([]),
@@ -317,7 +317,7 @@ router.get('/:id/trend', authenticate, requireTeam, async (req, res) => {
     }
 
     const results = await prisma.result.findMany({
-      where: { athleteId: { in: athleteIds }, time: { gt: 0 }, race: { season: dataYear } },
+      where: { athleteId: { in: athleteIds }, status: 'FINISHED', time: { gt: 0 }, race: { season: dataYear } },
       select: { time: true, race: { select: { id: true, name: true, date: true, distance: true, distanceMeters: true } } },
     });
 

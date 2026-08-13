@@ -53,7 +53,7 @@ class CalculationService {
       const seasonNum = typeof season === 'string' ? parseInt(season, 10) : season;
 
       const results = await prisma.result.findMany({
-        where: { athleteId, time: { gt: 0 }, race: { season: seasonNum } },
+        where: { athleteId, status: 'FINISHED', time: { gt: 0 }, race: { season: seasonNum } },
         select: {
           id: true,
           time: true,
@@ -186,6 +186,17 @@ class CalculationService {
       }
     }
 
+    // F2 (pre-season fix): best5kTime only ever finds anything for a team
+    // that races 5Ks — zero for an all-2-mile or all-8K season. bestPace
+    // below is the real, distance-agnostic replacement: the best pace
+    // across every race, each converted through its own actual distance
+    // (calculatePace/normalizeDistanceMiles, not a fixed 3.1mi/5K guess).
+    // This also fixes a subtler existing bug: bestPace used to mean "the
+    // pace of whichever race had the smallest raw time" (bestRace, sorted
+    // by time) rather than the actual fastest pace — those aren't the same
+    // race when a longer race was run faster per-mile than a shorter one.
+    // best5kTime/fiveKRaces are untouched, kept only for backward
+    // compatibility with existing callers/frontend fields.
     const FIVE_K_MILES = 3.1;
     const fiveKRaces = races.filter((r) => {
       const distance = Number(r.distance);
@@ -198,6 +209,11 @@ class CalculationService {
 
     const best5kTime = fiveKRaces.length > 0 ? Math.min(...fiveKRaces.map((r) => r.time)) : 0;
 
+    const racePaces = races
+      .map((r) => this.calculatePace(r.time, this.normalizeDistanceMiles(r.distance)))
+      .filter((p) => p > 0);
+    const bestPace = racePaces.length > 0 ? Math.min(...racePaces) : 0;
+
     return {
       totalRaces: totals.races,
       totalMiles: parseFloat(totals.miles.toFixed(2)),
@@ -205,7 +221,7 @@ class CalculationService {
       avgMilePace: { overall: this.calculatePace(totals.time, totals.miles) },
       bestTime: bestRace.time,
       bestTimeMeet: bestRace.meetName,
-      bestPace: this.calculatePace(bestRace.time, this.normalizeDistanceMiles(bestRace.distance)),
+      bestPace,
       best5kTime,
       improvementPercent: improvement,
       totalTimeDropped: parseFloat(totalDropped.toFixed(2)),
@@ -234,7 +250,7 @@ class CalculationService {
       let count = 0;
       for (const race of races) {
         const results = await prisma.result.findMany({
-          where: { raceId: race.id, time: { gt: 0 } },
+          where: { raceId: race.id, status: 'FINISHED', time: { gt: 0 } },
           include: { athlete: { select: { id: true, name: true, gender: true, grade: true } } },
         });
 
@@ -604,7 +620,7 @@ class CalculationService {
   async calculateDistanceBreakdown(teamId, season) {
     try {
       const results = await prisma.result.findMany({
-        where: { time: { gt: 0 }, race: { teamId, season } },
+        where: { status: 'FINISHED', time: { gt: 0 }, race: { teamId, season } },
         select: { time: true, athleteId: true, race: { select: { distanceMeters: true } } },
       });
 
@@ -639,7 +655,7 @@ class CalculationService {
 
       const raceIds = races.map((r) => r.id);
       const allResults = await prisma.result.findMany({
-        where: { raceId: { in: raceIds }, time: { gt: 0 } },
+        where: { raceId: { in: raceIds }, status: 'FINISHED', time: { gt: 0 } },
         select: { raceId: true, time: true },
         orderBy: { time: 'asc' },
       });
@@ -706,7 +722,7 @@ class CalculationService {
 
       const raceIds = races.map((r) => r.id);
       const allResults = await prisma.result.findMany({
-        where: { raceId: { in: raceIds }, time: { gt: 0 } },
+        where: { raceId: { in: raceIds }, status: 'FINISHED', time: { gt: 0 } },
         select: { raceId: true, time: true },
         orderBy: { time: 'asc' },
       });

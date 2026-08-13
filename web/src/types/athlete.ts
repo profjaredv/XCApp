@@ -24,7 +24,11 @@ export interface AthleteMetrics {
   totalRaces: number;
   totalMiles: number;
   avgPace: number;
+  // best5kTime is zero for a team that doesn't race 5Ks (see F2, XCApp
+  // pre-season fixes doc). bestPaceSecPerMile is the real, distance-
+  // agnostic replacement — kept alongside rather than in place of it.
   best5kTime?: number;
+  bestPaceSecPerMile?: number;
   improvement?: number;
   races: RacePerformance[];
 }
