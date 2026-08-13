@@ -7,6 +7,13 @@ import { useAuth } from '../contexts/AuthContext';
 // LoginPage.tsx. `redirectTo="/register"` keeps AuthView's own post-sign-up
 // navigation a no-op; the effect below sends new users to /onboarding once
 // our /users/me sync populates currentUser, matching the old afterSignUp flow.
+// Mirrors LoginPage's redirectUrl handling: someone who hit "Create an
+// Account to Accept" on an invite page (InviteAcceptPage /
+// StaffInviteAcceptPage stash the invite URL in sessionStorage before
+// sending an unauthenticated visitor here) needs to land back on that
+// invite page to actually accept it — not generic onboarding, which is an
+// unrelated "join with a code" / "create a team" flow that would silently
+// swallow the invite token.
 //
 // `pathname="register"` matches the `viewPaths.SIGN_UP` override set on
 // NeonAuthUIProvider in main.tsx — see the comment in LoginPage.tsx.
@@ -19,7 +26,9 @@ const RegisterPage: React.FC = () => {
 
   useEffect(() => {
     if (currentUser) {
-      navigate('/onboarding', { replace: true });
+      const redirectUrl = sessionStorage.getItem('redirectUrl');
+      sessionStorage.removeItem('redirectUrl');
+      navigate(redirectUrl || '/onboarding', { replace: true });
     }
   }, [currentUser, navigate]);
 

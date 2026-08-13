@@ -86,6 +86,14 @@ const InviteAcceptPage: React.FC = () => {
     navigate('/login');
   };
 
+  const handleCreateAccount = () => {
+    // Same stash-and-return as handleSignIn, but to /register — for
+    // someone accepting this invite for the first time with no account
+    // yet. RegisterPage reads redirectUrl the same way LoginPage does.
+    sessionStorage.setItem('redirectUrl', window.location.pathname);
+    navigate('/register');
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <Card className="mx-auto max-w-md">
@@ -108,8 +116,11 @@ const InviteAcceptPage: React.FC = () => {
               <Alert>
                 <AlertDescription>{message}</AlertDescription>
               </Alert>
-              <Button onClick={handleSignIn} className="w-full">
-                Sign In to Accept Invitation
+              <Button onClick={handleCreateAccount} className="w-full">
+                Create an Account to Accept
+              </Button>
+              <Button onClick={handleSignIn} variant="outline" className="w-full">
+                I already have an account — Sign In
               </Button>
             </>
           )}

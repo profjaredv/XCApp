@@ -72,6 +72,11 @@ const StaffInviteAcceptPage: React.FC = () => {
     navigate('/login');
   };
 
+  const handleCreateAccount = () => {
+    sessionStorage.setItem('redirectUrl', window.location.pathname);
+    navigate('/register');
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <Card className="mx-auto max-w-md">
@@ -92,8 +97,11 @@ const StaffInviteAcceptPage: React.FC = () => {
               <Alert>
                 <AlertDescription>{message}</AlertDescription>
               </Alert>
-              <Button onClick={handleSignIn} className="w-full">
-                Sign In to Accept Invitation
+              <Button onClick={handleCreateAccount} className="w-full">
+                Create an Account to Accept
+              </Button>
+              <Button onClick={handleSignIn} variant="outline" className="w-full">
+                I already have an account — Sign In
               </Button>
             </>
           )}
