@@ -28,11 +28,32 @@ export function StaffManager() {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<StaffRole>('COACH');
   const [isSending, setIsSending] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
   const [lastInviteEmailSent, setLastInviteEmailSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { data, isLoading, refetch } = useStaffQuery();
+
+  // Shared by the "invite a coach" form and the "resend" button on a
+  // pending invite — POST /staff-invite upserts on (team, email), so
+  // resending is just calling it again with the same email/role: it
+  // overwrites the token and expiry and re-triggers the eusend email.
+  const submitInvite = async (targetEmail: string, targetRole: StaffRole) => {
+    setError(null);
+    try {
+      const result = await teamService.sendStaffInvite(targetEmail, targetRole);
+      const link = `${window.location.origin}/staff-invite/${result.token}`;
+      setLastInviteLink(link);
+      setLastInviteEmailSent(result.emailSent);
+      toast.success(result.emailSent ? `Invite emailed to ${result.invite.email}.` : `Invite ready for ${result.invite.email}.`);
+      refetch();
+    } catch (err) {
+      const message = getErrorMessage(err) || 'Failed to send invite.';
+      setError(message);
+      toast.error(message);
+    }
+  };
 
   const handleSendInvite = async () => {
     if (!email.includes('@')) {
@@ -40,21 +61,20 @@ export function StaffManager() {
       return;
     }
     setIsSending(true);
-    setError(null);
     try {
-      const result = await teamService.sendStaffInvite(email.trim(), role);
-      const link = `${window.location.origin}/staff-invite/${result.token}`;
-      setLastInviteLink(link);
-      setLastInviteEmailSent(result.emailSent);
+      await submitInvite(email.trim(), role);
       setEmail('');
-      toast.success(result.emailSent ? `Invite emailed to ${result.invite.email}.` : `Invite ready for ${result.invite.email}.`);
-      refetch();
-    } catch (err) {
-      const message = getErrorMessage(err) || 'Failed to send invite.';
-      setError(message);
-      toast.error(message);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleResendInvite = async (targetEmail: string, targetRole: StaffRole) => {
+    setResendingEmail(targetEmail);
+    try {
+      await submitInvite(targetEmail, targetRole);
+    } finally {
+      setResendingEmail(null);
     }
   };
 
@@ -214,6 +234,14 @@ export function StaffManager() {
                         <span className="text-xs text-muted-foreground">
                           Expires {new Date(invite.expiresAt).toLocaleDateString()}
                         </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={resendingEmail === invite.email}
+                          onClick={() => handleResendInvite(invite.email, invite.role as StaffRole)}
+                        >
+                          {resendingEmail === invite.email ? 'Resending…' : 'Resend'}
+                        </Button>
                       </div>
                     </div>
                   ))}
