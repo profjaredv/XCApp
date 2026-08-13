@@ -133,4 +133,30 @@ export const teamService = {
     const response = await axiosInstance.get('/team/staff');
     return response.data;
   },
+
+  /**
+   * Head-coach-only: name an exact person (by email) and an exact role.
+   * Resending an invite to the same email overwrites the pending one rather
+   * than creating a duplicate. Returns the invite token so the caller can
+   * build a shareable `/staff-invite/:token` link — there's no email
+   * service wired up (see MIGRATION_STATUS.md), so the head coach sends
+   * the link themselves.
+   */
+  async sendStaffInvite(email: string, role: 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH'): Promise<{
+    msg: string;
+    token: string;
+    invite: { token: string; email: string; role: string; expiresAt: string };
+  }> {
+    const response = await axiosInstance.post('/team/staff-invite', { email, role });
+    return response.data;
+  },
+
+  /** Head-coach-only: change an existing staff member's role, or deactivate them. */
+  async updateStaffMember(
+    userId: string,
+    updates: { role?: 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH'; active?: boolean }
+  ): Promise<{ userId: string; role: string; active: boolean }> {
+    const response = await axiosInstance.patch(`/team/staff/${userId}`, updates);
+    return response.data;
+  },
 };

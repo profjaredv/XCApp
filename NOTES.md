@@ -2338,3 +2338,50 @@ verified against an actual short/phone viewport in a real browser (no
 UI test runner in this repo, per earlier session note) — reasoned from
 the CSS/flexbox mechanics and the user's own description, not observed
 directly in this sandbox.
+
+## Built the missing "invite another coach" screen
+
+The gap flagged in the sidebar-scroll investigation above: `POST
+/api/team/staff-invite` (head-coach-only), `GET /api/team/staff` (list
+current staff + pending invites), and `PATCH /api/team/staff/:userId`
+(change role / revoke) were all already live on the backend — the only
+piece that was actually missing was a screen to use them from.
+`UpgradeRolePage.tsx` even promised one exists ("your head coach can send
+you an invite... from their Staff settings"), and `web/src/api/teamService.ts`
+already had a `getStaff()` method — but only `useGroups.ts`'s `useStaff()`
+called it, for the group-leader picker dropdown, not for a management
+screen. Nothing in the frontend ever called the invite or update
+endpoints.
+
+Added `teamService.sendStaffInvite(email, role)` and
+`teamService.updateStaffMember(userId, {role?, active?})`, and a new
+`web/src/components/settings/StaffManager.tsx` — invite-by-email-and-role
+form, current staff list (role dropdown + revoke/restore toggle per
+person), and pending invites list, mirroring the copy-the-link pattern
+`RosterPage.tsx` already uses for athlete invites (no email service is
+wired up, so the head coach sends the `/staff-invite/:token` link
+themselves, same as athlete invites and join codes already work). Wired
+into `SettingsPage.tsx` next to the existing `MeetGroupsManager`, behind
+the same `team && currentUser?.role === 'coach'` gate the rest of that
+page already uses.
+
+One known imprecision, consistent with how the rest of this codebase
+already handles it rather than a new problem: `currentUser.role` only
+distinguishes coach/athlete, not which *kind* of coach — a
+VOLUNTEER_COACH will see this card (frontend gate passes) but get a 403
+from the backend on the invite-send and role-change actions, which
+requireRole(['HEAD_COACH']) correctly rejects. The list itself
+(`GET /staff`) does allow COACH in addition to HEAD_COACH. Errors from
+attempting a head-coach-only action surface via the existing toast
+pattern (`getErrorMessage` reads the backend's `msg` field) rather than
+hiding the whole card, same as Data Management and Settings already do
+elsewhere on this page for other permission-scoped actions.
+
+Verification: `tsc -b --force` and `vite build` both clean; backend
+suite still 126/127 (unchanged — no backend code touched, both invite
+and staff-list endpoints already existed and were already covered by
+`routeAuth.test.js`'s guard-detection sweep). Not verified: an actual
+invite round-trip against a live team (no way to run the full app in
+this sandbox) — reasoned from the existing, working athlete-invite flow
+this mirrors and from reading the already-live backend route handlers
+directly.

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { MeetGroupsManager } from '@/components/settings/MeetGroupsManager';
+import { StaffManager } from '@/components/settings/StaffManager';
 
 interface Team {
   id: string;
@@ -264,6 +265,9 @@ const SimpleSettingsPage: React.FC = () => {
         </CardContent>
       </Card>
       
+      {/* Staff - Only for coaches with a team */}
+      {team && currentUser?.role === 'coach' && <StaffManager />}
+
       {/* Meet Groups Manager - Only for coaches with a team */}
       {team && currentUser?.role === 'coach' && (
         <MeetGroupsManager teamId={team.id} />
