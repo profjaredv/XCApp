@@ -92,7 +92,7 @@ const main = async () => {
     const athleteRoutes = require('./routes/athletes');
     const performanceRoutes = require('./routes/performanceRoutes');
     const seasonRoutes = require('./routes/seasons');
-    const multiSeasonTrendsRoutes = require('./routes/multiSeasonTrends');
+    const bandAnalyticsRoutes = require('./routes/bandAnalytics');
     const dataManagementRoutes = require('./routes/dataManagement');
     const meetRoutes = require('./routes/meets');
     const teamPerformanceRoutes = require('./routes/team');
@@ -127,7 +127,13 @@ const main = async () => {
     app.use('/api/meets', meetRoutes);
     app.use('/api/team', teamPerformanceRoutes);
     app.use('/api/seasons', seasonRoutes);
-    app.use('/api/multi-season', multiSeasonTrendsRoutes);
+    // Band analytics (Part B, XCApp Pre-Season Fixes doc) — the one real
+    // top/middle/bottom-band implementation. Replaces the old multi-season
+    // trends endpoint, which silently dropped state/championship races and
+    // took an unweighted cross-athlete mean; that route and its frontend
+    // hook have been deleted outright (not just disabled) now that this is
+    // live — "one endpoint, one implementation."
+    app.use('/api/analytics/bands', bandAnalyticsRoutes);
     app.use('/api/data', dataManagementRoutes);
     app.use('/api/splits', splitsRoutes);
     app.use('/api/meet-groups', meetGroupsRoutes);

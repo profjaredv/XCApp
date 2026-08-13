@@ -44,22 +44,6 @@ interface AthleteDetailModalProps {
   careerSummary: CareerSummary;
   seasonBreakdown: SeasonBreakdown[];
   allSeasonsRaces: RaceData[];
-  // F4 (pre-season fix): the team/gender comparison lines this used to
-  // feed (getTeamGenderAverages below) came from GET /api/multi-season/
-  // trends, which silently dropped every state/championship race and took
-  // an unweighted mean — disabled (501) until Part B's real band-based
-  // replacement lands. Left optional here (rather than removed outright)
-  // so the existing null-safe fallback in getTeamGenderAverages keeps
-  // working — the athlete's own progress line still renders, just without
-  // team/gender comparison lines, instead of the modal breaking.
-  multiSeasonTrendsData?: {
-    trends: Array<{
-      season: number;
-      avg5K?: { boys?: number; girls?: number; team?: number };
-      avgPace?: { boys?: number; girls?: number; team?: number };
-    }>;
-  };
-  isLoadingMultiSeasonTrends?: boolean;
   onClose: () => void;
 }
 
@@ -69,8 +53,6 @@ export const AthleteDetailModal = ({
   careerSummary,
   seasonBreakdown,
   allSeasonsRaces,
-  multiSeasonTrendsData,
-  isLoadingMultiSeasonTrends = false,
   onClose
 }: AthleteDetailModalProps) => {
   // Sorting state for races table
@@ -216,46 +198,24 @@ export const AthleteDetailModal = ({
 
   if (!selectedAthlete || !enhancedSelectedAthlete) return null;
 
-  // Get team and gender averages from multiSeasonTrendsData
-  const getTeamGenderAverages = (season: number) => {
-    if (!multiSeasonTrendsData?.trends) return { 
-      team5K: null, teamPace: null, 
-      boys5K: null, boysPace: null,
-      girls5K: null, girlsPace: null
-    };
-    
-    const seasonData = multiSeasonTrendsData.trends.find(t => t.season === season);
-    if (!seasonData) return { 
-      team5K: null, teamPace: null, 
-      boys5K: null, boysPace: null,
-      girls5K: null, girlsPace: null
-    };
-    
-    return {
-      team5K: seasonData.avg5K?.team || null,
-      teamPace: seasonData.avgPace?.team || null,
-      boys5K: seasonData.avg5K?.boys || null,
-      boysPace: seasonData.avgPace?.boys || null,
-      girls5K: seasonData.avg5K?.girls || null,
-      girlsPace: seasonData.avgPace?.girls || null
-    };
-  };
-
-  // Transform data for AthleteProgressChart
-  const athleteProgressData = (seasonBreakdown || []).map(season => {
-    const averages = getTeamGenderAverages(season.season);
-    return {
-      season: season.season,
-      athlete5K: season.best5kTime || null,
-      athletePace: season.avgPace || null,
-      team5K: averages.team5K,
-      teamPace: averages.teamPace,
-      boys5K: averages.boys5K,
-      boysPace: averages.boysPace,
-      girls5K: averages.girls5K,
-      girlsPace: averages.girlsPace
-    };
-  });
+  // Transform data for AthleteProgressChart. Team/gender comparison lines
+  // (team5K/boys5K/girls5K/etc.) used to come from GET /api/multi-season/
+  // trends, which silently dropped every state/championship race and took
+  // an unweighted mean — that endpoint and its frontend hook are gone (Part
+  // B, XCApp Pre-Season Fixes doc). Left null here: the athlete's own
+  // progress line still renders, just without a team/gender comparison —
+  // see /band-trends for the real, per-band replacement view.
+  const athleteProgressData = (seasonBreakdown || []).map(season => ({
+    season: season.season,
+    athlete5K: season.best5kTime || null,
+    athletePace: season.avgPace || null,
+    team5K: null,
+    teamPace: null,
+    boys5K: null,
+    boysPace: null,
+    girls5K: null,
+    girlsPace: null
+  }));
 
   // Add PR and SB data to career summary
   const enhancedCareerSummary = {
@@ -323,7 +283,6 @@ export const AthleteDetailModal = ({
                 athleteName={enhancedSelectedAthlete.name}
                 athleteGender={enhancedSelectedAthlete.gender as 'M' | 'F'}
                 data={athleteProgressData}
-                isLoading={isLoadingMultiSeasonTrends}
               />
             </TabsContent>
             <TabsContent value="seasons">

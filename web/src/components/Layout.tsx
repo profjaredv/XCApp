@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, NavLink } from 'react-router-dom';
-import { ChevronLeft, Settings, LogOut, User as UserIcon, Menu, Home, BarChart2, Database, Sparkles, ClipboardList, MessageSquare, Gauge, Calculator, Users, CalendarDays, Flag, Package } from 'lucide-react';
+import { ChevronLeft, Settings, LogOut, User as UserIcon, Menu, Home, BarChart2, Database, Sparkles, ClipboardList, MessageSquare, Gauge, Calculator, Users, CalendarDays, Flag, Package, TrendingUp } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { FeedbackWidget } from './FeedbackWidget';
@@ -100,6 +100,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
 
         <NavSection label="Analyze" isCollapsed={isCollapsed}>
           <NavItem to={teamPath('/analytics')} icon={Home} label="Analytics" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+          <NavItem to={teamPath('/band-trends')} icon={TrendingUp} label="Band Trends" isCollapsed={isCollapsed} onClick={handleLinkClick} />
           <NavItem to={teamPath('/results-grid')} icon={BarChart2} label="Results Grid" isCollapsed={isCollapsed} onClick={handleLinkClick} />
           <NavItem to={teamPath('/tools')} icon={Calculator} label="Pace Calculator" isCollapsed={isCollapsed} onClick={handleLinkClick} />
         </NavSection>

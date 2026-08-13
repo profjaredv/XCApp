@@ -1,8 +1,8 @@
 // The one distance-string parser. There were four independent
-// implementations before this (backend/utils/distanceParser.js,
-// routes/multiSeasonTrends.js's parseDistanceMiles, calculationService
-// Supabase.js's parseDistanceToMiles/normalizeDistanceMiles, plus this
-// logic living inline in routes/teams.js) and they disagreed with each
+// implementations before this (backend/utils/distanceParser.js, the old
+// multi-season-trends route's own parseDistanceMiles [since deleted],
+// calculationServiceSupabase.js's parseDistanceToMiles/normalizeDistanceMiles,
+// plus this logic living inline in routes/teams.js) and they disagreed with each
 // other: "5,000 Meters" parsed to 5 meters in one, 5 miles in another. This
 // file replaces all of them — see test/distance.test.js for the fixture
 // table proving it, built from this team's actual `SELECT distance, COUNT(*)

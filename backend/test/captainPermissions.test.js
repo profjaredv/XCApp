@@ -68,3 +68,54 @@ test('every training-log route handler is scoped to req.user.linkedAthlete.id, n
     );
   }
 });
+
+// Part B (Band Analytics doc): "Captains get no special access here and
+// must not receive individual athlete rows — this endpoint returns
+// aggregates only." GET /api/analytics/bands has no captain-specific guard
+// (same "captains aren't a distinct TeamRole" situation as above) — the
+// requirement it actually needs to satisfy is structural: nobody, captain
+// or coach, ever gets an athleteId or athlete name back from this route.
+// Checked by source inspection (no live-request harness in this repo, same
+// approach as the rest of this file) rather than trusting that every
+// summarizeBand/entries object literal omits identifying fields by habit.
+const BAND_ANALYTICS_ROUTE_PATH = path.join(__dirname, '..', 'routes', 'bandAnalytics.js');
+
+test('band analytics route never includes an athlete id or name in its response', () => {
+  const source = fs.readFileSync(BAND_ANALYTICS_ROUTE_PATH, 'utf8');
+
+  // Every object that ends up in res.json(...) is built from `entries`
+  // (per-race pace/time/fieldRatio rows) or aggregated further from those —
+  // as long as no object literal anywhere in the file assigns an
+  // `athleteId:` or athlete `name:` key OUTSIDE of building/consuming that
+  // internal `entries` array itself, nothing identifying can reach the
+  // response. The `entries` array's own construction (which legitimately
+  // carries athleteId internally, to compute per-athlete ranks and
+  // dedupe counts) and the raw Prisma `select` are the two allowed
+  // exceptions.
+  const allowedAthleteIdLines = [
+    /athleteId: r\.athleteId,/, // inside the entries.map(...) that builds internal rows
+    /select: \{ id: true, distanceMeters: true, fieldMeanSec: true \}/, // Prisma race select, no athlete fields
+    /athleteId: true,/, // Prisma result select
+  ];
+
+  const athleteIdLines = source
+    .split('\n')
+    .filter((line) => /athleteId\s*:/.test(line) || /\bname:\s*(athlete|r\.athlete|e\.athlete)/i.test(line));
+
+  for (const line of athleteIdLines) {
+    const isAllowed = allowedAthleteIdLines.some((pattern) => pattern.test(line));
+    assert.ok(
+      isAllowed,
+      `bandAnalytics.js has an unexpected athleteId/name-bearing line that may leak into the response: ${line.trim()}`
+    );
+  }
+
+  // Belt-and-suspenders: the final res.json(...) payload's own top-level
+  // keys (asserted by name here, so this breaks loudly if someone adds a
+  // new field to the response) never include anything athlete-identifying.
+  const resJsonMatch = source.match(/res\.json\(\{([\s\S]*?)\}\);\s*\}\s*catch/);
+  assert.ok(resJsonMatch, 'could not locate the success res.json(...) call in bandAnalytics.js');
+  const resJsonBody = resJsonMatch[1];
+  assert.doesNotMatch(resJsonBody, /athleteId/i);
+  assert.doesNotMatch(resJsonBody, /athleteName/i);
+});
