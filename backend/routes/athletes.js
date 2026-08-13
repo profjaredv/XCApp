@@ -10,7 +10,11 @@ const {
   hasGraduated,
 } = require('../lib/season');
 const { normalizeGender } = require('../lib/gender');
+const { sendEmail } = require('../lib/email');
 const calculationService = require('../services/performance/calculationService');
+
+const FRONTEND_URL = process.env.FRONTEND_URL
+  || (process.env.NODE_ENV === 'production' ? 'https://leadpack.cc' : 'http://localhost:5173');
 
 // GET /api/athletes?season=&activeOnly=&search=
 //
@@ -386,11 +390,28 @@ router.post('/:athleteId/invite', authenticate, requireTeam, requireRole(['HEAD_
       create: { athleteId: athlete.id, teamId, email, expiresAt },
     });
 
-    // No email service is wired up (see MIGRATION_STATUS.md) — the coach
-    // copies/sends this link themselves, same as the join code already works.
+    // Best-effort send — the coach still gets the token/link back either
+    // way, so a down or unconfigured eusend never blocks creating the
+    // invite; the frontend's existing copy-link fallback covers it.
+    const inviteLink = `${FRONTEND_URL}/invite/${invite.token}`;
+    let emailSent = false;
+    try {
+      const result = await sendEmail({
+        to: email,
+        subject: `You're invited to join ${athlete.name}'s team on LeadPack XC`,
+        html: `<p>Your coach invited you to link your LeadPack XC account to <strong>${athlete.name}</strong>'s roster profile.</p>`
+          + `<p><a href="${inviteLink}">${inviteLink}</a></p>`
+          + `<p>This invite expires on ${expiresAt.toDateString()}.</p>`,
+      });
+      emailSent = result.sent;
+    } catch (error) {
+      console.error('Error sending athlete invite email:', error.message);
+    }
+
     res.status(201).json({
-      msg: `Invite ready for ${athlete.name}.`,
+      msg: emailSent ? `Invite emailed for ${athlete.name}.` : `Invite ready for ${athlete.name}.`,
       token: invite.token,
+      emailSent,
       invite: { token: invite.token, email: invite.email, expiresAt: invite.expiresAt },
     });
   } catch (error) {

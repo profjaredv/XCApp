@@ -253,7 +253,11 @@ const RosterPage: React.FC = () => {
     try {
       const response = await athleteService.inviteAthlete(inviteTarget.id, inviteEmail);
       const tokenFromResponse = response?.token || response?.invite?.token;
-      setInviteNotice(`Invitation sent to ${inviteEmail}.`);
+      setInviteNotice(
+        response?.emailSent
+          ? `Invitation emailed to ${inviteEmail}.`
+          : `Invitation ready for ${inviteEmail} — email wasn't sent, share the link below.`
+      );
       setInviteLink(
         tokenFromResponse && typeof window !== 'undefined'
           ? `${window.location.origin}/invite/${tokenFromResponse}`

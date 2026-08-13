@@ -13,6 +13,7 @@ export interface InviteResponse {
   athleteId?: string;
   teamId?: string;
   token?: string;
+  emailSent?: boolean;
 }
 
 export const athleteService = {
