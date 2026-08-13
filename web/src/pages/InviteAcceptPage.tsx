@@ -6,6 +6,22 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 
+// axios's own error.message is a generic "Request failed with status code
+// 404" — the useful text ("This invite has expired", "no longer valid",
+// etc.) is in the JSON body the backend sent, which axios only exposes
+// under response.data.
+function getErrorMessage(error: unknown): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'response' in error &&
+    typeof (error as { response?: { data?: { msg?: string } } }).response?.data?.msg === 'string'
+  ) {
+    return (error as { response: { data: { msg: string } } }).response.data.msg;
+  }
+  return error instanceof Error ? error.message : 'Failed to accept invitation.';
+}
+
 const InviteAcceptPage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
@@ -45,7 +61,7 @@ const InviteAcceptPage: React.FC = () => {
       } catch (error) {
         console.error('Error accepting invitation:', error);
         setStatus('error');
-        setMessage(error instanceof Error ? error.message : 'Failed to accept invitation.');
+        setMessage(getErrorMessage(error));
       }
     };
 

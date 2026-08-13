@@ -13,8 +13,11 @@ const { normalizeGender } = require('../lib/gender');
 const { sendEmail } = require('../lib/email');
 const calculationService = require('../services/performance/calculationService');
 
+// www, not the apex — the apex leadpack.cc has no DNS record pointed at
+// the app, so bare-domain invite links 404 at the DNS level before ever
+// reaching the server.
 const FRONTEND_URL = process.env.FRONTEND_URL
-  || (process.env.NODE_ENV === 'production' ? 'https://leadpack.cc' : 'http://localhost:5173');
+  || (process.env.NODE_ENV === 'production' ? 'https://www.leadpack.cc' : 'http://localhost:5173');
 
 // GET /api/athletes?season=&activeOnly=&search=
 //
@@ -398,8 +401,8 @@ router.post('/:athleteId/invite', authenticate, requireTeam, requireRole(['HEAD_
     try {
       const result = await sendEmail({
         to: email,
-        subject: `You're invited to join ${athlete.name}'s team on LeadPack XC`,
-        html: `<p>Your coach invited you to link your LeadPack XC account to <strong>${athlete.name}</strong>'s roster profile.</p>`
+        subject: `You're invited to join ${req.user.team.name} on LeadPack XC`,
+        html: `<p>${req.user.name || 'Your coach'} invited you to join <strong>${req.user.team.name}</strong> on LeadPack XC and link your account to <strong>${athlete.name}</strong>'s roster profile.</p>`
           + `<p><a href="${inviteLink}">${inviteLink}</a></p>`
           + `<p>This invite expires on ${expiresAt.toDateString()}.</p>`,
       });

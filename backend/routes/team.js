@@ -7,8 +7,11 @@ const { resolveActiveSeason } = require('../lib/season');
 const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 const { sendEmail } = require('../lib/email');
 
+// www, not the apex — the apex leadpack.cc has no DNS record pointed at
+// the app, so bare-domain invite links 404 at the DNS level before ever
+// reaching the server.
 const FRONTEND_URL = process.env.FRONTEND_URL
-  || (process.env.NODE_ENV === 'production' ? 'https://leadpack.cc' : 'http://localhost:5173');
+  || (process.env.NODE_ENV === 'production' ? 'https://www.leadpack.cc' : 'http://localhost:5173');
 
 const generateJoinCode = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 
