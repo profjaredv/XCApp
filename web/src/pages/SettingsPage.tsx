@@ -17,6 +17,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWalkthrough } from '@/contexts/WalkthroughContext';
 import { MeetGroupsManager } from '@/components/settings/MeetGroupsManager';
 import { StaffManager } from '@/components/settings/StaffManager';
 
@@ -29,6 +30,7 @@ interface Team {
 
 const SimpleSettingsPage: React.FC = () => {
   const { currentUser, loading: authLoading } = useAuth();
+  const { role: walkthroughRole, open: openWalkthrough } = useWalkthrough();
 
   // Team settings state
   const [team, setTeam] = useState<Team | null>(null);
@@ -265,6 +267,21 @@ const SimpleSettingsPage: React.FC = () => {
         </CardContent>
       </Card>
       
+      {/* Feature tour - only when we have a walkthrough for this account's role */}
+      {walkthroughRole && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Feature Tour</CardTitle>
+            <CardDescription>Revisit the walkthrough you saw (or skipped) the first time you signed in.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={openWalkthrough}>
+              Take the Tour Again
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Staff - Only for coaches with a team */}
       {team && currentUser?.role === 'coach' && <StaffManager />}
 
