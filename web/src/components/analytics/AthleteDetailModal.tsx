@@ -447,8 +447,8 @@ export const AthleteDetailModal = ({
                     <CardTitle>All Races</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="max-h-[400px] overflow-y-auto">
-                      <table className="w-full text-sm">
+                    <div className="max-h-[400px] overflow-auto">
+                      <table className="w-full text-sm min-w-[500px]">
                         <thead>
                           <tr className="border-b">
                             <th className="text-left p-2">

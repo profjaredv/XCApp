@@ -24,7 +24,15 @@ function TabsList({
     <TabsPrimitive.List
       data-slot="tabs-list"
       className={cn(
-        "bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-[3px]",
+        // max-w-full + overflow-x-auto: on a viewport narrower than the
+        // tab labels' combined width (whitespace-nowrap, so they never
+        // wrap), the list becomes horizontally scrollable within itself
+        // instead of silently extending past the edge of the screen with
+        // no way to reach the tabs that fell off it. justify-start (not
+        // -center) so the first tab is always the scroll-into-view start —
+        // a centered flex row can leave its own start unreachable by
+        // scroll in some browsers once it overflows.
+        "bg-muted text-muted-foreground inline-flex h-9 w-fit max-w-full items-center justify-start gap-1 overflow-x-auto rounded-lg p-[3px] [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         className
       )}
       {...props}
