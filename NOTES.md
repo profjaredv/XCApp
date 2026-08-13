@@ -2264,3 +2264,28 @@ not a real bug, confirmed by re-running against the correct path). Not
 verified: the actual numbers against a real coach's real athletes and
 real race history — the VDOT math was checked against one published
 reference point, not a full table.
+
+## Custom domain (leadpack.cc): fixed the code-side blocker before DNS
+
+User registered leadpack.cc on Porkbun and wants it pointed at
+production. The DNS/registrar/Railway-dashboard steps are all outside
+this repo — can't execute those from here, gave the user a step-by-step
+guide instead. What *is* in this repo: `server.js`'s CORS middleware had
+the production allowed origin hardcoded to a single string,
+`https://xcapp-production.up.railway.app` — once traffic starts arriving
+from `leadpack.cc`, cross-origin requests from the new domain would have
+been silently rejected by the browser (no server-side error to even see,
+CORS failures are enforced client-side).
+
+Fixed to read a comma-separated `ALLOWED_ORIGINS` env var when set,
+defaulting (when unset) to `leadpack.cc` + `www.leadpack.cc` + the
+original Railway subdomain all at once — so the switch works with zero
+required env var changes, and the old Railway URL keeps working during
+the transition (bookmarks, anything still linking to it) rather than
+breaking the moment the new domain goes live. A future domain change is
+now a Railway env var edit, not a code deploy.
+
+Verification: `node --check server.js`; backend suite 126/127 green
+(unrelated, unaffected). Not verified: the actual domain working
+end-to-end — that depends entirely on the DNS/Railway steps outside this
+repo, which the user still needs to do.

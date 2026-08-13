@@ -32,13 +32,22 @@ const main = async () => {
 
     // Middleware
     const allowedOrigins = [
-        'http://localhost:8080', 
-        'http://localhost:5173', 
-        'http://127.0.0.1:5173', 
+        'http://localhost:8080',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
         'http://localhost:3000',
         'https://xcapp-production.up.railway.app'
     ];
-    
+
+    // Production origins: configurable via ALLOWED_ORIGINS (comma-separated)
+    // so a domain change — like moving to a custom domain — is a Railway
+    // env var edit, not a code deploy. Defaults keep both the custom domain
+    // and the original Railway subdomain allowed at once, since the old
+    // one may still be linked/bookmarked for a while after the switch.
+    const productionOrigins = process.env.ALLOWED_ORIGINS
+        ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+        : ['https://leadpack.cc', 'https://www.leadpack.cc', 'https://xcapp-production.up.railway.app'];
+
     // This same Express app also serves the built frontend (see
     // express.static below) — helmet's default Content-Security-Policy
     // header lands on that HTML response too, and the browser then enforces
@@ -50,7 +59,7 @@ const main = async () => {
     // etc.) have no such cross-origin side effect and stay on.
     app.use(helmet({ contentSecurityPolicy: false }));
     app.use(cors({
-        origin: process.env.NODE_ENV === 'production' ? 'https://xcapp-production.up.railway.app' : allowedOrigins,
+        origin: process.env.NODE_ENV === 'production' ? productionOrigins : allowedOrigins,
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization']
