@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam } = require('../middleware/auth');
+const { authenticate, requireTeam, hasTeamRole } = require('../middleware/auth');
 
 const normalizeGender = (value) => {
   if (!value) return 'M';
@@ -141,8 +141,18 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
           : 0,
     };
 
+    // Team-wide aggregates above (mostImproved, teamOverview, men/women
+    // overview) intentionally still run over the full `athletes` array —
+    // an athlete's dashboard should still show real team totals. Only the
+    // Athletes-tab roster itself narrows to "just me" for an ATHLETE-role
+    // caller, same self-scoping convention as /athletes/me/training-logs.
+    const isCoachTier = await hasTeamRole(req.user, ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']);
+    const athletesForResponse = isCoachTier
+      ? athletes
+      : athletes.filter((a) => a.id === req.user.linkedAthlete?.id);
+
     res.json({
-      athletes,
+      athletes: athletesForResponse,
       team: { overview: teamOverview, men: menOverview, women: womenOverview },
       mostImproved,
       meets,

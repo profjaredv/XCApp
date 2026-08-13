@@ -255,4 +255,4 @@ const requireSuperAdmin = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, requireRole, requireTeam, requireLinkedAthlete, requireSuperAdmin };
+module.exports = { authenticate, requireRole, requireTeam, requireLinkedAthlete, requireSuperAdmin, hasTeamRole };

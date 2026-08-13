@@ -19,6 +19,14 @@ export function useGroups(seasonId: string | null) {
   });
 }
 
+/** An athlete's own current group(s) and members — the read-only counterpart to useGroups. */
+export function useMyGroups() {
+  return useQuery({
+    queryKey: ['myGroups'],
+    queryFn: () => groupService.getMyGroups(),
+  });
+}
+
 export function useGroupMembers(groupId: string | null) {
   return useQuery({
     queryKey: ['groupMembers', groupId],

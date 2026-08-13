@@ -23,6 +23,18 @@ export interface GroupMember {
   startDate: string;
 }
 
+// The self-scoped shape GET /groups/me returns — an athlete's own current
+// group(s) plus each one's other active members, nothing about the rest
+// of the team's group structure.
+export interface MyGroup {
+  id: string;
+  name: string;
+  type: GroupType;
+  gender: string | null;
+  color: string | null;
+  members: Array<{ athleteId: string; name: string; gender: string | null; grade: number | null }>;
+}
+
 // The bulk assignment screen needs every athlete's most recent season-best
 // time on their card (per the doc), which /api/athletes already returns as
 // per-race results — this is a narrower type than rosterService's
@@ -96,6 +108,11 @@ export const groupService = {
   async listMembers(groupId: string): Promise<GroupMember[]> {
     const response = await api.get<GroupMember[]>(`/groups/${groupId}/members`);
     return response.data;
+  },
+
+  async getMyGroups(): Promise<MyGroup[]> {
+    const response = await api.get<{ groups: MyGroup[] }>('/groups/me');
+    return response.data.groups;
   },
 
   /** Every group's current members at once, keyed by groupId — the bulk

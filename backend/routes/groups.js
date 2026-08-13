@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { authenticate, requireTeam, requireRole, requireLinkedAthlete, hasTeamRole } = require('../middleware/auth');
 const { getGroupOn, moveAthleteToGroup, removeAthleteFromGroup } = require('../lib/groups');
 const { decideCanManageGroup } = require('../lib/groupPermissions');
 const { normalizeGender } = require('../lib/gender');
@@ -32,6 +32,12 @@ async function canManageGroup(req, groupId) {
 }
 
 // GET /api/groups?seasonId=
+// Coach-tier roles see every group on the team (including the frontend's
+// synthetic "Unassigned" bucket, computed by diffing this full list against
+// the roster). An ATHLETE (or captain with no coach role) narrows to only
+// the group(s) they're currently an active member of — no visibility into
+// team structure or who's unassigned, same "self-scope, don't just hide it
+// in the UI" convention as /athletes/me/training-logs.
 router.get('/', authenticate, requireTeam, async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
@@ -44,8 +50,20 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
       return res.status(404).json({ msg: 'Season not found.' });
     }
 
+    const isCoachTier = await hasTeamRole(req.user, ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']);
+    let groupIdFilter = null;
+    if (!isCoachTier) {
+      const myMemberships = req.user.linkedAthlete
+        ? await prisma.groupMembership.findMany({
+            where: { athleteId: req.user.linkedAthlete.id, endDate: null, group: { seasonId } },
+            select: { groupId: true },
+          })
+        : [];
+      groupIdFilter = myMemberships.map((m) => m.groupId);
+    }
+
     const groups = await prisma.group.findMany({
-      where: { seasonId },
+      where: { seasonId, ...(groupIdFilter ? { id: { in: groupIdFilter } } : {}) },
       include: {
         leaders: { include: { user: { select: { id: true, name: true, email: true } } } },
         _count: { select: { memberships: { where: { endDate: null } } } },
@@ -68,6 +86,50 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
     );
   } catch (error) {
     console.error('Error fetching groups:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/groups/me
+// Read-only self-service counterpart to the coach-facing list above: an
+// athlete's own current group(s) — TRAINING is exclusive, CAPTAIN/CUSTOM
+// can run alongside it (lib/groups.js) — plus each group's other active
+// members. This is what an ATHLETE-role account should actually be shown
+// instead of the full team roster/group-management screen.
+router.get('/me', authenticate, requireTeam, requireLinkedAthlete, async (req, res) => {
+  try {
+    const myMemberships = await prisma.groupMembership.findMany({
+      where: { athleteId: req.user.linkedAthlete.id, endDate: null },
+      include: { group: true },
+    });
+
+    const groups = await Promise.all(
+      myMemberships.map(async (m) => {
+        const members = await prisma.groupMembership.findMany({
+          where: { groupId: m.groupId, endDate: null },
+          include: { athlete: { select: { id: true, name: true, gender: true, grade: true } } },
+        });
+        return {
+          id: m.group.id,
+          name: m.group.name,
+          type: m.group.type,
+          gender: normalizeGender(m.group.gender),
+          color: m.group.color,
+          members: members
+            .map((mem) => ({
+              athleteId: mem.athleteId,
+              name: mem.athlete.name,
+              gender: normalizeGender(mem.athlete.gender),
+              grade: mem.athlete.grade,
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        };
+      })
+    );
+
+    res.json({ groups });
+  } catch (error) {
+    console.error('Error fetching own groups:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
@@ -295,6 +357,18 @@ router.get('/:id/members', authenticate, requireTeam, async (req, res) => {
       return res.status(404).json({ msg: 'Group not found.' });
     }
 
+    const isCoachTier = await hasTeamRole(req.user, ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']);
+    if (!isCoachTier) {
+      const ownMembership = req.user.linkedAthlete
+        ? await prisma.groupMembership.findFirst({
+            where: { groupId: group.id, athleteId: req.user.linkedAthlete.id, endDate: null },
+          })
+        : null;
+      if (!ownMembership) {
+        return res.status(403).json({ msg: 'Access denied.' });
+      }
+    }
+
     const memberships = await prisma.groupMembership.findMany({
       where: { groupId: group.id, endDate: null },
       include: { athlete: { select: { id: true, name: true, gender: true, grade: true, graduationYear: true } } },
@@ -327,6 +401,11 @@ router.get('/athlete/:athleteId/current', authenticate, requireTeam, async (req,
   }
 
   try {
+    const isCoachTier = await hasTeamRole(req.user, ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']);
+    if (!isCoachTier && req.params.athleteId !== req.user.linkedAthlete?.id) {
+      return res.status(403).json({ msg: 'Access denied.' });
+    }
+
     const athlete = await prisma.athlete.findFirst({ where: { id: req.params.athleteId, teamId: req.user.teamId } });
     if (!athlete) {
       return res.status(404).json({ msg: 'Athlete not found.' });

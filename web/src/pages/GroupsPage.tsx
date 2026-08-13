@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,7 @@ import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { seasonService } from '@/api/seasonService';
 import {
   useGroups,
+  useMyGroups,
   useAllGroupMembers,
   useGroupMembers,
   useRosterWithRaces,
@@ -67,7 +69,74 @@ interface AthleteRow {
   bestTime: number | null;
 }
 
+// Same 'coach' convention Layout.tsx's sidebar gating already uses. An
+// athlete (or captain with no coach role) gets a read-only "what group am
+// I in, who else is in it" view instead of the full management screen —
+// GET /groups/me is already scoped server-side to just their own group(s),
+// so this isn't the only thing standing between them and the rest of the
+// team's group structure, but the management UI (create/edit/delete/bulk
+// assign, the synthetic "Unassigned" column) simply isn't relevant to them.
 const GroupsPage: React.FC = () => {
+  const { currentUser } = useAuth();
+  const isCoach = currentUser?.role === 'coach';
+  return isCoach ? <CoachGroupsView /> : <AthleteGroupsView />;
+};
+
+const GROUP_TYPE_LABEL: Record<GroupType, string> = {
+  TRAINING: 'Training group',
+  CAPTAIN: 'Captain group',
+  CUSTOM: 'Group',
+};
+
+const AthleteGroupsView: React.FC = () => {
+  const { data: groups, isLoading } = useMyGroups();
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading your groups…</p>;
+  }
+
+  if (!groups || groups.length === 0) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-3xl font-bold">Groups</h1>
+        <p className="text-muted-foreground">
+          You're not currently assigned to a group. Check with your coach if you think that's wrong.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-3xl font-bold">Groups</h1>
+      {groups.map((group) => (
+        <Card key={group.id}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              {group.name}
+              <Badge variant="outline">{GROUP_TYPE_LABEL[group.type]}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-2">
+              {group.members.length} {group.members.length === 1 ? 'member' : 'members'}
+            </p>
+            <div className="space-y-1">
+              {group.members.map((member) => (
+                <div key={member.athleteId} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                  <span>{member.name}</span>
+                  <span className="text-muted-foreground">{member.grade ? `Grade ${member.grade}` : ''}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+};
+
+const CoachGroupsView: React.FC = () => {
   const queryClient = useQueryClient();
   const { data: context } = useTeamContext();
   const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);

@@ -110,6 +110,12 @@ interface PaceResult {
 
 const PaceCalculator: React.FC = () => {
   const { currentUser } = useAuth();
+  // Same 'coach' convention Layout.tsx's sidebar gating already uses — an
+  // account with its own athlete profile and no coach role (athlete or
+  // captain) only ever has one valid selection, so there's no teammate
+  // search to expose: showing a search box with exactly one possible
+  // result is worse UX than no search box, not better.
+  const isAthleteViewer = Boolean(currentUser?.linkedAthlete) && currentUser?.role !== 'coach';
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [selectedAthlete, setSelectedAthlete] = useState<string | null>(null);
   const [customTime, setCustomTime] = useState<string>('');
@@ -183,7 +189,7 @@ const PaceCalculator: React.FC = () => {
       clearTimeout(searchTimeout.current);
     }
     
-    if (query.length > 0 && currentUser?.team?._id) {
+    if (query.length > 0 && currentUser?.team?.id) {
       setSearchLoading(true);
       
       // Debounce search requests
@@ -193,10 +199,12 @@ const PaceCalculator: React.FC = () => {
           .then(response => {
             console.log('Search results:', response.data);
             if (Array.isArray(response.data)) {
-              // Map the response data to our Athlete interface
+              // Map the response data to our Athlete interface. The API
+              // (Prisma-backed) returns `id`, never the Mongo-era `_id` —
+              // mapping from `athlete._id` here always produced undefined
+              // ids, silently breaking selection for every search result.
               const mappedAthletes = response.data.map(athlete => ({
-                _id: athlete._id,
-                id: athlete._id, // For backward compatibility
+                id: athlete.id,
                 name: athlete.name,
                 grade: athlete.grade,
                 gender: athlete.gender,
@@ -221,18 +229,18 @@ const PaceCalculator: React.FC = () => {
       // Clear athletes when search is empty
       setAthletes([]);
     }
-  }, [currentUser?.team?._id]);
+  }, [currentUser?.team?.id]);
 
   // Only load athletes when search is opened
   useEffect(() => {
-    if (isSearchOpen && currentUser?.team?._id && searchTerm.length > 0) {
+    if (isSearchOpen && currentUser?.team?.id && searchTerm.length > 0) {
       searchAthletes(searchTerm);
     }
   }, [isSearchOpen, currentUser, searchAthletes, searchTerm]);
   
   // Fetch selected athlete data if we have an ID but no athlete object
   useEffect(() => {
-    if (selectedAthlete && !athletes.some(a => a.id === selectedAthlete) && currentUser?.team?._id) {
+    if (selectedAthlete && !athletes.some(a => a.id === selectedAthlete) && currentUser?.team?.id) {
       console.log('Fetching selected athlete data for ID:', selectedAthlete);
       setLoading(true);
       api.get(`/athletes/${selectedAthlete}`)
@@ -255,7 +263,17 @@ const PaceCalculator: React.FC = () => {
           setLoading(false);
         });
     }
-  }, [selectedAthlete, athletes, currentUser?.team?._id]);
+  }, [selectedAthlete, athletes, currentUser?.team?.id]);
+
+  // Athlete/captain viewers skip the search UI entirely — lock onto their
+  // own linked athlete as soon as it's known.
+  useEffect(() => {
+    if (isAthleteViewer && currentUser?.linkedAthlete && selectedAthlete !== currentUser.linkedAthlete.id) {
+      setAthletes([{ id: currentUser.linkedAthlete.id, name: currentUser.linkedAthlete.name }]);
+      setSelectedAthlete(currentUser.linkedAthlete.id);
+      fetchPaceData(currentUser.linkedAthlete.id);
+    }
+  }, [isAthleteViewer, currentUser, selectedAthlete, fetchPaceData]);
 
   // This useEffect is only for handling tab changes
   useEffect(() => {
@@ -397,6 +415,15 @@ const PaceCalculator: React.FC = () => {
             </ResponsiveTabsList>
             <TabsContent value="athlete" className="space-y-4">
               <div>
+                {isAthleteViewer ? (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Calculating for:</label>
+                    <div className="rounded-md border px-3 py-2 text-sm">
+                      {currentUser?.linkedAthlete?.name}
+                    </div>
+                  </div>
+                ) : (
+                <>
                 <label className="block text-sm font-medium mb-1">
                   Search and select an athlete:
                 </label>
@@ -483,6 +510,8 @@ const PaceCalculator: React.FC = () => {
                     </Command>
                   </PopoverContent>)}
                 </Popover>
+                </>
+                )}
                 {selectedAthlete && basePace && (
                   <div className="text-sm mt-2 space-y-1">
                     <p className="font-medium">
