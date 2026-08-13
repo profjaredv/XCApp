@@ -3,7 +3,10 @@
 // "leave unset to disable" pattern as GEMINI_API_KEY and SUPER_ADMIN_EMAILS:
 // callers fall back to their own copy-link UI rather than erroring out.
 const EUSEND_API_URL = 'https://api.eusend.dev/emails';
-const DEFAULT_FROM = 'LeadPack XC <run@leadpack.cc>';
+// The verified sending domain in eusend is mail.leadpack.cc, not the apex
+// leadpack.cc — eusend rejects sends whose `from` domain doesn't match a
+// verified one, so this has to track whichever domain is actually verified.
+const DEFAULT_FROM = 'LeadPack XC <run@mail.leadpack.cc>';
 
 async function sendEmail({ to, subject, html }) {
   const apiKey = process.env.EUSEND_API_KEY;
