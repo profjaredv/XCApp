@@ -69,7 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   };
 
   return (
-    <aside className={`fixed md:relative h-screen bg-gradient-to-b from-slate-50 to-white border-r border-slate-200/60 backdrop-blur-xl transition-all duration-300 z-20 ${isCollapsed ? 'w-20' : 'w-64'} ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+    <aside className={`fixed md:relative flex flex-col h-screen bg-gradient-to-b from-slate-50 to-white border-r border-slate-200/60 backdrop-blur-xl transition-all duration-300 z-20 ${isCollapsed ? 'w-20' : 'w-64'} ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)} 
         className="absolute -right-3 top-8 z-10 p-1.5 bg-white border border-slate-200 rounded-full text-slate-600 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all duration-200 hidden md:block"
@@ -91,7 +91,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
         )}
       </div>
 
-      <nav className="mt-2 flex-1 px-3 overflow-y-auto">
+      <nav className="mt-2 flex-1 min-h-0 px-3 overflow-y-auto">
         {currentUser?.linkedAthlete && (
           <NavSection label="My Profile" isCollapsed={isCollapsed}>
             <NavItem to={teamPath('/me')} icon={Gauge} label="My Progress" isCollapsed={isCollapsed} onClick={handleLinkClick} />
@@ -120,7 +120,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
         </NavSection>
       </nav>
 
-      <div className="absolute bottom-0 w-full border-t border-slate-200/60 bg-white/80 backdrop-blur-sm">
+      <div className="flex-shrink-0 w-full border-t border-slate-200/60 bg-white/80 backdrop-blur-sm">
         {currentUser?.isSuperAdmin && (
           <div className="p-3 border-b border-slate-200/60">
             <AdminTeamSwitcher isCollapsed={isCollapsed} />

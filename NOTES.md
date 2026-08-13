@@ -2289,3 +2289,52 @@ Verification: `node --check server.js`; backend suite 126/127 green
 (unrelated, unaffected). Not verified: the actual domain working
 end-to-end — that depends entirely on the DNS/Railway steps outside this
 repo, which the user still needs to do.
+
+## Sidebar nav items hidden behind the profile footer (layout bug, not a permissions bug)
+
+User reported (on the new leadpack.cc domain) that Data Management,
+Coaches Tools, and Feedback were missing from the sidebar even though
+their account clearly had coach access (Practice Plans/Meets/Equipment,
+which are gated by the exact same `isCoach` check, were showing fine).
+That ruled out a stale-deploy or role/permissions explanation before any
+code changed — a single `isCoach` boolean can't be true for some items in
+the list and false for others in the same conditional block. `git log`
+also confirmed Coaches Tools/Data Management/Feedback have been in that
+same block since *before* Practice Plans/Meets/Equipment were added, so
+a stale build would be missing the newer items too, not just the older
+ones — the opposite of what was reported.
+
+Root cause was a CSS layout bug: `web/src/components/Layout.tsx`'s
+`<aside>` never actually had `display: flex`, so `flex-1` on the `<nav>`
+did nothing — nav just grew to its full content height in normal block
+flow, with `overflow-y-auto` doing nothing because nothing was bounding
+its height. The profile/settings/logout footer was positioned
+`absolute bottom-0` relative to the aside's full `h-screen` height,
+which meant it visually sat on top of (and made unreachable) whatever
+nav items happened to fall in that same vertical range — on a phone-size
+viewport, that was Coaches Tools/Data Management/Feedback, hidden behind
+an opaque footer instead of being one scroll away. The user's own
+description once we asked the right diagnostic ("it's a UI issue, when
+collapsed it was hidden beneath the profile") confirmed this directly.
+
+Fixed by making `<aside>` a real flex column (`flex flex-col`), adding
+`min-h-0` to `<nav>` (required for `flex-1` + `overflow-y-auto` to
+actually bound and scroll a flex child — a well-known flexbox gotcha,
+without it a flex item won't shrink below its content's natural size),
+and changing the footer from `absolute bottom-0` to an in-flow
+`flex-shrink-0` block at the end of the column. Same visual result when
+everything fits, but now nav genuinely scrolls in the remaining space on
+short viewports instead of overlapping the footer.
+
+Separately, while investigating this I confirmed a second, real, and
+still-open gap: there is no UI anywhere in the app for a head coach to
+compose/send a staff invite. `POST /api/team/staff-invite` (backend) and
+the accept-side `StaffInviteAcceptPage.tsx` both exist and work;
+`UpgradeRolePage.tsx` even references a "Staff settings" screen that was
+apparently never built. Addressing that next.
+
+Verification: `tsc -b --force` and `vite build` both clean. Not yet
+verified against an actual short/phone viewport in a real browser (no
+UI test runner in this repo, per earlier session note) — reasoned from
+the CSS/flexbox mechanics and the user's own description, not observed
+directly in this sandbox.
