@@ -12,3 +12,4 @@ export { default as TeamAthleteProfilePage } from './TeamAthleteProfilePage';
 export { default as JoinTeamPage } from './JoinTeamPage';
 export { default as FixCoachRolePage } from './FixCoachRolePage';
 export { default as BandTrendsPage } from './BandTrendsPage';
+export { default as FieldResultsPage } from './FieldResultsPage';

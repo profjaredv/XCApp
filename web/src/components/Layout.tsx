@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, NavLink } from 'react-router-dom';
-import { ChevronLeft, Settings, LogOut, User as UserIcon, Menu, Home, BarChart2, Database, Sparkles, ClipboardList, MessageSquare, Gauge, Calculator, Users, CalendarDays, Flag, Package, TrendingUp } from 'lucide-react';
+import { ChevronLeft, Settings, LogOut, User as UserIcon, Menu, Home, BarChart2, Database, Sparkles, ClipboardList, MessageSquare, Gauge, Calculator, Users, CalendarDays, Flag, Package, TrendingUp, Upload } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { FeedbackWidget } from './FeedbackWidget';
@@ -115,6 +115,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
               <NavItem to={teamPath('/equipment')} icon={Package} label="Equipment" isCollapsed={isCollapsed} onClick={handleLinkClick} />
               <NavItem to={teamPath('/coaches-tools')} icon={Sparkles} label="Coaches Tools" isCollapsed={isCollapsed} onClick={handleLinkClick} />
               <NavItem to={teamPath('/data-management')} icon={Database} label="Data Management" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+              <NavItem to={teamPath('/field-results')} icon={Upload} label="Field Results" isCollapsed={isCollapsed} onClick={handleLinkClick} />
               <NavItem to={teamPath('/feedback')} icon={MessageSquare} label="Feedback" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             </>
           )}

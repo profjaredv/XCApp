@@ -267,6 +267,28 @@ for me to inspect and build selectors from. Steps 4 and 5 didn't need live
 scraping and are done (below); this one is genuinely stuck without one of
 those two things.
 
+**Update:** re-verified this blocker fresh in a later session (same result
+— `curl` gets Cloudflare's `cf-mitigated: challenge` 403, Playwright's
+Chromium gets `net::ERR_CONNECTION_RESET` on every host, proxied or not).
+Rather than keep waiting on it, built the fallback the product needs
+regardless of whether the scraper ever lands: manual field-results upload.
+A coach views a meet's full results page in their own browser (which isn't
+blocked — only this sandbox's automation is) and uploads a CSV of it.
+`backend/lib/fieldResultsCsv.js` (pure parse/validate, unit-tested),
+`backend/lib/time.js` (shared time-string parser, new third copy —
+deliberately not touching `routes/teams.js`'s working inline one for this,
+see that file's comment), `backend/routes/fieldResults.js` (`GET
+/api/field-results/races?season=`, `POST /api/field-results/:raceId`,
+`DELETE /api/field-results/:raceId`), and `web/src/pages/
+FieldResultsPage.tsx` (`/t/:athleticTeamId/field-results`, coach-only nav
+item). Writes the same `Race.fieldMeanSec`/`fieldMedianSec`/
+`fieldFinisherCount` fields `scrape_meet_playwright.js` would have — Band
+Analytics' `normalizationAvailable` flag and `fieldRatio` metric activate
+identically either way, no consumer-side change needed. This doesn't
+replace the scraper if it ever gets unblocked (bulk import at scale is
+still worth having) — it's the path that works today, and stays useful
+afterward for any race the scraper can't reach.
+
 ## Phase 2, step 4: `FieldResult` + `Race` normalization fields — done
 
 Added exactly per spec: `FieldResult` (holds other schools' finishers,
