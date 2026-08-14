@@ -284,6 +284,54 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
   }
 });
 
+// GET /api/groups/captains?seasonId=
+// This season's designated captains (SeasonRoster.isCaptain — T1), for the
+// "New Group" dialog's captain picker: pick a captain instead of typing a
+// group name from scratch, and (frontend) that captain gets auto-added as
+// the new group's first member. Each captain also reports whether they're
+// already an active member of a CAPTAIN-type group this season, so the
+// picker can skip/flag anyone who already has one instead of inviting a
+// duplicate.
+router.get('/captains', authenticate, requireTeam, async (req, res) => {
+  const { seasonId } = req.query;
+  if (!seasonId) {
+    return res.status(400).json({ msg: 'seasonId is required.' });
+  }
+
+  try {
+    const season = await prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    const [captainRosterRows, captainMemberships] = await Promise.all([
+      prisma.seasonRoster.findMany({
+        where: { seasonId, isCaptain: true },
+        include: { athlete: { select: { id: true, name: true, gender: true, grade: true } } },
+      }),
+      prisma.groupMembership.findMany({
+        where: { endDate: null, group: { seasonId, type: 'CAPTAIN' } },
+        select: { athleteId: true, group: { select: { id: true, name: true } } },
+      }),
+    ]);
+
+    const existingGroupByAthleteId = new Map(captainMemberships.map((m) => [m.athleteId, m.group]));
+
+    const captains = captainRosterRows.map((row) => ({
+      athleteId: row.athlete.id,
+      name: row.athlete.name,
+      gender: normalizeGender(row.athlete.gender),
+      grade: row.athlete.grade,
+      existingGroup: existingGroupByAthleteId.get(row.athlete.id) || null,
+    }));
+
+    res.json(captains);
+  } catch (error) {
+    console.error('Error listing captains:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // GET /api/groups/:id/trend?dataYear= — meet-by-meet pace trend and
 // spread for one group's current roster, the group-scoped analog of the
 // team-wide Season Pace Trend/Pack Running dashboard charts. Computed

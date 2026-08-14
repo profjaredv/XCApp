@@ -11,6 +11,15 @@ export function useStaff() {
   });
 }
 
+/** This season's captains, for the "New Group" dialog's captain picker. */
+export function useSeasonCaptains(seasonId: string | null) {
+  return useQuery({
+    queryKey: ['seasonCaptains', seasonId],
+    queryFn: () => groupService.listCaptains(seasonId as string),
+    enabled: !!seasonId,
+  });
+}
+
 export function useGroups(seasonId: string | null) {
   return useQuery({
     queryKey: ['groups', seasonId],
@@ -134,6 +143,7 @@ export function useAddMember(seasonId: string | null) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
       queryClient.invalidateQueries({ queryKey: ['groupMembers'] });
+      queryClient.invalidateQueries({ queryKey: ['seasonCaptains', seasonId] });
     },
   });
 }
@@ -145,6 +155,7 @@ export function useRemoveMember(seasonId: string | null) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
       queryClient.invalidateQueries({ queryKey: ['groupMembers'] });
+      queryClient.invalidateQueries({ queryKey: ['seasonCaptains', seasonId] });
     },
   });
 }

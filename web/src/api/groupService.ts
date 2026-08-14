@@ -99,6 +99,15 @@ export interface GroupTrend {
   points: GroupTrendPoint[];
 }
 
+export interface SeasonCaptain {
+  athleteId: string;
+  name: string;
+  gender: string | null;
+  grade: number | null;
+  /** Set when this captain already has an active membership in a CAPTAIN-type group this season. */
+  existingGroup: { id: string; name: string } | null;
+}
+
 export const groupService = {
   async listGroups(seasonId: string): Promise<Group[]> {
     const response = await api.get<Group[]>('/groups', { params: { seasonId } });
@@ -213,6 +222,12 @@ export const groupService = {
     const response = await api.get<GroupTrend>(`/groups/${groupId}/trend`, {
       params: dataYear !== undefined ? { dataYear } : {},
     });
+    return response.data;
+  },
+
+  /** This season's designated captains — for the "New Group" dialog's captain picker. */
+  async listCaptains(seasonId: string): Promise<SeasonCaptain[]> {
+    const response = await api.get<SeasonCaptain[]>('/groups/captains', { params: { seasonId } });
     return response.data;
   },
 };

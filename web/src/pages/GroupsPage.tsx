@@ -38,6 +38,7 @@ import {
   useBulkAssignGroups,
   useCopyGroupsFromSeason,
   useStaff,
+  useSeasonCaptains,
   useAssignLeader,
   useRemoveLeader,
   useAddMember,
@@ -60,6 +61,9 @@ import { useQueryClient } from '@tanstack/react-query';
 
 const UNASSIGNED = '__unassigned__';
 const MIXED_GENDER = '__mixed__';
+const NO_CAPTAIN = '__none__';
+
+const captainAutoName = (name: string) => `${name}'s Group`;
 
 interface AthleteRow {
   id: string;
@@ -157,8 +161,10 @@ const CoachGroupsView: React.FC = () => {
   const updateGroup = useUpdateGroup(seasonId);
   const deleteGroup = useDeleteGroup(seasonId);
   const bulkAssign = useBulkAssignGroups(seasonId);
+  const addMember = useAddMember(seasonId);
   const removeMember = useRemoveMember(seasonId);
   const copyFromSeason = useCopyGroupsFromSeason(seasonId);
+  const { data: captains = [] } = useSeasonCaptains(seasonId);
 
   const [selectedAthletes, setSelectedAthletes] = useState<Set<string>>(new Set());
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>({}); // athleteId -> groupId | UNASSIGNED
@@ -166,7 +172,26 @@ const CoachGroupsView: React.FC = () => {
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupType, setNewGroupType] = useState<GroupType>('TRAINING');
   const [newGroupGender, setNewGroupGender] = useState<'M' | 'F' | typeof MIXED_GENDER>('M');
+  const [selectedCaptainId, setSelectedCaptainId] = useState(NO_CAPTAIN);
   const [creatingForSeason, setCreatingForSeason] = useState(false);
+
+  // Captains who don't already lead a CAPTAIN-type group this season — the
+  // whole point of this picker is to skip retyping a name AND skip a
+  // separate "Manage members" trip, so a captain who already has a group
+  // doesn't need to appear again here.
+  const availableCaptains = useMemo(() => captains.filter((c) => !c.existingGroup), [captains]);
+
+  const handleCaptainSelect = (captainId: string) => {
+    const previous = captains.find((c) => c.athleteId === selectedCaptainId);
+    setSelectedCaptainId(captainId);
+    if (captainId === NO_CAPTAIN) return;
+    const captain = captains.find((c) => c.athleteId === captainId);
+    if (!captain) return;
+    // Only overwrite the name field if it's still blank or still matches
+    // the previously auto-filled name — a coach who already typed/edited
+    // their own name keeps it even after browsing the captain dropdown.
+    setNewGroupName((prev) => (prev.trim() === '' || (previous && prev === captainAutoName(previous.name)) ? captainAutoName(captain.name) : prev));
+  };
 
   const [editTarget, setEditTarget] = useState<Group | null>(null);
   const [editName, setEditName] = useState('');
@@ -269,14 +294,21 @@ const CoachGroupsView: React.FC = () => {
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return;
     try {
-      await createGroup.mutateAsync({
+      const group = await createGroup.mutateAsync({
         name: newGroupName.trim(),
         type: newGroupType,
         gender: newGroupGender === MIXED_GENDER ? null : newGroupGender,
         sortOrder: newGroupType === 'TRAINING' ? trainingGroups.filter((g) => g.gender === newGroupGender).length : otherGroups.length,
       });
+      // Picking a captain above isn't just a naming shortcut — it also
+      // saves the separate "Manage members" trip a coach used to need to
+      // actually put that captain in their own group.
+      if (newGroupType === 'CAPTAIN' && selectedCaptainId !== NO_CAPTAIN) {
+        await addMember.mutateAsync({ groupId: group.id, athleteId: selectedCaptainId });
+      }
       setNewGroupName('');
       setNewGroupType('TRAINING');
+      setSelectedCaptainId(NO_CAPTAIN);
       setNewGroupOpen(false);
       toast.success('Group created.');
     } catch (err) {
@@ -497,6 +529,26 @@ const CoachGroupsView: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
+            {newGroupType === 'CAPTAIN' && (
+              <div>
+                <Label>Captain</Label>
+                <Select value={selectedCaptainId} onValueChange={handleCaptainSelect}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder={availableCaptains.length === 0 ? 'No captains without a group' : 'Pick a captain…'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_CAPTAIN}>None — I'll name this myself</SelectItem>
+                    {availableCaptains.map((c) => (
+                      <SelectItem key={c.athleteId} value={c.athleteId}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Fills in the name below and adds them as a member — no retyping. Captains already leading a group
+                  aren't listed again.
+                </p>
+              </div>
+            )}
             <div>
               <Label>Gender</Label>
               <Select value={newGroupGender} onValueChange={(v) => setNewGroupGender(v as 'M' | 'F' | typeof MIXED_GENDER)}>
@@ -511,7 +563,7 @@ const CoachGroupsView: React.FC = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNewGroupOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateGroup} disabled={!newGroupName.trim() || createGroup.isPending}>Create</Button>
+            <Button onClick={handleCreateGroup} disabled={!newGroupName.trim() || createGroup.isPending || addMember.isPending}>Create</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -536,7 +588,13 @@ const CoachGroupsView: React.FC = () => {
       </Dialog>
 
       <ManageLeadersDialog group={leadersTarget} seasonId={seasonId} onClose={() => setLeadersTarget(null)} />
-      <ManageMembersDialog group={membersTarget} seasonId={seasonId} onClose={() => setMembersTarget(null)} roster={athletes} />
+      <ManageMembersDialog
+        group={membersTarget}
+        seasonId={seasonId}
+        onClose={() => setMembersTarget(null)}
+        roster={athletes}
+        otherGroups={otherGroups}
+      />
     </div>
   );
 };
@@ -709,21 +767,27 @@ const ManageLeadersDialog: React.FC<{ group: Group | null; seasonId: string | nu
   );
 };
 
-const ManageMembersDialog: React.FC<{ group: Group | null; seasonId: string | null; onClose: () => void; roster: AthleteRow[] }> = ({
-  group,
-  seasonId,
-  onClose,
-  roster,
-}) => {
+const MOVE_PLACEHOLDER = '__move__';
+
+const ManageMembersDialog: React.FC<{
+  group: Group | null;
+  seasonId: string | null;
+  onClose: () => void;
+  roster: AthleteRow[];
+  /** CAPTAIN/CUSTOM groups other than this one — the "move to" target list. */
+  otherGroups: Group[];
+}> = ({ group, seasonId, onClose, roster, otherGroups }) => {
   const { data: members = [], isLoading: membersLoading } = useGroupMembers(group?.id ?? null);
   const addMember = useAddMember(seasonId);
   const removeMember = useRemoveMember(seasonId);
   const [selectedAthleteId, setSelectedAthleteId] = useState('');
+  const [movingAthleteId, setMovingAthleteId] = useState<string | null>(null);
 
   if (!group) return null;
 
   const memberIds = new Set(members.map((m) => m.athleteId));
   const available = roster.filter((a) => !memberIds.has(a.id));
+  const moveTargets = otherGroups.filter((g) => g.id !== group.id);
 
   const handleAdd = async () => {
     if (!selectedAthleteId) return;
@@ -745,6 +809,26 @@ const ManageMembersDialog: React.FC<{ group: Group | null; seasonId: string | nu
     }
   };
 
+  // Moving is remove-then-add (there's no single "move" endpoint for
+  // non-TRAINING groups — CAPTAIN/CUSTOM memberships are looser than
+  // TRAINING's exclusive-per-athlete slot, so there's no "the" prior group
+  // to atomically swap out of the way the bulk-assign screen does). Both
+  // requests are still sequenced from one click here instead of the coach
+  // having to open a second group's dialog and re-find the athlete.
+  const handleMove = async (athleteId: string, targetGroupId: string) => {
+    setMovingAthleteId(athleteId);
+    try {
+      await removeMember.mutateAsync({ groupId: group.id, athleteId });
+      await addMember.mutateAsync({ groupId: targetGroupId, athleteId });
+      const target = moveTargets.find((g) => g.id === targetGroupId);
+      toast.success(target ? `Moved to ${target.name}.` : 'Moved.');
+    } catch {
+      toast.error('Could not move athlete — they may have been removed from this group but not added to the new one. Please check both groups.');
+    } finally {
+      setMovingAthleteId(null);
+    }
+  };
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
@@ -760,9 +844,28 @@ const ManageMembersDialog: React.FC<{ group: Group | null; seasonId: string | nu
             members.map((m) => (
               <div key={m.membershipId} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
                 <span>{m.name}</span>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleRemove(m.athleteId)} disabled={removeMember.isPending}>
-                  <X className="h-3.5 w-3.5" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  {moveTargets.length > 0 && (
+                    <Select
+                      value={MOVE_PLACEHOLDER}
+                      onValueChange={(targetGroupId) => handleMove(m.athleteId, targetGroupId)}
+                      disabled={movingAthleteId === m.athleteId}
+                    >
+                      <SelectTrigger className="h-7 w-[140px] text-xs">
+                        <SelectValue placeholder="Move to…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={MOVE_PLACEHOLDER} disabled>Move to…</SelectItem>
+                        {moveTargets.map((g) => (
+                          <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleRemove(m.athleteId)} disabled={removeMember.isPending}>
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
             ))
           )}
