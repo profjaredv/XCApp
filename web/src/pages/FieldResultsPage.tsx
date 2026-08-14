@@ -14,14 +14,16 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, Trash2, Users, Bookmark } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDateShort } from '@/lib/formatUtils';
 import { useCurrentSeason } from '@/hooks/useCurrentSeason';
 import { useQueryParam } from '@/hooks/useQueryState';
+import { buildBookmarkletHref } from '@/lib/fieldResultsBookmarklet';
 import {
   useFieldResultRaces,
   useUploadFieldResults,
+  useCopyFieldResultsFromMeet,
   useClearFieldResults,
 } from '@/hooks/useFieldResults';
 import type { FieldResultRace } from '@/hooks/useFieldResults';
@@ -61,6 +63,7 @@ const FieldResultsPage = () => {
 
   const { data: races = [], isLoading } = useFieldResultRaces(season);
   const uploadMutation = useUploadFieldResults();
+  const copyMutation = useCopyFieldResultsFromMeet();
   const clearMutation = useClearFieldResults();
 
   const [uploadTarget, setUploadTarget] = useState<FieldResultRace | null>(null);
@@ -102,6 +105,20 @@ const FieldResultsPage = () => {
         onError: (err) => {
           toast({ variant: 'destructive', title: 'Upload failed', description: err.message });
         },
+      }
+    );
+  };
+
+  const handleCopyFromMeet = (race: FieldResultRace) => {
+    copyMutation.mutate(
+      { raceId: race.id },
+      {
+        onSuccess: (data) =>
+          toast({
+            title: 'Field results copied',
+            description: `${race.name}: adopted ${data.fieldFinisherCount} finisher(s) from another team's upload of this meet.`,
+          }),
+        onError: (err) => toast({ variant: 'destructive', title: 'Copy failed', description: err.message }),
       }
     );
   };
@@ -166,7 +183,13 @@ const FieldResultsPage = () => {
                     <TableCell>{formatDateShort(race.date)}</TableCell>
                     <TableCell>
                       {!race.hasFieldData ? (
-                        <Badge variant="outline">No field data yet</Badge>
+                        race.availableFromOtherTeam ? (
+                          <Badge variant="outline" className="gap-1">
+                            <Users className="h-3 w-3" /> Available from another team ({race.otherTeamFieldFinisherCount})
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">No field data yet</Badge>
+                        )
                       ) : race.normalizationMet ? (
                         <Badge className="gap-1">
                           <CheckCircle2 className="h-3 w-3" /> {race.fieldFinisherCount} finishers
@@ -178,6 +201,16 @@ const FieldResultsPage = () => {
                       )}
                     </TableCell>
                     <TableCell className="text-right space-x-2">
+                      {!race.hasFieldData && race.availableFromOtherTeam && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleCopyFromMeet(race)}
+                          disabled={copyMutation.isPending}
+                        >
+                          <Users className="h-3.5 w-3.5 mr-1" /> Use shared results
+                        </Button>
+                      )}
                       <Button size="sm" variant="outline" onClick={() => openUploadDialog(race)}>
                         <Upload className="h-3.5 w-3.5 mr-1" /> {race.hasFieldData ? 'Re-upload' : 'Upload'}
                       </Button>
@@ -204,6 +237,26 @@ const FieldResultsPage = () => {
               here before for this race.
             </DialogDescription>
           </DialogHeader>
+
+          <Alert>
+            <AlertTitle className="flex items-center gap-2">
+              <Bookmark className="h-4 w-4" /> Faster: drag this to your bookmarks bar
+            </AlertTitle>
+            <AlertDescription>
+              <a
+                href={buildBookmarkletHref()}
+                onClick={(e) => e.preventDefault()}
+                className="inline-block mt-1 mb-1 px-2 py-1 rounded border text-xs font-medium bg-muted hover:bg-muted/80 cursor-grab"
+              >
+                📋 Extract Field Results
+              </a>
+              <p className="mt-1">
+                Open the meet's full results page on athletic.net in your own browser, click the bookmarklet, and
+                it copies a ready-to-paste CSV of every finisher. Runs in your browser only — nothing is sent
+                anywhere except your own clipboard.
+              </p>
+            </AlertDescription>
+          </Alert>
 
           <Alert>
             <AlertTitle>CSV format</AlertTitle>

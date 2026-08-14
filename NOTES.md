@@ -2407,3 +2407,87 @@ invite round-trip against a live team (no way to run the full app in
 this sandbox) — reasoned from the existing, working athlete-invite flow
 this mirrors and from reading the already-live backend route handlers
 directly.
+
+## Field results: cross-team sharing of the same meet's aggregate stats
+
+User's question after the manual field-results upload landed: "if we
+upload an entire set of results, shouldn't those be usable by potential
+other teams that use LeadPack (xcapp)?" — yes, and the "Duplicate
+strategy" note above (Meet/`athleticMeetId`, T4 calendar import) already
+anticipated exactly this: `Meet` and `Race` stay `teamId`-scoped on
+purpose (deliberate multi-tenancy — 20 teams at one invitational really do
+need separate plans/entries/rosters), but `Race.athleticMeetId` was
+captured specifically so "a future cross-team feature has the join key
+already sitting there if it's ever built." This is that feature, scoped
+narrowly: only the three AGGREGATE numbers get shared
+(`fieldMeanSec`/`fieldMedianSec`/`fieldFinisherCount`), never a
+`FieldResult` row and never a source team's identity — the no-named-rows
+privacy invariant on `FieldResult` is about API responses, and this
+never puts one in an API response.
+
+Deliberately a one-time copy, not a live sync, and no schema change: adding
+provenance tracking (which race's numbers came from which upload, so a
+later `DELETE` on the source cascades to every team that copied from it)
+would be the "real schema change... shared canonical meet entity" the
+T4 note explicitly deferred as out of scope with no feature needing it yet.
+This feature doesn't need it either — copy-once is enough to kill the
+"20 coaches paste the identical CSV" problem, and a team that copies stale
+numbers can always re-copy or do their own real upload later.
+
+`routes/fieldResults.js`: `findSharedFieldSource(race)` — given a race with
+a non-null `athleticMeetId`, finds another team's `Race` row with the same
+`athleticMeetId` and `name` (Athletic.net already splits boys/girls/JV
+into separate races, so `name` disambiguates within one meet without a new
+field) and a non-null `fieldFinisherCount`. `GET /races` now runs this for
+every race that has no field data of its own yet and returns
+`availableFromOtherTeam`/`otherTeamFieldFinisherCount` alongside the
+existing aggregate fields. New `POST /:raceId/copy-from-meet` re-derives
+the source itself server-side (never trusts a client-supplied race id, so
+it can't be used to probe another team's race ids) and copies the three
+fields onto this team's race — same `requireRole(['HEAD_COACH','COACH'])`
+tier as upload. `FieldResultsPage.tsx` shows a "Available from another
+team (N)" badge and a "Use shared results" button in place of Upload for
+races that qualify; uploading for real, or clearing, both still work
+exactly as before and simply stop the race from being a candidate for
+future sharing lookups (it now has its own data, real or cleared-to-null).
+
+Verification: `node --test` 152/153 (the one failure,
+`scraper.test.js`, is the pre-existing missing-Playwright-browser gap in
+this sandbox, unrelated); `tsc -b --force` and `eslint` clean on the
+changed frontend files. Not verified against a live DB (still no
+`DATABASE_URL` in this sandbox) — two teams' races sharing an
+`athleticMeetId` was reasoned from the T4 import code path, not observed
+against real rows.
+
+## Meet scraper (Phase 2 step 3): real selectors found, still not built
+
+User supplied a working third-party Chrome extension
+(`athletic.net-data-extractor`, MIT, `contentScript.js`/`popup.js`) that
+extracts XC/Track results by running as a content script in the coach's
+*own* logged-in browser tab — same "the human's browser isn't
+Cloudflare-blocked, only this sandbox's automation is" workaround as the
+manual-upload fallback, just scripted instead of copy/paste. Its selectors
+are real and presumably tested against the live site (not something this
+session fabricated, so they don't run afoul of rule 1/3's "no selectors
+from assumption" — they're evidence, the same as a saved fixture page
+would be, just not one this session captured itself):
+`shared-result-grid` → `.result-row` rows, `.place-column` (place),
+`.primary .title a[href*="/athlete/"]` (name), `.subtitle.team
+.text-overflow-ellipsis a` (school), `.secondary .title a` (time),
+`shared-tertiary-stats` text parsed with `/Yr: (\d+)/` (grade) and
+`/\+(\d+)pts/` (XC) or `/([-+]?\d+\.?\d*)m\/s/` (track wind). Sections are
+found by walking `h5` headers for a `.mb-4` ancestor's `shared-result-grid`
+(handles a results page with multiple heats/sections; falls back to a
+flat `.result-row` sweep if no `h5` sections are found).
+
+This still doesn't unblock `scrape_meet_playwright.js` itself — that needs
+a *server-side* browser to reach the page at all, and this sandbox's
+Chromium still can't get past the network layer (`net::ERR_CONNECTION_RESET`,
+re-verified earlier this session, unchanged). What it does unblock: a
+same-idea, in-app bookmarklet (see next entry) that runs client-side in the
+coach's own browser like the extension does, using these confirmed
+selectors, feeding the *existing* Field Results upload flow directly
+instead of requiring a coach to hand-build a CSV from what they see on
+the page. The scraper itself is still genuinely stuck on network access
+or a saved fixture page, exactly as documented above — not attempting it
+without one of those two things.
