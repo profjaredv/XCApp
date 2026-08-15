@@ -17,11 +17,28 @@
 // Runs entirely in the coach's own browser tab, the same trick a
 // third-party extension (athletic.net-data-extractor, MIT) already does —
 // see NOTES.md "Meet scraper (Phase 2 step 3): real selectors found" for
-// where these selectors came from, including the h5-section-header walk
-// used below to split divisions. That's also why this has to be a
-// bookmarklet and not something our server fetches: athletic.net's
-// Cloudflare challenge blocks server-side automation, but not a real,
-// logged-in human browser tab.
+// where the shared-result-grid/.result-row selectors came from. That's also
+// why this has to be a bookmarklet and not something our server fetches:
+// athletic.net's Cloudflare challenge blocks server-side automation, but
+// not a real, logged-in human browser tab.
+//
+// Two different page layouts, confirmed against real markup (not
+// assumption — this project's rule for selectors) from a coach's own
+// browser:
+//   - A single race's own results page renders shared-result-grid's
+//     .result-row cards (h5/.mb-4 ancestor for sectioned pages).
+//   - The meet's combined results/all page — the one this feature actually
+//     wants, since it's every division in one page — instead renders a
+//     plain Angular table per division: each division is a `.event-block`
+//     containing an `h5[id] a` header (the division name) and a
+//     `table.DataTable` of `<tr>`s, `td.athlete-name a` / `td.td-truncate a`
+//     / `a[href*="/result/"]` for name/school/time. .result-row and
+//     shared-result-grid don't exist anywhere on this page — an earlier
+//     version of this bookmarklet only knew the single-race layout and
+//     silently found zero rows here. Division names can repeat verbatim
+//     across genders (e.g. both Mens and Womens "1 Miles Youth 1 mile" as
+//     distinct events), so the division label is prefixed with the
+//     Mens/Womens Results header above it.
 //
 // Kept as a template string (not minified) so it stays readable/diffable
 // here; buildBookmarkletHref() below does the one-line javascript: encoding
@@ -46,51 +63,97 @@ const BOOKMARKLET_SOURCE = `
     var rows = [['Athlete Name', 'Division', 'School', 'Grade', 'Time', 'Place', 'Status']];
     var count = 0;
 
-    function extractRow(row, division) {
-      var placeEl = row.querySelector('.place-column');
-      var nameEl = row.querySelector('.primary .title a[href*="/athlete/"]');
-      var schoolEl = row.querySelector('.subtitle.team .text-overflow-ellipsis a');
-      var timeEl = row.querySelector('.secondary .title a');
-      var tertiaryEl = row.querySelector('shared-tertiary-stats');
+    // Layout A: results/all's per-division Angular table. Every division on
+    // the page is its own .event-block; skip a block with no id'd h5 (that's
+    // the "Official Team Scores" sub-table, not a results table) and skip a
+    // table row with no name+time (team-scoring rows, blank rows).
+    var eventBlocks = document.querySelectorAll('.event-block');
+    if (eventBlocks.length > 0) {
+      eventBlocks.forEach(function (block) {
+        var headerLink = block.querySelector('h5[id] a');
+        var divisionLabel = clean(headerLink && headerLink.textContent);
+        if (!divisionLabel) return;
 
-      var name = clean(nameEl && nameEl.textContent);
-      var time = clean(timeEl && timeEl.textContent);
-      if (!name || !time) return; // no reliable row without at least a name and a time
+        // h4's own text is "Mens Results"/"Womens Results", but on narrow
+        // viewports it also nests a "jump to the other gender" link (e.g.
+        // "Women") whose text textContent would otherwise pull in too —
+        // strip any nested <a> before reading it.
+        var genderHeader = block.parentElement && block.parentElement.querySelector('h4');
+        var genderLabel = '';
+        if (genderHeader) {
+          var headerClone = genderHeader.cloneNode(true);
+          var toggleLink = headerClone.querySelector('a');
+          if (toggleLink && toggleLink.parentNode) toggleLink.parentNode.removeChild(toggleLink);
+          genderLabel = clean(headerClone.textContent);
+        }
+        var fullLabel = genderLabel ? genderLabel + ' - ' + divisionLabel : divisionLabel;
 
-      var place = clean(placeEl && placeEl.textContent);
-      var school = clean(schoolEl && schoolEl.textContent);
-      var tertiaryText = clean(tertiaryEl && tertiaryEl.textContent);
-      var gradeMatch = tertiaryText.match(/Yr: (\\d+)/);
-      var grade = gradeMatch ? gradeMatch[1] : '';
+        block.querySelectorAll('table.DataTable > tbody > tr').forEach(function (row) {
+          var nameEl = row.querySelector('td.athlete-name a');
+          var timeEl = row.querySelector('a[href*="/result/"]');
+          var name = clean(nameEl && nameEl.textContent);
+          var time = clean(timeEl && timeEl.textContent);
+          if (!name || !time) return;
 
-      rows.push([name, division, school, grade, time, place, 'FINISHED']);
-      count++;
-    }
+          var cells = row.querySelectorAll('td');
+          var placeRaw = clean(cells[0] && cells[0].textContent);
+          var place = placeRaw.replace(/\\.$/, '');
+          var gradeEl = row.querySelector('td.small.text-muted');
+          var grade = clean(gradeEl && gradeEl.textContent);
+          var schoolEl = row.querySelector('td.td-truncate a');
+          var school = clean(schoolEl && schoolEl.textContent);
 
-    // Each division (Varsity, JV Gold, Freshman, ...) is its own h5-headed
-    // section wrapping a shared-result-grid of .result-row's. Walk sections
-    // when present so every row keeps its division label; only fall back to
-    // a flat sweep (single unlabeled division) if the page has none — e.g.
-    // a meet with just one race.
-    var sections = [];
-    document.querySelectorAll('h5').forEach(function (h5) {
-      var container = h5.closest('.mb-4');
-      if (!container) return;
-      var grid = container.querySelector('shared-result-grid');
-      if (!grid) return;
-      sections.push({ label: clean(h5.textContent), grid: grid });
-    });
-
-    if (sections.length > 0) {
-      sections.forEach(function (section) {
-        section.grid.querySelectorAll('.result-row').forEach(function (row) {
-          extractRow(row, section.label);
+          rows.push([name, fullLabel, school, grade, time, place, 'FINISHED']);
+          count++;
         });
       });
     } else {
-      document.querySelectorAll('.result-row').forEach(function (row) {
-        extractRow(row, '');
+      // Layout B: a single race/division's own results page — shared-
+      // result-grid's .result-row cards. Each division is its own h5-headed
+      // section wrapping a shared-result-grid when the page splits heats
+      // this way; falls back to a flat sweep (one unlabeled division) when
+      // it doesn't.
+      var extractCardRow = function (row, division) {
+        var placeEl = row.querySelector('.place-column');
+        var nameEl = row.querySelector('.primary .title a[href*="/athlete/"]');
+        var schoolEl = row.querySelector('.subtitle.team .text-overflow-ellipsis a');
+        var timeEl = row.querySelector('.secondary .title a');
+        var tertiaryEl = row.querySelector('shared-tertiary-stats');
+
+        var name = clean(nameEl && nameEl.textContent);
+        var time = clean(timeEl && timeEl.textContent);
+        if (!name || !time) return; // no reliable row without at least a name and a time
+
+        var place = clean(placeEl && placeEl.textContent);
+        var school = clean(schoolEl && schoolEl.textContent);
+        var tertiaryText = clean(tertiaryEl && tertiaryEl.textContent);
+        var gradeMatch = tertiaryText.match(/Yr: (\\d+)/);
+        var grade = gradeMatch ? gradeMatch[1] : '';
+
+        rows.push([name, division, school, grade, time, place, 'FINISHED']);
+        count++;
+      };
+
+      var sections = [];
+      document.querySelectorAll('h5').forEach(function (h5) {
+        var container = h5.closest('.mb-4');
+        if (!container) return;
+        var grid = container.querySelector('shared-result-grid');
+        if (!grid) return;
+        sections.push({ label: clean(h5.textContent), grid: grid });
       });
+
+      if (sections.length > 0) {
+        sections.forEach(function (section) {
+          section.grid.querySelectorAll('.result-row').forEach(function (row) {
+            extractCardRow(row, section.label);
+          });
+        });
+      } else {
+        document.querySelectorAll('.result-row').forEach(function (row) {
+          extractCardRow(row, '');
+        });
+      }
     }
 
     if (count === 0) {
