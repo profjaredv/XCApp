@@ -244,7 +244,15 @@ const FieldResultsPage = () => {
             </AlertTitle>
             <AlertDescription>
               <a
-                href={buildBookmarkletHref()}
+                ref={(el) => {
+                  // React 19 blocks javascript: URLs passed through the href
+                  // prop (strips the attribute instead of setting it — the
+                  // "blocked a javascript: URL" console warning), which left
+                  // nothing for the browser to grab when dragging this to
+                  // the bookmarks bar. Setting it imperatively on the DOM
+                  // node sidesteps React's own attribute sanitization.
+                  if (el) el.setAttribute('href', buildBookmarkletHref());
+                }}
                 onClick={(e) => e.preventDefault()}
                 className="inline-block mt-1 mb-1 px-2 py-1 rounded border text-xs font-medium bg-muted hover:bg-muted/80 cursor-grab"
               >
