@@ -26,10 +26,12 @@ interface RaceData {
   distanceMi: number;
   time: number;
   season?: number;
+  division?: string | null;
   place?: number | null;
   fieldSize?: number | null;
   overallPlace?: number | null;
   overallFieldSize?: number | null;
+  teamPlace?: number | null;
 }
 
 interface CareerSummary {
@@ -186,10 +188,12 @@ const TeamAthleteProfilePage = () => {
         distanceMi: r.distanceMeters / 1609.34,
         time: r.time,
         season: s.season,
+        division: r.division,
         place: r.place,
         fieldSize: r.fieldSize,
         overallPlace: r.overallPlace,
-        overallFieldSize: r.overallFieldSize
+        overallFieldSize: r.overallFieldSize,
+        teamPlace: r.teamPlace
       }))
     );
     return races.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());

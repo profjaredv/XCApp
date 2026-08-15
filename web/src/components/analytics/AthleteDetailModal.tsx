@@ -19,10 +19,12 @@ interface RaceData {
   season?: number;
   isPR?: boolean;
   isSeasonPR?: boolean;
+  division?: string | null;
   place?: number | null;
   fieldSize?: number | null;
   overallPlace?: number | null;
   overallFieldSize?: number | null;
+  teamPlace?: number | null;
 }
 
 interface CareerSummary {
@@ -478,6 +480,7 @@ export const AthleteDetailModal = ({
                                 )}
                               </button>
                             </th>
+                            <th className="text-right p-2">Team Place</th>
                             <th className="text-right p-2">Place</th>
                           </tr>
                         </thead>
@@ -488,6 +491,7 @@ export const AthleteDetailModal = ({
                               <tr key={idx} className={`border-b ${prBadge.className}`}>
                                 <td className="p-2">
                                   {race.name}
+                                  {race.division && <span className="block text-xs text-muted-foreground">{race.division}</span>}
                                   {race.isPR && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-yellow-200 dark:bg-yellow-800 text-yellow-900 dark:text-yellow-100 font-bold">PR</span>}
                                   {race.isSeasonPR && !race.isPR && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-blue-200 dark:bg-blue-800 text-blue-900 dark:text-blue-100 font-semibold">SB</span>}
                                 </td>
@@ -495,6 +499,9 @@ export const AthleteDetailModal = ({
                                 <td className="text-right p-2">{race.distanceMi.toFixed(2)} mi</td>
                                 <td className={`text-right p-2 ${race.isPR ? 'font-bold' : ''}`}>{formatTime(race.time)}</td>
                                 <td className="text-right p-2">{formatPace(race.time / race.distanceMi)}</td>
+                                <td className="text-right p-2 whitespace-nowrap">
+                                  {race.teamPlace != null ? `#${race.teamPlace}` : <span className="text-muted-foreground">—</span>}
+                                </td>
                                 <td className="text-right p-2 whitespace-nowrap">
                                   {race.place != null ? (
                                     <>

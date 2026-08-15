@@ -524,20 +524,31 @@ model Race {
   @@map("races")
 }
 
-// Other schools' finishers in a race we scraped for field normalization.
-// This table exists ONLY to compute Race.fieldMeanSec / fieldMedianSec /
-// fieldFinisherCount. It is never surfaced as a roster, never linked to a
-// User or Athlete, and must never be exposed through an endpoint that
-// returns individually-named rows for athletes outside the requesting
-// team — aggregate reads only. If a route ever needs to expose per-athlete
-// field data, that is a new, deliberate product decision, not a query this
-// table's existing shape implicitly permits.
+// Every finisher (every school) in a race we scraped for field
+// normalization — the FIELD side of the app. Used two ways: (1) to compute
+// Race.fieldMeanSec/fieldMedianSec/fieldFinisherCount, and (2) name-matched
+// against our own roster (lib/fieldPlacement.js) to set Result.division/
+// place/overallPlace for our own athletes. It is never surfaced as a
+// roster, never linked to a User or Athlete, and must never be exposed
+// through an endpoint that returns individually-named rows for athletes
+// outside the requesting team — aggregate reads only, or a match already
+// folded into one of OUR OWN Result rows. If a route ever needs to expose
+// per-athlete field data for another school, that is a new, deliberate
+// product decision, not a query this table's existing shape implicitly
+// permits.
 model FieldResult {
   id          String  @id @default(uuid()) @db.Uuid
   raceId      String  @map("race_id") @db.Uuid
   athleteName String  @map("athlete_name")
   schoolName  String? @map("school_name")
   gender      String?
+  // The division/heat text this row's own results page reported it under
+  // (e.g. "5,000 Meters Boys Gold Varsity") — see fieldResultsBookmarklet.ts.
+  // Multiple divisions legitimately coexist for one raceId now (that's the
+  // whole point: Race stays scoped to distance only, not gender/division),
+  // so this is what a re-upload's delete-before-recreate scopes itself to —
+  // see routes/fieldResults.js — instead of wiping the whole race's field.
+  division    String?
   grade       Int?
   timeSec     Float?  @map("time_sec")
   place       Int?
@@ -577,19 +588,34 @@ model Result {
   athleteId        String       @map("athlete_id") @db.Uuid
   teamId           String       @map("team_id") @db.Uuid
   time             Float? // seconds
-  // This athlete's place within their own race/division's field (matched by
-  // name against that Race's FieldResult rows — see lib/fieldPlacement.js).
-  // Null until a field-results upload supplies a field to match against.
+  // ORIGIN (the season scraper) owns time/grade/status — the official
+  // record. FIELD (a field-results upload) owns everything below: which
+  // division this athlete actually ran, matched by name against that same
+  // Race's FieldResult rows (lib/fieldPlacement.js). Race itself deliberately
+  // stays scoped to just (team, meet, distance) as ORIGIN already creates it
+  // — it does NOT split by gender or division; one Race can and does hold
+  // both Boys and Girls, and every ability-tiered heat (Gold/Silver/Bronze
+  // Varsity, JV Freshman/Sophomore/...) of that distance. Splitting by
+  // gender/division happens here, per-Result, not by fragmenting Race.
+  //
+  // division: the division/heat text this athlete actually raced, e.g.
+  // "5,000 Meters Boys Gold Varsity" — lets views group/filter by it.
+  division         String?
+  // place: this athlete's place within their own division's field, read
+  // straight from the matched FieldResult row's own place.
+  // overallPlace/overallFieldSize: combined rank across every division in
+  // this SAME race sharing this athlete's gender (FieldResult.gender), by
+  // time — "where would this result have placed against the whole
+  // same-gender field, not just this one heat." Only set when that gender
+  // actually has 2+ distinct divisions in the race; one heat has nothing
+  // "overall" to distinguish from "place" and leaves this null.
+  //
+  // All three are null until a field-results upload exists for this race —
+  // recomputed by lib/fieldPlacement.js whenever it changes. Not the same
+  // thing as "team place" (this athlete's rank among just our own team's
+  // finishers, same gender) — that's ORIGIN-only, always available, and
+  // computed on read (lib/teamPlace.js), never stored here.
   place            Int?
-  // When a meet splits one conceptual race into ability-tiered heats (e.g.
-  // Boys Varsity Gold/Silver/Bronze), this is the combined place across all
-  // of that meet's races sharing the same distance and gender, ranked by
-  // time — "where would this result have placed against the whole field,
-  // not just this heat." Only set when the meet actually has 2+ such races;
-  // a single-heat race has no distinct "overall" from "race" and leaves
-  // this null. overallFieldSize is the combined finisher count those places
-  // are out of. Recomputed by lib/fieldPlacement.js whenever field results
-  // change for any race in the group.
   overallPlace     Int?         @map("overall_place")
   overallFieldSize Int?         @map("overall_field_size")
   grade            Int? // athlete's grade at the time of this specific race

@@ -2,8 +2,10 @@
 // (every school, every finisher, every division) straight off an
 // athletic.net results page, as a CSV shaped for the Field Results upload
 // box (see FieldResultsPage.tsx / backend/lib/fieldResultsCsv.js — only
-// "Athlete Name" is required, this also fills Division/School/Grade/Time/
-// Place/Status).
+// "Athlete Name" is required, this also fills Division/Gender/School/Grade/
+// Time/Place/Status). Gender is only populated on the results/all layout,
+// which reliably marks each division as Mens/Womens Results; a single-race
+// page has no such marker and leaves it blank rather than guessing.
 //
 // A results/all page is usually more than one race: Varsity, JV Gold, JV
 // White, Freshman, etc. each get their own section, and our own Race rows
@@ -60,7 +62,7 @@ const BOOKMARKLET_SOURCE = `
       return '"' + String(v || '').replace(/"/g, '""') + '"';
     }
 
-    var rows = [['Athlete Name', 'Division', 'School', 'Grade', 'Time', 'Place', 'Status']];
+    var rows = [['Athlete Name', 'Division', 'Gender', 'School', 'Grade', 'Time', 'Place', 'Status']];
     var count = 0;
 
     // Layout A: results/all's per-division Angular table. Every division on
@@ -88,6 +90,13 @@ const BOOKMARKLET_SOURCE = `
         }
         var fullLabel = genderLabel ? genderLabel + ' - ' + divisionLabel : divisionLabel;
 
+        // "Women" contains "men" as a substring, so check it first —
+        // genderLabel is always "Mens Results" or "Womens Results" (the
+        // toggle-link text was already stripped above).
+        var genderValue = '';
+        if (/women/i.test(genderLabel)) genderValue = 'F';
+        else if (/men/i.test(genderLabel)) genderValue = 'M';
+
         block.querySelectorAll('table.DataTable > tbody > tr').forEach(function (row) {
           var nameEl = row.querySelector('td.athlete-name a');
           var timeEl = row.querySelector('a[href*="/result/"]');
@@ -103,7 +112,7 @@ const BOOKMARKLET_SOURCE = `
           var schoolEl = row.querySelector('td.td-truncate a');
           var school = clean(schoolEl && schoolEl.textContent);
 
-          rows.push([name, fullLabel, school, grade, time, place, 'FINISHED']);
+          rows.push([name, fullLabel, genderValue, school, grade, time, place, 'FINISHED']);
           count++;
         });
       });
@@ -130,7 +139,9 @@ const BOOKMARKLET_SOURCE = `
         var gradeMatch = tertiaryText.match(/Yr: (\\d+)/);
         var grade = gradeMatch ? gradeMatch[1] : '';
 
-        rows.push([name, division, school, grade, time, place, 'FINISHED']);
+        // No reliable gender signal on this layout (no Mens/Womens Results
+        // header to read) — left blank rather than guessed.
+        rows.push([name, division, '', school, grade, time, place, 'FINISHED']);
         count++;
       };
 

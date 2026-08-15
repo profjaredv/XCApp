@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam } = require('../middleware/auth');
 const { resolveActiveSeason } = require('../lib/season');
+const { computeTeamPlaces } = require('../lib/teamPlace');
 
 router.get('/', authenticate, requireTeam, async (req, res) => {
   const { season } = req.query;
@@ -52,11 +53,18 @@ router.get('/:id', authenticate, requireTeam, async (req, res) => {
       orderBy: { time: 'asc' },
     });
 
+    // Team place (rank among just our own team's same-gender finishers) is
+    // always computable from ORIGIN data alone — no field-results upload
+    // needed — and distinct from place/overallPlace, which are FIELD's.
+    // See lib/teamPlace.js for why this can't just be an array index.
+    const teamPlaces = computeTeamPlaces(results);
+
     const meetWithResults = {
       ...meet,
       results: results.map((r) => ({
         ...r,
         athlete: r.athlete ? { ...r.athlete, grade: r.grade } : null,
+        teamPlace: teamPlaces.get(r.id) ?? null,
       })),
     };
 

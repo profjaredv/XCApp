@@ -74,7 +74,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
   };
 
   // Filter results based on gender and grade
-  const filterResults = (results: Array<{athleteGender: string; athleteGrade: number; time: number; place: number; overallPlace?: number | null; overallFieldSize?: number | null; athleteName: string; [key: string]: unknown}>) => {
+  const filterResults = (results: Array<{athleteGender: string; athleteGrade: number; time: number; place: number; division?: string | null; overallPlace?: number | null; overallFieldSize?: number | null; teamPlace?: number | null; athleteName: string; [key: string]: unknown}>) => {
     return results.filter(result => {
       const genderMatch = genderFilter === 'all' || result.athleteGender === genderFilter;
       const gradeMatch = gradeFilter === 'all' || result.athleteGrade === gradeFilter;
@@ -220,6 +220,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
       x: index + 1, // Place
       y: result.time,
       time: result.time,
+      division: result.division,
       place: result.place,
       overallPlace: result.overallPlace,
       overallFieldSize: result.overallFieldSize,
@@ -709,7 +710,9 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                                   <div className="bg-white dark:bg-gray-800 p-3 border rounded shadow-lg">
                                     <p className="font-semibold">{data.athleteName}</p>
                                     <p className="text-sm text-muted-foreground">Grade {data.athleteGrade} • {data.athleteGender === 'M' ? 'Boys' : 'Girls'}</p>
+                                    {data.division && <p className="text-xs text-muted-foreground">{data.division}</p>}
                                     <div className="mt-2 space-y-1">
+                                      <p>Team Place: {data.teamPlace != null ? `#${data.teamPlace}` : '—'}</p>
                                       <p>
                                         Race Place: {data.place != null ? `${data.place}${raceFieldSize ? ` of ${raceFieldSize}` : ''}` : '—'}
                                       </p>
@@ -717,7 +720,6 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                                         <p>Overall Place: {data.overallPlace}{data.overallFieldSize ? ` of ${data.overallFieldSize}` : ''}</p>
                                       )}
                                       <p>Time: {formatTime(data.time)}</p>
-                                      <p>Team Place: {data.teamPlace}</p>
                                       <p className="text-xs font-medium">{filteredStats ? getIQRLabel(data.time, filteredStats.q1, filteredStats.median, filteredStats.q3) : ''}</p>
                                     </div>
                                     {data.isPR && <p className="text-green-600 font-medium mt-2">🏆 PR!</p>}
@@ -780,9 +782,13 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                                 <p className="text-xs opacity-75">
                                   Grade {athlete.athleteGrade} • {athlete.athleteGender === 'M' ? 'Boys' : 'Girls'}
                                 </p>
+                                {athlete.division && <p className="text-xs opacity-60">{athlete.division}</p>}
                               </div>
                               <div className="text-right">
                                 <p className="font-mono font-medium">{formatTime(athlete.time)}</p>
+                                <p className="text-xs opacity-75">
+                                  Team #{athlete.teamPlace ?? '—'}
+                                </p>
                                 <p className="text-xs opacity-75">
                                   {athlete.place != null ? `#${athlete.place}${raceFieldSize ? ` of ${raceFieldSize}` : ''}` : 'No field data'}
                                 </p>

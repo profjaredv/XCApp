@@ -34,6 +34,7 @@ test('parseFieldResultsCsv: happy path with School/Gender/Grade/Place', () => {
     athleteName: 'Jane Doe',
     schoolName: 'Northside',
     gender: 'F',
+    division: null,
     grade: 11,
     timeSec: 18 * 60 + 32.4,
     place: 3,

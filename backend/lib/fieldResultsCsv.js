@@ -23,7 +23,7 @@ const REQUIRED_HEADERS = ['Athlete Name'];
  * data row, keyed by header name.
  *
  * Returns { results, errors, skipped }:
- *   results: [{ athleteName, schoolName, gender, grade, timeSec, place, status }]
+ *   results: [{ athleteName, schoolName, gender, division, grade, timeSec, place, status }]
  *   errors:  [{ row: <1-based data row number>, message }] — row is skipped,
  *            not fatal to the whole upload.
  *   skipped: count of blank/unusable rows (no athlete name at all).
@@ -85,6 +85,7 @@ function parseFieldResultsCsv(rows) {
       athleteName,
       schoolName: (row['School'] || '').trim() || null,
       gender: (row['Gender'] || '').trim() || null,
+      division: (row['Division'] || '').trim() || null,
       grade: Number.isFinite(grade) ? grade : null,
       timeSec,
       place: Number.isFinite(place) ? place : null,

@@ -35,7 +35,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { computeFieldStats } = require('../lib/fieldNormalization');
 const { parseFieldResultsCsv } = require('../lib/fieldResultsCsv');
-const { computeMeetPlacements } = require('../lib/fieldPlacement');
+const { computeRacePlacements } = require('../lib/fieldPlacement');
 const perfCache = require('../services/performance/cache');
 
 // A meet's full field is the same real-world data no matter which XCApp
@@ -61,44 +61,34 @@ async function findSharedFieldSource(race) {
   });
 }
 
-// Race place / overall place (see lib/fieldPlacement.js and the Result
-// schema comments) always get recomputed for the WHOLE meet, not just the
-// one race that was just uploaded/cleared — "overall place" depends on
-// every same-distance/same-gender race in the meet, so a change to one
-// heat's field can shift another heat's already-uploaded results too.
-// Falls back to athleticMeetId, then the race alone, mirroring the same
-// meet-grouping fallback chain the Field Results UI uses (routes/
-// fieldResults.js's GET /races, web's FieldResultsPage.tsx).
-async function recomputeMeetPlacements(teamId, race) {
-  const where = race.meetId
-    ? { teamId, meetId: race.meetId }
-    : race.athleticMeetId
-    ? { teamId, athleticMeetId: race.athleticMeetId }
-    : { teamId, id: race.id };
-
-  const meetRaces = await prisma.race.findMany({
-    where,
+// Race place / division / overall place (lib/fieldPlacement.js, Result
+// schema comments) are recomputed for THIS race only — Race stays scoped to
+// (team, meet, distance) same as ORIGIN already creates it, so every
+// division/gender for that distance already lives on one race's own
+// FieldResult set. No meet-wide sibling-race lookup needed.
+async function recomputeRacePlacements(raceId) {
+  const race = await prisma.race.findUnique({
+    where: { id: raceId },
     include: {
       fieldResults: true,
       results: { include: { athlete: { select: { id: true, name: true, gender: true } } } },
     },
   });
+  if (!race) return;
 
-  const placements = computeMeetPlacements(meetRaces);
+  const placements = computeRacePlacements(race);
   const affectedAthleteIds = new Set();
   const updates = [];
 
-  meetRaces.forEach((r) => {
-    r.results.forEach((result) => {
-      const entry = placements.get(result.id) || { place: null, overallPlace: null, overallFieldSize: null };
-      updates.push(
-        prisma.result.update({
-          where: { id: result.id },
-          data: { place: entry.place, overallPlace: entry.overallPlace, overallFieldSize: entry.overallFieldSize },
-        })
-      );
-      affectedAthleteIds.add(result.athleteId);
-    });
+  race.results.forEach((result) => {
+    const entry = placements.get(result.id) || { division: null, place: null, overallPlace: null, overallFieldSize: null };
+    updates.push(
+      prisma.result.update({
+        where: { id: result.id },
+        data: entry,
+      })
+    );
+    affectedAthleteIds.add(result.athleteId);
   });
 
   if (updates.length > 0) {
@@ -191,9 +181,15 @@ router.get('/races', authenticate, requireTeam, async (req, res) => {
 });
 
 // POST /api/field-results/:raceId
-// Body: { csvData: string }. Replaces this race's FieldResult rows
-// wholesale (a re-upload corrects, doesn't append/duplicate) and
-// recomputes the race's aggregate field stats.
+// Body: { csvData: string }. A race now legitimately holds MULTIPLE
+// divisions' worth of field data at once — one race per (team, meet,
+// distance), same as ORIGIN already creates it, holding every gender and
+// every ability-tiered heat of that distance (see the Result/FieldResult
+// schema comments). So a re-upload only replaces the division(s) actually
+// present in this CSV, not the whole race's field — uploading "Boys Gold
+// Varsity" no longer wipes out an already-uploaded "Girls Gold Varsity" on
+// the same race. Recomputes the race's aggregate field stats over its full,
+// combined FieldResult set (every division), not just this upload's rows.
 router.post('/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const teamId = req.user.teamId;
   const { csvData } = req.body;
@@ -226,19 +222,29 @@ router.post('/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'C
       });
     }
 
+    // Replace only the division(s) this batch actually covers (usually just
+    // one — the Field Results upload dialog sends one division per call).
+    // A CSV with no Division column at all (division: null for every row,
+    // e.g. an old-format manual paste) replaces the race's undivided field.
+    const divisionsInBatch = [...new Set(results.map((r) => r.division))];
+
     await prisma.$transaction([
-      prisma.fieldResult.deleteMany({ where: { raceId: race.id } }),
+      ...divisionsInBatch.map((division) => prisma.fieldResult.deleteMany({ where: { raceId: race.id, division } })),
       prisma.fieldResult.createMany({
         data: results.map((r) => ({ ...r, raceId: race.id })),
       }),
     ]);
 
-    // Race is already single-gender in practice (schema comment on
-    // Race.fieldMeanSec) — Athletic.net structures results as separate
-    // boys/girls races, each its own Race row — so no gender split is
-    // needed here; every FINISHED row in this race's field counts as one
-    // field.
-    const finishedTimes = results.filter((r) => r.status === 'FINISHED' && r.timeSec != null).map((r) => r.timeSec);
+    // Known gap, not fixed here: fieldMeanSec/fieldMedianSec now blend every
+    // division on this race — both genders, every ability tier — into one
+    // number. That's a real regression in what "the field" means for band
+    // analytics' normalization once a race legitimately spans divisions;
+    // scoping those stats by gender (the same way lib/fieldPlacement.js
+    // scopes overallPlace) is a follow-up, not attempted in this pass.
+    const allFieldResults = await prisma.fieldResult.findMany({ where: { raceId: race.id } });
+    const finishedTimes = allFieldResults
+      .filter((r) => r.status === 'FINISHED' && r.timeSec != null)
+      .map((r) => r.timeSec);
     const stats = computeFieldStats(finishedTimes);
 
     await prisma.race.update({
@@ -250,7 +256,7 @@ router.post('/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'C
       },
     });
 
-    await recomputeMeetPlacements(teamId, race);
+    await recomputeRacePlacements(race.id);
 
     res.json({
       success: true,
@@ -337,10 +343,9 @@ router.delete('/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH', 
       }),
     ]);
 
-    // This race's own field is gone, but siblings in the same
-    // distance/gender group may still have field data — their overall
-    // place/field-size needs to shrink back down to exclude this heat.
-    await recomputeMeetPlacements(teamId, race);
+    // Field is gone for the whole race, so every division's overall
+    // place/field-size on it collapses back to null too.
+    await recomputeRacePlacements(race.id);
 
     res.json({ success: true });
   } catch (err) {

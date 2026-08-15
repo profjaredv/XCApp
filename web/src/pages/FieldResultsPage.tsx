@@ -51,10 +51,10 @@ import type { FieldResultRace, UploadFieldResultsResponse } from '@/hooks/useFie
 // found to one of this meet's races (or skips it) — no name-matching
 // guesswork.
 
-const CSV_TEMPLATE = `Athlete Name,Division,School,Grade,Time,Place,Status
-Jane Doe,Girls Varsity,Northside,11,18:32.4,3,FINISHED
-Sam Lee,Girls JV,Eastview,10,19:01,5,FINISHED
-Pat Rivera,Girls Varsity,Northside,12,,,DNF`;
+const CSV_TEMPLATE = `Athlete Name,Division,Gender,School,Grade,Time,Place,Status
+Jane Doe,Girls Varsity,F,Northside,11,18:32.4,3,FINISHED
+Sam Lee,Girls JV,F,Eastview,10,19:01,5,FINISHED
+Pat Rivera,Girls Varsity,F,Northside,12,,,DNF`;
 
 const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
 const BOOKMARKS_BAR_SHORTCUT = isMac ? 'Cmd+Shift+B' : 'Ctrl+Shift+B';
@@ -181,8 +181,12 @@ const FieldResultsPage = () => {
       const rowsForDivision = divisionKey
         ? parsedCsv.rows.filter((row) => ((row[divisionKey] || '').trim() || NO_DIVISION_KEY) === division)
         : parsedCsv.rows;
-      const csvHeaders = divisionKey ? parsedCsv.headers.filter((h) => h !== divisionKey) : parsedCsv.headers;
-      const csvData = toCsv(csvHeaders, rowsForDivision);
+      // Division (and Gender, when the bookmarklet supplied one) travel
+      // through to the backend now — a race legitimately holds several
+      // divisions' worth of field data at once, so the upload needs to say
+      // which division each row belongs to instead of the dialog silently
+      // discarding that context after using it to split the CSV client-side.
+      const csvData = toCsv(parsedCsv.headers, rowsForDivision);
 
       try {
         const response = await uploadMutation.mutateAsync({ raceId, csvData });
@@ -444,7 +448,9 @@ const FieldResultsPage = () => {
               Only <strong>Athlete Name</strong> is required. Time is required unless Status is DNF/DNS/DQ.{' '}
               <strong>Division</strong> is optional — include it (the bookmarklet always does) so results from
               different levels/heats can be mapped to different races below; without it, every row is treated as one
-              division.
+              division. <strong>Gender</strong> is also optional (M/F) — the bookmarklet fills it in automatically on
+              a meet's results/all page, and it's what lets an athlete's overall place combine correctly across
+              divisions of the same gender (Boys Gold/Silver/Bronze Varsity, etc.) without mixing genders together.
             </AlertDescription>
           </Alert>
 

@@ -64,16 +64,20 @@ export interface AthleteSeasonMetricsData {
     date: string;
     season: number;
     distance?: number; // distance in miles
-    // Place within this race's own field (matched from a field-results
-    // upload — see backend lib/fieldPlacement.js), out of fieldSize. Null
-    // until a field-results upload exists for this race.
+    // FIELD data (see backend lib/fieldPlacement.js) — all null until a
+    // field-results upload exists for this race.
+    division?: string | null;
     place?: number | null;
     fieldSize?: number | null;
-    // Combined rank across every race in this meet sharing the same
-    // distance + gender, out of overallFieldSize — only set when the meet
-    // actually split the event into 2+ such races.
+    // Combined rank across every division on this race sharing this
+    // athlete's gender, out of overallFieldSize — only set when the meet
+    // actually split the event into 2+ such divisions.
     overallPlace?: number | null;
     overallFieldSize?: number | null;
+    // ORIGIN data (see backend lib/teamPlace.js) — always available, no
+    // field-results upload needed. Rank among just our own team's same-
+    // gender finishers in this race — distinct from `place` above.
+    teamPlace?: number | null;
   }>;
   
   // Also at top level (duplicate for compatibility)

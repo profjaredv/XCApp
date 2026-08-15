@@ -3,6 +3,7 @@ const logger = require('../../utils/logger');
 const cache = require('./cache');
 const { deriveGrade } = require('../../lib/season');
 const { parseDistanceToMeters, metersToMiles } = require('../../lib/distance');
+const { computeTeamPlaces } = require('../../lib/teamPlace');
 
 class CalculationService {
   constructor() {
@@ -56,7 +57,9 @@ class CalculationService {
         where: { athleteId, status: 'FINISHED', time: { gt: 0 }, race: { season: seasonNum } },
         select: {
           id: true,
+          teamId: true,
           time: true,
+          division: true,
           place: true,
           overallPlace: true,
           overallFieldSize: true,
@@ -74,22 +77,48 @@ class CalculationService {
         },
       });
 
+      // Team place (rank among just our own team's same-gender finishers in
+      // each race) is ORIGIN-only — always computable, no field-results
+      // upload needed — and distinct from place/overallPlace, which are
+      // FIELD's. See lib/teamPlace.js. Needs every teammate's result on
+      // each of this athlete's races, not just this athlete's own rows.
+      const raceIds = [...new Set(results.map((r) => r.race && r.race.id).filter(Boolean))];
+      const teamId = results[0] && results[0].teamId;
+      const teamPlaceByResultId = new Map();
+      if (raceIds.length > 0 && teamId) {
+        const teamResults = await prisma.result.findMany({
+          where: { raceId: { in: raceIds }, teamId },
+          select: { id: true, raceId: true, time: true, status: true, athlete: { select: { gender: true } } },
+        });
+        const byRaceId = new Map();
+        teamResults.forEach((r) => {
+          if (!byRaceId.has(r.raceId)) byRaceId.set(r.raceId, []);
+          byRaceId.get(r.raceId).push(r);
+        });
+        byRaceId.forEach((raceResults) => {
+          computeTeamPlaces(raceResults).forEach((place, resultId) => teamPlaceByResultId.set(resultId, place));
+        });
+      }
+
       return results
         .filter((r) => r.race)
         .map((r) => ({
           _id: r.id,
           time: r.time,
-          // Race place/field size: this athlete's place within their own
-          // race's field, matched from a field-results upload — see
-          // lib/fieldPlacement.js and the Result schema comments. Null
+          // FIELD data — see lib/fieldPlacement.js and the Result schema
+          // comments. division: the heat this athlete actually ran. place/
+          // fieldSize: their place within that division's own field.
+          // overallPlace/overallFieldSize: only set when the meet split the
+          // event into 2+ same-gender divisions (Boys Varsity Gold/Silver/
+          // Bronze, etc.) — the combined rank across all of them. All null
           // until a field-results upload exists for this race.
+          division: r.division,
           place: r.place,
           fieldSize: r.race.fieldFinisherCount,
-          // Overall place/field size: only set when this meet split the
-          // event into 2+ same-distance/same-gender heats (Boys Varsity
-          // Gold/Silver/Bronze, etc.) — the combined rank across all of them.
           overallPlace: r.overallPlace,
           overallFieldSize: r.overallFieldSize,
+          // ORIGIN data — always available, no field upload needed.
+          teamPlace: teamPlaceByResultId.get(r.id) ?? null,
           distanceMeters: r.race.distanceMeters,
           distanceText: r.race.distance,
           meetName: r.race.name,
