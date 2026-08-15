@@ -35,6 +35,8 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { computeFieldStats } = require('../lib/fieldNormalization');
 const { parseFieldResultsCsv } = require('../lib/fieldResultsCsv');
+const { computeMeetPlacements } = require('../lib/fieldPlacement');
+const perfCache = require('../services/performance/cache');
 
 // A meet's full field is the same real-world data no matter which XCApp
 // team uploaded it — 20 different teams at the same invitational shouldn't
@@ -57,6 +59,56 @@ async function findSharedFieldSource(race) {
     select: { fieldMeanSec: true, fieldMedianSec: true, fieldFinisherCount: true },
     orderBy: { updatedAt: 'desc' },
   });
+}
+
+// Race place / overall place (see lib/fieldPlacement.js and the Result
+// schema comments) always get recomputed for the WHOLE meet, not just the
+// one race that was just uploaded/cleared — "overall place" depends on
+// every same-distance/same-gender race in the meet, so a change to one
+// heat's field can shift another heat's already-uploaded results too.
+// Falls back to athleticMeetId, then the race alone, mirroring the same
+// meet-grouping fallback chain the Field Results UI uses (routes/
+// fieldResults.js's GET /races, web's FieldResultsPage.tsx).
+async function recomputeMeetPlacements(teamId, race) {
+  const where = race.meetId
+    ? { teamId, meetId: race.meetId }
+    : race.athleticMeetId
+    ? { teamId, athleticMeetId: race.athleticMeetId }
+    : { teamId, id: race.id };
+
+  const meetRaces = await prisma.race.findMany({
+    where,
+    include: {
+      fieldResults: true,
+      results: { include: { athlete: { select: { id: true, name: true, gender: true } } } },
+    },
+  });
+
+  const placements = computeMeetPlacements(meetRaces);
+  const affectedAthleteIds = new Set();
+  const updates = [];
+
+  meetRaces.forEach((r) => {
+    r.results.forEach((result) => {
+      const entry = placements.get(result.id) || { place: null, overallPlace: null, overallFieldSize: null };
+      updates.push(
+        prisma.result.update({
+          where: { id: result.id },
+          data: { place: entry.place, overallPlace: entry.overallPlace, overallFieldSize: entry.overallFieldSize },
+        })
+      );
+      affectedAthleteIds.add(result.athleteId);
+    });
+  });
+
+  if (updates.length > 0) {
+    await prisma.$transaction(updates);
+  }
+
+  // Best-effort: a coach re-uploading a CSV a moment later shouldn't have
+  // to wait on cache infrastructure, and PerformanceCache already no-ops
+  // safely when Redis isn't configured (dev/test).
+  await perfCache.invalidate([...affectedAthleteIds].map((id) => `athlete:${id}:all-seasons`));
 }
 
 // GET /api/field-results/races?season=YYYY
@@ -198,6 +250,8 @@ router.post('/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'C
       },
     });
 
+    await recomputeMeetPlacements(teamId, race);
+
     res.json({
       success: true,
       rowsUploaded: results.length,
@@ -282,6 +336,11 @@ router.delete('/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH', 
         data: { fieldMeanSec: null, fieldMedianSec: null, fieldFinisherCount: null },
       }),
     ]);
+
+    // This race's own field is gone, but siblings in the same
+    // distance/gender group may still have field data — their overall
+    // place/field-size needs to shrink back down to exclude this heat.
+    await recomputeMeetPlacements(teamId, race);
 
     res.json({ success: true });
   } catch (err) {

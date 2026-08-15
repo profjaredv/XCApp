@@ -380,13 +380,13 @@ model RaceReflection {
 // propose/coach-confirms/apply shape as Course mapping in the analytics
 // track); every Race created going forward can set meetId directly.
 model Meet {
-  id        String   @id @default(uuid()) @db.Uuid
-  teamId    String   @map("team_id") @db.Uuid
-  seasonId  String   @map("season_id") @db.Uuid
-  name      String
-  date      DateTime @db.Date
-  location  String?
-  sourceUrl String?  @map("source_url") // Athletic.net meet page
+  id             String   @id @default(uuid()) @db.Uuid
+  teamId         String   @map("team_id") @db.Uuid
+  seasonId       String   @map("season_id") @db.Uuid
+  name           String
+  date           DateTime @db.Date
+  location       String?
+  sourceUrl      String?  @map("source_url") // Athletic.net meet page
   // Athletic.net's own meet ID — same value Race.athleticMeetId stores from
   // results scraping. Nullable (a coach can hand-create a Meet with no
   // Athletic.net counterpart) but the dedup key when one exists: importing
@@ -394,7 +394,7 @@ model Meet {
   // scraping results for the same meet, must land on one Meet row, not two.
   // Postgres treats NULLs as distinct in a unique index, so hand-created
   // rows never collide with each other here.
-  athleticMeetId String? @map("athletic_meet_id")
+  athleticMeetId String?  @map("athletic_meet_id")
 
   team   Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
   season Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
@@ -572,15 +572,29 @@ model Course {
 }
 
 model Result {
-  id        String       @id @default(uuid()) @db.Uuid
-  raceId    String       @map("race_id") @db.Uuid
-  athleteId String       @map("athlete_id") @db.Uuid
-  teamId    String       @map("team_id") @db.Uuid
-  time      Float? // seconds
-  place     Int?
-  grade     Int? // athlete's grade at the time of this specific race
-  status    ResultStatus @default(FINISHED)
-  createdAt DateTime     @default(now()) @map("created_at")
+  id               String       @id @default(uuid()) @db.Uuid
+  raceId           String       @map("race_id") @db.Uuid
+  athleteId        String       @map("athlete_id") @db.Uuid
+  teamId           String       @map("team_id") @db.Uuid
+  time             Float? // seconds
+  // This athlete's place within their own race/division's field (matched by
+  // name against that Race's FieldResult rows — see lib/fieldPlacement.js).
+  // Null until a field-results upload supplies a field to match against.
+  place            Int?
+  // When a meet splits one conceptual race into ability-tiered heats (e.g.
+  // Boys Varsity Gold/Silver/Bronze), this is the combined place across all
+  // of that meet's races sharing the same distance and gender, ranked by
+  // time — "where would this result have placed against the whole field,
+  // not just this heat." Only set when the meet actually has 2+ such races;
+  // a single-heat race has no distinct "overall" from "race" and leaves
+  // this null. overallFieldSize is the combined finisher count those places
+  // are out of. Recomputed by lib/fieldPlacement.js whenever field results
+  // change for any race in the group.
+  overallPlace     Int?         @map("overall_place")
+  overallFieldSize Int?         @map("overall_field_size")
+  grade            Int? // athlete's grade at the time of this specific race
+  status           ResultStatus @default(FINISHED)
+  createdAt        DateTime     @default(now()) @map("created_at")
 
   race      Race       @relation(fields: [raceId], references: [id], onDelete: Cascade)
   athlete   Athlete    @relation(fields: [athleteId], references: [id], onDelete: Cascade)

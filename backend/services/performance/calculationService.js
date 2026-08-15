@@ -57,7 +57,20 @@ class CalculationService {
         select: {
           id: true,
           time: true,
-          race: { select: { id: true, name: true, date: true, distance: true, distanceMeters: true, season: true } },
+          place: true,
+          overallPlace: true,
+          overallFieldSize: true,
+          race: {
+            select: {
+              id: true,
+              name: true,
+              date: true,
+              distance: true,
+              distanceMeters: true,
+              season: true,
+              fieldFinisherCount: true,
+            },
+          },
         },
       });
 
@@ -66,6 +79,17 @@ class CalculationService {
         .map((r) => ({
           _id: r.id,
           time: r.time,
+          // Race place/field size: this athlete's place within their own
+          // race's field, matched from a field-results upload — see
+          // lib/fieldPlacement.js and the Result schema comments. Null
+          // until a field-results upload exists for this race.
+          place: r.place,
+          fieldSize: r.race.fieldFinisherCount,
+          // Overall place/field size: only set when this meet split the
+          // event into 2+ same-distance/same-gender heats (Boys Varsity
+          // Gold/Silver/Bronze, etc.) — the combined rank across all of them.
+          overallPlace: r.overallPlace,
+          overallFieldSize: r.overallFieldSize,
           distanceMeters: r.race.distanceMeters,
           distanceText: r.race.distance,
           meetName: r.race.name,

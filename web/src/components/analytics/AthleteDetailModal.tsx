@@ -19,6 +19,10 @@ interface RaceData {
   season?: number;
   isPR?: boolean;
   isSeasonPR?: boolean;
+  place?: number | null;
+  fieldSize?: number | null;
+  overallPlace?: number | null;
+  overallFieldSize?: number | null;
 }
 
 interface CareerSummary {
@@ -474,6 +478,7 @@ export const AthleteDetailModal = ({
                                 )}
                               </button>
                             </th>
+                            <th className="text-right p-2">Place</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -490,6 +495,20 @@ export const AthleteDetailModal = ({
                                 <td className="text-right p-2">{race.distanceMi.toFixed(2)} mi</td>
                                 <td className={`text-right p-2 ${race.isPR ? 'font-bold' : ''}`}>{formatTime(race.time)}</td>
                                 <td className="text-right p-2">{formatPace(race.time / race.distanceMi)}</td>
+                                <td className="text-right p-2 whitespace-nowrap">
+                                  {race.place != null ? (
+                                    <>
+                                      #{race.place}{race.fieldSize ? ` of ${race.fieldSize}` : ''}
+                                      {race.overallPlace != null && (
+                                        <span className="block text-xs text-muted-foreground">
+                                          Overall #{race.overallPlace}{race.overallFieldSize ? ` of ${race.overallFieldSize}` : ''}
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="text-muted-foreground">—</span>
+                                  )}
+                                </td>
                               </tr>
                             );
                           })}

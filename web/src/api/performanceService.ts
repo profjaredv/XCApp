@@ -64,6 +64,16 @@ export interface AthleteSeasonMetricsData {
     date: string;
     season: number;
     distance?: number; // distance in miles
+    // Place within this race's own field (matched from a field-results
+    // upload — see backend lib/fieldPlacement.js), out of fieldSize. Null
+    // until a field-results upload exists for this race.
+    place?: number | null;
+    fieldSize?: number | null;
+    // Combined rank across every race in this meet sharing the same
+    // distance + gender, out of overallFieldSize — only set when the meet
+    // actually split the event into 2+ such races.
+    overallPlace?: number | null;
+    overallFieldSize?: number | null;
   }>;
   
   // Also at top level (duplicate for compatibility)

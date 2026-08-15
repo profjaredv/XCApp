@@ -74,7 +74,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
   };
 
   // Filter results based on gender and grade
-  const filterResults = (results: Array<{athleteGender: string; athleteGrade: number; time: number; place: number; athleteName: string; [key: string]: unknown}>) => {
+  const filterResults = (results: Array<{athleteGender: string; athleteGrade: number; time: number; place: number; overallPlace?: number | null; overallFieldSize?: number | null; athleteName: string; [key: string]: unknown}>) => {
     return results.filter(result => {
       const genderMatch = genderFilter === 'all' || result.athleteGender === genderFilter;
       const gradeMatch = gradeFilter === 'all' || result.athleteGrade === gradeFilter;
@@ -221,6 +221,8 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
       y: result.time,
       time: result.time,
       place: result.place,
+      overallPlace: result.overallPlace,
+      overallFieldSize: result.overallFieldSize,
       teamPlace: result.teamPlace,
       athleteId: result.athleteId,
       athleteName: result.athleteName,
@@ -230,6 +232,11 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
       isSeasonBest: result.seasonBest
     }));
   }, [selectedMeetWithResults, athleteMap]);
+
+  // Race place needs the race's own field size as a denominator ("5th of
+  // 42") — overall place (when present) carries its own denominator per
+  // result, since it's a different, larger combined field.
+  const raceFieldSize = selectedMeetWithResults?.fieldFinisherCount ?? null;
 
   const meetStats = selectedMeetWithResults ? calculateMeetStats(selectedMeetWithResults) : null;
   const filteredStats = useMemo(() => {
@@ -703,7 +710,12 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                                     <p className="font-semibold">{data.athleteName}</p>
                                     <p className="text-sm text-muted-foreground">Grade {data.athleteGrade} • {data.athleteGender === 'M' ? 'Boys' : 'Girls'}</p>
                                     <div className="mt-2 space-y-1">
-                                      <p>Place: {data.place}</p>
+                                      <p>
+                                        Race Place: {data.place != null ? `${data.place}${raceFieldSize ? ` of ${raceFieldSize}` : ''}` : '—'}
+                                      </p>
+                                      {data.overallPlace != null && (
+                                        <p>Overall Place: {data.overallPlace}{data.overallFieldSize ? ` of ${data.overallFieldSize}` : ''}</p>
+                                      )}
                                       <p>Time: {formatTime(data.time)}</p>
                                       <p>Team Place: {data.teamPlace}</p>
                                       <p className="text-xs font-medium">{filteredStats ? getIQRLabel(data.time, filteredStats.q1, filteredStats.median, filteredStats.q3) : ''}</p>
@@ -771,7 +783,14 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                               </div>
                               <div className="text-right">
                                 <p className="font-mono font-medium">{formatTime(athlete.time)}</p>
-                                <p className="text-xs opacity-75">#{athlete.place}</p>
+                                <p className="text-xs opacity-75">
+                                  {athlete.place != null ? `#${athlete.place}${raceFieldSize ? ` of ${raceFieldSize}` : ''}` : 'No field data'}
+                                </p>
+                                {athlete.overallPlace != null && (
+                                  <p className="text-xs opacity-75">
+                                    Overall #{athlete.overallPlace}{athlete.overallFieldSize ? ` of ${athlete.overallFieldSize}` : ''}
+                                  </p>
+                                )}
                               </div>
                             </div>
                             <div className="flex justify-between items-center mt-2">

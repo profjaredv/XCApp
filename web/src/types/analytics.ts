@@ -25,10 +25,20 @@ export interface ApiMeet {
   avgPace?: number;
   runners?: number;
   conditions?: string;
+  // Total FINISHED count in this race's uploaded field-results — the
+  // denominator for `results[].place` ("place of fieldFinisherCount").
+  // Null/undefined until a field-results upload exists for this race.
+  fieldFinisherCount?: number | null;
   results?: Array<{
     athleteId: string;
     time: number;
     place: number;
+    // Combined rank across every race in this meet sharing the same
+    // distance + gender (Boys Varsity Gold/Silver/Bronze, etc.), out of
+    // overallFieldSize — see the Result.overallPlace schema comment. Only
+    // present when the meet actually split this event into 2+ such races.
+    overallPlace?: number | null;
+    overallFieldSize?: number | null;
     teamPlace: number;
     pr: boolean;
     seasonBest: boolean;
@@ -140,6 +150,8 @@ export interface RaceResult {
   name?: string;
   time: number;
   place: number;
+  overallPlace?: number | null;
+  overallFieldSize?: number | null;
   team?: string;
   grade?: number;
   pr?: boolean;
