@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, CheckCircle2, AlertCircle, Trash2, Users, Bookmark } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, Trash2, Users, Bookmark, Copy } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDateShort } from '@/lib/formatUtils';
 import { useCurrentSeason } from '@/hooks/useCurrentSeason';
@@ -46,6 +46,9 @@ Jane Doe,Northside,F,11,18:32.4,3,FINISHED
 Sam Lee,Eastview,F,10,19:01,5,FINISHED
 Pat Rivera,Northside,F,12,,,DNF`;
 
+const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+const BOOKMARKS_BAR_SHORTCUT = isMac ? 'Cmd+Shift+B' : 'Ctrl+Shift+B';
+
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -68,6 +71,7 @@ const FieldResultsPage = () => {
 
   const [uploadTarget, setUploadTarget] = useState<FieldResultRace | null>(null);
   const [csvText, setCsvText] = useState('');
+  const [bookmarkletCopied, setBookmarkletCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const availableSeasons = Array.from({ length: 6 }, (_, i) => defaultSeason - i);
@@ -121,6 +125,21 @@ const FieldResultsPage = () => {
         onError: (err) => toast({ variant: 'destructive', title: 'Copy failed', description: err.message }),
       }
     );
+  };
+
+  const handleCopyBookmarklet = async () => {
+    try {
+      await navigator.clipboard.writeText(buildBookmarkletHref());
+      setBookmarkletCopied(true);
+      toast({ title: 'Bookmarklet code copied', description: 'Paste it into the URL field when creating the bookmark (step 3 above).' });
+      setTimeout(() => setBookmarkletCopied(false), 2000);
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Copy failed',
+        description: 'Your browser blocked clipboard access — select the code below and copy it manually instead.',
+      });
+    }
   };
 
   const handleClear = (race: FieldResultRace) => {
@@ -240,28 +259,50 @@ const FieldResultsPage = () => {
 
           <Alert>
             <AlertTitle className="flex items-center gap-2">
-              <Bookmark className="h-4 w-4" /> Faster: drag this to your bookmarks bar
+              <Bookmark className="h-4 w-4" /> Set up the extraction bookmarklet (one-time)
             </AlertTitle>
-            <AlertDescription>
-              <a
-                ref={(el) => {
-                  // React 19 blocks javascript: URLs passed through the href
-                  // prop (strips the attribute instead of setting it — the
-                  // "blocked a javascript: URL" console warning), which left
-                  // nothing for the browser to grab when dragging this to
-                  // the bookmarks bar. Setting it imperatively on the DOM
-                  // node sidesteps React's own attribute sanitization.
-                  if (el) el.setAttribute('href', buildBookmarkletHref());
-                }}
-                onClick={(e) => e.preventDefault()}
-                className="inline-block mt-1 mb-1 px-2 py-1 rounded border text-xs font-medium bg-muted hover:bg-muted/80 cursor-grab"
-              >
-                📋 Extract Field Results
-              </a>
-              <p className="mt-1">
-                Open the meet's full results page on athletic.net in your own browser, click the bookmarklet, and
-                it copies a ready-to-paste CSV of every finisher. Runs in your browser only — nothing is sent
-                anywhere except your own clipboard.
+            <AlertDescription className="space-y-2">
+              <ol className="list-decimal list-inside space-y-2 mt-1">
+                <li>
+                  Make sure your bookmarks bar is showing — press <kbd className="px-1 py-0.5 rounded border bg-muted text-[11px]">{BOOKMARKS_BAR_SHORTCUT}</kbd> to
+                  toggle it if you don't see one under the address bar.
+                </li>
+                <li>
+                  Drag this onto the bookmarks bar:{' '}
+                  <a
+                    ref={(el) => {
+                      // React 19 blocks javascript: URLs passed through the href
+                      // prop (strips the attribute instead of setting it — the
+                      // "blocked a javascript: URL" console warning), which left
+                      // nothing for the browser to grab when dragging this to
+                      // the bookmarks bar. Setting it imperatively on the DOM
+                      // node sidesteps React's own attribute sanitization.
+                      if (el) el.setAttribute('href', buildBookmarkletHref());
+                    }}
+                    onClick={(e) => e.preventDefault()}
+                    className="inline-block px-2 py-1 rounded border text-xs font-medium bg-muted hover:bg-muted/80 cursor-grab"
+                  >
+                    📋 Extract Field Results
+                  </a>
+                </li>
+                <li>
+                  If the drag doesn't take (some browsers block dragging from inside a dialog): right-click the
+                  bookmarks bar, choose "Add page" (or "Add bookmark"), give it any name, then paste this into the
+                  URL field —
+                  <div className="flex items-start gap-2 mt-1">
+                    <code className="flex-1 text-[10px] leading-snug break-all bg-muted rounded px-2 py-1 max-h-20 overflow-y-auto">
+                      {buildBookmarkletHref()}
+                    </code>
+                    <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={handleCopyBookmarklet}>
+                      {bookmarkletCopied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                </li>
+              </ol>
+              <p>
+                Then open the meet's full results page on athletic.net, click the bookmark, and it copies a
+                ready-to-paste CSV of every finisher. Runs in your browser only — nothing is sent anywhere except
+                your own clipboard.
               </p>
             </AlertDescription>
           </Alert>
