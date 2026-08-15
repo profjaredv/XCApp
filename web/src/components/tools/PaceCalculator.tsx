@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { axiosInstance as api } from '@/api/axios';
 import { formatTime } from '../../lib/formatUtils';
+import { gradeLabel } from '../../lib/seasonUtils';
 import { Check, ChevronsUpDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -499,7 +500,7 @@ const PaceCalculator: React.FC = () => {
                               <div className="flex flex-col">
                                 <div>{athlete.name}</div>
                                 <div className="text-xs text-muted-foreground">
-                                  {athlete.grade ? `Grade ${athlete.grade}` : ''}
+                                  {athlete.grade ? gradeLabel(athlete.grade) : ''}
                                 </div>
                               </div>
                             </CommandItem>

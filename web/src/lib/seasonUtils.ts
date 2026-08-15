@@ -30,6 +30,11 @@ export function isEnrolled(graduationYear?: number | null, season?: number | nul
   return grade !== null && grade >= 9 && grade <= 12;
 }
 
+// This app's grade math (9-12, tied to graduationYear above) works
+// identically for a 4-year high school or a 4-year college program, so
+// there's no need for a team-level "are we a college" setting to get the
+// terminology right: Freshman/Sophomore/Junior/Senior reads correctly for
+// both, unlike "Grade 9".
 export const GRADE_LABELS: Record<number, string> = {
   9: 'Freshman',
   10: 'Sophomore',
@@ -37,7 +42,19 @@ export const GRADE_LABELS: Record<number, string> = {
   12: 'Senior',
 };
 
+const GRADE_LABELS_SHORT: Record<number, string> = {
+  9: 'Fr',
+  10: 'So',
+  11: 'Jr',
+  12: 'Sr',
+};
+
 export function gradeLabel(grade?: number | null): string {
   if (!Number.isFinite(grade)) return 'Unknown';
   return GRADE_LABELS[grade as number] ?? `Grade ${grade}`;
+}
+
+export function gradeLabelShort(grade?: number | null): string {
+  if (!Number.isFinite(grade)) return '';
+  return GRADE_LABELS_SHORT[grade as number] ?? String(grade);
 }

@@ -45,6 +45,7 @@ import {
   useRemoveMember,
 } from '@/hooks/useGroups';
 import { seasonBestTime, formatTime, type Group, type GroupType } from '@/api/groupService';
+import { gradeLabel } from '@/lib/seasonUtils';
 import { useQueryClient } from '@tanstack/react-query';
 
 // Bulk assignment screen (T2, Team Management handoff): "Assigning 130
@@ -129,7 +130,7 @@ const AthleteGroupsView: React.FC = () => {
               {group.members.map((member) => (
                 <div key={member.athleteId} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
                   <span>{member.name}</span>
-                  <span className="text-muted-foreground">{member.grade ? `Grade ${member.grade}` : ''}</span>
+                  <span className="text-muted-foreground">{member.grade ? gradeLabel(member.grade) : ''}</span>
                 </div>
               ))}
             </div>

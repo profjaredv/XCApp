@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
 import { teamService } from '@/api/teamService';
 import { useQueryParamNumber } from '@/hooks/useQueryState';
+import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
 
 interface GridData {
   races: string[];
@@ -221,7 +222,7 @@ const ResultsGridPage: React.FC = () => {
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-red-500">{error}</p>
+        <p className="text-destructive">{error}</p>
       </div>
     );
   }
@@ -238,8 +239,8 @@ const ResultsGridPage: React.FC = () => {
                 onClick={() => setSelectedSeason(season)}
                 className={`px-3 py-1 rounded-md ${
                   selectedSeason === season
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-200 hover:bg-gray-300'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
                 }`}
               >
                 {season}
@@ -259,9 +260,9 @@ const ResultsGridPage: React.FC = () => {
             <CardTitle>Results Grid</CardTitle>
             {seasons.length > 0 && (
               <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-600">Season:</span>
+                <span className="text-sm text-muted-foreground">Season:</span>
                 <select
-                  className="border rounded-md px-2 py-1 text-sm"
+                  className="border border-input bg-background text-foreground rounded-md px-2 py-1 text-sm"
                   value={selectedSeason || ''}
                   onChange={(e) => setSelectedSeason(parseInt(e.target.value))}
                 >
@@ -278,13 +279,13 @@ const ResultsGridPage: React.FC = () => {
           {/* Grade Filter */}
           {availableGrades.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-gray-700">Filter by Grade:</span>
+              <span className="text-sm font-medium text-foreground">Filter by Grade:</span>
               <div className="flex flex-wrap gap-1">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setSelectedGrades(new Set(availableGrades))}
-                  className={`text-xs ${selectedGrades.size === availableGrades.length ? 'bg-blue-100' : ''}`}
+                  className={`text-xs ${selectedGrades.size === availableGrades.length ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
                 >
                   All Grades
                 </Button>
@@ -302,25 +303,25 @@ const ResultsGridPage: React.FC = () => {
                       }
                       setSelectedGrades(newSelected);
                     }}
-                    className={`text-xs ${selectedGrades.has(grade) ? 'bg-blue-100' : ''}`}
+                    className={`text-xs ${selectedGrades.has(grade) ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
                   >
-                    Grade {grade}
+                    {gradeLabel(grade)}
                   </Button>
                 ))}
               </div>
             </div>
           )}
-          
+
           {/* Gender Filter */}
           {availableGenders.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-gray-700">Filter by Gender:</span>
+              <span className="text-sm font-medium text-foreground">Filter by Gender:</span>
               <div className="flex flex-wrap gap-1">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setSelectedGenders(new Set(availableGenders))}
-                  className={`text-xs ${selectedGenders.size === availableGenders.length ? 'bg-blue-100' : ''}`}
+                  className={`text-xs ${selectedGenders.size === availableGenders.length ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
                 >
                   All Genders
                 </Button>
@@ -338,7 +339,7 @@ const ResultsGridPage: React.FC = () => {
                       }
                       setSelectedGenders(newSelected);
                     }}
-                    className={`text-xs ${selectedGenders.has(gender) ? 'bg-blue-100' : ''}`}
+                    className={`text-xs ${selectedGenders.has(gender) ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
                   >
                     {gender === 'M' ? 'Male' : gender === 'F' ? 'Female' : gender}
                   </Button>
@@ -346,16 +347,16 @@ const ResultsGridPage: React.FC = () => {
               </div>
             </div>
           )}
-          
+
           {/* Sort Controls */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">Sort by:</span>
+            <span className="text-sm font-medium text-foreground">Sort by:</span>
             <div className="flex flex-wrap gap-1">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => handleSort('name')}
-                className={`text-xs flex items-center ${sortField === 'name' ? 'bg-blue-100' : ''}`}
+                className={`text-xs flex items-center ${sortField === 'name' ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
               >
                 Name {renderSortIndicator('name')}
               </Button>
@@ -368,7 +369,7 @@ const ResultsGridPage: React.FC = () => {
           <TableHeader>
             <TableRow>
               <TableHead 
-                className="sticky left-0 bg-white z-10 cursor-pointer"
+                className="sticky left-0 bg-card z-10 cursor-pointer"
                 onClick={() => handleSort('name')}
               >
                 <div className="flex items-center">
@@ -398,8 +399,8 @@ const ResultsGridPage: React.FC = () => {
             ) : (
               processedAthletes.map((athlete) => (
                 <TableRow key={athlete.athleteId}>
-                  <TableCell className="sticky left-0 bg-white z-10 font-medium">
-                    {athlete.name} ({athlete.grade})
+                  <TableCell className="sticky left-0 bg-card z-10 font-medium">
+                    {athlete.name} ({gradeLabelShort(athlete.grade)})
                   </TableCell>
                   {athlete.results.map((time, index) => (
                     <TableCell key={index}>

@@ -49,6 +49,11 @@
 }
 
 :root {
+  /* See index.html's color-scheme meta tag for why: dark mode isn't
+     actually wired up in this app yet (nothing ever adds .dark), so this
+     stops browsers from auto-repainting the page dark on their own — that
+     produced exactly the mismatched-contrast bug this was added to fix. */
+  color-scheme: light;
   --radius: 0.75rem;
   --background: oklch(0.99 0.004 152);
   --foreground: oklch(0.18 0.025 152);

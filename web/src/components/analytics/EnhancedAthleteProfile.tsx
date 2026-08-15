@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "../ui/alert";
 import { Loader2, TrendingUp, TrendingDown } from "lucide-react";
 import { Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import enhancedAnalyticsService, { EnhancedAthleteMetrics } from '../../api/enhancedAnalyticsService';
+import { gradeLabel } from '../../lib/seasonUtils';
 // Simple formatTime function
 const formatTime = (timeInSeconds: number): string => {
   if (!timeInSeconds || isNaN(timeInSeconds)) return '-';
@@ -118,7 +119,7 @@ export function EnhancedAthleteProfile({ athleteId, athleteName, season }: Enhan
             <div>
               <CardTitle className="text-xl">{athleteName}</CardTitle>
               <CardDescription>
-                {athleteMetrics.gender} • Grade {athleteMetrics.grade} • Season {season}
+                {athleteMetrics.gender} • {gradeLabel(athleteMetrics.grade)} • Season {season}
               </CardDescription>
             </div>
             <div className={`w-4 h-16 rounded ${getGradeColor(athleteMetrics.grade)}`} />

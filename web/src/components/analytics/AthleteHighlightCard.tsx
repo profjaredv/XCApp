@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 import { formatTime, formatPace } from '@/lib/formatUtils';
+import { gradeLabel } from '@/lib/seasonUtils';
 import html2canvas from 'html2canvas';
 
 interface BestRaceByDistance {
@@ -241,7 +242,7 @@ export const AthleteHighlightCard: React.FC<AthleteHighlightCardProps> = ({
               {athleteName}
             </h1>
             <p className="text-white/70 text-lg">
-              Grade {grade} • {teamName}
+              {gradeLabel(grade)} • {teamName}
             </p>
           </div>
 

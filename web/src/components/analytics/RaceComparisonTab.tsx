@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { axiosInstance } from '@/api/axios';
 import { useAuth } from '@/contexts/AuthContext';
+import { gradeLabel } from '@/lib/seasonUtils';
 
 // Format time helper
 const formatTime = (timeInSeconds: number): string => {
@@ -395,7 +396,7 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
                       <SelectContent>
                         {eligibleAthletes.map((athlete) => (
                           <SelectItem key={athlete.id} value={athlete.id}>
-                            {athlete.name} (Grade {athlete.grade})
+                            {athlete.name} ({gradeLabel(Number(athlete.grade))})
                           </SelectItem>
                         ))}
                       </SelectContent>

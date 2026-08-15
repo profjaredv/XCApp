@@ -8,6 +8,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, L
 import AthleteProgressChart from './AthleteProgressChart';
 import { AthleteHighlightCard } from './AthleteHighlightCard';
 import { formatTime, formatPace } from '@/lib/formatUtils';
+import { gradeLabel } from '@/lib/seasonUtils';
 import { enrichRacesWithPRs, getPRBadgeStyle } from '@/utils/prTracking';
 import type { Athlete, Race } from '@/types/analytics';
 
@@ -248,7 +249,7 @@ export const AthleteDetailModal = ({
           <div className="flex justify-between items-start">
           <div>
             <h2 className="text-2xl font-bold">{enhancedSelectedAthlete.name}</h2>
-            <p className="text-muted-foreground">Grade {enhancedSelectedAthlete.currentGrade} &bull; {enhancedSelectedAthlete.gender === 'M' ? 'Boys' : enhancedSelectedAthlete.gender === 'F' ? 'Girls' : enhancedSelectedAthlete.gender || 'Unknown'}</p>
+            <p className="text-muted-foreground">{gradeLabel(enhancedSelectedAthlete.currentGrade)} &bull; {enhancedSelectedAthlete.gender === 'M' ? 'Boys' : enhancedSelectedAthlete.gender === 'F' ? 'Girls' : enhancedSelectedAthlete.gender || 'Unknown'}</p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>

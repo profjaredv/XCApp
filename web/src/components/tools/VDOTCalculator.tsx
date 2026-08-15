@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { axiosInstance as api } from '@/api/axios';
 import { formatTime, formatPace } from '../../lib/formatUtils';
+import { gradeLabel } from '../../lib/seasonUtils';
 import { trainingPacesFromRace, intervalSplitsForZone, type TrainingPaceZone } from '../../lib/vdotPaces';
 import { Calculator, TrendingUp, User, Clock, Target, Gauge } from 'lucide-react';
 import { toast } from 'sonner';
@@ -363,7 +364,7 @@ const VDOTCalculator: React.FC = () => {
                   <SelectContent>
                     {athletes.map(athlete => (
                       <SelectItem key={athlete.id} value={athlete.id}>
-                        {athlete.name} {athlete.grade && `(Grade ${athlete.grade})`}
+                        {athlete.name} {athlete.grade && `(${gradeLabel(athlete.grade)})`}
                       </SelectItem>
                     ))}
                   </SelectContent>

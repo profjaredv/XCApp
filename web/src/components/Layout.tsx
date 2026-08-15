@@ -30,7 +30,7 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, label, isCollapsed, o
     to={to}
     onClick={onClick}
     className={({ isActive }) =>
-      `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-slate-600 font-medium transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`
+      `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-sidebar-foreground/70 font-medium transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-foreground ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`
     }
   >
     <Icon className={isCollapsed ? 'h-6 w-6' : 'h-5 w-5'} strokeWidth={2.5} />
@@ -45,7 +45,7 @@ const NavSection: React.FC<{ label: string; isCollapsed: boolean; children: Reac
 }) => (
   <div className="space-y-1 pt-4 first:pt-0">
     {!isCollapsed && (
-      <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">{label}</p>
     )}
     {children}
   </div>
@@ -69,10 +69,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   };
 
   return (
-    <aside className={`fixed md:relative flex flex-col h-screen bg-gradient-to-b from-slate-50 to-white border-r border-slate-200/60 backdrop-blur-xl transition-all duration-300 z-20 ${isCollapsed ? 'w-20' : 'w-64'} ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
-      <button 
-        onClick={() => setIsCollapsed(!isCollapsed)} 
-        className="absolute -right-3 top-8 z-10 p-1.5 bg-white border border-slate-200 rounded-full text-slate-600 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all duration-200 hidden md:block"
+    <aside className={`fixed md:relative flex flex-col h-screen bg-sidebar border-r border-sidebar-border backdrop-blur-xl transition-all duration-300 z-20 ${isCollapsed ? 'w-20' : 'w-64'} ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+      <button
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className="absolute -right-3 top-8 z-10 p-1.5 bg-background border border-border rounded-full text-muted-foreground hover:bg-accent hover:border-ring shadow-sm transition-all duration-200 hidden md:block"
       >
         <ChevronLeft className={`h-3.5 w-3.5 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`} />
       </button>
@@ -122,32 +122,32 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
         </NavSection>
       </nav>
 
-      <div className="flex-shrink-0 w-full border-t border-slate-200/60 bg-white/80 backdrop-blur-sm">
+      <div className="flex-shrink-0 w-full border-t border-sidebar-border bg-sidebar/80 backdrop-blur-sm">
         {currentUser?.isSuperAdmin && (
-          <div className="p-3 border-b border-slate-200/60">
+          <div className="p-3 border-b border-sidebar-border">
             <AdminTeamSwitcher isCollapsed={isCollapsed} />
           </div>
         )}
         <div className="p-4">
           <div className="flex items-center">
-            <img src={currentUser?.photoURL || `https://ui-avatars.com/api/?name=${currentUser?.name}&background=random`} alt="User Avatar" className="h-10 w-10 rounded-full ring-2 ring-slate-200 ring-offset-2" />
+            <img src={currentUser?.photoURL || `https://ui-avatars.com/api/?name=${currentUser?.name}&background=random`} alt="User Avatar" className="h-10 w-10 rounded-full ring-2 ring-sidebar-border ring-offset-2 ring-offset-sidebar" />
             {!isCollapsed && (
               <div className="ml-3">
-                <p className="font-semibold text-slate-900 text-sm">{currentUser?.name}</p>
-                <p className="text-xs text-slate-500">{currentUser?.email}</p>
+                <p className="font-semibold text-sidebar-foreground text-sm">{currentUser?.name}</p>
+                <p className="text-xs text-sidebar-foreground/60">{currentUser?.email}</p>
               </div>
             )}
           </div>
         </div>
-        <Link to="/profile" onClick={handleLinkClick} className="flex items-center w-full px-4 py-2.5 text-slate-600 hover:bg-slate-50 transition-colors border-t border-slate-200/60">
+        <Link to="/profile" onClick={handleLinkClick} className="flex items-center w-full px-4 py-2.5 text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors border-t border-sidebar-border">
           <UserIcon className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2} />
           {!isCollapsed && <span className="ml-3 text-sm font-medium">Profile</span>}
         </Link>
-        <Link to={teamPath('/settings')} onClick={handleLinkClick} className="flex items-center w-full px-4 py-2.5 text-slate-600 hover:bg-slate-50 transition-colors">
+        <Link to={teamPath('/settings')} onClick={handleLinkClick} className="flex items-center w-full px-4 py-2.5 text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors">
           <Settings className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2} />
           {!isCollapsed && <span className="ml-3 text-sm font-medium">Settings</span>}
         </Link>
-        <button onClick={handleLogout} className="flex items-center w-full px-4 py-2.5 text-slate-600 hover:bg-slate-50 transition-colors border-t border-slate-200/60">
+        <button onClick={handleLogout} className="flex items-center w-full px-4 py-2.5 text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors border-t border-sidebar-border">
           <LogOut className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2} />
           {!isCollapsed && <span className="ml-3 text-sm font-medium">Logout</span>}
         </button>
@@ -161,11 +161,11 @@ const Layout: React.FC = () => {
   return (
     <div className="flex flex-col h-screen">
       <ImpersonationBanner />
-      <div className="flex flex-1 bg-gradient-to-br from-slate-50 via-white to-slate-50 overflow-hidden md:overflow-auto">
+      <div className="flex flex-1 bg-background overflow-hidden md:overflow-auto">
         <Sidebar isMobileOpen={isMobileOpen} setIsMobileOpen={setIsMobileOpen} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-3 md:p-4 flex items-center">
-            <button onClick={() => setIsMobileOpen(true)} className="md:hidden mr-2 p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+          <header className="bg-background/80 backdrop-blur-xl border-b border-border p-3 md:p-4 flex items-center">
+            <button onClick={() => setIsMobileOpen(true)} className="md:hidden mr-2 p-2 text-muted-foreground hover:bg-accent rounded-lg transition-colors">
               <Menu className="h-6 w-6" />
             </button>
           </header>

@@ -14,6 +14,7 @@ import type { SeasonMode } from '@/components/analytics/types';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { formatDateShort } from '@/lib/formatUtils';
+import { gradeLabel } from '@/lib/seasonUtils';
 import type { Athlete, Race, AthleteSeasonData } from '@/types/analytics';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
@@ -276,7 +277,7 @@ const TeamAthleteProfilePage = () => {
           <div>
             <h1 className="text-3xl font-bold">{athleteIdentity.name}</h1>
             <p className="text-muted-foreground">
-              {athleteIdentity.grade ? `Grade ${athleteIdentity.grade}` : 'Grade unknown'}
+              {athleteIdentity.grade ? gradeLabel(athleteIdentity.grade) : 'Class year unknown'}
               {athleteIdentity.gender ? ` • ${athleteIdentity.gender === 'M' ? 'Boys' : 'Girls'}` : ''}
             </p>
           </div>

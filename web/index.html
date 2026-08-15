@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The app doesn't actually wire up dark mode yet (index.css defines a
+         .dark palette, but nothing in the app ever adds that class) — most
+         components hardcode light-theme colors directly. Without this, a
+         browser/OS "force dark mode on every site" setting repaints those
+         unstyled regions on its own heuristics, badly: gradients and
+         semi-transparent overlays come out with mismatched, low-contrast
+         text. Declaring color-scheme: light opts the page out of that
+         auto-repainting until real dark mode support exists. -->
+    <meta name="color-scheme" content="light" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />

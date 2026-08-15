@@ -3,6 +3,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Search } from 'lucide-react';
 import { formatTime, formatPace } from '@/lib/formatUtils';
+import { gradeLabel } from '@/lib/seasonUtils';
 import type { Athlete } from '@/types/analytics';
 
 interface AthletesTabProps {
@@ -50,7 +51,7 @@ export const AthletesTab = ({
           <SelectContent>
             <SelectItem value="all">All Grades</SelectItem>
             {grades.map(grade => (
-              <SelectItem key={grade} value={grade.toString()}>{`Grade ${grade}`}</SelectItem>
+              <SelectItem key={grade} value={grade.toString()}>{gradeLabel(grade)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -60,7 +61,7 @@ export const AthletesTab = ({
           <Card key={athlete.id} onClick={() => setSelectedAthlete(athlete)} className={`cursor-pointer hover:shadow-lg transition-shadow border-b-4 ${getGradeBorderColor(athlete.currentGrade)}`}>
             <CardHeader>
               <CardTitle>{athlete.name}</CardTitle>
-              <p className="text-sm text-muted-foreground">Grade {athlete.currentGrade} &bull; {athlete.gender === 'M' ? 'Boys' : athlete.gender === 'F' ? 'Girls' : athlete.gender || 'Unknown'}</p>
+              <p className="text-sm text-muted-foreground">{gradeLabel(athlete.currentGrade)} &bull; {athlete.gender === 'M' ? 'Boys' : athlete.gender === 'F' ? 'Girls' : athlete.gender || 'Unknown'}</p>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-2 text-sm">
                 <div>

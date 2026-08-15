@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
 import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatPace, formatDateShort, formatTime } from '@/lib/formatUtils';
+import { gradeLabel } from '@/lib/seasonUtils';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { meetService } from '@/api/meetService';
 import { X, Split } from 'lucide-react';
@@ -366,16 +367,16 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="9">9th Grade</SelectItem>
-                    <SelectItem value="10">10th Grade</SelectItem>
-                    <SelectItem value="11">11th Grade</SelectItem>
-                    <SelectItem value="12">12th Grade</SelectItem>
+                    <SelectItem value="9">{gradeLabel(9)}</SelectItem>
+                    <SelectItem value="10">{gradeLabel(10)}</SelectItem>
+                    <SelectItem value="11">{gradeLabel(11)}</SelectItem>
+                    <SelectItem value="12">{gradeLabel(12)}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="text-sm text-muted-foreground flex items-center">
-                Showing: {genderFilter === 'all' ? 'All' : genderFilter === 'M' ? 'Boys' : 'Girls'} • {gradeFilter === 'all' ? 'All Grades' : `Grade ${gradeFilter}`}
+                Showing: {genderFilter === 'all' ? 'All' : genderFilter === 'M' ? 'Boys' : 'Girls'} • {gradeFilter === 'all' ? 'All Grades' : gradeLabel(Number(gradeFilter))}
               </div>
             </div>
           </CardHeader>
@@ -475,7 +476,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                           <div className="space-y-2">
                             {meetStats.boysTop7.map((result, index) => (
                               <div key={result.athleteId} className="flex justify-between items-center text-sm">
-                                <span>{index + 1}. {result.athleteName} (Grade {result.athleteGrade})</span>
+                                <span>{index + 1}. {result.athleteName} ({gradeLabel(result.athleteGrade)})</span>
                                 <span className="font-mono">{formatTime(result.time)}</span>
                               </div>
                             ))}
@@ -493,7 +494,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                           <div className="max-h-48 overflow-y-auto space-y-1">
                             {meetStats.boysTop15.map((result, index) => (
                               <div key={result.athleteId} className="flex justify-between items-center text-sm">
-                                <span>{index + 1}. {result.athleteName} (Grade {result.athleteGrade})</span>
+                                <span>{index + 1}. {result.athleteName} ({gradeLabel(result.athleteGrade)})</span>
                                 <span className="font-mono">{formatTime(result.time)}</span>
                               </div>
                             ))}
@@ -518,7 +519,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                           <div className="space-y-2">
                             {meetStats.girlsTop7.map((result, index) => (
                               <div key={result.athleteId} className="flex justify-between items-center text-sm">
-                                <span>{index + 1}. {result.athleteName} (Grade {result.athleteGrade})</span>
+                                <span>{index + 1}. {result.athleteName} ({gradeLabel(result.athleteGrade)})</span>
                                 <span className="font-mono">{formatTime(result.time)}</span>
                               </div>
                             ))}
@@ -536,7 +537,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                           <div className="max-h-48 overflow-y-auto space-y-1">
                             {meetStats.girlsTop15.map((result, index) => (
                               <div key={result.athleteId} className="flex justify-between items-center text-sm">
-                                <span>{index + 1}. {result.athleteName} (Grade {result.athleteGrade})</span>
+                                <span>{index + 1}. {result.athleteName} ({gradeLabel(result.athleteGrade)})</span>
                                 <span className="font-mono">{formatTime(result.time)}</span>
                               </div>
                             ))}
@@ -619,7 +620,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                     {meetStats.gradeCohorts.map((cohort) => (
                       <div key={cohort.grade} className="p-4 rounded-lg bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950 dark:to-purple-950">
                         <h4 className="font-semibold text-indigo-900 dark:text-indigo-100 mb-3">
-                          Grade {cohort.grade}
+                          {gradeLabel(cohort.grade)}
                         </h4>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
@@ -659,7 +660,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                             .slice(0, 3)
                             .map((cohort, index) => (
                               <p key={cohort.grade} className="text-muted-foreground">
-                                {index + 1}. Grade {cohort.grade}: {formatTime(cohort.fastest)}
+                                {index + 1}. {gradeLabel(cohort.grade)}: {formatTime(cohort.fastest)}
                               </p>
                             ))}
                         </div>
@@ -670,7 +671,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                             .slice(0, 3)
                             .map((cohort, index) => (
                               <p key={cohort.grade} className="text-muted-foreground">
-                                {index + 1}. Grade {cohort.grade}: {formatTime(cohort.slowest - cohort.fastest)} range
+                                {index + 1}. {gradeLabel(cohort.grade)}: {formatTime(cohort.slowest - cohort.fastest)} range
                               </p>
                             ))}
                         </div>
@@ -709,7 +710,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                                 return (
                                   <div className="bg-white dark:bg-gray-800 p-3 border rounded shadow-lg">
                                     <p className="font-semibold">{data.athleteName}</p>
-                                    <p className="text-sm text-muted-foreground">Grade {data.athleteGrade} • {data.athleteGender === 'M' ? 'Boys' : 'Girls'}</p>
+                                    <p className="text-sm text-muted-foreground">{gradeLabel(data.athleteGrade)} • {data.athleteGender === 'M' ? 'Boys' : 'Girls'}</p>
                                     {data.division && <p className="text-xs text-muted-foreground">{data.division}</p>}
                                     <div className="mt-2 space-y-1">
                                       <p>Team Place: {data.teamPlace != null ? `#${data.teamPlace}` : '—'}</p>
@@ -780,7 +781,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                               <div>
                                 <p className="font-medium">{athlete.athleteName}</p>
                                 <p className="text-xs opacity-75">
-                                  Grade {athlete.athleteGrade} • {athlete.athleteGender === 'M' ? 'Boys' : 'Girls'}
+                                  {gradeLabel(athlete.athleteGrade)} • {athlete.athleteGender === 'M' ? 'Boys' : 'Girls'}
                                 </p>
                                 {athlete.division && <p className="text-xs opacity-60">{athlete.division}</p>}
                               </div>
