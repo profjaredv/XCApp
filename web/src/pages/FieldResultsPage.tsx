@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,19 +14,20 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, CheckCircle2, AlertCircle, Trash2, Users, Bookmark, Copy } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, Trash2, Users, Bookmark, Copy, ExternalLink } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDateShort } from '@/lib/formatUtils';
 import { useCurrentSeason } from '@/hooks/useCurrentSeason';
 import { useQueryParam } from '@/hooks/useQueryState';
 import { buildBookmarkletHref } from '@/lib/fieldResultsBookmarklet';
+import { parseCsv, toCsv } from '@/lib/csvParse';
 import {
   useFieldResultRaces,
   useUploadFieldResults,
   useCopyFieldResultsFromMeet,
   useClearFieldResults,
 } from '@/hooks/useFieldResults';
-import type { FieldResultRace } from '@/hooks/useFieldResults';
+import type { FieldResultRace, UploadFieldResultsResponse } from '@/hooks/useFieldResults';
 
 // Manual field-results upload (Phase 2 step 3's fallback — the automated
 // full-field scraper is blocked in this environment; see NOTES.md and
@@ -40,14 +41,48 @@ import type { FieldResultRace } from '@/hooks/useFieldResults';
 // endpoint — this page only ever shows this team's own races and the
 // AGGREGATE field stats computed from an upload, never a list of names
 // from another school.
+//
+// Upload is meet-scoped, not race-scoped: one results/all page usually
+// covers several divisions (Varsity, JV Gold, Freshman, ...), and our own
+// Race rows don't reliably line up with those divisions one-for-one — the
+// season scraper that creates them only ever saw our own team's PRs per
+// meet, never which heat/level each one raced in. So a coach pastes the
+// whole meet's CSV once, and explicitly maps each division the bookmarklet
+// found to one of this meet's races (or skips it) — no name-matching
+// guesswork.
 
-const CSV_TEMPLATE = `Athlete Name,School,Gender,Grade,Time,Place,Status
-Jane Doe,Northside,F,11,18:32.4,3,FINISHED
-Sam Lee,Eastview,F,10,19:01,5,FINISHED
-Pat Rivera,Northside,F,12,,,DNF`;
+const CSV_TEMPLATE = `Athlete Name,Division,School,Grade,Time,Place,Status
+Jane Doe,Girls Varsity,Northside,11,18:32.4,3,FINISHED
+Sam Lee,Girls JV,Eastview,10,19:01,5,FINISHED
+Pat Rivera,Girls Varsity,Northside,12,,,DNF`;
 
 const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
 const BOOKMARKS_BAR_SHORTCUT = isMac ? 'Cmd+Shift+B' : 'Ctrl+Shift+B';
+
+// Sentinel Select value for "don't upload this division anywhere" — Radix
+// Select rejects an empty-string item value, and this also doubles as the
+// default (unmapped) state so nothing uploads until a coach actively picks
+// a race.
+const SKIP_VALUE = '__skip__';
+// Bucket key used when the pasted CSV has no Division column at all (a
+// hand-typed CSV, or a results page with only one race/section) — every row
+// falls into this one bucket, same as the old race-scoped upload behaved.
+const NO_DIVISION_KEY = '__all_rows__';
+
+interface MeetGroup {
+  meetId: string;
+  name: string;
+  date: string;
+  resultsAllUrl: string | null;
+  races: FieldResultRace[];
+}
+
+interface DivisionUploadResult {
+  division: string;
+  raceName: string;
+  response?: UploadFieldResultsResponse;
+  error?: string;
+}
 
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -56,6 +91,10 @@ function readFileAsText(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsText(file);
   });
+}
+
+function openInNewWindow(url: string) {
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 const FieldResultsPage = () => {
@@ -69,16 +108,54 @@ const FieldResultsPage = () => {
   const copyMutation = useCopyFieldResultsFromMeet();
   const clearMutation = useClearFieldResults();
 
-  const [uploadTarget, setUploadTarget] = useState<FieldResultRace | null>(null);
+  const meetGroups = useMemo(() => {
+    const map = new Map<string, MeetGroup>();
+    races.forEach((r) => {
+      const existing = map.get(r.meetId);
+      if (existing) {
+        existing.races.push(r);
+        if (!existing.resultsAllUrl && r.resultsAllUrl) existing.resultsAllUrl = r.resultsAllUrl;
+      } else {
+        map.set(r.meetId, { meetId: r.meetId, name: r.name, date: r.date, resultsAllUrl: r.resultsAllUrl, races: [r] });
+      }
+    });
+    return map;
+  }, [races]);
+
+  const [uploadMeetId, setUploadMeetId] = useState<string | null>(null);
   const [csvText, setCsvText] = useState('');
+  const [divisionMapping, setDivisionMapping] = useState<Record<string, string>>({});
+  const [divisionResults, setDivisionResults] = useState<DivisionUploadResult[] | null>(null);
+  const [isUploadingAll, setIsUploadingAll] = useState(false);
   const [bookmarkletCopied, setBookmarkletCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const availableSeasons = Array.from({ length: 6 }, (_, i) => defaultSeason - i);
+  const uploadMeetGroup = uploadMeetId ? meetGroups.get(uploadMeetId) ?? null : null;
+
+  const parsedCsv = useMemo(() => parseCsv(csvText), [csvText]);
+  const divisionKey = useMemo(
+    () => parsedCsv.headers.find((h) => h.trim().toLowerCase() === 'division') ?? null,
+    [parsedCsv.headers]
+  );
+  // Distinct division labels, in first-seen order — or a single "all rows"
+  // bucket when the CSV has no Division column.
+  const divisions = useMemo(() => {
+    if (!divisionKey) return parsedCsv.rows.length > 0 ? [NO_DIVISION_KEY] : [];
+    const seen: string[] = [];
+    parsedCsv.rows.forEach((row) => {
+      const label = (row[divisionKey] || '').trim();
+      const key = label || NO_DIVISION_KEY;
+      if (!seen.includes(key)) seen.push(key);
+    });
+    return seen;
+  }, [divisionKey, parsedCsv.rows]);
 
   const openUploadDialog = (race: FieldResultRace) => {
-    setUploadTarget(race);
+    setUploadMeetId(race.meetId);
     setCsvText('');
+    setDivisionMapping({});
+    setDivisionResults(null);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -86,31 +163,56 @@ const FieldResultsPage = () => {
     if (!file) return;
     const text = await readFileAsText(file);
     setCsvText(text);
+    setDivisionResults(null);
   };
 
-  const handleUpload = () => {
-    if (!uploadTarget || !csvText.trim()) return;
-    uploadMutation.mutate(
-      { raceId: uploadTarget.id, csvData: csvText },
-      {
-        onSuccess: (data) => {
-          toast({
-            title: data.normalizationMet ? 'Field results uploaded' : 'Field results uploaded (below normalization threshold)',
-            description: `${data.rowsUploaded} row(s) saved${data.skipped ? `, ${data.skipped} blank row(s) skipped` : ''}${
-              data.errors.length ? `, ${data.errors.length} row(s) had errors` : ''
-            }. ${data.fieldFinisherCount} finisher(s) recorded${
-              !data.normalizationMet ? ' — need 40+ to activate field-normalized comparisons.' : '.'
-            }`,
-          });
-          if (data.errors.length === 0) {
-            setUploadTarget(null);
-          }
-        },
-        onError: (err) => {
-          toast({ variant: 'destructive', title: 'Upload failed', description: err.message });
-        },
+  const handleUploadAll = async () => {
+    if (!uploadMeetGroup) return;
+    const mapped = divisions
+      .map((division) => ({ division, raceId: divisionMapping[division] }))
+      .filter((d): d is { division: string; raceId: string } => Boolean(d.raceId) && d.raceId !== SKIP_VALUE);
+    if (mapped.length === 0) return;
+
+    setIsUploadingAll(true);
+    const results: DivisionUploadResult[] = [];
+
+    for (const { division, raceId } of mapped) {
+      const race = uploadMeetGroup.races.find((r) => r.id === raceId);
+      const rowsForDivision = divisionKey
+        ? parsedCsv.rows.filter((row) => ((row[divisionKey] || '').trim() || NO_DIVISION_KEY) === division)
+        : parsedCsv.rows;
+      const csvHeaders = divisionKey ? parsedCsv.headers.filter((h) => h !== divisionKey) : parsedCsv.headers;
+      const csvData = toCsv(csvHeaders, rowsForDivision);
+
+      try {
+        const response = await uploadMutation.mutateAsync({ raceId, csvData });
+        results.push({ division, raceName: race?.name || '', response });
+      } catch (err) {
+        results.push({
+          division,
+          raceName: race?.name || '',
+          error: err instanceof Error ? err.message : 'Upload failed',
+        });
       }
-    );
+    }
+
+    setIsUploadingAll(false);
+    setDivisionResults(results);
+
+    const allClean = results.every((r) => r.response && r.response.errors.length === 0 && !r.error);
+    if (allClean) {
+      toast({
+        title: 'Field results uploaded',
+        description: `${results.length} division(s) uploaded to ${uploadMeetGroup.name}.`,
+      });
+      setUploadMeetId(null);
+    } else {
+      toast({
+        variant: 'destructive',
+        title: 'Some divisions had problems',
+        description: 'See details in the dialog below.',
+      });
+    }
   };
 
   const handleCopyFromMeet = (race: FieldResultRace) => {
@@ -198,7 +300,23 @@ const FieldResultsPage = () => {
               <TableBody>
                 {races.map((race) => (
                   <TableRow key={race.id}>
-                    <TableCell className="font-medium">{race.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-1.5">
+                        {race.name}
+                        {race.resultsAllUrl && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-5 w-5 shrink-0"
+                            title="Open this meet's full results on athletic.net"
+                            onClick={() => openInNewWindow(race.resultsAllUrl as string)}
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>{formatDateShort(race.date)}</TableCell>
                     <TableCell>
                       {!race.hasFieldData ? (
@@ -247,13 +365,25 @@ const FieldResultsPage = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={uploadTarget != null} onOpenChange={(open) => !open && setUploadTarget(null)}>
-        <DialogContent className="max-w-2xl">
+      <Dialog open={uploadMeetId != null} onOpenChange={(open) => !open && setUploadMeetId(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Upload field results — {uploadTarget?.name}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              Upload field results — {uploadMeetGroup?.name}
+              {uploadMeetGroup?.resultsAllUrl && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openInNewWindow(uploadMeetGroup.resultsAllUrl as string)}
+                >
+                  <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open results/all
+                </Button>
+              )}
+            </DialogTitle>
             <DialogDescription>
-              Paste or upload a CSV of every finisher at this meet (all schools). Re-uploading replaces whatever was
-              here before for this race.
+              Paste or upload a CSV of every finisher at this meet (all schools, all divisions). Re-uploading a
+              division replaces whatever was there before for that race.
             </DialogDescription>
           </DialogHeader>
 
@@ -300,9 +430,9 @@ const FieldResultsPage = () => {
                 </li>
               </ol>
               <p>
-                Then open the meet's full results page on athletic.net, click the bookmark, and it copies a
-                ready-to-paste CSV of every finisher. Runs in your browser only — nothing is sent anywhere except
-                your own clipboard.
+                Then open the meet's full results page on athletic.net (use "Open results/all" above), click the
+                bookmark, and it copies a ready-to-paste CSV of every finisher, tagged by division. Runs in your
+                browser only — nothing is sent anywhere except your own clipboard.
               </p>
             </AlertDescription>
           </Alert>
@@ -311,7 +441,10 @@ const FieldResultsPage = () => {
             <AlertTitle>CSV format</AlertTitle>
             <AlertDescription>
               <pre className="text-xs whitespace-pre-wrap mt-1">{CSV_TEMPLATE}</pre>
-              Only <strong>Athlete Name</strong> is required. Time is required unless Status is DNF/DNS/DQ.
+              Only <strong>Athlete Name</strong> is required. Time is required unless Status is DNF/DNS/DQ.{' '}
+              <strong>Division</strong> is optional — include it (the bookmarklet always does) so results from
+              different levels/heats can be mapped to different races below; without it, every row is treated as one
+              division.
             </AlertDescription>
           </Alert>
 
@@ -319,30 +452,91 @@ const FieldResultsPage = () => {
             <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} className="text-sm" />
             <Textarea
               value={csvText}
-              onChange={(e) => setCsvText(e.target.value)}
+              onChange={(e) => {
+                setCsvText(e.target.value);
+                setDivisionResults(null);
+              }}
               placeholder="Paste CSV here, or choose a file above"
               rows={10}
               className="font-mono text-xs"
             />
           </div>
 
-          {uploadMutation.data && uploadMutation.data.errors.length > 0 && (
-            <Alert variant="destructive">
-              <AlertTitle>{uploadMutation.data.errors.length} row(s) had problems and were skipped</AlertTitle>
-              <AlertDescription>
-                <ul className="text-xs mt-1 space-y-0.5 max-h-32 overflow-y-auto">
-                  {uploadMutation.data.errors.map((e, i) => (
-                    <li key={i}>Row {e.row}: {e.message}</li>
-                  ))}
-                </ul>
-              </AlertDescription>
-            </Alert>
+          {divisions.length > 0 && uploadMeetGroup && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                Map each division found in this CSV to one of this meet's races — this isn't guessed for you, since
+                our races don't always line up one-to-one with Athletic.net's divisions.
+              </p>
+              <div className="space-y-2 rounded-md border p-3">
+                {divisions.map((division) => (
+                  <div key={division} className="flex items-center justify-between gap-3">
+                    <span className="text-sm">
+                      {division === NO_DIVISION_KEY ? 'All rows in this CSV' : division}
+                    </span>
+                    <Select
+                      value={divisionMapping[division] ?? SKIP_VALUE}
+                      onValueChange={(v) => setDivisionMapping((prev) => ({ ...prev, [division]: v }))}
+                    >
+                      <SelectTrigger className="w-[220px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SKIP_VALUE}>Skip this division</SelectItem>
+                        {uploadMeetGroup.races.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name}
+                            {r.distance ? ` (${r.distance})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {divisionResults && (
+            <div className="space-y-2">
+              {divisionResults.map((r, i) => (
+                <Alert key={i} variant={r.error || (r.response && r.response.errors.length > 0) ? 'destructive' : 'default'}>
+                  <AlertTitle>
+                    {r.division === NO_DIVISION_KEY ? 'All rows' : r.division} → {r.raceName}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {r.error ? (
+                      r.error
+                    ) : r.response ? (
+                      <>
+                        {r.response.rowsUploaded} row(s) saved
+                        {r.response.skipped ? `, ${r.response.skipped} blank row(s) skipped` : ''}.{' '}
+                        {r.response.fieldFinisherCount} finisher(s) recorded
+                        {!r.response.normalizationMet ? ' — need 40+ to activate field-normalized comparisons.' : '.'}
+                        {r.response.errors.length > 0 && (
+                          <ul className="text-xs mt-1 space-y-0.5 max-h-32 overflow-y-auto">
+                            {r.response.errors.map((e, ei) => (
+                              <li key={ei}>Row {e.row}: {e.message}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    ) : null}
+                  </AlertDescription>
+                </Alert>
+              ))}
+            </div>
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setUploadTarget(null)}>Cancel</Button>
-            <Button onClick={handleUpload} disabled={!csvText.trim() || uploadMutation.isPending}>
-              {uploadMutation.isPending ? 'Uploading...' : 'Upload'}
+            <Button variant="outline" onClick={() => setUploadMeetId(null)}>Cancel</Button>
+            <Button
+              onClick={handleUploadAll}
+              disabled={
+                !csvText.trim() ||
+                isUploadingAll ||
+                !Object.values(divisionMapping).some((v) => v && v !== SKIP_VALUE)
+              }
+            >
+              {isUploadingAll ? 'Uploading...' : 'Upload'}
             </Button>
           </DialogFooter>
         </DialogContent>

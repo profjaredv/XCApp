@@ -6,6 +6,12 @@ export interface FieldResultRace {
   name: string;
   date: string;
   distance: string | null;
+  // Groups races into "one meet, multiple divisions" — see the backend
+  // comment in routes/fieldResults.js for the fallback chain (meetId, then
+  // athleticMeetId, then the race's own id as a singleton group).
+  meetId: string;
+  // The athletic.net results/all page for this race's meet, when known.
+  resultsAllUrl: string | null;
   fieldMeanSec: number | null;
   fieldMedianSec: number | null;
   fieldFinisherCount: number | null;

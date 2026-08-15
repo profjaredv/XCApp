@@ -80,6 +80,8 @@ router.get('/races', authenticate, requireTeam, async (req, res) => {
         date: true,
         distance: true,
         athleticMeetId: true,
+        meetId: true,
+        sourceUrl: true,
         fieldMeanSec: true,
         fieldMedianSec: true,
         fieldFinisherCount: true,
@@ -99,6 +101,21 @@ router.get('/races', authenticate, requireTeam, async (req, res) => {
           name: r.name,
           date: r.date,
           distance: r.distance,
+          // Frontend groups races into "one meet, multiple divisions" using
+          // meetId when the T4 grouping has run, falling back to
+          // athleticMeetId (same meet, ungrouped) and finally the race's own
+          // id (no known meet — a singleton group of one). Never send
+          // athleticMeetId itself: resultsAllUrl already encodes it, and the
+          // raw id has no other use on the client.
+          meetId: r.meetId || r.athleticMeetId || r.id,
+          // The one place a coach needs to land to copy the full field: the
+          // athletic.net results/all page. Built from athleticMeetId (a
+          // known, stable URL shape) when we have it; sourceUrl (whatever
+          // meet-page link the season scraper captured) is the best
+          // available fallback otherwise.
+          resultsAllUrl: r.athleticMeetId
+            ? `https://www.athletic.net/CrossCountry/meet/${r.athleticMeetId}/results/all`
+            : r.sourceUrl || null,
           fieldMeanSec: r.fieldMeanSec,
           fieldMedianSec: r.fieldMedianSec,
           fieldFinisherCount: r.fieldFinisherCount,

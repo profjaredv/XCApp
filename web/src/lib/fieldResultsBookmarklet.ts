@@ -1,13 +1,24 @@
 // Bookmarklet source for extracting a Cross Country meet's full results
-// (every school, every finisher) straight off an athletic.net results page,
-// as a CSV shaped for the Field Results upload box (see FieldResultsPage.tsx
-// / backend/lib/fieldResultsCsv.js — only "Athlete Name" is required, this
-// also fills School/Grade/Time/Place/Status).
+// (every school, every finisher, every division) straight off an
+// athletic.net results page, as a CSV shaped for the Field Results upload
+// box (see FieldResultsPage.tsx / backend/lib/fieldResultsCsv.js — only
+// "Athlete Name" is required, this also fills Division/School/Grade/Time/
+// Place/Status).
+//
+// A results/all page is usually more than one race: Varsity, JV Gold, JV
+// White, Freshman, etc. each get their own section, and our own Race rows
+// don't reliably split along those same lines (the season scraper that
+// creates them only ever saw our own team's PRs per meet, never which
+// heat/level each one raced in — see NOTES.md's field-results notes). So
+// this can't guess which of our races a division belongs to; it just tags
+// every row with the on-page division label and leaves the human to map
+// each one in the upload dialog.
 //
 // Runs entirely in the coach's own browser tab, the same trick a
 // third-party extension (athletic.net-data-extractor, MIT) already does —
 // see NOTES.md "Meet scraper (Phase 2 step 3): real selectors found" for
-// where these selectors came from. That's also why this has to be a
+// where these selectors came from, including the h5-section-header walk
+// used below to split divisions. That's also why this has to be a
 // bookmarklet and not something our server fetches: athletic.net's
 // Cloudflare challenge blocks server-side automation, but not a real,
 // logged-in human browser tab.
@@ -32,10 +43,10 @@ const BOOKMARKLET_SOURCE = `
       return '"' + String(v || '').replace(/"/g, '""') + '"';
     }
 
-    var rows = [['Athlete Name', 'School', 'Grade', 'Time', 'Place', 'Status']];
+    var rows = [['Athlete Name', 'Division', 'School', 'Grade', 'Time', 'Place', 'Status']];
     var count = 0;
 
-    document.querySelectorAll('.result-row').forEach(function (row) {
+    function extractRow(row, division) {
       var placeEl = row.querySelector('.place-column');
       var nameEl = row.querySelector('.primary .title a[href*="/athlete/"]');
       var schoolEl = row.querySelector('.subtitle.team .text-overflow-ellipsis a');
@@ -52,9 +63,35 @@ const BOOKMARKLET_SOURCE = `
       var gradeMatch = tertiaryText.match(/Yr: (\\d+)/);
       var grade = gradeMatch ? gradeMatch[1] : '';
 
-      rows.push([name, school, grade, time, place, 'FINISHED']);
+      rows.push([name, division, school, grade, time, place, 'FINISHED']);
       count++;
+    }
+
+    // Each division (Varsity, JV Gold, Freshman, ...) is its own h5-headed
+    // section wrapping a shared-result-grid of .result-row's. Walk sections
+    // when present so every row keeps its division label; only fall back to
+    // a flat sweep (single unlabeled division) if the page has none — e.g.
+    // a meet with just one race.
+    var sections = [];
+    document.querySelectorAll('h5').forEach(function (h5) {
+      var container = h5.closest('.mb-4');
+      if (!container) return;
+      var grid = container.querySelector('shared-result-grid');
+      if (!grid) return;
+      sections.push({ label: clean(h5.textContent), grid: grid });
     });
+
+    if (sections.length > 0) {
+      sections.forEach(function (section) {
+        section.grid.querySelectorAll('.result-row').forEach(function (row) {
+          extractRow(row, section.label);
+        });
+      });
+    } else {
+      document.querySelectorAll('.result-row').forEach(function (row) {
+        extractRow(row, '');
+      });
+    }
 
     if (count === 0) {
       alert('No results found on this page. If it looked empty when it loaded, scroll down (some meet pages lazy-load results) and try again.');
