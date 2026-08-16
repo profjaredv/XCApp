@@ -106,7 +106,13 @@ export default function RaceVisualizationPage() {
               }
               
               if (newPositions[key] < 100) {
-                newPositions[key] += 100 / (runner[type === 'start' ? 'startTime' : 'prTime'] * 20);
+                // Compressed 60x: a race run in T seconds animates in T/60
+                // real seconds — a 22-minute (1320s) race finishes in 22
+                // real seconds, not 22 real minutes. positionInterval ticks
+                // every 50ms (20 ticks/sec), so the divisor scales the same
+                // way as the uncompressed version, just against T/60.
+                const raceSeconds = runner[type === 'start' ? 'startTime' : 'prTime'];
+                newPositions[key] += 100 / ((raceSeconds / 60) * 20);
                 allFinished = false;
               }
               
@@ -128,7 +134,10 @@ export default function RaceVisualizationPage() {
       }, 50);
 
       const timerInterval = setInterval(() => {
-        setTimer(prev => prev + 0.05); // Faster timer increment
+        // Same 60x compression as the position animation above, so the
+        // on-screen clock reads out the runners' actual race time (e.g.
+        // counts up to 22:00) over the real ~22 seconds the animation runs.
+        setTimer(prev => prev + 0.05 * 60);
       }, 50);
 
       return () => {
