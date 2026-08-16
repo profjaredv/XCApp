@@ -65,10 +65,21 @@ export const router = createBrowserRouter([
       {
         element: <ProtectedRoute />,
         children: [
-          // Identity-level, not team data — deliberately outside /t/:athleticTeamId.
+          // Identity-level, not team data — deliberately outside
+          // /t/:athleticTeamId (reachable even for a signed-in user who
+          // hasn't joined/created a team yet). Still wrapped in Layout so
+          // it gets the same sidebar/header chrome as every other screen
+          // instead of rendering as a bare, nav-less page — useTeamPath's
+          // athleticTeamId falls back to the user's own team from
+          // AuthContext here since there's no :athleticTeamId URL param.
           {
-            path: '/profile',
-            element: <ProfilePage />,
+            element: <Layout />,
+            children: [
+              {
+                path: '/profile',
+                element: <ProfilePage />,
+              },
+            ],
           },
           {
             path: '/upgrade-role',

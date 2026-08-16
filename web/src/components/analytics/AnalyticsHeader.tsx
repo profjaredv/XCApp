@@ -47,6 +47,11 @@ export const AnalyticsHeader = ({
   handleClearTeamData,
   seasonDisplay
 }: AnalyticsHeaderProps) => {
+  // Backend only ever lets HEAD_COACH (or an impersonating super admin)
+  // actually clear team data (routes/teams.js) — this just keeps the
+  // button from being shown to everyone else in the first place, rather
+  // than letting them find out via a 403 after clicking.
+  const canClearData = currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH';
   return (
     <div className="mb-8">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
@@ -76,7 +81,9 @@ export const AnalyticsHeader = ({
                 <RefreshCw className={`h-4 w-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
                 {isRecalculating ? 'Recalculating…' : 'Recalculate Metrics'}
               </Button>
-              <Button variant="destructive" size="sm" onClick={handleClearTeamData}>Clear Team Data</Button>
+              {canClearData && (
+                <Button variant="destructive" size="sm" onClick={handleClearTeamData}>Clear Team Data</Button>
+              )}
             </>
           )}
           {/* Enhanced Analytics now integrated as tabs - no separate page needed */}

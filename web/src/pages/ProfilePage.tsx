@@ -67,8 +67,8 @@ const ProfilePage: React.FC = () => {
             <p className="text-xs text-muted-foreground">
               To change your password, use account settings from the sign-in screen.
             </p>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            {success && <p className="text-sm text-green-600">{success}</p>}
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            {success && <p className="text-sm text-green-600 dark:text-green-500">{success}</p>}
           </div>
         </CardContent>
       </Card>

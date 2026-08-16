@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '../ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { toast } from 'sonner';
 import { teamService } from '../../api/teamService';
+import { useAuth } from '../../contexts/AuthContext';
 
 type StaffRole = 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH';
 
@@ -25,6 +26,12 @@ const ROLE_LABEL: Record<StaffRole, string> = {
 // Staff settings") but that, until now, was never actually built: only
 // the accept-link page (StaffInviteAcceptPage) existed.
 export function StaffManager() {
+  const { currentUser } = useAuth();
+  // Backend only lets HEAD_COACH send invites or edit another staff
+  // member's role/access (routes/team.js) — everyone else who can reach
+  // this screen gets the read-only view the card's own copy promises,
+  // instead of interactive-looking controls that just 403 on click.
+  const canManageStaff = currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH';
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<StaffRole>('COACH');
   const [isSending, setIsSending] = useState(false);
@@ -139,32 +146,34 @@ export function StaffManager() {
           </Alert>
         )}
 
-        <div className="space-y-3 p-4 border rounded-lg">
-          <Label className="text-sm font-semibold">Invite a coach</Label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              type="email"
-              placeholder="coach@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="flex-1"
-            />
-            <Select value={role} onValueChange={(v) => setRole(v as StaffRole)}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="HEAD_COACH">Head Coach</SelectItem>
-                <SelectItem value="COACH">Coach</SelectItem>
-                <SelectItem value="VOLUNTEER_COACH">Volunteer Coach</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button onClick={handleSendInvite} disabled={isSending || !email}>
-              <UserPlus className="h-4 w-4 mr-2" />
-              {isSending ? 'Sending…' : 'Send Invite'}
-            </Button>
+        {canManageStaff && (
+          <div className="space-y-3 p-4 border rounded-lg">
+            <Label className="text-sm font-semibold">Invite a coach</Label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                type="email"
+                placeholder="coach@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="flex-1"
+              />
+              <Select value={role} onValueChange={(v) => setRole(v as StaffRole)}>
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="HEAD_COACH">Head Coach</SelectItem>
+                  <SelectItem value="COACH">Coach</SelectItem>
+                  <SelectItem value="VOLUNTEER_COACH">Volunteer Coach</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button onClick={handleSendInvite} disabled={isSending || !email}>
+                <UserPlus className="h-4 w-4 mr-2" />
+                {isSending ? 'Sending…' : 'Send Invite'}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading staff…</p>
@@ -186,29 +195,35 @@ export function StaffManager() {
                         <p className="text-xs text-muted-foreground">{member.email}</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Select
-                          value={member.role}
-                          onValueChange={(v) => handleRoleChange(member.userId, v as StaffRole)}
-                        >
-                          <SelectTrigger className="w-[160px] h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="HEAD_COACH">Head Coach</SelectItem>
-                            <SelectItem value="COACH">Coach</SelectItem>
-                            <SelectItem value="VOLUNTEER_COACH">Volunteer Coach</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        {canManageStaff ? (
+                          <Select
+                            value={member.role}
+                            onValueChange={(v) => handleRoleChange(member.userId, v as StaffRole)}
+                          >
+                            <SelectTrigger className="w-[160px] h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="HEAD_COACH">Head Coach</SelectItem>
+                              <SelectItem value="COACH">Coach</SelectItem>
+                              <SelectItem value="VOLUNTEER_COACH">Volunteer Coach</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">{ROLE_LABEL[member.role as StaffRole] || member.role}</span>
+                        )}
                         <Badge variant={member.active ? 'default' : 'secondary'}>
                           {member.active ? 'Active' : 'Revoked'}
                         </Badge>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleToggleActive(member.userId, member.active)}
-                        >
-                          {member.active ? 'Revoke' : 'Restore'}
-                        </Button>
+                        {canManageStaff && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleToggleActive(member.userId, member.active)}
+                          >
+                            {member.active ? 'Revoke' : 'Restore'}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -234,14 +249,16 @@ export function StaffManager() {
                         <span className="text-xs text-muted-foreground">
                           Expires {new Date(invite.expiresAt).toLocaleDateString()}
                         </span>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={resendingEmail === invite.email}
-                          onClick={() => handleResendInvite(invite.email, invite.role as StaffRole)}
-                        >
-                          {resendingEmail === invite.email ? 'Resending…' : 'Resend'}
-                        </Button>
+                        {canManageStaff && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={resendingEmail === invite.email}
+                            onClick={() => handleResendInvite(invite.email, invite.role as StaffRole)}
+                          >
+                            {resendingEmail === invite.email ? 'Resending…' : 'Resend'}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}

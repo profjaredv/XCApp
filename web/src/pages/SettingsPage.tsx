@@ -290,42 +290,47 @@ const SimpleSettingsPage: React.FC = () => {
         <MeetGroupsManager teamId={team.id} />
       )}
 
-      {/* Danger Zone Card */}
-      <Card className="border-red-500 border-2">
-        <CardHeader>
-          <CardTitle>Danger Zone</CardTitle>
-          <CardDescription>These actions are permanent and cannot be undone.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="font-semibold">Clear All Team Data</p>
-              <p className="text-sm text-gray-500">This will delete all imported races, results, and athlete data for your team.</p>
+      {/* Danger Zone Card — backend only ever lets HEAD_COACH (or an
+          impersonating super admin) actually clear team data
+          (routes/teams.js), so it's hidden entirely for everyone else
+          rather than shown and then 403ing on click. */}
+      {(currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH') && (
+        <Card className="border-red-500 border-2">
+          <CardHeader>
+            <CardTitle>Danger Zone</CardTitle>
+            <CardDescription>These actions are permanent and cannot be undone.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="font-semibold">Clear All Team Data</p>
+                <p className="text-sm text-gray-500">This will delete all imported races, results, and athlete data for your team.</p>
+              </div>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" disabled={isClearing}>
+                    {isClearing ? 'Clearing...' : 'Clear Data'}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. This will permanently delete all results and race data for your team. It will not delete the team itself or its members.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleClearData} disabled={isClearing}>
+                      Continue
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" disabled={isClearing}>
-                  {isClearing ? 'Clearing...' : 'Clear Data'}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This action cannot be undone. This will permanently delete all results and race data for your team. It will not delete the team itself or its members.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleClearData} disabled={isClearing}>
-                    Continue
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };

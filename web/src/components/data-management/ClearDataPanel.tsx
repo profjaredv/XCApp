@@ -6,6 +6,7 @@ import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { useToast } from "../../components/ui/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../../components/ui/dialog";
 import { useClearData } from "../../hooks/useDataManagement";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface ClearDataPanelProps {
   teamId: string;
@@ -16,10 +17,16 @@ interface ClearDataPanelProps {
 
 export function ClearDataPanel({ teamId, season, onComplete, setIsProcessing }: ClearDataPanelProps) {
   const { toast } = useToast();
+  const { currentUser } = useAuth();
+  // Backend only ever lets HEAD_COACH (or an impersonating super admin)
+  // actually clear team data (routes/dataManagement.js) — everyone else
+  // can still walk through this wizard, just without the ability to
+  // execute this particular step (they can Skip it, same as always).
+  const canClearData = currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH';
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
   const [clearingStatus, setClearingStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  
+
   // Use the clear data mutation hook
   const clearDataMutation = useClearData();
   const isClearing = clearDataMutation.isPending;
@@ -117,42 +124,46 @@ export function ClearDataPanel({ teamId, season, onComplete, setIsProcessing }: 
           Skip This Step
         </Button>
         
-        <Dialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
-          <DialogTrigger asChild>
-            <Button disabled={isClearing || clearingStatus === 'success'}>
-              {isClearing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Clearing...
-                </>
-              ) : (
-                'Clear Season Data'
-              )}
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Confirm Data Clearing</DialogTitle>
-              <DialogDescription>
-                Are you sure you want to clear all data for season {season}? 
-                This will remove all races, results, and metrics for this season.
-                This action cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsConfirmDialogOpen(false)}>Cancel</Button>
-              <Button 
-                variant="destructive" 
-                onClick={() => {
-                  setIsConfirmDialogOpen(false);
-                  handleClearData();
-                }}
-              >
-                Yes, Clear Data
+        {canClearData ? (
+          <Dialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
+            <DialogTrigger asChild>
+              <Button disabled={isClearing || clearingStatus === 'success'}>
+                {isClearing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Clearing...
+                  </>
+                ) : (
+                  'Clear Season Data'
+                )}
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Confirm Data Clearing</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to clear all data for season {season}?
+                  This will remove all races, results, and metrics for this season.
+                  This action cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsConfirmDialogOpen(false)}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    setIsConfirmDialogOpen(false);
+                    handleClearData();
+                  }}
+                >
+                  Yes, Clear Data
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        ) : (
+          <p className="text-sm text-muted-foreground">Only the head coach can clear season data.</p>
+        )}
       </CardFooter>
     </Card>
   );

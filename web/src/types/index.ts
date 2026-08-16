@@ -28,6 +28,8 @@ export interface LinkedAthlete {
     graduationYear?: number | null;
 }
 
+export type TeamRole = 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH' | 'ATHLETE';
+
 export interface User {
     uid: string;
     email: string;
@@ -35,6 +37,11 @@ export interface User {
     photoURL?: string;
     role: 'coach' | 'captain' | 'athlete';
     team?: Team;
+    // The real per-team authorization role (TeamMember.role), distinct from
+    // the legacy `role` UX hint above which only distinguishes coach vs
+    // athlete. Null if this user has no active membership on their own
+    // team. Use this — never `role` — to gate anything HEAD_COACH-specific.
+    teamRole?: TeamRole | null;
     // The specific roster row this account is linked to, if any — set by an
     // accepted AthleteInvite or an approved AthleteClaim. A coach who has
     // never raced, or an athlete who hasn't been invited/claimed yet, has

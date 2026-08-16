@@ -182,8 +182,10 @@ const INVITABLE_STAFF_ROLES = new Set(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']
 // GET /api/team/staff
 // Current staff roster (active TeamMembers who aren't plain athletes) plus
 // pending invites, so the settings screen can show one list of "who has
-// access" instead of two.
-router.get('/staff', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+// access" instead of two. Read access is every coach role, including
+// VOLUNTEER_COACH — StaffManager.tsx's own copy says "everyone else can
+// see who has it"; only invite/edit (below) stays HEAD_COACH-only.
+router.get('/staff', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
   try {
     const [members, invites] = await Promise.all([
       prisma.teamMember.findMany({
