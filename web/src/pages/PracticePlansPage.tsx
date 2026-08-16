@@ -53,6 +53,53 @@ import type { PracticePlan, PracticePlanAssignment, AssignmentInput } from '@/ap
 
 const TEAM_WIDE = '__team_wide__';
 
+// Coach-adoption pass item 5: "make them at once per day, vs individual
+// pre run / run / post run." The data model already allowed several
+// PracticePlanAssignment rows per (day, group) — sortOrder-ordered, shown
+// grouped on the card — so this doesn't need a schema change, just a
+// faster path than "Add workout" three separate times. Compose Day builds
+// up to 4 (low/medium/high) run rows) as one batch of creates fired from a
+// single Save click; the plain "Add workout" flow (below) is left
+// untouched for one-off additions after the fact.
+const VOLUME_TIERS: Array<{ key: string; label: string }> = [
+  { key: 'low', label: 'Low' },
+  { key: 'medium', label: 'Medium' },
+  { key: 'high', label: 'High' },
+  { key: 'high_plus', label: 'High+' },
+];
+
+interface TierFields {
+  durationMinutes: string;
+  distanceMi: string;
+  details: string;
+}
+
+const EMPTY_TIER_FIELDS: TierFields = { durationMinutes: '', distanceMi: '', details: '' };
+
+interface ComposeDayForm {
+  date: string;
+  planId: string | null;
+  groupId: string; // TEAM_WIDE or a group id
+  preRun: string;
+  runFocus: string;
+  strength: boolean;
+  tiers: Record<string, TierFields>;
+  postRun: string;
+}
+
+function emptyComposeForm(date: string, planId: string | null): ComposeDayForm {
+  return {
+    date,
+    planId,
+    groupId: TEAM_WIDE,
+    preRun: '',
+    runFocus: '',
+    strength: false,
+    tiers: Object.fromEntries(VOLUME_TIERS.map((t) => [t.key, { ...EMPTY_TIER_FIELDS }])),
+    postRun: '',
+  };
+}
+
 function toISODate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -148,6 +195,7 @@ const PracticePlansPage: React.FC = () => {
     form: AssignmentFormState;
   } | null>(null);
 
+  const [composeDialog, setComposeDialog] = useState<ComposeDayForm | null>(null);
   const [dayDetailsDialog, setDayDetailsDialog] = useState<{ date: string; plan: PracticePlan | null } | null>(null);
   const [duplicateDayDialog, setDuplicateDayDialog] = useState<{ planId: string; toDate: string } | null>(null);
   const [duplicateWeekOpen, setDuplicateWeekOpen] = useState(false);
@@ -157,6 +205,10 @@ const PracticePlansPage: React.FC = () => {
 
   const openAddAssignment = (date: string, plan: PracticePlan | null) => {
     setAssignmentDialog({ date, planId: plan?.id ?? null, editingId: null, form: { ...EMPTY_ASSIGNMENT_FORM } });
+  };
+
+  const openComposeDay = (date: string, plan: PracticePlan | null) => {
+    setComposeDialog(emptyComposeForm(date, plan?.id ?? null));
   };
 
   const openEditAssignment = (date: string, plan: PracticePlan, a: PracticePlanAssignment) => {
@@ -213,6 +265,51 @@ const PracticePlansPage: React.FC = () => {
       const message =
         (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ?? 'Could not save that row.';
       toast.error(message);
+    }
+  };
+
+  const handleComposeSave = async () => {
+    if (!composeDialog || !seasonId) return;
+    const groupId = composeDialog.groupId === TEAM_WIDE ? null : composeDialog.groupId;
+
+    const rows: AssignmentInput[] = [];
+    if (composeDialog.preRun.trim()) {
+      rows.push({ groupId, focus: 'Pre-run', details: composeDialog.preRun.trim(), sortOrder: 0 });
+    }
+    for (const tier of VOLUME_TIERS) {
+      const fields = composeDialog.tiers[tier.key];
+      if (!fields.durationMinutes.trim() && !fields.distanceMi.trim() && !fields.details.trim()) continue;
+      rows.push({
+        groupId,
+        focus: composeDialog.runFocus.trim() || 'Run',
+        volumeTier: tier.key,
+        durationMinutes: fields.durationMinutes.trim() ? Number(fields.durationMinutes) : null,
+        distanceMi: fields.distanceMi.trim() ? Number(fields.distanceMi) : null,
+        strength: composeDialog.strength,
+        details: fields.details.trim() || null,
+        sortOrder: 1,
+      });
+    }
+    if (composeDialog.postRun.trim()) {
+      rows.push({ groupId, focus: 'Post-run', details: composeDialog.postRun.trim(), sortOrder: 2 });
+    }
+
+    if (rows.length === 0) {
+      toast.error('Add at least one part of the day — pre-run, a run tier, or post-run.');
+      return;
+    }
+
+    try {
+      let planId = composeDialog.planId;
+      if (!planId) {
+        const created = await saveDayShell.mutateAsync({ seasonId, date: composeDialog.date });
+        planId = created.id;
+      }
+      await Promise.all(rows.map((input) => addAssignment.mutateAsync({ planId: planId as string, input })));
+      toast.success('Day composed.');
+      setComposeDialog(null);
+    } catch {
+      toast.error('Could not save the day.');
     }
   };
 
@@ -413,9 +510,13 @@ const PracticePlansPage: React.FC = () => {
                   {grouped.size === 0 && <p className="text-xs text-muted-foreground py-1">Nothing planned yet.</p>}
 
                   <div className="flex flex-wrap gap-2 pt-1">
+                    <Button variant="outline" size="sm" onClick={() => openComposeDay(iso, plan)}>
+                      <Plus className="h-3 w-3 mr-1" />
+                      Compose day
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => openAddAssignment(iso, plan)}>
                       <Plus className="h-3 w-3 mr-1" />
-                      Add
+                      Add row
                     </Button>
                     <Button
                       variant="outline"
@@ -557,6 +658,135 @@ const PracticePlansPage: React.FC = () => {
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               )}
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compose day: pre-run / run (per volume tier) / post-run in one save */}
+      <Dialog open={!!composeDialog} onOpenChange={(open) => !open && setComposeDialog(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Compose day</DialogTitle>
+            <DialogDescription>{composeDialog?.date} — pre-run, run (by volume), and post-run in one save.</DialogDescription>
+          </DialogHeader>
+          {composeDialog && (
+            <div className="space-y-4">
+              <div>
+                <Label>Group</Label>
+                <Select
+                  value={composeDialog.groupId}
+                  onValueChange={(v) => setComposeDialog({ ...composeDialog, groupId: v })}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={TEAM_WIDE}>Whole Team</SelectItem>
+                    {trainingGroups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Pre-run</Label>
+                <Textarea
+                  className="mt-1"
+                  rows={2}
+                  value={composeDialog.preRun}
+                  onChange={(e) => setComposeDialog({ ...composeDialog, preRun: e.target.value })}
+                  placeholder="Pilates, dynamic stretch…"
+                />
+              </div>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1">
+                    <Label>Run focus</Label>
+                    <Input
+                      className="mt-1"
+                      value={composeDialog.runFocus}
+                      onChange={(e) => setComposeDialog({ ...composeDialog, runFocus: e.target.value })}
+                      placeholder="Tempo, easy, intervals…"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm whitespace-nowrap pt-5">
+                    <Checkbox
+                      checked={composeDialog.strength}
+                      onCheckedChange={(v) => setComposeDialog({ ...composeDialog, strength: Boolean(v) })}
+                    />
+                    Strength
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground pt-1">Fill in whichever tiers apply — blank tiers are skipped.</p>
+                {VOLUME_TIERS.map((tier) => (
+                  <div key={tier.key} className="grid grid-cols-[70px_1fr_1fr_2fr] gap-2 items-center">
+                    <span className="text-xs font-medium text-muted-foreground">{tier.label}</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="min"
+                      value={composeDialog.tiers[tier.key].durationMinutes}
+                      onChange={(e) =>
+                        setComposeDialog({
+                          ...composeDialog,
+                          tiers: {
+                            ...composeDialog.tiers,
+                            [tier.key]: { ...composeDialog.tiers[tier.key], durationMinutes: e.target.value },
+                          },
+                        })
+                      }
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      placeholder="mi"
+                      value={composeDialog.tiers[tier.key].distanceMi}
+                      onChange={(e) =>
+                        setComposeDialog({
+                          ...composeDialog,
+                          tiers: {
+                            ...composeDialog.tiers,
+                            [tier.key]: { ...composeDialog.tiers[tier.key], distanceMi: e.target.value },
+                          },
+                        })
+                      }
+                    />
+                    <Input
+                      placeholder="details, e.g. 6x800m"
+                      value={composeDialog.tiers[tier.key].details}
+                      onChange={(e) =>
+                        setComposeDialog({
+                          ...composeDialog,
+                          tiers: {
+                            ...composeDialog.tiers,
+                            [tier.key]: { ...composeDialog.tiers[tier.key], details: e.target.value },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <Label>Post-run</Label>
+                <Textarea
+                  className="mt-1"
+                  rows={2}
+                  value={composeDialog.postRun}
+                  onChange={(e) => setComposeDialog({ ...composeDialog, postRun: e.target.value })}
+                  placeholder="Cool-down, foam roll…"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setComposeDialog(null)}>Cancel</Button>
+            <Button onClick={handleComposeSave} disabled={addAssignment.isPending || saveDayShell.isPending}>
+              {(addAssignment.isPending || saveDayShell.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save day
             </Button>
           </DialogFooter>
         </DialogContent>
