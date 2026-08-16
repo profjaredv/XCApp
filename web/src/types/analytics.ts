@@ -48,6 +48,12 @@ export interface RaceScoringTeam {
 // entries at all (Meet.scoring is an empty array, not per-division nulls).
 export interface RaceScoringDivision {
   division: string;
+  // FieldResult.gender for every row in this group — grouping keys on
+  // (division, gender) together, never division text alone, so a boys and
+  // girls division sharing an identical/generic label (or missing
+  // entirely) never get scored as one combined team. Null when the field
+  // rows carried no gender at all.
+  gender: string | null;
   // Total finishers with a known place in this division — the correct
   // denominator for "place N of fieldSize" here, unlike
   // RaceResult.overallFieldSize (can span multiple divisions).

@@ -853,11 +853,18 @@ class CalculationService {
    * Team scoring and field-standing, from field-results uploads (see
    * lib/meetScoring.js) — how the team scores against real opponents and
    * where its runners land in the full field, not just against itself.
-   * Every field is null (not the whole object) when no race this season
-   * has field-results data yet, so the frontend can tell "no data" apart
-   * from "computed as zero."
+   * Split by gender (men/women) — a boys and girls division are always
+   * scored as separate teams (see computeMeetScoring's division+gender
+   * grouping), so blending their scores back together into one number here
+   * would reintroduce the same bug at the aggregate level. A division with
+   * no clean M/F gender on its rows contributes to neither bucket — there's
+   * no reliable side to attribute it to. Every field is null (not the whole
+   * object) when no race this season has field-results data yet, so the
+   * frontend can tell "no data" apart from "computed as zero."
    */
   async calculateFieldStanding(teamId, season) {
+    const empty = () => ({ avgTeamScore: null, scoredDivisionCount: 0, top20Percent: null, top50Percent: null, totalWithFieldData: 0 });
+
     try {
       const races = await prisma.race.findMany({
         where: { teamId, season },
@@ -868,39 +875,44 @@ class CalculationService {
         },
       });
 
-      const scores = [];
-      let top20Count = 0;
-      let top50Count = 0;
-      let totalWithFieldData = 0;
+      const stats = {
+        M: { scores: [], top20Count: 0, top50Count: 0, totalWithFieldData: 0 },
+        F: { scores: [], top20Count: 0, top50Count: 0, totalWithFieldData: 0 },
+      };
 
       for (const race of races) {
         const divisions = computeMeetScoring(race);
         for (const division of divisions) {
+          const bucket = stats[division.gender];
+          if (!bucket) continue; // gender wasn't cleanly M or F — can't attribute it to either side
+
           const ourTeam = division.scoringTeams.find((t) => t.isOurTeam && t.canScore);
-          if (ourTeam) scores.push(ourTeam.score);
+          if (ourTeam) bucket.scores.push(ourTeam.score);
 
           if (division.fieldSize > 0) {
             for (const finisher of division.ourTeamFinishers) {
               if (finisher.place == null) continue;
-              totalWithFieldData++;
+              bucket.totalWithFieldData++;
               const percentile = finisher.place / division.fieldSize;
-              if (percentile <= 0.2) top20Count++;
-              if (percentile <= 0.5) top50Count++;
+              if (percentile <= 0.2) bucket.top20Count++;
+              if (percentile <= 0.5) bucket.top50Count++;
             }
           }
         }
       }
 
-      return {
-        avgTeamScore: scores.length > 0 ? parseFloat((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)) : null,
-        scoredDivisionCount: scores.length,
-        top20Percent: totalWithFieldData > 0 ? parseFloat(((top20Count / totalWithFieldData) * 100).toFixed(1)) : null,
-        top50Percent: totalWithFieldData > 0 ? parseFloat(((top50Count / totalWithFieldData) * 100).toFixed(1)) : null,
-        totalWithFieldData,
-      };
+      const summarize = (bucket) => ({
+        avgTeamScore: bucket.scores.length > 0 ? parseFloat((bucket.scores.reduce((a, b) => a + b, 0) / bucket.scores.length).toFixed(1)) : null,
+        scoredDivisionCount: bucket.scores.length,
+        top20Percent: bucket.totalWithFieldData > 0 ? parseFloat(((bucket.top20Count / bucket.totalWithFieldData) * 100).toFixed(1)) : null,
+        top50Percent: bucket.totalWithFieldData > 0 ? parseFloat(((bucket.top50Count / bucket.totalWithFieldData) * 100).toFixed(1)) : null,
+        totalWithFieldData: bucket.totalWithFieldData,
+      });
+
+      return { men: summarize(stats.M), women: summarize(stats.F) };
     } catch (error) {
       logger.error(`Error calculating field standing: ${error.message}`);
-      return { avgTeamScore: null, scoredDivisionCount: 0, top20Percent: null, top50Percent: null, totalWithFieldData: 0 };
+      return { men: empty(), women: empty() };
     }
   }
 

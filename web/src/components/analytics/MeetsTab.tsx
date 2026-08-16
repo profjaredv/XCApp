@@ -571,8 +571,10 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                     ) : (
                       <div className="space-y-4">
                         {selectedMeetWithResults.scoring.map((division) => (
-                          <div key={division.division} className="p-4 rounded-lg border border-border">
-                            <h4 className="font-semibold mb-3">{division.division}</h4>
+                          <div key={`${division.division}-${division.gender ?? 'unknown'}`} className="p-4 rounded-lg border border-border">
+                            <h4 className="font-semibold mb-3">
+                              {division.gender === 'M' ? 'Boys' : division.gender === 'F' ? 'Girls' : division.gender ?? 'Unknown Gender'} • {division.division}
+                            </h4>
 
                             {division.scoringTeams.length > 0 ? (
                               <div className="overflow-x-auto">

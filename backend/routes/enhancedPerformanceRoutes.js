@@ -114,11 +114,8 @@ router.get('/team/:season', authenticate, requireTeam, async (req, res) => {
       teamDepth: teamMetrics.teamDepth || { top5Spread: 0, top7Spread: 0, depthScore: 0, varsityAvgTime: 0, jvAvgTime: 0 },
       packRunning: teamMetrics.packRunning || { avgGapBetweenRunners: 0, packTightness: 0, packConsistency: 0 },
       fieldStanding: teamMetrics.fieldStanding || {
-        avgTeamScore: null,
-        scoredDivisionCount: 0,
-        top20Percent: null,
-        top50Percent: null,
-        totalWithFieldData: 0,
+        men: { avgTeamScore: null, scoredDivisionCount: 0, top20Percent: null, top50Percent: null, totalWithFieldData: 0 },
+        women: { avgTeamScore: null, scoredDivisionCount: 0, top20Percent: null, top50Percent: null, totalWithFieldData: 0 },
       },
     };
 

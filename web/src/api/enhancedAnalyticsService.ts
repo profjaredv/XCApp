@@ -145,15 +145,23 @@ export interface EnhancedTeamMetrics {
   };
 
   // Team scoring / field-standing — from field-results uploads (see
-  // backend lib/meetScoring.js). Null fields when no race this season has
-  // field-results data yet.
+  // backend lib/meetScoring.js). Split by gender: a boys and girls
+  // division are always scored separately (never blended into one team),
+  // so this aggregate keeps that split rather than averaging them back
+  // together. Null fields when no race this season has field-results data
+  // yet for that gender.
   fieldStanding: {
-    avgTeamScore: number | null;
-    scoredDivisionCount: number;
-    top20Percent: number | null;
-    top50Percent: number | null;
-    totalWithFieldData: number;
+    men: FieldStandingStats;
+    women: FieldStandingStats;
   };
+}
+
+export interface FieldStandingStats {
+  avgTeamScore: number | null;
+  scoredDivisionCount: number;
+  top20Percent: number | null;
+  top50Percent: number | null;
+  totalWithFieldData: number;
 }
 
 export interface GenderMetrics {

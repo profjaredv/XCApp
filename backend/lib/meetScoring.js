@@ -126,15 +126,28 @@ function computeMeetScoring(race) {
   const matchByResultId = matchResultsToFieldResults(race.results, fieldResults);
   const ourFieldResultIds = new Set([...matchByResultId.values()].map((fr) => fr.id));
 
-  const byDivision = new Map();
+  // Group by (division, gender) together — never by division text alone.
+  // A division's own label often already encodes gender ("Boys Varsity
+  // Gold"), but that's not guaranteed: a generic label ("Varsity") or a
+  // missing Division column (falls back to "Unknown Division" for every
+  // row) put every gender sharing that text into one bucket, silently
+  // combining boys' and girls' team scores into a single blended number.
+  // FieldResult.gender is its own column, independent of the division
+  // label, so keying on both never merges two different genders even when
+  // their division text collides or is absent — rows with no gender at
+  // all get their own bucket too, never folded into a known-gender one.
+  const byGroup = new Map();
   fieldResults.forEach((fr) => {
     const division = fr.division || 'Unknown Division';
-    if (!byDivision.has(division)) byDivision.set(division, []);
-    byDivision.get(division).push(fr);
+    const gender = fr.gender || null;
+    const key = `${division}::${gender ?? ''}`;
+    if (!byGroup.has(key)) byGroup.set(key, { division, gender, rows: [] });
+    byGroup.get(key).rows.push(fr);
   });
 
-  return [...byDivision.entries()].map(([division, rows]) => ({
+  return [...byGroup.values()].map(({ division, gender, rows }) => ({
     division,
+    gender,
     ...computeDivisionScoring(rows, ourFieldResultIds),
   }));
 }

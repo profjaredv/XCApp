@@ -116,18 +116,28 @@ export function DashboardTab({
               <Target className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {enhancedMetrics.fieldStanding.avgTeamScore != null ? enhancedMetrics.fieldStanding.avgTeamScore : '—'}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {enhancedMetrics.fieldStanding.scoredDivisionCount > 0
-                  ? `Across ${enhancedMetrics.fieldStanding.scoredDivisionCount} scored division${enhancedMetrics.fieldStanding.scoredDivisionCount === 1 ? '' : 's'} (lower is better)`
-                  : 'Upload field results to see scoring'}
-              </p>
-              {enhancedMetrics.fieldStanding.totalWithFieldData > 0 && (
-                <p className="text-xs text-muted-foreground mt-1 pt-1 border-t">
-                  {enhancedMetrics.fieldStanding.top20Percent}% of runners in top 20% of field · {enhancedMetrics.fieldStanding.top50Percent}% in top 50%
-                </p>
+              {enhancedMetrics.fieldStanding.men.scoredDivisionCount > 0 || enhancedMetrics.fieldStanding.women.scoredDivisionCount > 0 ? (
+                <>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs text-muted-foreground">Boys</span>
+                    <span className="text-xl font-bold">{enhancedMetrics.fieldStanding.men.avgTeamScore ?? '—'}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs text-muted-foreground">Girls</span>
+                    <span className="text-xl font-bold">{enhancedMetrics.fieldStanding.women.avgTeamScore ?? '—'}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Lower is better · scored separately, never combined</p>
+                  {(enhancedMetrics.fieldStanding.men.totalWithFieldData > 0 || enhancedMetrics.fieldStanding.women.totalWithFieldData > 0) && (
+                    <p className="text-xs text-muted-foreground mt-1 pt-1 border-t">
+                      Top 20%/50% of field — Boys {enhancedMetrics.fieldStanding.men.top20Percent ?? '—'}%/{enhancedMetrics.fieldStanding.men.top50Percent ?? '—'}%, Girls {enhancedMetrics.fieldStanding.women.top20Percent ?? '—'}%/{enhancedMetrics.fieldStanding.women.top50Percent ?? '—'}%
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="text-2xl font-bold">—</div>
+                  <p className="text-xs text-muted-foreground">Upload field results to see scoring</p>
+                </>
               )}
             </CardContent>
           </Card>

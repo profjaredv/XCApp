@@ -163,3 +163,49 @@ test('computeMeetScoring: no field results at all returns an empty array', () =>
   const race = { fieldResults: [], results: [] };
   assert.deepEqual(computeMeetScoring(race), []);
 });
+
+test('computeMeetScoring: boys and girls sharing an identical division label never combine', () => {
+  // Both genders labeled just "Varsity" — a generic/collapsed division
+  // text, the exact case that used to merge boys and girls into one score.
+  const race = {
+    fieldResults: [
+      fr('b1', 'Boy A', 'Home', 'Varsity', 'M', 1),
+      fr('b2', 'Boy B', 'Home', 'Varsity', 'M', 2),
+      fr('b3', 'Boy C', 'Home', 'Varsity', 'M', 3),
+      fr('b4', 'Boy D', 'Home', 'Varsity', 'M', 4),
+      fr('b5', 'Boy E', 'Home', 'Varsity', 'M', 5),
+      fr('g1', 'Girl A', 'Home', 'Varsity', 'F', 1),
+      fr('g2', 'Girl B', 'Home', 'Varsity', 'F', 2),
+      fr('g3', 'Girl C', 'Home', 'Varsity', 'F', 3),
+      fr('g4', 'Girl D', 'Home', 'Varsity', 'F', 4),
+      fr('g5', 'Girl E', 'Home', 'Varsity', 'F', 5),
+    ],
+    results: [],
+  };
+
+  const scoring = computeMeetScoring(race);
+  assert.equal(scoring.length, 2);
+
+  const boys = scoring.find((d) => d.gender === 'M');
+  const girls = scoring.find((d) => d.gender === 'F');
+  assert.equal(boys.division, 'Varsity');
+  assert.equal(girls.division, 'Varsity');
+  assert.equal(boys.scoringTeams[0].score, 1 + 2 + 3 + 4 + 5);
+  assert.equal(girls.scoringTeams[0].score, 1 + 2 + 3 + 4 + 5);
+  assert.equal(boys.fieldSize, 5);
+  assert.equal(girls.fieldSize, 5);
+});
+
+test('computeMeetScoring: rows with no division and no gender at all still stay in one bucket, not silently split further', () => {
+  const race = {
+    fieldResults: [
+      fr('h1', 'Home A', 'Home', null, null, 1),
+      fr('h2', 'Home B', 'Home', null, null, 2),
+    ],
+    results: [],
+  };
+  const scoring = computeMeetScoring(race);
+  assert.equal(scoring.length, 1);
+  assert.equal(scoring[0].division, 'Unknown Division');
+  assert.equal(scoring[0].gender, null);
+});
