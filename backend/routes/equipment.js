@@ -8,7 +8,7 @@ const { authenticate, requireTeam, requireRole } = require('../middleware/auth')
 // meet operations), so every route here is head/paid-coach only.
 const COACH_ROLES = ['HEAD_COACH', 'COACH'];
 
-const VALID_TYPES = ['UNIFORM_TOP', 'UNIFORM_BOTTOM', 'WARMUP_TOP', 'WARMUP_BOTTOM', 'SPIKES', 'BAG', 'OTHER'];
+const VALID_TYPES = ['TOP', 'BOTTOM', 'SPIKES', 'OTHER'];
 const VALID_CONDITIONS = ['NEW', 'GOOD', 'FAIR', 'POOR', 'RETIRED'];
 
 // GET /api/equipment?type=
@@ -106,9 +106,12 @@ router.put('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (r
 // type + athlete, one call. Resolves (or creates, if this identifier has
 // never been seen) the Equipment row by (teamId, type, identifier) so a
 // coach doesn't need a separate "add inventory" step for every jersey
-// number before checkout can start.
+// number before checkout can start. size is optional and, when given,
+// always applied to the item (create or update) — the grid checkout flow
+// captures size and number together in one action, same as a coach
+// writing both on a paper sign-out sheet.
 router.post('/checkout', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
-  const { type, identifier, athleteId, seasonId, dueDate, conditionOut, notes } = req.body;
+  const { type, identifier, athleteId, seasonId, size, dueDate, conditionOut, notes } = req.body;
 
   if (!type || !VALID_TYPES.includes(type)) {
     return res.status(400).json({ msg: 'A valid type is required.' });
@@ -132,10 +135,11 @@ router.post('/checkout', authenticate, requireTeam, requireRole(COACH_ROLES), as
       return res.status(404).json({ msg: 'Season not found.' });
     }
 
+    const trimmedSize = size ? String(size).trim() : null;
     const item = await prisma.equipment.upsert({
       where: { teamId_type_identifier: { teamId: req.user.teamId, type, identifier: String(identifier).trim() } },
-      update: {},
-      create: { teamId: req.user.teamId, type, identifier: String(identifier).trim() },
+      update: trimmedSize ? { size: trimmedSize } : {},
+      create: { teamId: req.user.teamId, type, identifier: String(identifier).trim(), size: trimmedSize },
     });
 
     if (item.retired) {

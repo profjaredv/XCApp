@@ -1069,13 +1069,13 @@ model Feedback {
 // in routes/equipment.js) — every unreturned item grouped by athlete.
 // ---------------------------------------------------------------------------
 
+// Four categories, matching what a coach actually tracks on paper — see
+// migration 20260816020000_equipment_categories for the consolidation from
+// an earlier 7-category version (uniform/warmup top+bottom split, bag).
 enum EquipmentType {
-  UNIFORM_TOP
-  UNIFORM_BOTTOM
-  WARMUP_TOP
-  WARMUP_BOTTOM
+  TOP
+  BOTTOM
   SPIKES
-  BAG
   OTHER
 }
 

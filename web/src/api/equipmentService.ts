@@ -1,9 +1,9 @@
 import api from './api';
 
-export type EquipmentType = 'UNIFORM_TOP' | 'UNIFORM_BOTTOM' | 'WARMUP_TOP' | 'WARMUP_BOTTOM' | 'SPIKES' | 'BAG' | 'OTHER';
+export type EquipmentType = 'TOP' | 'BOTTOM' | 'SPIKES' | 'OTHER';
 export type EquipmentCondition = 'NEW' | 'GOOD' | 'FAIR' | 'POOR' | 'RETIRED';
 
-export const EQUIPMENT_TYPES: EquipmentType[] = ['UNIFORM_TOP', 'UNIFORM_BOTTOM', 'WARMUP_TOP', 'WARMUP_BOTTOM', 'SPIKES', 'BAG', 'OTHER'];
+export const EQUIPMENT_TYPES: EquipmentType[] = ['TOP', 'BOTTOM', 'SPIKES', 'OTHER'];
 export const EQUIPMENT_CONDITIONS: EquipmentCondition[] = ['NEW', 'GOOD', 'FAIR', 'POOR', 'RETIRED'];
 
 export interface EquipmentItem {
@@ -44,6 +44,7 @@ export const equipmentService = {
     identifier: string;
     athleteId: string;
     seasonId: string;
+    size?: string;
     dueDate?: string;
     conditionOut?: EquipmentCondition;
     notes?: string;
