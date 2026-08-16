@@ -36,7 +36,8 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
         .then((meetData) => {
           setSelectedMeetWithResults({
             ...selectedMeet,
-            results: meetData.results || []
+            results: meetData.results || [],
+            scoring: meetData.scoring || []
           });
         })
         .catch((error) => {
@@ -556,45 +557,125 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
               </TabsContent>
 
               <TabsContent value="team-scoring" className="mt-6">
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="p-6 rounded-lg bg-orange-50 dark:bg-orange-950">
-                      <h3 className="font-semibold text-orange-900 dark:text-orange-100 mb-4">Top 7 Analysis</h3>
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-sm text-muted-foreground">Total Time (Top 7)</p>
-                          <p className="text-xl font-bold">{formatTime(meetStats.overallTop7.reduce((sum, r) => sum + r.time, 0))}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">1st to 7th Gap</p>
-                          <p className="text-xl font-bold">{formatTime(meetStats.overallTop7.length >= 7 ? meetStats.overallTop7[6].time - meetStats.overallTop7[0].time : 0)}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Average (Top 7)</p>
-                          <p className="text-xl font-bold">{formatTime(meetStats.overallTop7.reduce((sum, r) => sum + r.time, 0) / meetStats.overallTop7.length)}</p>
+                <div className="space-y-8">
+                  {/* Official scoring — computed from the uploaded field results
+                      (every school in the division, not just our own team). See
+                      backend lib/meetScoring.js. Empty until a Field Results
+                      upload exists for this race. */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">Meet Scoring</h3>
+                    {(!selectedMeetWithResults?.scoring || selectedMeetWithResults.scoring.length === 0) ? (
+                      <div className="p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">
+                        No official scoring yet — upload this meet's field results to see team points, standings, and where our runners placed against the full field.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {selectedMeetWithResults.scoring.map((division) => (
+                          <div key={division.division} className="p-4 rounded-lg border border-border">
+                            <h4 className="font-semibold mb-3">{division.division}</h4>
+
+                            {division.scoringTeams.length > 0 ? (
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="text-left text-muted-foreground">
+                                      <th className="py-1 pr-4">Rank</th>
+                                      <th className="py-1 pr-4">School</th>
+                                      <th className="py-1 pr-4">Score</th>
+                                      <th className="py-1">Scorers (place)</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {division.scoringTeams.map((team) => (
+                                      <tr key={team.schoolName} className={team.isOurTeam ? 'bg-primary/10 font-medium' : ''}>
+                                        <td className="py-1 pr-4">{team.rank}</td>
+                                        <td className="py-1 pr-4">{team.schoolName}</td>
+                                        <td className="py-1 pr-4">{team.score}</td>
+                                        <td className="py-1">
+                                          {team.scorers.map((s) => s.place).join(', ')}
+                                          {team.displacers.length > 0 && (
+                                            <span className="text-muted-foreground"> (+{team.displacers.map((d) => d.place).join(', ')})</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">No team scored this division — every school had fewer than 5 finishers.</p>
+                            )}
+
+                            {division.incompleteTeams.length > 0 && (
+                              <p className="text-xs text-muted-foreground mt-2">
+                                Didn't score (need 5 finishers): {division.incompleteTeams.map((t) => `${t.schoolName} (${t.finisherCount})`).join(', ')}
+                              </p>
+                            )}
+
+                            {division.individualTop.length > 0 && (
+                              <p className="text-xs text-muted-foreground mt-2">
+                                Leaders: {division.individualTop.map((r) => `${r.place}. ${r.athleteName} (${r.schoolName ?? 'Unattached'})`).join('  ·  ')}
+                              </p>
+                            )}
+
+                            {division.ourTeamFinishers.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-border">
+                                <p className="text-xs font-medium mb-1">Our finishers in this division ({division.ourTeamFinisherCount} total)</p>
+                                <p className="text-sm">
+                                  {division.ourTeamFinishers.map((r) => `${r.place}. ${r.athleteName}`).join('  ·  ')}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Team-internal pack metrics — our own roster only, no field
+                      data needed. Kept separate from official scoring above so
+                      the two are never confused for each other. */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">Team Depth (Our Roster Only)</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="p-6 rounded-lg bg-orange-50 dark:bg-orange-950">
+                        <h4 className="font-semibold text-orange-900 dark:text-orange-100 mb-4">Top 7 Analysis</h4>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Total Time (Top 7)</p>
+                            <p className="text-xl font-bold">{formatTime(meetStats.overallTop7.reduce((sum, r) => sum + r.time, 0))}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">1st to 7th Gap</p>
+                            <p className="text-xl font-bold">{formatTime(meetStats.overallTop7.length >= 7 ? meetStats.overallTop7[6].time - meetStats.overallTop7[0].time : 0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Average (Top 7)</p>
+                            <p className="text-xl font-bold">{formatTime(meetStats.overallTop7.reduce((sum, r) => sum + r.time, 0) / meetStats.overallTop7.length)}</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="p-6 rounded-lg bg-teal-50 dark:bg-teal-950">
-                      <h3 className="font-semibold text-teal-900 dark:text-teal-100 mb-4">Team Scoring Metrics</h3>
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-sm text-muted-foreground">Pack Running Quality</p>
-                          <p className="text-xl font-bold">
-                            {(() => {
-                              const gap = meetStats.overallTop7.length >= 7 ? meetStats.overallTop7[6].time - meetStats.overallTop7[0].time : 0;
-                              return gap < 60 ? 'Excellent' : gap < 120 ? 'Good' : gap < 180 ? 'Fair' : 'Needs Work';
-                            })()}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Depth Score</p>
-                          <p className="text-xl font-bold">
-                            {(() => {
-                              const totalTime = meetStats.overallTop7.reduce((sum, r) => sum + r.time, 0);
-                              return ((meetStats.totalRunners / totalTime) * 1000).toFixed(0);
-                            })()}
-                          </p>
+                      <div className="p-6 rounded-lg bg-teal-50 dark:bg-teal-950">
+                        <h4 className="font-semibold text-teal-900 dark:text-teal-100 mb-4">Team Scoring Metrics</h4>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Pack Running Quality</p>
+                            <p className="text-xl font-bold">
+                              {(() => {
+                                const gap = meetStats.overallTop7.length >= 7 ? meetStats.overallTop7[6].time - meetStats.overallTop7[0].time : 0;
+                                return gap < 60 ? 'Excellent' : gap < 120 ? 'Good' : gap < 180 ? 'Fair' : 'Needs Work';
+                              })()}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Depth Score</p>
+                            <p className="text-xl font-bold">
+                              {(() => {
+                                const totalTime = meetStats.overallTop7.reduce((sum, r) => sum + r.time, 0);
+                                return ((meetStats.totalRunners / totalTime) * 1000).toFixed(0);
+                              })()}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>

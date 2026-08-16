@@ -29,6 +29,36 @@ function finishedFieldResults(fieldResults) {
 }
 
 /**
+ * Matches our own Results to their FieldResult row by athlete name (one
+ * FieldResult claimed at most once). Shared by computeRacePlacements below
+ * and lib/meetScoring.js, which both need to know which of a race's
+ * FieldResult rows are "ours" — placement to set division/place/overall,
+ * scoring to identify our team's rows among every school in the field.
+ *
+ * results: Result rows with `athlete: { name }` included.
+ * fieldResults: already filtered to finished rows (see finishedFieldResults).
+ * Returns Map<resultId, FieldResult>.
+ */
+function matchResultsToFieldResults(results, fieldResults) {
+  const matchByResultId = new Map();
+  const usedFieldResultIds = new Set();
+
+  (results || []).forEach((result) => {
+    const athleteName = result.athlete && result.athlete.name;
+    const normalized = normalizeAthleteName(athleteName);
+    const match = normalized
+      ? fieldResults.find((fr) => !usedFieldResultIds.has(fr.id) && normalizeAthleteName(fr.athleteName) === normalized)
+      : null;
+
+    if (!match) return;
+    usedFieldResultIds.add(match.id);
+    matchByResultId.set(result.id, match);
+  });
+
+  return matchByResultId;
+}
+
+/**
  * race: a single Race row with `results` (Result rows, each with
  * `athlete: { id, name, gender }` included) and `fieldResults` (FieldResult
  * rows) already loaded.
@@ -39,22 +69,12 @@ function finishedFieldResults(fieldResults) {
  */
 function computeRacePlacements(race) {
   const placements = new Map();
-  const matchByResultId = new Map(); // resultId -> matched FieldResult, needed again below for the overall-rank pass
 
   const fieldResults = finishedFieldResults(race.fieldResults);
-  const usedFieldResultIds = new Set();
+  const matchByResultId = matchResultsToFieldResults(race.results, fieldResults);
 
-  (race.results || []).forEach((result) => {
-    const athleteName = result.athlete && result.athlete.name;
-    const normalized = normalizeAthleteName(athleteName);
-    const match = normalized
-      ? fieldResults.find((fr) => !usedFieldResultIds.has(fr.id) && normalizeAthleteName(fr.athleteName) === normalized)
-      : null;
-
-    if (!match) return;
-    usedFieldResultIds.add(match.id);
-    matchByResultId.set(result.id, match);
-    placements.set(result.id, {
+  matchByResultId.forEach((match, resultId) => {
+    placements.set(resultId, {
       division: match.division ?? null,
       place: match.place ?? null,
       overallPlace: null,
@@ -91,4 +111,4 @@ function computeRacePlacements(race) {
   return placements;
 }
 
-module.exports = { computeRacePlacements };
+module.exports = { computeRacePlacements, matchResultsToFieldResults, finishedFieldResults };

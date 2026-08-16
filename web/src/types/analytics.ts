@@ -15,6 +15,48 @@ export interface ApiRace {
   seasonBest?: boolean;
 }
 
+// One finisher's row within a scoring division — either one of a team's
+// scorers/displacers, an individual leader, or one of our own finishers.
+// See backend lib/meetScoring.js.
+export interface RaceScoringRunner {
+  athleteName: string;
+  schoolName: string | null;
+  place: number | null;
+  timeSec: number | null;
+}
+
+// One school's standing within a scoring division. `score` and
+// `tiebreakPlace` are null when `canScore` is false (fewer than 5
+// finishers in this division) — the team still shows up so a coach can see
+// who ran, just without a total. `rank` is only set on teams that scored
+// (see RaceScoringDivision.scoringTeams).
+export interface RaceScoringTeam {
+  schoolName: string;
+  isOurTeam: boolean;
+  finisherCount: number;
+  canScore: boolean;
+  score: number | null;
+  tiebreakPlace: number | null;
+  scorers: RaceScoringRunner[];
+  displacers: RaceScoringRunner[];
+  rank?: number;
+}
+
+// Official team scoring for one division (heat) of a race, computed from
+// the full field uploaded via Field Results — see backend lib/
+// meetScoring.js. A race with no field-results upload yet has no scoring
+// entries at all (Meet.scoring is an empty array, not per-division nulls).
+export interface RaceScoringDivision {
+  division: string;
+  scoringTeams: RaceScoringTeam[];
+  incompleteTeams: RaceScoringTeam[];
+  individualTop: RaceScoringRunner[];
+  // Our own team's finishers in this division, sorted by place, capped at
+  // 10 — "how our top 10 stacked up against the full field."
+  ourTeamFinishers: RaceScoringRunner[];
+  ourTeamFinisherCount: number;
+}
+
 export interface ApiMeet {
   _id: string;
   id?: string;
@@ -29,6 +71,9 @@ export interface ApiMeet {
   // denominator for `results[].place` ("place of fieldFinisherCount").
   // Null/undefined until a field-results upload exists for this race.
   fieldFinisherCount?: number | null;
+  // Empty array (not undefined) when no field-results upload exists yet
+  // for this race — see GET /meets/:id.
+  scoring?: RaceScoringDivision[];
   results?: Array<{
     athleteId: string;
     time: number;

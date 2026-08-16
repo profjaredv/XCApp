@@ -4,6 +4,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam } = require('../middleware/auth');
 const { resolveActiveSeason } = require('../lib/season');
 const { computeTeamPlaces } = require('../lib/teamPlace');
+const { computeMeetScoring } = require('../lib/meetScoring');
 
 router.get('/', authenticate, requireTeam, async (req, res) => {
   const { season } = req.query;
@@ -47,17 +48,25 @@ router.get('/:id', authenticate, requireTeam, async (req, res) => {
       return res.status(404).json({ msg: 'Meet not found' });
     }
 
-    const results = await prisma.result.findMany({
-      where: { raceId: meet.id },
-      include: { athlete: { select: { id: true, name: true, gender: true } } },
-      orderBy: { time: 'asc' },
-    });
+    const [results, fieldResults] = await Promise.all([
+      prisma.result.findMany({
+        where: { raceId: meet.id },
+        include: { athlete: { select: { id: true, name: true, gender: true } } },
+        orderBy: { time: 'asc' },
+      }),
+      prisma.fieldResult.findMany({ where: { raceId: meet.id } }),
+    ]);
 
     // Team place (rank among just our own team's same-gender finishers) is
     // always computable from ORIGIN data alone — no field-results upload
     // needed — and distinct from place/overallPlace, which are FIELD's.
     // See lib/teamPlace.js for why this can't just be an array index.
     const teamPlaces = computeTeamPlaces(results);
+
+    // Team scoring (points, standings) needs the whole field, not just our
+    // own results — see lib/meetScoring.js. Empty array when no field
+    // upload exists yet for this race.
+    const scoring = computeMeetScoring({ results, fieldResults });
 
     const meetWithResults = {
       ...meet,
@@ -66,6 +75,7 @@ router.get('/:id', authenticate, requireTeam, async (req, res) => {
         athlete: r.athlete ? { ...r.athlete, grade: r.grade } : null,
         teamPlace: teamPlaces.get(r.id) ?? null,
       })),
+      scoring,
     };
 
     res.json(meetWithResults);
