@@ -42,6 +42,21 @@ const getGradeColor = (grade: string) => GRADE_COLORS[grade] || '#c3c2b7';
 // seconds — a 22-minute (1320s) race finishes in 22 real seconds.
 const COMPRESSION = 60;
 
+// Row sizing — a coach can have anywhere from a handful to 150+ runners on
+// screen at once (desktop/projector use, per the request). Row height is
+// computed from the actual available vertical space divided by runner
+// count (see trackHeight/ResizeObserver below), clamped between these:
+// MAX keeps a small roster from stretching into absurdly tall rows, MIN is
+// the floor below which a dot/line stops being legible at all — past that
+// point the track scrolls instead of compressing further.
+const MAX_ROW_HEIGHT = 26;
+const MIN_ROW_HEIGHT = 5;
+// Below this row height, per-row chrome (row number, finish-time labels)
+// gets dropped rather than rendered unreadably small — the dots and lines
+// (the actual race) stay legible far below where the text would.
+const ROW_NUMBER_MIN_HEIGHT = 11;
+const TIME_LABEL_MIN_HEIGHT = 13;
+
 export default function RaceVisualizationPage() {
   const { currentUser } = useAuth();
   const teamId = currentUser?.team?.id;
@@ -66,12 +81,33 @@ export default function RaceVisualizationPage() {
   const raceStartRef = useRef(0); // performance.now() timestamp elapsedMs=0 maps to
   const pausedElapsedRef = useRef(0); // elapsedMs captured at the moment of pausing
 
+  // Available height for the runner rows, in px — measured, not guessed,
+  // so the row-height math below always reflects the real viewport (and
+  // recomputes automatically on any resize, window or otherwise).
+  const trackWrapperRef = useRef<HTMLDivElement>(null);
+  const [trackHeight, setTrackHeight] = useState(0);
+
   useEffect(() => {
     if (teamId) {
       fetchImprovementData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, currentSeason]);
+
+  // The wrapper only exists once loading finishes (it's in the "loaded"
+  // render branch below) — re-run once loading flips so the observer
+  // actually attaches to a real node instead of running once against null.
+  useEffect(() => {
+    if (loading) return;
+    const el = trackWrapperRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setTrackHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loading]);
 
   const fetchImprovementData = async () => {
     try {
@@ -151,6 +187,23 @@ export default function RaceVisualizationPage() {
   // compression factor, so it reads out the runners' actual race time.
   const timer = (elapsedMs / 1000) * COMPRESSION;
 
+  // Fit as many runners on screen as the viewport allows: divide the
+  // measured available height by the runner count, clamp to a legible
+  // range. Only when even the minimum row height can't fit everyone does
+  // the track fall back to scrolling — a graceful floor for very large
+  // rosters rather than shrinking rows into invisibility.
+  const rowHeight = useMemo(() => {
+    if (runners.length === 0 || trackHeight === 0) return MAX_ROW_HEIGHT;
+    const ideal = trackHeight / runners.length;
+    return Math.min(MAX_ROW_HEIGHT, Math.max(MIN_ROW_HEIGHT, ideal));
+  }, [runners.length, trackHeight]);
+
+  const contentHeight = rowHeight * runners.length;
+  const needsScroll = trackHeight > 0 && contentHeight > trackHeight + 1;
+  const showRowNumbers = rowHeight >= ROW_NUMBER_MIN_HEIGHT;
+  const showTimeLabels = rowHeight >= TIME_LABEL_MIN_HEIGHT;
+  const dotSize = Math.min(10, Math.max(3, rowHeight * 0.55));
+
   const handleReset = () => {
     setIsRunning(false);
     setIsPaused(false);
@@ -195,7 +248,7 @@ export default function RaceVisualizationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0d0d0d] text-white p-8 relative overflow-hidden">
+    <div className="h-screen bg-[#0d0d0d] text-white p-6 relative overflow-hidden flex flex-col">
       {/* Subtle vignette instead of a loud gradient — a quiet, polished
           backdrop that doesn't compete with the runner colors. */}
       <div
@@ -203,19 +256,22 @@ export default function RaceVisualizationPage() {
         style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(57,135,229,0.08), transparent 60%)' }}
       ></div>
 
-      <div className="relative z-10 max-w-7xl mx-auto">
+      {/* No max-width cap — desktop/projector use benefits from using the
+          full available width; the track's positions are percentage-based
+          already, so a wider screen just gives every runner more room. */}
+      <div className="relative z-10 flex flex-col h-full w-full min-h-0">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">
+        <div className="text-center mb-3 shrink-0">
+          <h1 className="text-2xl font-bold text-white mb-1">
             Season Improvement Visualization
           </h1>
-          <p className="text-[#c3c2b7] text-lg">
+          <p className="text-[#c3c2b7] text-sm">
             {currentUser?.team?.name} • {currentSeason} Season
           </p>
         </div>
 
         {/* Controls Card */}
-        <div className="bg-[#1a1a19] border border-white/10 rounded-xl p-6 mb-8">
+        <div className="bg-[#1a1a19] border border-white/10 rounded-xl p-4 mb-3 shrink-0">
           <div className="flex justify-between items-center flex-wrap gap-4">
             <div className="flex gap-3 items-center">
               <Button
@@ -243,13 +299,13 @@ export default function RaceVisualizationPage() {
                 <RotateCcw className="h-4 w-4" />
                 Reset
               </Button>
-              <div className="font-mono text-2xl tabular-nums px-6 py-2 bg-black/40 rounded-lg border border-white/10">
+              <div className="font-mono text-xl tabular-nums px-5 py-1.5 bg-black/40 rounded-lg border border-white/10">
                 {formatTime(timer)}
               </div>
             </div>
 
             {/* Legend */}
-            <div className="flex gap-6 bg-black/40 px-6 py-3 rounded-lg border border-white/10">
+            <div className="flex gap-6 bg-black/40 px-6 py-2 rounded-lg border border-white/10">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-white"></div>
                 <span className="text-[#c3c2b7] text-sm">Best 5K</span>
@@ -274,86 +330,123 @@ export default function RaceVisualizationPage() {
           </div>
         </div>
 
-        {/* Race Track */}
-        <div className="bg-[#1a1a19] border border-white/10 rounded-xl p-8">
-          <div className="relative" style={{ width: '1250px', margin: '0 auto' }}>
-            {/* Start Line */}
-            <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-[#199e70]" style={{ height: `${runners.length * 30}px` }}></div>
+        {/* Race Track — fills whatever vertical space remains; row height
+            is computed (above) to fit every runner in that space without
+            scrolling, falling back to a scrollbar only past MIN_ROW_HEIGHT. */}
+        <div className="bg-[#1a1a19] border border-white/10 rounded-xl p-4 flex-1 min-h-0">
+          <div
+            ref={trackWrapperRef}
+            className="relative h-full"
+            style={{
+              overflowY: needsScroll ? 'auto' : 'hidden',
+              paddingLeft: showRowNumbers ? '2rem' : '0.5rem',
+              paddingRight: showTimeLabels ? '8rem' : '1rem',
+            }}
+          >
+            <div className="relative" style={{ height: needsScroll ? `${contentHeight}px` : '100%' }}>
+              {/* Start Line */}
+              <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-[#199e70]"></div>
 
-            {/* Finish Line */}
-            <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-white/60" style={{ height: `${runners.length * 30}px` }}></div>
+              {/* Finish Line */}
+              <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-white/60"></div>
 
-            {/* Mile Markers */}
-            {[250, 500, 750, 1000].map((left, idx) => (
-              <div
-                key={idx}
-                className="absolute top-0 w-px bg-white/10"
-                style={{ left: `${left}px`, height: `${runners.length * 30}px` }}
-              ></div>
-            ))}
+              {/* Mile Markers (roughly 1/2/3/4mi of a 5K) */}
+              {[20, 40, 60, 80].map((pct) => (
+                <div
+                  key={pct}
+                  className="absolute top-0 bottom-0 w-px bg-white/10"
+                  style={{ left: `${pct}%` }}
+                ></div>
+              ))}
 
-          {/* Runners */}
-          {runners.map((runner, index) => {
-            const gradeColor = getGradeColor(runner.grade);
-            const startPos = positions[`${runner.name}-start`] ?? 0;
-            const prPos = positions[`${runner.name}-pr`] ?? 0;
-            return (
-            <div key={`${runner.name}-${index}`} className="relative h-[30px] mb-1.5">
-              {/* Row Number */}
-              <div className="absolute -left-8 top-0 font-mono text-sm text-[#898781]">{index + 1}</div>
+              {/* Runners */}
+              {runners.map((runner, index) => {
+                const gradeColor = getGradeColor(runner.grade);
+                const startPos = positions[`${runner.name}-start`] ?? 0;
+                const prPos = positions[`${runner.name}-pr`] ?? 0;
+                return (
+                  <div
+                    key={`${runner.name}-${index}`}
+                    className="relative"
+                    style={{ height: `${rowHeight}px` }}
+                    title={`${runner.name} — first ${formatTime(runner.startTime)}, best ${formatTime(runner.prTime)}`}
+                  >
+                    {showRowNumbers && (
+                      <div
+                        className="absolute font-mono text-[#898781]"
+                        style={{ left: '-1.75rem', top: '50%', transform: 'translateY(-50%)', fontSize: Math.min(11, rowHeight * 0.55), lineHeight: 1 }}
+                      >
+                        {index + 1}
+                      </div>
+                    )}
 
-              {/* Runner Line */}
-              <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10"></div>
+                    {/* Runner Line */}
+                    <div className="absolute inset-x-0 top-1/2 h-px bg-white/10"></div>
 
-              {/* Start Time Runner (colored by grade) — no CSS transition:
-                  position is already recomputed every animation frame from
-                  elapsedMs, so the JS update itself is the motion. Layering
-                  a transition on top of an already-continuous value only
-                  adds lag and a "chasing" stutter. */}
-              <div
-                className="absolute w-2.5 h-2.5 rounded-full"
-                style={{
-                  left: `${startPos}%`,
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  background: gradeColor,
-                }}
-              ></div>
+                    {/* Start Time Runner (colored by grade) — no CSS
+                        transition: position is already recomputed every
+                        animation frame from elapsedMs, so the JS update
+                        itself is the motion. Layering a transition on top
+                        of an already-continuous value only adds lag. */}
+                    <div
+                      className="absolute rounded-full"
+                      style={{
+                        left: `${startPos}%`,
+                        top: '50%',
+                        width: dotSize,
+                        height: dotSize,
+                        transform: 'translate(-50%, -50%)',
+                        background: gradeColor,
+                      }}
+                    ></div>
 
-              {/* Improvement Line (dashed) */}
-              <div
-                className="absolute h-0.5 top-1/2 -translate-y-1/2"
-                style={{
-                  left: `${startPos}%`,
-                  width: `${Math.max(0, prPos - startPos)}%`,
-                  borderTop: `2px dashed ${gradeColor}66`,
-                }}
-              ></div>
+                    {/* Improvement Line (dashed) */}
+                    <div
+                      className="absolute h-0.5 top-1/2 -translate-y-1/2"
+                      style={{
+                        left: `${startPos}%`,
+                        width: `${Math.max(0, prPos - startPos)}%`,
+                        borderTop: `2px dashed ${gradeColor}66`,
+                      }}
+                    ></div>
 
-              {/* PR Runner (white) */}
-              <div
-                className="absolute w-2.5 h-2.5 rounded-full bg-white"
-                style={{
-                  left: `${prPos}%`,
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                }}
-              ></div>
+                    {/* PR Runner (white) */}
+                    <div
+                      className="absolute rounded-full bg-white"
+                      style={{
+                        left: `${prPos}%`,
+                        top: '50%',
+                        width: dotSize,
+                        height: dotSize,
+                        transform: 'translate(-50%, -50%)',
+                      }}
+                    ></div>
 
-              {/* Time Labels */}
-              {startPos >= 100 && (
-                <div className="absolute -right-16 top-0 font-mono text-xs text-[#c3c2b7]">
-                  {formatTime(runner.startTime)}
-                </div>
-              )}
-              {prPos >= 100 && (
-                <div className="absolute -right-32 top-0 font-mono text-xs text-white">
-                  {formatTime(runner.prTime)}
-                </div>
-              )}
+                    {/* Time Labels — dropped below TIME_LABEL_MIN_HEIGHT
+                        rather than rendered illegibly small; full name and
+                        finish times are still on the row via native title
+                        tooltip regardless of row height. */}
+                    {showTimeLabels && startPos >= 100 && (
+                      <div
+                        className="absolute font-mono text-[#c3c2b7] whitespace-nowrap"
+                        style={{ left: 'calc(100% + 0.5rem)', top: '50%', transform: 'translateY(-50%)', fontSize: Math.min(11, rowHeight * 0.5) }}
+                      >
+                        {formatTime(runner.startTime)}
+                      </div>
+                    )}
+                    {showTimeLabels && prPos >= 100 && (
+                      <div
+                        className="absolute font-mono text-white whitespace-nowrap"
+                        style={{ left: 'calc(100% + 3.25rem)', top: '50%', transform: 'translateY(-50%)', fontSize: Math.min(11, rowHeight * 0.5) }}
+                      >
+                        {formatTime(runner.prTime)}
+                      </div>
+                    )}
+
+                  </div>
+                );
+              })}
             </div>
-            );
-          })}
           </div>
         </div>
       </div>
