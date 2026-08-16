@@ -187,6 +187,36 @@ export default function RaceVisualizationPage() {
   // compression factor, so it reads out the runners' actual race time.
   const timer = (elapsedMs / 1000) * COMPRESSION;
 
+  // "Jar of time saved" — each runner's own improvement (first race minus
+  // best race, floored at 0 — a first race that IS the best race saved
+  // nothing) is credited the moment their PR (white) dot crosses the
+  // finish line, not before. totalPossibleSaved is the jar's "full" mark;
+  // totalSavedSoFar is read straight off `positions`, so it advances in
+  // the same discrete steps as runners actually finishing — the fill
+  // height gets a CSS transition (unlike the dots, which deliberately
+  // don't) precisely because this value is event-driven, not continuous,
+  // and a transition is what turns each step into a satisfying "glug"
+  // rather than an instant snap.
+  const totalPossibleSaved = useMemo(
+    () => runners.reduce((sum, r) => sum + Math.max(0, r.startTime - r.prTime), 0),
+    [runners]
+  );
+  const totalImprovers = useMemo(
+    () => runners.filter((r) => r.startTime > r.prTime).length,
+    [runners]
+  );
+  const totalSavedSoFar = useMemo(() => {
+    return runners.reduce((sum, r) => {
+      const improvement = Math.max(0, r.startTime - r.prTime);
+      const prPos = positions[`${r.name}-pr`] ?? 0;
+      return sum + (prPos >= 100 ? improvement : 0);
+    }, 0);
+  }, [runners, positions]);
+  const improversFinished = useMemo(() => {
+    return runners.filter((r) => r.startTime > r.prTime && (positions[`${r.name}-pr`] ?? 0) >= 100).length;
+  }, [runners, positions]);
+  const jarFillPercent = totalPossibleSaved > 0 ? Math.min(100, (totalSavedSoFar / totalPossibleSaved) * 100) : 0;
+
   // Fit as many runners on screen as the viewport allows: divide the
   // measured available height by the runner count, clamp to a legible
   // range. Only when even the minimum row height can't fit everyone does
@@ -229,6 +259,18 @@ export default function RaceVisualizationPage() {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  // A whole roster's worth of shaved seconds can add up past an hour —
+  // formatTime's mm:ss would wrap silently past 59:59, so the jar gets its
+  // own formatter that grows an hours place instead.
+  const formatSavedDuration = (seconds: number) => {
+    const total = Math.max(0, Math.round(seconds));
+    const hrs = Math.floor(total / 3600);
+    const mins = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    if (hrs > 0) return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    return `${mins}:${String(secs).padStart(2, '0')}`;
   };
 
   if (!teamId) {
@@ -330,10 +372,18 @@ export default function RaceVisualizationPage() {
           </div>
         </div>
 
-        {/* Race Track — fills whatever vertical space remains; row height
-            is computed (above) to fit every runner in that space without
-            scrolling, falling back to a scrollbar only past MIN_ROW_HEIGHT. */}
-        <div className="bg-[#1a1a19] border border-white/10 rounded-xl p-4 flex-1 min-h-0">
+        {/* Track + jar row — fills whatever vertical space remains after
+            the header/controls above. The jar sidebar has a fixed width,
+            so it doesn't affect the track's own available HEIGHT (the
+            row-height math below is unaffected); it only trims a little
+            width, which the percentage-based track positions absorb for
+            free. */}
+        <div className="flex-1 min-h-0 flex gap-3">
+
+        {/* Race Track — row height is computed from the actual available
+            space to fit every runner without scrolling, falling back to a
+            scrollbar only past MIN_ROW_HEIGHT. */}
+        <div className="bg-[#1a1a19] border border-white/10 rounded-xl p-4 flex-1 min-h-0 min-w-0">
           <div
             ref={trackWrapperRef}
             className="relative h-full"
@@ -448,6 +498,57 @@ export default function RaceVisualizationPage() {
               })}
             </div>
           </div>
+        </div>
+
+        {/* Time-Saved Jar — fills as each runner's PR (white dot) crosses
+            the finish line, crediting that runner's own improvement
+            (first race minus best race). A fixed-width sidebar rather than
+            stealing height from the track, so it doesn't touch the
+            row-fit math above; its own height matches the track card via
+            the row's default flex stretch, so it's genuinely tall on a
+            big screen, not a token decoration. */}
+        <div className="w-36 shrink-0 bg-[#1a1a19] border border-white/10 rounded-xl p-3 flex flex-col items-center">
+          <div className="text-[10px] uppercase tracking-wide text-[#898781] mb-1 text-center">Time Saved</div>
+          <div className="font-mono text-lg font-bold text-white tabular-nums mb-2">
+            {formatSavedDuration(totalSavedSoFar)}
+          </div>
+
+          <div className="relative flex-1 min-h-0 w-full flex flex-col items-center">
+            {/* Lid */}
+            <div className="shrink-0" style={{ width: '44%', height: 8, background: '#3a3a38', borderRadius: '3px 3px 0 0' }}></div>
+            {/* Neck */}
+            <div
+              className="shrink-0"
+              style={{ width: '34%', height: 10, borderLeft: '2px solid rgba(255,255,255,0.18)', borderRight: '2px solid rgba(255,255,255,0.18)' }}
+            ></div>
+            {/* Body */}
+            <div
+              className="relative w-full flex-1 min-h-0"
+              style={{
+                border: '2px solid rgba(255,255,255,0.18)',
+                borderRadius: '10px 10px 22px 22px',
+                overflow: 'hidden',
+                background: 'rgba(255,255,255,0.03)',
+              }}
+            >
+              <div
+                className="absolute inset-x-0 bottom-0"
+                style={{
+                  height: `${jarFillPercent}%`,
+                  transition: 'height 0.9s cubic-bezier(0.22, 1, 0.36, 1)',
+                  background: 'linear-gradient(180deg, #a99af0, #6f5fd6)',
+                }}
+              >
+                {/* Surface shimmer */}
+                <div className="absolute inset-x-0 top-0" style={{ height: 2, background: 'rgba(255,255,255,0.4)' }}></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-[10px] text-[#898781] mt-2 text-center leading-tight">
+            {improversFinished} of {totalImprovers} PRs counted
+          </div>
+        </div>
         </div>
       </div>
     </div>
