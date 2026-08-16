@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { Sparkles, TrendingUp, Users, Loader2, Lightbulb, AlertCircle, Download, Play } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrentSeasonWithData } from '@/hooks/useCurrentSeasonWithData';
+import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
+import { useQueryParamNumber } from '@/hooks/useQueryState';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import axiosInstance from '@/api/axios';
 
 interface Athlete {
@@ -67,11 +70,14 @@ interface AiInsightsData {
 export default function CoachesToolsPage() {
   const { currentUser } = useAuth();
   const teamId = currentUser?.team?.id;
-  // No season picker on this page — default past an empty active/preseason
-  // to the most recent season that actually has races, or every tool here
-  // (training groups, improvement tracking, AI insights) looks broken on a
-  // team that just rolled into a new season.
-  const currentSeason = useCurrentSeasonWithData(teamId);
+  // Default past an empty active/preseason to the most recent season that
+  // actually has races, so a team that just rolled into a new season isn't
+  // greeted with "no data" on every tool here — but a coach can still pick
+  // any past season explicitly via the dropdown below.
+  const defaultSeason = useCurrentSeasonWithData(teamId);
+  const { data: availableSeasons = [] } = useAvailableSeasons(teamId);
+  const [seasonParam, setSeasonParam] = useQueryParamNumber('season');
+  const currentSeason = seasonParam ?? defaultSeason;
 
   const [trainingGroups, setTrainingGroups] = useState<TrainingGroup[]>([]);
   const [groupsRationale, setGroupsRationale] = useState<string>('');
@@ -83,10 +89,18 @@ export default function CoachesToolsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (teamId) {
+    if (teamId && currentSeason) {
       fetchImprovements();
+      // Training groups and AI insights are generated on demand (button
+      // click) for whichever season was current when the coach clicked —
+      // clear them on season change so a switch doesn't leave last season's
+      // groups on screen mislabeled under the new season.
+      setTrainingGroups([]);
+      setGroupsRationale('');
+      setAiInsights(null);
     }
-  }, [teamId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, currentSeason]);
 
   const fetchImprovements = async () => {
     try {
@@ -256,11 +270,25 @@ export default function CoachesToolsPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-3xl font-bold">Coaches Tools</h1>
-        <p className="text-muted-foreground mt-2">
-          AI-powered training insights and athlete improvement tracking for {currentSeason} season
-        </p>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold">Coaches Tools</h1>
+          <p className="text-muted-foreground mt-2">
+            AI-powered training insights and athlete improvement tracking for {currentSeason} season
+          </p>
+        </div>
+        {availableSeasons.length > 0 && (
+          <Select value={currentSeason.toString()} onValueChange={(v) => setSeasonParam(Number(v))}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Select season" /></SelectTrigger>
+            <SelectContent>
+              {availableSeasons.map((s) => (
+                <SelectItem key={s.year} value={s.year.toString()}>
+                  {s.year}{s.year === defaultSeason ? ' (Current)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {error && (

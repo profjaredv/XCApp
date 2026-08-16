@@ -4,6 +4,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { paceSecPerMile } = require('../lib/groupAnalytics');
+const { resolveActiveSeason } = require('../lib/season');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // No fallback literal here on purpose — a hardcoded key was committed to
@@ -14,11 +15,6 @@ const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GE
 
 const trainingGroupsCache = new Map();
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
-
-async function resolveTargetSeason(teamId, requestedSeason) {
-  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { currentSeason: true } });
-  return team?.currentSeason || parseInt(requestedSeason, 10);
-}
 
 /**
  * @route   GET /api/coaches-tools/athlete-performance/:season
@@ -81,7 +77,7 @@ router.get('/athlete-performance/:season', authenticate, requireTeam, requireRol
 router.post('/generate-training-groups/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const teamId = req.user.teamId;
-    const targetSeason = await resolveTargetSeason(teamId, req.params.season);
+    const targetSeason = await resolveActiveSeason(teamId, req.params.season);
 
     const seasonRaces = await prisma.race.findMany({ where: { teamId, season: targetSeason }, select: { id: true } });
     const raceIds = seasonRaces.map((r) => r.id);
@@ -261,7 +257,7 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
       return res.json({ success: true, data: cached.data, cached: true });
     }
 
-    const targetSeason = await resolveTargetSeason(teamId, season);
+    const targetSeason = await resolveActiveSeason(teamId, season);
 
     const seasonRaces = await prisma.race.findMany({ where: { teamId, season: targetSeason }, select: { id: true } });
     const raceIds = seasonRaces.map((r) => r.id);
@@ -369,7 +365,7 @@ Return JSON only:
 router.get('/improvement-tracking/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const teamId = req.user.teamId;
-    const targetSeason = await resolveTargetSeason(teamId, req.params.season);
+    const targetSeason = await resolveActiveSeason(teamId, req.params.season);
 
     const seasonRaces = await prisma.race.findMany({
       where: { teamId, season: targetSeason },
