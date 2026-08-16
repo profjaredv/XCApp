@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Users, Timer, Zap, Target, TrendingUp, ArrowUpRight } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { formatTime, formatPace, formatDateShort } from '@/lib/formatUtils';
 import { EnhancedTeamMetrics } from '@/api/enhancedAnalyticsService';
 import { TeamSeasonSeriesPoint } from '@/types/performance';
@@ -48,13 +48,18 @@ export function DashboardTab({
     { name: 'Women', count: enhancedMetrics.byGender.women.count }
   ] : [];
 
-  // Prepare Grade Data for Bar Chart
-  const gradeData = enhancedMetrics ? [
-    { name: 'Fr', count: enhancedMetrics.byGrade.grade9?.count || 0, avgPace: enhancedMetrics.byGrade.grade9?.avgPace || 0 },
-    { name: 'So', count: enhancedMetrics.byGrade.grade10?.count || 0, avgPace: enhancedMetrics.byGrade.grade10?.avgPace || 0 },
-    { name: 'Jr', count: enhancedMetrics.byGrade.grade11?.count || 0, avgPace: enhancedMetrics.byGrade.grade11?.avgPace || 0 },
-    { name: 'Sr', count: enhancedMetrics.byGrade.grade12?.count || 0, avgPace: enhancedMetrics.byGrade.grade12?.avgPace || 0 }
-  ].filter(g => g.count > 0) : [];
+  // Grade x gender pace table — a grade's boys and girls shouldn't be
+  // averaged together, and the count alone (the old "Grade Breakdown" bar
+  // chart) is roster data, not analysis; pace is what a coach actually
+  // wants to compare grade-to-grade.
+  const gradeGenderRows = enhancedMetrics ? [
+    { label: 'Fr', key: 'grade9' as const },
+    { label: 'So', key: 'grade10' as const },
+    { label: 'Jr', key: 'grade11' as const },
+    { label: 'Sr', key: 'grade12' as const },
+  ]
+    .map(({ label, key }) => ({ label, boys: enhancedMetrics.byGradeGender[key].M, girls: enhancedMetrics.byGradeGender[key].F }))
+    .filter((row) => row.boys.count > 0 || row.girls.count > 0) : [];
 
   return (
     <div className="space-y-6">
@@ -103,18 +108,27 @@ export function DashboardTab({
           </CardContent>
         </Card>
 
-        {/* Conditional Card: Show Depth Score if Enhanced is available, else show Most Improved Count */}
+        {/* Conditional Card: Show Team Scoring if Enhanced is available, else show Most Improved Count */}
         {enhancedMetrics ? (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Depth Score</CardTitle>
+              <CardTitle className="text-sm font-medium">Avg Team Score</CardTitle>
               <Target className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{enhancedMetrics.teamDepth.depthScore.toFixed(3)}</div>
+              <div className="text-2xl font-bold">
+                {enhancedMetrics.fieldStanding.avgTeamScore != null ? enhancedMetrics.fieldStanding.avgTeamScore : '—'}
+              </div>
               <p className="text-xs text-muted-foreground">
-                Top 5 Spread: {formatTime(enhancedMetrics.teamDepth.top5Spread)}
+                {enhancedMetrics.fieldStanding.scoredDivisionCount > 0
+                  ? `Across ${enhancedMetrics.fieldStanding.scoredDivisionCount} scored division${enhancedMetrics.fieldStanding.scoredDivisionCount === 1 ? '' : 's'} (lower is better)`
+                  : 'Upload field results to see scoring'}
               </p>
+              {enhancedMetrics.fieldStanding.totalWithFieldData > 0 && (
+                <p className="text-xs text-muted-foreground mt-1 pt-1 border-t">
+                  {enhancedMetrics.fieldStanding.top20Percent}% of runners in top 20% of field · {enhancedMetrics.fieldStanding.top50Percent}% in top 50%
+                </p>
+              )}
             </CardContent>
           </Card>
         ) : (
@@ -177,27 +191,48 @@ export function DashboardTab({
 
         {/* Secondary Charts: Demographics (Takes up 3/7 columns) */}
         <div className="lg:col-span-3 space-y-6">
-          {/* If enhanced metrics available, show Grade Breakdown, otherwise show Top Improved */}
+          {/* If enhanced metrics available, show Pace by Grade, otherwise show Top Improved */}
           {enhancedMetrics ? (
              <Card className="h-full">
               <CardHeader>
-                <CardTitle>Grade Breakdown</CardTitle>
-                <CardDescription>Athletes per grade level</CardDescription>
+                <CardTitle>Pace by Grade</CardTitle>
+                <CardDescription>Average mile pace by grade and gender</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={gradeData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                    <XAxis type="number" hide />
-                    <YAxis dataKey="name" type="category" width={30} />
-                    <Tooltip cursor={{fill: 'transparent'}} />
-                    <Bar dataKey="count" fill="#8884d8" radius={[0, 4, 4, 0]} barSize={30}>
-                        <div className="custom-label">
-                            {/* Custom label rendering logic could go here if needed */}
-                        </div>
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                {gradeGenderRows.length > 0 ? (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-muted-foreground">
+                        <th className="pb-2 font-medium">Grade</th>
+                        <th className="pb-2 font-medium">Boys</th>
+                        <th className="pb-2 font-medium">Girls</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gradeGenderRows.map((row) => (
+                        <tr key={row.label} className="border-t">
+                          <td className="py-2 font-medium">{row.label}</td>
+                          <td className="py-2">
+                            {row.boys.count > 0 ? (
+                              <>{formatPace(row.boys.avgPace)} <span className="text-muted-foreground">({row.boys.count})</span></>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="py-2">
+                            {row.girls.count > 0 ? (
+                              <>{formatPace(row.girls.avgPace)} <span className="text-muted-foreground">({row.girls.count})</span></>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No grade data yet.</p>
+                )}
               </CardContent>
             </Card>
           ) : (

@@ -48,6 +48,10 @@ export interface RaceScoringTeam {
 // entries at all (Meet.scoring is an empty array, not per-division nulls).
 export interface RaceScoringDivision {
   division: string;
+  // Total finishers with a known place in this division — the correct
+  // denominator for "place N of fieldSize" here, unlike
+  // RaceResult.overallFieldSize (can span multiple divisions).
+  fieldSize: number;
   scoringTeams: RaceScoringTeam[];
   incompleteTeams: RaceScoringTeam[];
   individualTop: RaceScoringRunner[];

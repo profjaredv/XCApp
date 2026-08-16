@@ -112,7 +112,16 @@ export interface EnhancedTeamMetrics {
     grade11: GradeMetrics;
     grade12: GradeMetrics;
   };
-  
+
+  // Grade breakdown split by gender — boys and girls paces shouldn't be
+  // averaged together within a grade.
+  byGradeGender: {
+    grade9: { M: GradeMetrics; F: GradeMetrics };
+    grade10: { M: GradeMetrics; F: GradeMetrics };
+    grade11: { M: GradeMetrics; F: GradeMetrics };
+    grade12: { M: GradeMetrics; F: GradeMetrics };
+  };
+
   // Distance-specific team analysis
   byDistance: {
     oneMile: TeamDistanceMetrics;
@@ -133,6 +142,17 @@ export interface EnhancedTeamMetrics {
     avgGapBetweenRunners: number;
     packTightness: number;
     packConsistency: number;
+  };
+
+  // Team scoring / field-standing — from field-results uploads (see
+  // backend lib/meetScoring.js). Null fields when no race this season has
+  // field-results data yet.
+  fieldStanding: {
+    avgTeamScore: number | null;
+    scoredDivisionCount: number;
+    top20Percent: number | null;
+    top50Percent: number | null;
+    totalWithFieldData: number;
   };
 }
 

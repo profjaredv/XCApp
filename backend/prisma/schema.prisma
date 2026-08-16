@@ -934,9 +934,18 @@ model TeamSeasonMetrics {
   lastMeet           Json?    @map("last_meet")
   byGender           Json?    @map("by_gender")
   byGrade            Json?    @map("by_grade")
+  // Cross-tab of byGrade x byGender ({ grade9: { M: GroupStats, F: GroupStats }, ... })
+  // — the dashboard's "average pace by grade+gender+count" view. Same
+  // _calculateGroupStats shape as byGender/byGrade, just split both ways.
+  byGradeGender      Json?    @map("by_grade_gender")
   byDistance         Json?    @map("by_distance")
   teamDepth          Json?    @map("team_depth")
   packRunning        Json?    @map("pack_running")
+  // Team scoring/field-standing, computed from field-results uploads (see
+  // lib/meetScoring.js) — { avgTeamScore, scoredDivisionCount, top20Percent,
+  // top50Percent, totalWithFieldData }. Null fields (not the JSON as a
+  // whole) when no field-results upload exists for any race this season.
+  fieldStanding      Json?    @map("field_standing")
   calculatedAt       DateTime @default(now()) @map("calculated_at")
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)

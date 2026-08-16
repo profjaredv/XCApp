@@ -104,6 +104,17 @@ test('computeDivisionScoring: a row with no schoolName occupies its place but sc
   assert.equal(individualTop.length, 3);
 });
 
+test('computeDivisionScoring: fieldSize counts every row with a known place, not just ours', () => {
+  const rows = [
+    fr('h1', 'Home A', 'Home', 'X', 'M', 1),
+    fr('a1', 'Away A', 'Away', 'X', 'M', 2),
+    fr('u1', 'Unattached', null, 'X', 'M', 3),
+    { id: 'nop', athleteName: 'No Place', schoolName: 'Home', division: 'X', gender: 'M', place: null, timeSec: 999, status: 'FINISHED' },
+  ];
+  const { fieldSize } = computeDivisionScoring(rows);
+  assert.equal(fieldSize, 3);
+});
+
 test('computeDivisionScoring: 6th and 7th finishers are displacers, not scorers', () => {
   const rows = [1, 2, 3, 4, 5, 6, 7].map((place) => fr(`h${place}`, `Home ${place}`, 'Home', 'X', 'M', place));
   const { scoringTeams } = computeDivisionScoring(rows);

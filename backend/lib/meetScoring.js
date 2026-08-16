@@ -95,6 +95,12 @@ function computeDivisionScoring(fieldResults, ourFieldResultIds = new Set()) {
     .sort((a, b) => a.place - b.place);
 
   return {
+    // Total finishers with a known place in this division — the correct
+    // denominator for "place N of fieldSize" in this division, unlike
+    // Result.overallFieldSize, which can span multiple divisions of a race
+    // and is only meaningful when those divisions are genuinely the same
+    // event (known gap, not fixed here — see Result.overallPlace comment).
+    fieldSize: withPlace.length,
     scoringTeams,
     incompleteTeams,
     individualTop,

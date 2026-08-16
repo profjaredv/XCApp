@@ -4,6 +4,7 @@ const cache = require('./cache');
 const { deriveGrade } = require('../../lib/season');
 const { parseDistanceToMeters, metersToMiles } = require('../../lib/distance');
 const { computeTeamPlaces } = require('../../lib/teamPlace');
+const { computeMeetScoring } = require('../../lib/meetScoring');
 
 class CalculationService {
   constructor() {
@@ -497,9 +498,11 @@ class CalculationService {
 
       const byGender = this.calculateGenderBreakdown(athleteMetrics);
       const byGrade = this.calculateGradeBreakdown(athleteMetrics);
+      const byGradeGender = this.calculateGradeGenderBreakdown(athleteMetrics);
       const byDistance = await this.calculateDistanceBreakdown(teamId, season);
       const teamDepth = await this.calculateTeamDepth(teamId, season);
       const packRunning = await this.calculatePackRunning(teamId, season);
+      const fieldStanding = await this.calculateFieldStanding(teamId, season);
 
       const teamMetrics = {
         athleteCount: athleteMetrics.length,
@@ -514,9 +517,11 @@ class CalculationService {
         lastMeet: lastMeetData,
         byGender,
         byGrade,
+        byGradeGender,
         byDistance,
         teamDepth,
         packRunning,
+        fieldStanding,
         calculatedAt: new Date(),
       };
 
@@ -665,6 +670,24 @@ class CalculationService {
       grade11: this._calculateGroupStats(byGrade.grade11),
       grade12: this._calculateGroupStats(byGrade.grade12),
     };
+  }
+
+  // Same breakdown as byGrade, split by gender too — "average pace by
+  // grade+gender+count" is more informative than count alone (byGrade
+  // already had avgPace, the dashboard just wasn't using it) and boys/girls
+  // paces shouldn't be averaged together within a grade.
+  calculateGradeGenderBreakdown(athleteMetrics) {
+    const grades = [9, 10, 11, 12];
+    const genders = ['M', 'F'];
+    const result = {};
+    for (const grade of grades) {
+      result[`grade${grade}`] = {};
+      for (const gender of genders) {
+        const group = athleteMetrics.filter((a) => a.grade === grade && a.gender === gender);
+        result[`grade${grade}`][gender] = this._calculateGroupStats(group);
+      }
+    }
+    return result;
   }
 
   /**
@@ -823,6 +846,61 @@ class CalculationService {
     } catch (error) {
       logger.error(`Error calculating pack running: ${error.message}`);
       return { avgGapBetweenRunners: 0, packTightness: 0, packConsistency: 0 };
+    }
+  }
+
+  /**
+   * Team scoring and field-standing, from field-results uploads (see
+   * lib/meetScoring.js) — how the team scores against real opponents and
+   * where its runners land in the full field, not just against itself.
+   * Every field is null (not the whole object) when no race this season
+   * has field-results data yet, so the frontend can tell "no data" apart
+   * from "computed as zero."
+   */
+  async calculateFieldStanding(teamId, season) {
+    try {
+      const races = await prisma.race.findMany({
+        where: { teamId, season },
+        select: {
+          id: true,
+          results: { select: { id: true, athlete: { select: { name: true } } } },
+          fieldResults: true,
+        },
+      });
+
+      const scores = [];
+      let top20Count = 0;
+      let top50Count = 0;
+      let totalWithFieldData = 0;
+
+      for (const race of races) {
+        const divisions = computeMeetScoring(race);
+        for (const division of divisions) {
+          const ourTeam = division.scoringTeams.find((t) => t.isOurTeam && t.canScore);
+          if (ourTeam) scores.push(ourTeam.score);
+
+          if (division.fieldSize > 0) {
+            for (const finisher of division.ourTeamFinishers) {
+              if (finisher.place == null) continue;
+              totalWithFieldData++;
+              const percentile = finisher.place / division.fieldSize;
+              if (percentile <= 0.2) top20Count++;
+              if (percentile <= 0.5) top50Count++;
+            }
+          }
+        }
+      }
+
+      return {
+        avgTeamScore: scores.length > 0 ? parseFloat((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)) : null,
+        scoredDivisionCount: scores.length,
+        top20Percent: totalWithFieldData > 0 ? parseFloat(((top20Count / totalWithFieldData) * 100).toFixed(1)) : null,
+        top50Percent: totalWithFieldData > 0 ? parseFloat(((top50Count / totalWithFieldData) * 100).toFixed(1)) : null,
+        totalWithFieldData,
+      };
+    } catch (error) {
+      logger.error(`Error calculating field standing: ${error.message}`);
+      return { avgTeamScore: null, scoredDivisionCount: 0, top20Percent: null, top50Percent: null, totalWithFieldData: 0 };
     }
   }
 

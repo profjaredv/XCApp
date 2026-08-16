@@ -99,6 +99,12 @@ router.get('/team/:season', authenticate, requireTeam, async (req, res) => {
         grade11: { count: 0, avgPace: 0, bestTime: 0 },
         grade12: { count: 0, avgPace: 0, bestTime: 0 },
       },
+      byGradeGender: teamMetrics.byGradeGender || {
+        grade9: { M: { count: 0, avgPace: 0, bestTime: 0 }, F: { count: 0, avgPace: 0, bestTime: 0 } },
+        grade10: { M: { count: 0, avgPace: 0, bestTime: 0 }, F: { count: 0, avgPace: 0, bestTime: 0 } },
+        grade11: { M: { count: 0, avgPace: 0, bestTime: 0 }, F: { count: 0, avgPace: 0, bestTime: 0 } },
+        grade12: { M: { count: 0, avgPace: 0, bestTime: 0 }, F: { count: 0, avgPace: 0, bestTime: 0 } },
+      },
       byDistance: teamMetrics.byDistance || {
         oneMile: { athleteCount: 0, raceCount: 0, avgTime: 0, bestTime: 0, avgPace: 0 },
         onePointFiveMile: { athleteCount: 0, raceCount: 0, avgTime: 0, bestTime: 0, avgPace: 0 },
@@ -107,6 +113,13 @@ router.get('/team/:season', authenticate, requireTeam, async (req, res) => {
       },
       teamDepth: teamMetrics.teamDepth || { top5Spread: 0, top7Spread: 0, depthScore: 0, varsityAvgTime: 0, jvAvgTime: 0 },
       packRunning: teamMetrics.packRunning || { avgGapBetweenRunners: 0, packTightness: 0, packConsistency: 0 },
+      fieldStanding: teamMetrics.fieldStanding || {
+        avgTeamScore: null,
+        scoredDivisionCount: 0,
+        top20Percent: null,
+        top50Percent: null,
+        totalWithFieldData: 0,
+      },
     };
 
     res.json({ success: true, data: enhancedMetrics });
