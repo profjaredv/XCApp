@@ -11,6 +11,7 @@ import GroupsPage from '../pages/GroupsPage';
 import PracticePlansPage from '../pages/PracticePlansPage';
 import MeetOpsPage from '../pages/MeetOpsPage';
 import EquipmentPage from '../pages/EquipmentPage';
+import IntervalSessionsPage from '../pages/IntervalSessionsPage';
 import FeedbackPage from '../pages/FeedbackPage';
 import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
@@ -154,6 +155,10 @@ export const router = createBrowserRouter([
                   {
                     path: 'equipment',
                     element: <EquipmentPage />,
+                  },
+                  {
+                    path: 'interval-sessions',
+                    element: <IntervalSessionsPage />,
                   },
                   {
                     path: 'roster',

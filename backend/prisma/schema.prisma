@@ -64,6 +64,8 @@ model User {
   updatedMeetEntries      MeetEntry[]           @relation("MeetEntryUpdater")
   equipmentCheckedOut     EquipmentAssignment[] @relation("EquipmentCheckedOutBy")
   equipmentReturned       EquipmentAssignment[] @relation("EquipmentReturnedBy")
+  createdIntervalSessions IntervalSession[]     @relation("IntervalSessionCreator")
+  createdTrainingLogs     TrainingLog[]         @relation("TrainingLogCreator")
 
   @@index([teamId])
   @@map("users")
@@ -100,6 +102,7 @@ model Team {
   workoutTemplates       WorkoutTemplate[]
   meets                  Meet[]
   equipment              Equipment[]
+  intervalSessions       IntervalSession[]
 
   @@index([coachUid])
   @@map("teams")
@@ -172,21 +175,22 @@ model Athlete {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  team                 Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user                 User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
-  results              Result[]
-  raceSplits           RaceSplit[]
-  seasonRosterEntries  SeasonRoster[]
-  seasonMetrics        AthleteSeasonMetrics[]
-  bestInMeets          MeetPerformanceMetrics[] @relation("BestAthlete")
-  invite               AthleteInvite?
-  claims               AthleteClaim[]
-  trainingLogs         TrainingLog[]
-  guardianLinks        GuardianLink[]
-  groupMemberships     GroupMembership[]
-  meetEntries          MeetEntry[]
-  raceReflections      RaceReflection[]
-  equipmentAssignments EquipmentAssignment[]
+  team                   Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user                   User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
+  results                Result[]
+  raceSplits             RaceSplit[]
+  seasonRosterEntries    SeasonRoster[]
+  seasonMetrics          AthleteSeasonMetrics[]
+  bestInMeets            MeetPerformanceMetrics[] @relation("BestAthlete")
+  invite                 AthleteInvite?
+  claims                 AthleteClaim[]
+  trainingLogs           TrainingLog[]
+  guardianLinks          GuardianLink[]
+  groupMemberships       GroupMembership[]
+  meetEntries            MeetEntry[]
+  raceReflections        RaceReflection[]
+  equipmentAssignments   EquipmentAssignment[]
+  intervalSessionEntries IntervalSessionEntry[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -313,7 +317,20 @@ model TrainingLog {
   notes       String?
   createdAt   DateTime @default(now()) @map("created_at")
 
-  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  // Set only when a coach's IntervalSession entry wrote this row (T6 item
+  // 6: coach-recorded reps get logged back to the athlete). Every other
+  // TrainingLog is athlete-self-reported, per this model's own comment
+  // above, so createdById stays null for those — this is the one
+  // deliberate exception, not a general coach-authorship field.
+  createdById                  String? @map("created_by") @db.Uuid
+  sourceIntervalSessionEntryId String? @unique @map("source_interval_session_entry_id") @db.Uuid
+  // [{ rep: 1, seconds: 185 }, ...] — only ever set alongside
+  // sourceIntervalSessionEntryId; a plain self-reported log has no splits.
+  repSplits                    Json?   @map("rep_splits")
+
+  athlete                    Athlete               @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  createdBy                  User?                 @relation("TrainingLogCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  sourceIntervalSessionEntry IntervalSessionEntry? @relation(fields: [sourceIntervalSessionEntryId], references: [id], onDelete: SetNull)
 
   @@index([athleteId, date])
   @@map("training_logs")
@@ -680,6 +697,7 @@ model Season {
   practicePlans        PracticePlan[]
   meets                Meet[]
   equipmentAssignments EquipmentAssignment[]
+  intervalSessions     IntervalSession[]
 
   @@unique([teamId, year, sport])
   @@index([teamId])
@@ -743,11 +761,12 @@ model Group {
   color     String?
   archived  Boolean   @default(false)
 
-  team            Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  season          Season                   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  memberships     GroupMembership[]
-  leaders         GroupLeader[]
-  planAssignments PracticePlanAssignment[]
+  team             Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season           Season                   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  memberships      GroupMembership[]
+  leaders          GroupLeader[]
+  planAssignments  PracticePlanAssignment[]
+  intervalSessions IntervalSession[]
 
   @@unique([seasonId, name])
   @@index([teamId, seasonId])
@@ -876,6 +895,74 @@ model WorkoutTemplate {
 
   @@unique([teamId, name])
   @@map("workout_templates")
+}
+
+// ---------------------------------------------------------------------------
+// T6 item 6 (coach-adoption pass): coach-led interval/tempo capture. A
+// coach's paper sheet for "5 x 800" has one row per athlete with a fixed
+// set of time blanks; this is that sheet, not a PracticePlanAssignment
+// (which describes what a group *should* do, not what each athlete
+// actually ran). Saving writes each entry back to that athlete's
+// TrainingLog — see TrainingLog.sourceIntervalSessionEntryId.
+// ---------------------------------------------------------------------------
+
+model IntervalSession {
+  id       String   @id @default(uuid()) @db.Uuid
+  teamId   String   @map("team_id") @db.Uuid
+  seasonId String   @map("season_id") @db.Uuid
+  // Null for an ad hoc combined/all-comers session — a coach can run one
+  // of these without it belonging to any single training Group.
+  groupId  String?  @map("group_id") @db.Uuid
+  date     DateTime @db.Date
+  title    String // "5 x 800m Tempo"
+
+  // Repeat distance + VDOT zone this session's suggested paces are pulled
+  // from (TrainingPaceZone['key'] in vdotPaces.ts: threshold | interval |
+  // repetition — the only zones with meaningful repeat splits). Suggested
+  // times are computed client-side from each athlete's own VDOT, not
+  // stored here.
+  repDistanceM Int    @map("rep_distance_m")
+  zone         String
+
+  createdById String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  team      Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season    Season                 @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  group     Group?                 @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdBy User?                  @relation("IntervalSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  entries   IntervalSessionEntry[]
+
+  @@index([teamId, seasonId, date])
+  @@map("interval_sessions")
+}
+
+// Six fixed rep-time columns rather than a normalized reps table — the
+// user's own call: "should be fixed... for simplicity, having all 6
+// listed." A low-volume athlete just leaves rep4-6 blank; the grid always
+// shows all 6.
+model IntervalSessionEntry {
+  id                String  @id @default(uuid()) @db.Uuid
+  intervalSessionId String  @map("interval_session_id") @db.Uuid
+  athleteId         String  @map("athlete_id") @db.Uuid
+  // True when this athlete isn't a member of the session's group (or the
+  // session has no group) — "sometimes that happens" per the request.
+  addedManually     Boolean @default(false) @map("added_manually")
+  rep1              Float?
+  rep2              Float?
+  rep3              Float?
+  rep4              Float?
+  rep5              Float?
+  rep6              Float?
+  notes             String?
+
+  intervalSession IntervalSession @relation(fields: [intervalSessionId], references: [id], onDelete: Cascade)
+  athlete         Athlete         @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  trainingLog     TrainingLog?
+
+  @@unique([intervalSessionId, athleteId])
+  @@map("interval_session_entries")
 }
 
 // ---------------------------------------------------------------------------
