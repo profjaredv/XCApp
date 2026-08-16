@@ -1,8 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -14,18 +13,11 @@ import {
 import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
 import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Loader2, Package } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
-import { useRosterWithRaces } from '@/hooks/useGroups';
+import { useRosterWithRaces, useGroups, useGroupMembers } from '@/hooks/useGroups';
 import {
   useEquipmentList,
   useCheckoutEquipment,
@@ -55,6 +47,8 @@ const TYPE_LABEL: Record<EquipmentType, string> = {
   SPIKES: 'Spikes',
   OTHER: 'Other',
 };
+
+const SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
 
 const EquipmentPage: React.FC = () => {
   const { data: context } = useTeamContext();
@@ -113,15 +107,19 @@ const EquipmentPage: React.FC = () => {
 };
 
 // The grid a coach already knows from paper: one row per athlete, one
-// column per category. An empty cell is a dashed "+" — click it to check
-// an item out (size + number, one action, matching how a coach fills in a
-// sign-out sheet). A filled cell shows what's out and opens the same
-// dialog to return it or correct the size.
+// column per category, everything an input right in the cell — no dialog
+// to open. Size is a dropdown (XS-XXXL, matching what's actually printed
+// on a uniform tag), number is free text (jersey #, asset tag), and one
+// button per cell does double duty: "Check out" saves both fields and
+// creates the assignment, "Check in" returns it. A coaches-group filter
+// above the grid narrows the rows to one group at a time — the size a
+// 120-name roster actually gets worked in is a handful of kids at once.
 const CheckoutGrid: React.FC<{ seasonId: string; year: number }> = ({ seasonId, year }) => {
   const { data: roster = [] } = useRosterWithRaces(year);
   const { data: items = [], isLoading } = useEquipmentList();
-
-  const [activeCell, setActiveCell] = useState<{ athleteId: string; athleteName: string; type: EquipmentType } | null>(null);
+  const { data: groups = [] } = useGroups(seasonId);
+  const [groupFilter, setGroupFilter] = useState('ALL');
+  const { data: groupMembers = [] } = useGroupMembers(groupFilter !== 'ALL' ? groupFilter : null);
 
   // athleteId -> type -> the item currently checked out to them in that
   // category. Assumes at most one item per athlete per category at a
@@ -139,81 +137,81 @@ const CheckoutGrid: React.FC<{ seasonId: string; year: number }> = ({ seasonId, 
     return map;
   }, [items]);
 
+  const visibleRoster = useMemo(() => {
+    if (groupFilter === 'ALL') return roster;
+    const memberIds = new Set(groupMembers.map((m) => m.athleteId));
+    return roster.filter((a) => memberIds.has(a.id));
+  }, [roster, groupFilter, groupMembers]);
+
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (roster.length === 0) {
     return <p className="text-sm text-muted-foreground">No athletes on the roster yet — add some from the Roster screen first.</p>;
   }
 
   return (
-    <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Package className="h-5 w-5" />
-            Equipment checkout
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Athlete</TableHead>
-                {EQUIPMENT_TYPES.map((t) => (
-                  <TableHead key={t}>{TYPE_LABEL[t]}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {roster.map((athlete) => (
-                <TableRow key={athlete.id}>
-                  <TableCell className="font-medium">{athlete.name}</TableCell>
-                  {EQUIPMENT_TYPES.map((type) => {
-                    const item = byAthleteAndType.get(athlete.id)?.get(type);
-                    return (
-                      <TableCell key={type}>
-                        <button
-                          type="button"
-                          onClick={() => setActiveCell({ athleteId: athlete.id, athleteName: athlete.name, type })}
-                          className={
-                            item
-                              ? 'rounded-md border border-border bg-muted px-2 py-1 text-xs font-medium hover:bg-accent transition-colors whitespace-nowrap'
-                              : 'rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:border-ring hover:text-foreground transition-colors'
-                          }
-                        >
-                          {item ? `#${item.identifier}${item.size ? ` (${item.size})` : ''}` : '+'}
-                        </button>
-                      </TableCell>
-                    );
-                  })}
+    <Card>
+      <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <Package className="h-5 w-5" />
+          Equipment checkout
+        </CardTitle>
+        <Select value={groupFilter} onValueChange={setGroupFilter}>
+          <SelectTrigger className="w-full sm:w-[200px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All athletes</SelectItem>
+            {groups.filter((g) => !g.archived).map((g) => (
+              <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </CardHeader>
+      <CardContent className="p-0">
+        {visibleRoster.length === 0 ? (
+          <p className="text-sm text-muted-foreground px-4 py-3">No athletes in that group.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Athlete</TableHead>
+                  {EQUIPMENT_TYPES.map((t) => (
+                    <TableHead key={t} className="min-w-[210px]">{TYPE_LABEL[t]}</TableHead>
+                  ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {activeCell && (
-        <EquipmentCellDialog
-          seasonId={seasonId}
-          athleteId={activeCell.athleteId}
-          athleteName={activeCell.athleteName}
-          type={activeCell.type}
-          item={byAthleteAndType.get(activeCell.athleteId)?.get(activeCell.type) ?? null}
-          onClose={() => setActiveCell(null)}
-        />
-      )}
-    </>
+              </TableHeader>
+              <TableBody>
+                {visibleRoster.map((athlete) => (
+                  <TableRow key={athlete.id}>
+                    <TableCell className="font-medium whitespace-nowrap">{athlete.name}</TableCell>
+                    {EQUIPMENT_TYPES.map((type) => (
+                      <TableCell key={type} className="p-1.5">
+                        <CheckoutCell
+                          seasonId={seasonId}
+                          athleteId={athlete.id}
+                          athleteName={athlete.name}
+                          type={type}
+                          item={byAthleteAndType.get(athlete.id)?.get(type) ?? null}
+                        />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 
-const EquipmentCellDialog: React.FC<{
+const CheckoutCell: React.FC<{
   seasonId: string;
   athleteId: string;
   athleteName: string;
   type: EquipmentType;
   item: EquipmentItem | null;
-  onClose: () => void;
-}> = ({ seasonId, athleteId, athleteName, type, item, onClose }) => {
+}> = ({ seasonId, athleteId, athleteName, type, item }) => {
   const checkout = useCheckoutEquipment();
   const returnItem = useReturnEquipment();
   const updateEquipment = useUpdateEquipment();
@@ -221,88 +219,73 @@ const EquipmentCellDialog: React.FC<{
   const [size, setSize] = useState(item?.size ?? '');
   const [identifier, setIdentifier] = useState(item?.identifier ?? '');
 
+  // Re-sync local inputs when this cell's underlying item changes out from
+  // under it (checked out/returned from this cell or elsewhere).
+  useEffect(() => {
+    setSize(item?.size ?? '');
+    setIdentifier(item?.identifier ?? '');
+  }, [item?.id, item?.size, item?.identifier]);
+
+  const handleSizeChange = (value: string) => {
+    setSize(value);
+    if (item) {
+      updateEquipment.mutate({ id: item.id, input: { size: value } });
+    }
+  };
+
   const handleCheckout = async () => {
     if (!identifier.trim()) {
-      toast.error('Enter a number (jersey #, asset tag).');
+      toast.error(`Enter a number for ${athleteName}'s ${TYPE_LABEL[type].toLowerCase()}.`);
       return;
     }
     try {
       await checkout.mutateAsync({ type, identifier: identifier.trim(), athleteId, seasonId, size: size.trim() || undefined });
       toast.success(`${TYPE_LABEL[type]} checked out to ${athleteName}.`);
-      onClose();
     } catch (err) {
       const message = (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ?? 'Could not check out that item.';
       toast.error(message);
     }
   };
 
-  const handleSaveSize = async () => {
-    if (!item) return;
-    try {
-      await updateEquipment.mutateAsync({ id: item.id, input: { size: size.trim() } });
-      toast.success('Size updated.');
-    } catch {
-      toast.error('Could not update size.');
-    }
-  };
-
-  const handleReturn = async () => {
+  const handleCheckin = async () => {
     if (!item?.checkedOutTo) return;
     try {
       await returnItem.mutateAsync({ assignmentId: item.checkedOutTo.assignmentId, input: {} });
       toast.success(`${TYPE_LABEL[type]} returned.`);
-      onClose();
     } catch {
       toast.error('Could not mark that item returned.');
     }
   };
 
-  const isPending = checkout.isPending || returnItem.isPending || updateEquipment.isPending;
+  const isPending = checkout.isPending || returnItem.isPending;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{athleteName} — {TYPE_LABEL[type]}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label>Number (jersey #, asset tag)</Label>
-            <Input
-              className="mt-1"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              placeholder="14"
-              disabled={!!item}
-              autoFocus={!item}
-            />
-          </div>
-          <div>
-            <Label>Size</Label>
-            <Input className="mt-1" value={size} onChange={(e) => setSize(e.target.value)} placeholder="M" autoFocus={!!item} />
-          </div>
-        </div>
-        <DialogFooter className="flex-col sm:flex-row gap-2">
-          {item ? (
-            <>
-              <Button variant="outline" onClick={handleSaveSize} disabled={isPending || size.trim() === (item.size ?? '')}>
-                {updateEquipment.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Save size
-              </Button>
-              <Button variant="destructive" onClick={handleReturn} disabled={isPending}>
-                {returnItem.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Return
-              </Button>
-            </>
-          ) : (
-            <Button onClick={handleCheckout} disabled={isPending}>
-              {checkout.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Check out
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <div className="flex items-center gap-1">
+      <Select value={size || undefined} onValueChange={handleSizeChange}>
+        <SelectTrigger className="h-8 w-[66px] px-2 text-xs"><SelectValue placeholder="Size" /></SelectTrigger>
+        <SelectContent>
+          {SIZE_OPTIONS.map((s) => (
+            <SelectItem key={s} value={s}>{s}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Input
+        className="h-8 w-14 px-2 text-xs"
+        value={identifier}
+        onChange={(e) => setIdentifier(e.target.value)}
+        placeholder="#"
+        disabled={!!item}
+      />
+      {item ? (
+        <Button size="sm" variant="outline" className="h-8 px-2 text-xs whitespace-nowrap" onClick={handleCheckin} disabled={isPending}>
+          {returnItem.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Check in'}
+        </Button>
+      ) : (
+        <Button size="sm" className="h-8 px-2 text-xs whitespace-nowrap" onClick={handleCheckout} disabled={isPending}>
+          {checkout.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Check out'}
+        </Button>
+      )}
+    </div>
   );
 };
 
