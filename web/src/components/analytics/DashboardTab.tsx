@@ -175,25 +175,24 @@ export function DashboardTab({
                 girls: pt.byGender?.F?.avgMilePace?.overall || 0,
               })) || []}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis 
-                  dataKey="name" 
-                  tickFormatter={(value) => value.length > 15 ? `${value.substring(0, 12)}...` : value}
-                  interval={0}
-                  fontSize={12}
-                />
-                <YAxis 
-                  domain={['dataMin - 15', 'dataMax + 15']} 
+                {/* Meet names are too numerous and too long to render as tick
+                    labels without overlapping (14+ meets, real names run
+                    long) — the axis just anchors the line; each meet is
+                    identified by hovering its (now larger) dot instead. */}
+                <XAxis dataKey="name" tick={false} tickLine={false} />
+                <YAxis
+                  domain={['dataMin - 15', 'dataMax + 15']}
                   tickFormatter={(val) => formatPace(val)}
                   fontSize={12}
                 />
-                <Tooltip 
-                  formatter={(value: number) => formatPace(value)} 
+                <Tooltip
+                  formatter={(value: number) => formatPace(value)}
                   labelStyle={{ color: '#000' }}
                 />
                 <Legend />
-                <Line type="monotone" dataKey="overall" stroke="#8884d8" strokeWidth={2} dot={{ r: 4 }} name="Overall" />
-                <Line type="monotone" dataKey="boys" stroke="#82ca9d" strokeWidth={2} dot={{ r: 4 }} name="Boys" />
-                <Line type="monotone" dataKey="girls" stroke="#ffc658" strokeWidth={2} dot={{ r: 4 }} name="Girls" />
+                <Line type="monotone" dataKey="overall" stroke="#8884d8" strokeWidth={2} dot={{ r: 5 }} activeDot={{ r: 8 }} name="Overall" />
+                <Line type="monotone" dataKey="boys" stroke="#82ca9d" strokeWidth={2} dot={{ r: 5 }} activeDot={{ r: 8 }} name="Boys" />
+                <Line type="monotone" dataKey="girls" stroke="#ffc658" strokeWidth={2} dot={{ r: 5 }} activeDot={{ r: 8 }} name="Girls" />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
