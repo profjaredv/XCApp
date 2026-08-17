@@ -66,6 +66,9 @@ interface AiInsightsData {
   // analysis fell back to the most recent season with data instead.
   usingSeason?: number;
   isPreseasonFallback?: boolean;
+  // Athlete names are tokenized before this analysis runs — see
+  // backend/lib/kippwitAnonymize.js — and this names who built that.
+  anonymization?: { poweredBy: string; url: string };
 }
 
 const CATEGORY_LABEL: Record<NonNullable<AiInsight['category']>, string> = {
@@ -483,6 +486,17 @@ export default function CoachesToolsPage() {
               <CardDescription>
                 Consistency, growth, and who to watch — before the season starts, uses last season's data
               </CardDescription>
+              <p className="text-xs text-muted-foreground mt-1">
+                Athlete names are anonymized before analysis —{' '}
+                <a
+                  href="https://kippwit.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-foreground"
+                >
+                  powered by Kippwit
+                </a>
+              </p>
             </div>
             <Button 
               onClick={generateAiInsights} 
@@ -523,15 +537,6 @@ export default function CoachesToolsPage() {
                   </AlertDescription>
                 </Alert>
               )}
-
-              {/* Athlete names below are still sent to Gemini as-is —
-                  anonymization is pending integration with Kippwit (see
-                  backend/routes/coachesTools.js's anonymizeForAnalysis). */}
-              <Alert variant="destructive" className="mb-4">
-                <AlertDescription>
-                  Anonymization isn't wired in yet — athlete names are currently sent to the AI provider as-is.
-                </AlertDescription>
-              </Alert>
 
               {/* Summary */}
               {aiInsights.summary && (

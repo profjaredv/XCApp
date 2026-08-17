@@ -4,6 +4,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const { resolveActiveSeason, listSeasonsWithData } = require('../lib/season');
+const { anonymizeAthletesForAnalysis } = require('../lib/kippwitAnonymize');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // No fallback literal here on purpose — a hardcoded key was committed to
@@ -68,23 +69,6 @@ router.get('/athlete-performance/:season', authenticate, requireTeam, requireRol
     res.status(500).json({ success: false, message: 'Failed to fetch athlete performance' });
   }
 });
-
-// ---------------------------------------------------------------------------
-// Anonymization seam — PENDING integration with the user's external Kippwit
-// tool (a GitHub zip is coming later). Once that's wired in, this is the
-// ONLY function that should need to change: it should call Kippwit to turn
-// each athlete's real name into an anonymous token before anything leaves
-// this process for the Gemini call, and return a deanonymize() that maps
-// tokens back to real names for display. Until then this is a pass-through
-// — real athlete names ARE sent to Gemini below — so treat AI insights as
-// not yet meeting the anonymization requirement.
-// ---------------------------------------------------------------------------
-function anonymizeForAnalysis(athletes) {
-  return {
-    anonymized: athletes,
-    deanonymize: (label) => label,
-  };
-}
 
 /**
  * @route   POST /api/coaches-tools/ai-insights/:season
@@ -185,13 +169,20 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
       return res.json({ success: true, data: { insights: [], summary: 'Insufficient data for AI analysis — athletes need at least 2 races.' } });
     }
 
-    const { anonymized, deanonymize } = anonymizeForAnalysis(validAthletes);
+    // Real names never reach the prompt below — see lib/kippwitAnonymize.js.
+    const { anonymized, deanonymize } = anonymizeAthletesForAnalysis(validAthletes);
 
     const preseasonNote = isPreseasonFallback
       ? `This team has no races yet in the ${requestedSeason} season, so this analysis uses their ${usingSeason} season instead — frame it as "who to watch as the new season starts," not current-season form.\n\n`
       : '';
 
-    const prompt = `You are analyzing a high school cross country team's race results for the coach. Focus ONLY on three things:
+    const prompt = `You are analyzing a high school cross country team's race results for the coach. Athlete identities have been replaced with anonymous tokens in the format ATHLETE_XXXXXX. Follow these rules exactly or the output will be unusable:
+1. NEVER guess, infer, or invent a real name for any token.
+2. Reproduce every token EXACTLY as written — same prefix, same underscore, same characters. ATHLETE_K3X9MQ must appear as ATHLETE_K3X9MQ, never "the first athlete", "Athlete K3", or any paraphrase.
+3. Do not bold, italicize, or wrap tokens in backticks — plain text only.
+4. Do not use a possessive or pronoun that drops the token. Write "ATHLETE_K3X9MQ's pace" not "their pace".
+
+Focus ONLY on three things:
 1. CONSISTENCY — who races reliably close to their own average vs. who is erratic from meet to meet.
 2. GROWTH — who is trending faster over the season and who is trending slower or plateauing.
 3. WATCH LIST — up to 5 athletes the coach should keep an eye on right now: breakout candidates, athletes at risk of plateauing or regressing, or athletes whose inconsistency needs coaching attention. Give a specific, concrete reason for each, grounded in the numbers below.
@@ -199,13 +190,13 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
 ${preseasonNote}Team Data (times in seconds; improvement is season-long % change, positive = faster; consistency is standard deviation as a % of average time — lower is more consistent):
 ${anonymized.slice(0, 30).map((a) => `${a.name}: ${a.raceCount} races, avg ${a.avgTime}s, ${a.improvement > 0 ? '+' : ''}${a.improvement}% season improvement, ${a.consistency}% consistency variance, avg place ${a.avgPlace ?? 'n/a'}`).join('\n')}
 
-Return JSON only, with every insight tagged by which of the three focus areas it belongs to:
+Return JSON only, with every insight tagged by which of the three focus areas it belongs to. Use tokens (not real names — you don't know them) everywhere an athlete is referenced:
 {
   "insights": [
     {
       "title": "Brief insight title",
       "description": "1-2 sentence explanation with specifics from the data",
-      "athletes": ["Athlete names if relevant"],
+      "athletes": ["ATHLETE_XXXXXX tokens if relevant"],
       "priority": "high|medium|low",
       "category": "consistency|growth|watch"
     }
@@ -223,14 +214,21 @@ Return JSON only, with every insight tagged by which of the three focus areas it
     }
 
     const aiResponse = JSON.parse(jsonMatch[0]);
+    // Restore real names everywhere a token could have landed — the
+    // summary and each insight's title/description, not just the
+    // structured athletes array.
+    aiResponse.summary = deanonymize(aiResponse.summary);
     if (Array.isArray(aiResponse.insights)) {
       aiResponse.insights = aiResponse.insights.map((insight) => ({
         ...insight,
+        title: deanonymize(insight.title),
+        description: deanonymize(insight.description),
         athletes: Array.isArray(insight.athletes) ? insight.athletes.map(deanonymize) : insight.athletes,
       }));
     }
     aiResponse.usingSeason = usingSeason;
     aiResponse.isPreseasonFallback = isPreseasonFallback;
+    aiResponse.anonymization = { poweredBy: 'Kippwit', url: 'https://kippwit.com' };
 
     aiInsightsCache.set(cacheKey, { data: aiResponse, timestamp: Date.now() });
 
