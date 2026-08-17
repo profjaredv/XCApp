@@ -141,7 +141,6 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
     
     // Overall top performers
     const overallTop7 = enrichedResults.slice(0, 7);
-    const overallTop15 = enrichedResults.slice(0, 15);
     
     // Team scoring calculations
     const boysTop7TotalTime = boysTop7.reduce((sum, r) => sum + r.time, 0);
@@ -177,37 +176,67 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
     const iqr = q3 - q1;
     const median = times[Math.floor(times.length / 2)];
 
-    // Field-relative cohort: how our own fastest-N% stack up against the
-    // full field, not just our own roster. Needs overallPlace/
-    // overallFieldSize per runner (only present once field results are
-    // uploaded for this race — see Result.overallPlace's schema comment),
-    // so this is [] until then. For each our-side threshold, average the
-    // field percentile (overallPlace / overallFieldSize) across that
-    // fastest slice of our own results — "our top 20% averaged into the
-    // top 24% of the field."
-    const withFieldData = enrichedResults.filter(
-      (r) => typeof r.overallPlace === 'number' && typeof r.overallFieldSize === 'number' && r.overallFieldSize > 0
-    );
-    const fieldCohortRows = withFieldData.length === 0
-      ? []
-      : [0.1, 0.2, 0.5].map((ourPct) => {
-          const ourCohortSize = Math.max(1, Math.round(enrichedResults.length * ourPct));
-          const cohort = enrichedResults
+    // Field-relative cohort, computed WITHIN a division/gender group, not
+    // the whole meet — a meet with several divisions (Boys Varsity, Girls
+    // JV, ...) has a different field size and difficulty per division, so
+    // averaging across all of them together would be meaningless. For each
+    // group's our-side threshold, average the field percentile
+    // (overallPlace / overallFieldSize) across that group's fastest slice
+    // of our own results — "our top 20% averaged into the top 24% of this
+    // division's field." overallPlace/overallFieldSize are only present
+    // once field results are uploaded for this race (see
+    // Result.overallPlace's schema comment), so a group with none of that
+    // data gets an empty array here.
+    const fieldCohortRowsFor = (sorted: typeof enrichedResults) =>
+      [0.1, 0.2, 0.5]
+        .map((ourPct) => {
+          const ourCohortSize = Math.max(1, Math.round(sorted.length * ourPct));
+          const cohort = sorted
             .slice(0, ourCohortSize)
             .filter((r) => typeof r.overallPlace === 'number' && typeof r.overallFieldSize === 'number' && r.overallFieldSize > 0);
           if (cohort.length === 0) return null;
           const avgFieldPercentile =
             cohort.reduce((sum, r) => sum + (r.overallPlace as number) / (r.overallFieldSize as number), 0) / cohort.length;
           return { ourPct, ourCohortSize, avgFieldPercentile };
-        }).filter((row): row is { ourPct: number; ourCohortSize: number; avgFieldPercentile: number } => row !== null);
+        })
+        .filter((row): row is { ourPct: number; ourCohortSize: number; avgFieldPercentile: number } => row !== null);
+
+    // Never combine genders, and split further by division text once this
+    // meet actually has more than one division/heat — mirrors the
+    // (division, gender) pairing the backend's official scoring uses (see
+    // meetScoring.js), but computed from our own team's results so it's
+    // available even without a field upload (division stays blank, gender
+    // still splits the group).
+    const divisionGroupMap = new Map<string, typeof enrichedResults>();
+    for (const result of enrichedResults) {
+      const key = `${result.division ?? ''}::${result.athleteGender}`;
+      if (!divisionGroupMap.has(key)) divisionGroupMap.set(key, []);
+      divisionGroupMap.get(key)!.push(result);
+    }
+    const divisionGroups = [...divisionGroupMap.entries()]
+      .map(([key, groupResults]) => {
+        const [divisionText, gender] = key.split('::');
+        const label =
+          [gender === 'M' ? 'Boys' : gender === 'F' ? 'Girls' : null, divisionText || null].filter(Boolean).join(' • ') ||
+          'All Finishers';
+        const sorted = [...groupResults].sort((a, b) => a.time - b.time);
+        return {
+          key,
+          label,
+          gender,
+          results: sorted,
+          top15: sorted.slice(0, 15),
+          fieldCohortRows: fieldCohortRowsFor(sorted),
+        };
+      })
+      .sort((a, b) => (a.gender === b.gender ? a.label.localeCompare(b.label) : a.gender === 'M' ? -1 : 1));
 
     return {
       totalRunners,
       enrichedResults,
-      fieldCohortRows,
+      divisionGroups,
       // Overall stats
       overallTop7,
-      overallTop15,
       // Gender-separated stats
       boysResults,
       girlsResults,
@@ -643,49 +672,54 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                   {/* Our own top 15, then how our fastest slice stacks up
                       against the full field (not just our own roster) — the
                       "cohort analysis" tab compares us to ourselves; this
-                      compares us to everyone who ran. */}
-                  <div>
-                    <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">Our First 15 Finishers</h3>
-                    {meetStats.overallTop15.length === 0 ? (
-                      <div className="p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">No results yet for this meet.</div>
-                    ) : (
-                      <div className="rounded-lg border border-border divide-y divide-border">
-                        {meetStats.overallTop15.map((result, index) => (
-                          <div key={result.athleteId} className="flex justify-between items-center text-sm px-4 py-2">
-                            <span>
-                              {index + 1}. {result.athleteName} ({gradeLabel(result.athleteGrade)})
-                            </span>
-                            <span className="flex items-center gap-3">
-                              {typeof result.overallPlace === 'number' && typeof result.overallFieldSize === 'number' && (
-                                <span className="text-xs text-muted-foreground">
-                                  {result.overallPlace} of {result.overallFieldSize}
-                                </span>
-                              )}
-                              <span className="font-mono">{formatTime(result.time)}</span>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                      compares us to everyone who ran. Broken out per
+                      division/gender group — a meet with several divisions
+                      never mixes Boys Varsity in with Girls JV here, since
+                      they're different fields entirely. */}
+                  {meetStats.divisionGroups.map((group) => (
+                    <div key={group.key} className="space-y-4">
+                      <h3 className="text-sm font-semibold text-muted-foreground uppercase">{group.label}</h3>
 
-                  <div>
-                    <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">Cohort vs. Field</h3>
-                    {meetStats.fieldCohortRows.length === 0 ? (
-                      <div className="p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">
-                        Upload this meet's field results to see how our fastest runners stack up against the full field.
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-2">First 15 Finishers</p>
+                        <div className="rounded-lg border border-border divide-y divide-border">
+                          {group.top15.map((result, index) => (
+                            <div key={result.athleteId} className="flex justify-between items-center text-sm px-4 py-2">
+                              <span>
+                                {index + 1}. {result.athleteName} ({gradeLabel(result.athleteGrade)})
+                              </span>
+                              <span className="flex items-center gap-3">
+                                {typeof result.overallPlace === 'number' && typeof result.overallFieldSize === 'number' && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {result.overallPlace} of {result.overallFieldSize}
+                                  </span>
+                                )}
+                                <span className="font-mono">{formatTime(result.time)}</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    ) : (
-                      <div className="p-4 rounded-lg border border-border space-y-2">
-                        {meetStats.fieldCohortRows.map((row) => (
-                          <p key={row.ourPct} className="text-sm">
-                            Our top {Math.round(row.ourPct * 100)}% ({row.ourCohortSize} runner{row.ourCohortSize === 1 ? '' : 's'}) averaged into the{' '}
-                            <span className="font-medium">top {Math.round(row.avgFieldPercentile * 100)}%</span> of the field.
-                          </p>
-                        ))}
+
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-2">Cohort vs. Field</p>
+                        {group.fieldCohortRows.length === 0 ? (
+                          <div className="p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">
+                            Upload this meet's field results to see how our fastest runners in this division stack up against the field.
+                          </div>
+                        ) : (
+                          <div className="p-4 rounded-lg border border-border space-y-2">
+                            {group.fieldCohortRows.map((row) => (
+                              <p key={row.ourPct} className="text-sm">
+                                Our top {Math.round(row.ourPct * 100)}% ({row.ourCohortSize} runner{row.ourCohortSize === 1 ? '' : 's'}) averaged into the{' '}
+                                <span className="font-medium">top {Math.round(row.avgFieldPercentile * 100)}%</span> of this division's field.
+                              </p>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  ))}
 
                   {/* Team-internal pack metrics — our own roster only, no field
                       data needed. Kept separate from official scoring above so
