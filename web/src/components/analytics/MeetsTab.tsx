@@ -176,10 +176,35 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
     const q3 = times[q3Index];
     const iqr = q3 - q1;
     const median = times[Math.floor(times.length / 2)];
-    
+
+    // Field-relative cohort: how our own fastest-N% stack up against the
+    // full field, not just our own roster. Needs overallPlace/
+    // overallFieldSize per runner (only present once field results are
+    // uploaded for this race — see Result.overallPlace's schema comment),
+    // so this is [] until then. For each our-side threshold, average the
+    // field percentile (overallPlace / overallFieldSize) across that
+    // fastest slice of our own results — "our top 20% averaged into the
+    // top 24% of the field."
+    const withFieldData = enrichedResults.filter(
+      (r) => typeof r.overallPlace === 'number' && typeof r.overallFieldSize === 'number' && r.overallFieldSize > 0
+    );
+    const fieldCohortRows = withFieldData.length === 0
+      ? []
+      : [0.1, 0.2, 0.5].map((ourPct) => {
+          const ourCohortSize = Math.max(1, Math.round(enrichedResults.length * ourPct));
+          const cohort = enrichedResults
+            .slice(0, ourCohortSize)
+            .filter((r) => typeof r.overallPlace === 'number' && typeof r.overallFieldSize === 'number' && r.overallFieldSize > 0);
+          if (cohort.length === 0) return null;
+          const avgFieldPercentile =
+            cohort.reduce((sum, r) => sum + (r.overallPlace as number) / (r.overallFieldSize as number), 0) / cohort.length;
+          return { ourPct, ourCohortSize, avgFieldPercentile };
+        }).filter((row): row is { ourPct: number; ourCohortSize: number; avgFieldPercentile: number } => row !== null);
+
     return {
       totalRunners,
       enrichedResults,
+      fieldCohortRows,
       // Overall stats
       overallTop7,
       overallTop15,
@@ -561,7 +586,10 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                   {/* Official scoring — computed from the uploaded field results
                       (every school in the division, not just our own team). See
                       backend lib/meetScoring.js. Empty until a Field Results
-                      upload exists for this race. */}
+                      upload exists for this race. Deliberately shows only our
+                      own team's place/score/scorers here, not the full
+                      standings table — a coach wants "how did we do," not a
+                      roster of every other school. */}
                   <div>
                     <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">Meet Scoring</h3>
                     {(!selectedMeetWithResults?.scoring || selectedMeetWithResults.scoring.length === 0) ? (
@@ -570,65 +598,90 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {selectedMeetWithResults.scoring.map((division) => (
-                          <div key={`${division.division}-${division.gender ?? 'unknown'}`} className="p-4 rounded-lg border border-border">
-                            <h4 className="font-semibold mb-3">
-                              {division.gender === 'M' ? 'Boys' : division.gender === 'F' ? 'Girls' : division.gender ?? 'Unknown Gender'} • {division.division}
-                            </h4>
+                        {selectedMeetWithResults.scoring.map((division) => {
+                          const ourTeam = division.scoringTeams.find((t) => t.isOurTeam) ?? division.incompleteTeams.find((t) => t.isOurTeam);
+                          const divisionLabel = [division.gender === 'M' ? 'Boys' : division.gender === 'F' ? 'Girls' : null, division.division]
+                            .filter(Boolean)
+                            .join(' • ');
+                          return (
+                            <div key={`${division.division}-${division.gender ?? 'unknown'}`} className="p-4 rounded-lg border border-border">
+                              <h4 className="font-semibold mb-3">{divisionLabel}</h4>
 
-                            {division.scoringTeams.length > 0 ? (
-                              <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                  <thead>
-                                    <tr className="text-left text-muted-foreground">
-                                      <th className="py-1 pr-4">Rank</th>
-                                      <th className="py-1 pr-4">School</th>
-                                      <th className="py-1 pr-4">Score</th>
-                                      <th className="py-1">Scorers (place)</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {division.scoringTeams.map((team) => (
-                                      <tr key={team.schoolName} className={team.isOurTeam ? 'bg-primary/10 font-medium' : ''}>
-                                        <td className="py-1 pr-4">{team.rank}</td>
-                                        <td className="py-1 pr-4">{team.schoolName}</td>
-                                        <td className="py-1 pr-4">{team.score}</td>
-                                        <td className="py-1">
-                                          {team.scorers.map((s) => s.place).join(', ')}
-                                          {team.displacers.length > 0 && (
-                                            <span className="text-muted-foreground"> (+{team.displacers.map((d) => d.place).join(', ')})</span>
-                                          )}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            ) : (
-                              <p className="text-sm text-muted-foreground">No team scored this division — every school had fewer than 5 finishers.</p>
-                            )}
-
-                            {division.incompleteTeams.length > 0 && (
-                              <p className="text-xs text-muted-foreground mt-2">
-                                Didn't score (need 5 finishers): {division.incompleteTeams.map((t) => `${t.schoolName} (${t.finisherCount})`).join(', ')}
-                              </p>
-                            )}
-
-                            {division.individualTop.length > 0 && (
-                              <p className="text-xs text-muted-foreground mt-2">
-                                Leaders: {division.individualTop.map((r) => `${r.place}. ${r.athleteName} (${r.schoolName ?? 'Unattached'})`).join('  ·  ')}
-                              </p>
-                            )}
-
-                            {division.ourTeamFinishers.length > 0 && (
-                              <div className="mt-3 pt-3 border-t border-border">
-                                <p className="text-xs font-medium mb-1">Our finishers in this division ({division.ourTeamFinisherCount} total)</p>
+                              {ourTeam?.canScore ? (
                                 <p className="text-sm">
-                                  {division.ourTeamFinishers.map((r) => `${r.place}. ${r.athleteName}`).join('  ·  ')}
+                                  <span className="font-medium">
+                                    {ourTeam.rank ? `#${ourTeam.rank}` : ''} place, {ourTeam.score} points
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    {' '}(scorers: {ourTeam.scorers.map((s) => s.place).join(', ')}
+                                    {ourTeam.displacers.length > 0 ? `, +${ourTeam.displacers.map((d) => d.place).join(', ')}` : ''})
+                                  </span>
                                 </p>
-                              </div>
-                            )}
+                              ) : ourTeam ? (
+                                <p className="text-sm text-muted-foreground">
+                                  Didn't score this division — only {ourTeam.finisherCount} finisher{ourTeam.finisherCount === 1 ? '' : 's'} (need 5).
+                                </p>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">No finishers from our team in this division.</p>
+                              )}
+
+                              {division.ourTeamFinishers.length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-border">
+                                  <p className="text-xs font-medium mb-1">Our finishers in this division ({division.ourTeamFinisherCount} total)</p>
+                                  <p className="text-sm">
+                                    {division.ourTeamFinishers.map((r) => `${r.place}. ${r.athleteName}`).join('  ·  ')}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Our own top 15, then how our fastest slice stacks up
+                      against the full field (not just our own roster) — the
+                      "cohort analysis" tab compares us to ourselves; this
+                      compares us to everyone who ran. */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">Our First 15 Finishers</h3>
+                    {meetStats.overallTop15.length === 0 ? (
+                      <div className="p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">No results yet for this meet.</div>
+                    ) : (
+                      <div className="rounded-lg border border-border divide-y divide-border">
+                        {meetStats.overallTop15.map((result, index) => (
+                          <div key={result.athleteId} className="flex justify-between items-center text-sm px-4 py-2">
+                            <span>
+                              {index + 1}. {result.athleteName} ({gradeLabel(result.athleteGrade)})
+                            </span>
+                            <span className="flex items-center gap-3">
+                              {typeof result.overallPlace === 'number' && typeof result.overallFieldSize === 'number' && (
+                                <span className="text-xs text-muted-foreground">
+                                  {result.overallPlace} of {result.overallFieldSize}
+                                </span>
+                              )}
+                              <span className="font-mono">{formatTime(result.time)}</span>
+                            </span>
                           </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-3">Cohort vs. Field</h3>
+                    {meetStats.fieldCohortRows.length === 0 ? (
+                      <div className="p-4 rounded-lg bg-muted/50 text-sm text-muted-foreground">
+                        Upload this meet's field results to see how our fastest runners stack up against the full field.
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-lg border border-border space-y-2">
+                        {meetStats.fieldCohortRows.map((row) => (
+                          <p key={row.ourPct} className="text-sm">
+                            Our top {Math.round(row.ourPct * 100)}% ({row.ourCohortSize} runner{row.ourCohortSize === 1 ? '' : 's'}) averaged into the{' '}
+                            <span className="font-medium">top {Math.round(row.avgFieldPercentile * 100)}%</span> of the field.
+                          </p>
                         ))}
                       </div>
                     )}
