@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,8 +9,9 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Trash2, UserPlus, Loader2 } from 'lucide-react';
+import { Plus, Trash2, UserPlus, Loader2, X, Check } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { useGroups, useGroupMembers, useRosterWithRaces } from '@/hooks/useGroups';
 import {
@@ -239,6 +241,8 @@ const SessionCard: React.FC<{
 };
 
 const IntervalSessionsPage: React.FC = () => {
+  const navigate = useNavigate();
+  const teamPath = useTeamPath();
   const { data: context } = useTeamContext();
   const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
 
@@ -257,6 +261,36 @@ const IntervalSessionsPage: React.FC = () => {
   const { data: groupMembers = [] } = useGroupMembers(form.groupId !== AD_HOC ? form.groupId : null);
 
   const createSession = useCreateIntervalSession(seasonId);
+
+  // Opened full screen from Coaches Tools (see router/index.tsx — this
+  // route is deliberately outside <Layout>, no sidebar/header). Close just
+  // navigates back; Save has nothing to batch (every field here already
+  // persists on its own blur — see EntryRow/CheckoutCell-style handlers
+  // below), so it just flushes whichever input is currently focused and
+  // confirms.
+  const handleClose = () => navigate(teamPath('/coaches-tools'));
+  const handleSave = () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    toast.success('All changes saved.');
+  };
+
+  const topBar = (
+    <div className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background px-6 py-3">
+      <h1 className="text-lg font-semibold">Interval Sessions</h1>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={handleSave}>
+          <Check className="h-4 w-4 mr-1" />
+          Save
+        </Button>
+        <Button variant="ghost" size="sm" onClick={handleClose}>
+          <X className="h-4 w-4 mr-1" />
+          Close
+        </Button>
+      </div>
+    </div>
+  );
 
   const handleCreate = async () => {
     if (!seasonId || !form.title.trim() || !form.repDistanceM) return;
@@ -280,19 +314,22 @@ const IntervalSessionsPage: React.FC = () => {
 
   if (!activeYear || !seasonId) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Interval Sessions</h1>
-        <p className="text-muted-foreground">No season set up yet — set one up from the Groups screen first.</p>
+      <div className="min-h-screen bg-background">
+        {topBar}
+        <div className="p-6 space-y-6">
+          <p className="text-muted-foreground">No season set up yet — set one up from the Groups screen first.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-background">
+      {topBar}
+      <div className="p-6 space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Interval Sessions</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground">
             Capture reps on a grid instead of paper — saved times log straight to each athlete's training log.
           </p>
         </div>
@@ -409,6 +446,7 @@ const IntervalSessionsPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 };

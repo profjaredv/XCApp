@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Sparkles, TrendingUp, Users, Loader2, Lightbulb, AlertCircle, Download, Play } from 'lucide-react';
+import { Sparkles, TrendingUp, Loader2, Lightbulb, AlertCircle, Download, Play, Timer } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrentSeasonWithData } from '@/hooks/useCurrentSeasonWithData';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { useQueryParamNumber } from '@/hooks/useQueryState';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import axiosInstance from '@/api/axios';
 
@@ -16,12 +18,6 @@ interface Athlete {
   name: string;
   grade: string;
   gender: string;
-}
-
-interface TrainingGroup {
-  name: string;
-  athletes: string[];
-  focus: string;
 }
 
 interface ImprovementData {
@@ -60,12 +56,23 @@ interface AiInsight {
   description: string;
   athletes?: string[];
   priority: 'high' | 'medium' | 'low';
+  category?: 'consistency' | 'growth' | 'watch';
 }
 
 interface AiInsightsData {
   insights: AiInsight[];
   summary: string;
+  // Set when the requested season had no races yet (preseason) and this
+  // analysis fell back to the most recent season with data instead.
+  usingSeason?: number;
+  isPreseasonFallback?: boolean;
 }
+
+const CATEGORY_LABEL: Record<NonNullable<AiInsight['category']>, string> = {
+  consistency: 'Consistency',
+  growth: 'Growth',
+  watch: 'Watch List',
+};
 
 export default function CoachesToolsPage() {
   const { currentUser } = useAuth();
@@ -78,12 +85,11 @@ export default function CoachesToolsPage() {
   const { data: availableSeasons = [] } = useAvailableSeasons(teamId);
   const [seasonParam, setSeasonParam] = useQueryParamNumber('season');
   const currentSeason = seasonParam ?? defaultSeason;
+  const teamPath = useTeamPath();
+  const navigate = useNavigate();
 
-  const [trainingGroups, setTrainingGroups] = useState<TrainingGroup[]>([]);
-  const [groupsRationale, setGroupsRationale] = useState<string>('');
   const [improvements, setImprovements] = useState<ImprovementData[]>([]);
   const [aiInsights, setAiInsights] = useState<AiInsightsData | null>(null);
-  const [loadingGroups, setLoadingGroups] = useState(false);
   const [loadingImprovements, setLoadingImprovements] = useState(false);
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,12 +97,10 @@ export default function CoachesToolsPage() {
   useEffect(() => {
     if (teamId && currentSeason) {
       fetchImprovements();
-      // Training groups and AI insights are generated on demand (button
-      // click) for whichever season was current when the coach clicked —
-      // clear them on season change so a switch doesn't leave last season's
-      // groups on screen mislabeled under the new season.
-      setTrainingGroups([]);
-      setGroupsRationale('');
+      // AI insights are generated on demand (button click) for whichever
+      // season was current when the coach clicked — clear on season change
+      // so a switch doesn't leave last season's insights on screen
+      // mislabeled under the new season.
       setAiInsights(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -116,26 +120,6 @@ export default function CoachesToolsPage() {
       setError(errorMessage);
     } finally {
       setLoadingImprovements(false);
-    }
-  };
-
-  const generateTrainingGroups = async () => {
-    try {
-      setLoadingGroups(true);
-      setError(null);
-      console.log('Generating training groups for season:', currentSeason);
-      const response = await axiosInstance.post(
-        `/coaches-tools/generate-training-groups/${currentSeason}`
-      );
-      console.log('Training groups response:', response.data);
-      setTrainingGroups(response.data.data.groups || []);
-      setGroupsRationale(response.data.data.rationale || '');
-    } catch (err: unknown) {
-      console.error('Error generating training groups:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to generate training groups';
-      setError(errorMessage);
-    } finally {
-      setLoadingGroups(false);
     }
   };
 
@@ -297,77 +281,29 @@ export default function CoachesToolsPage() {
         </Alert>
       )}
 
-      {/* Training Groups */}
+      {/* Interval Sessions — the full capture tool lives at its own
+          full-screen route (no sidebar/header), opened from here. Group
+          creation is deliberately NOT offered here anymore — coaches build
+          groups by hand on the Groups screen; this app doesn't suggest
+          them. */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-purple-500" />
-                Training Groups
+                <Timer className="h-5 w-5 text-purple-500" />
+                Interval Sessions
               </CardTitle>
               <CardDescription>
-                Performance-based training groups organized by pace and ability
+                Capture reps on a grid instead of paper — opens full screen
               </CardDescription>
             </div>
-            <Button
-              onClick={generateTrainingGroups}
-              disabled={loadingGroups}
-              className="gap-2"
-            >
-              {loadingGroups ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  Generate Groups
-                </>
-              )}
+            <Button onClick={() => navigate(teamPath('/interval-sessions'))} className="gap-2">
+              <Timer className="h-4 w-4" />
+              Open Interval Sessions
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
-          {trainingGroups.length === 0 && !loadingGroups ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>Click "Generate Groups" to create performance-based training groups</p>
-              <p className="text-sm mt-2">Groups are organized by pace, gender, and ability level</p>
-            </div>
-          ) : (
-            <>
-              {groupsRationale && (
-                <Alert className="mb-4">
-                  <AlertDescription>
-                    <strong>Strategy:</strong> {groupsRationale}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {trainingGroups.map((group, idx) => (
-                  <Card key={idx} className="border-2">
-                    <CardHeader>
-                      <CardTitle className="text-lg">{group.name}</CardTitle>
-                      <CardDescription>{group.focus}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ul className="space-y-1">
-                        {group.athletes.map((athlete, athleteIdx) => (
-                          <li key={athleteIdx} className="text-sm">
-                            • {athlete}
-                          </li>
-                        ))}
-                      </ul>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </>
-          )}
-        </CardContent>
       </Card>
 
       {/* Improvement Tracking */}
@@ -545,7 +481,7 @@ export default function CoachesToolsPage() {
                 AI Performance Insights
               </CardTitle>
               <CardDescription>
-                AI-powered pattern analysis and coaching recommendations
+                Consistency, growth, and who to watch — before the season starts, uses last season's data
               </CardDescription>
             </div>
             <Button 
@@ -580,6 +516,23 @@ export default function CoachesToolsPage() {
             </div>
           ) : aiInsights ? (
             <>
+              {aiInsights.isPreseasonFallback && (
+                <Alert className="mb-4">
+                  <AlertDescription>
+                    No races yet in {currentSeason} — this analysis is based on the {aiInsights.usingSeason} season instead.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Athlete names below are still sent to Gemini as-is —
+                  anonymization is pending integration with Kippwit (see
+                  backend/routes/coachesTools.js's anonymizeForAnalysis). */}
+              <Alert variant="destructive" className="mb-4">
+                <AlertDescription>
+                  Anonymization isn't wired in yet — athlete names are currently sent to the AI provider as-is.
+                </AlertDescription>
+              </Alert>
+
               {/* Summary */}
               {aiInsights.summary && (
                 <Alert className="mb-6">
@@ -594,19 +547,22 @@ export default function CoachesToolsPage() {
               <div className="space-y-4">
                 {aiInsights.insights.map((insight, idx) => (
                   <Card key={idx} className="border-l-4" style={{
-                    borderLeftColor: insight.priority === 'high' ? '#ef4444' : 
+                    borderLeftColor: insight.priority === 'high' ? '#ef4444' :
                                     insight.priority === 'medium' ? '#f59e0b' : '#10b981'
                   }}>
                     <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between">
+                      <div className="flex items-start justify-between gap-2">
                         <CardTitle className="text-lg">{insight.title}</CardTitle>
-                        <Badge variant={
-                          insight.priority === 'high' ? 'destructive' : 
-                          insight.priority === 'medium' ? 'default' : 
-                          'secondary'
-                        }>
-                          {insight.priority}
-                        </Badge>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {insight.category && <Badge variant="outline">{CATEGORY_LABEL[insight.category]}</Badge>}
+                          <Badge variant={
+                            insight.priority === 'high' ? 'destructive' :
+                            insight.priority === 'medium' ? 'default' :
+                            'secondary'
+                          }>
+                            {insight.priority}
+                          </Badge>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent>

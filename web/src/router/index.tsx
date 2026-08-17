@@ -124,6 +124,13 @@ export const router = createBrowserRouter([
                 path: 'race-visualization',
                 element: <RaceVisualizationPage />,
               },
+              // Interval sessions (Coaches Tools) - standalone without
+              // Layout too, opened full screen from CoachesToolsPage; its
+              // own Close button navigates back there.
+              {
+                path: 'interval-sessions',
+                element: <IntervalSessionsPage />,
+              },
               // All other routes with Layout (sidebar)
               {
                 element: <Layout />,
@@ -155,10 +162,6 @@ export const router = createBrowserRouter([
                   {
                     path: 'equipment',
                     element: <EquipmentPage />,
-                  },
-                  {
-                    path: 'interval-sessions',
-                    element: <IntervalSessionsPage />,
                   },
                   {
                     path: 'roster',
