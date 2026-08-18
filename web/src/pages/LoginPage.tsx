@@ -30,7 +30,7 @@ const LoginPage: React.FC = () => {
       } else if (!currentUser.team) {
         navigate('/onboarding', { replace: true });
       } else {
-        navigate(`/t/${currentUser.team.athleticTeamId}/analytics`, { replace: true });
+        navigate(`/t/${currentUser.team.athleticTeamId}`, { replace: true });
       }
     }
   }, [currentUser, navigate]);

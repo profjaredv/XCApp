@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, NavLink } from 'react-router-dom';
-import { ChevronLeft, Settings, LogOut, User as UserIcon, Menu, Home, BarChart2, Database, Sparkles, ClipboardList, MessageSquare, Gauge, Calculator, Users, CalendarDays, Flag, Package, TrendingUp, Upload } from 'lucide-react';
+import { ChevronLeft, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, BarChart2, Database, Sparkles, ClipboardList, MessageSquare, Gauge, Calculator, Users, CalendarDays, Flag, Package, TrendingUp, Upload } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { FeedbackWidget } from './FeedbackWidget';
@@ -92,6 +92,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
       </div>
 
       <nav className="mt-2 flex-1 min-h-0 px-3 overflow-y-auto">
+        <NavItem to={teamPath('/today')} icon={Home} label="Today" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+
         {currentUser?.linkedAthlete && (
           <NavSection label="My Profile" isCollapsed={isCollapsed}>
             <NavItem to={teamPath('/me')} icon={Gauge} label="My Progress" isCollapsed={isCollapsed} onClick={handleLinkClick} />
@@ -99,7 +101,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
         )}
 
         <NavSection label="Analyze" isCollapsed={isCollapsed}>
-          <NavItem to={teamPath('/analytics')} icon={Home} label="Analytics" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+          <NavItem to={teamPath('/analytics')} icon={LayoutDashboard} label="Analytics" isCollapsed={isCollapsed} onClick={handleLinkClick} />
           <NavItem to={teamPath('/band-trends')} icon={TrendingUp} label="Band Trends" isCollapsed={isCollapsed} onClick={handleLinkClick} />
           <NavItem to={teamPath('/results-grid')} icon={BarChart2} label="Results Grid" isCollapsed={isCollapsed} onClick={handleLinkClick} />
           <NavItem to={teamPath('/tools')} icon={Calculator} label="Pace Calculator" isCollapsed={isCollapsed} onClick={handleLinkClick} />

@@ -106,6 +106,83 @@ async function resolveActiveSeason(teamId, requestedSeason) {
   return currentCalendarSeason();
 }
 
+// Pure and DB-free on purpose — the Today page's own season-resolution
+// decision, testable without a database. `today` is injectable for tests;
+// callers should never pass it in production code.
+//
+// Order matters and mirrors resolveActiveSeason's own reasoning, but this
+// answers a different question ("is a coach standing in the middle of a
+// season today, right now") rather than "which season should data screens
+// default to":
+//   1. The Season flagged isActive.
+//   2. Failing that, the Season whose startDate/endDate bracket today.
+//   3. Failing that, the most recent Season by year.
+// A resolved season only counts as "in season" if today actually falls
+// within its dates — or, if it has no dates configured at all, isActive
+// alone is trusted (a team that never bothered to set dates shouldn't be
+// told they're off-season for having incomplete data entry).
+function isTodayBracketed(season, today) {
+  if (!season.startDate || !season.endDate) return false;
+  return today >= new Date(season.startDate) && today <= new Date(season.endDate);
+}
+
+function pickTodaySeasonCandidate(seasons, today) {
+  return seasons.find((s) => s.isActive) ?? seasons.find((s) => isTodayBracketed(s, today)) ?? seasons[0] ?? null;
+}
+
+function isInSeason(season, today) {
+  if (!season) return false;
+  if (isTodayBracketed(season, today)) return true;
+  return Boolean(season.isActive && !season.startDate && !season.endDate);
+}
+
+// Which season "last season's summary" should describe when off-season:
+// the resolved candidate itself if its dates have already lapsed, or —
+// when the candidate is a future season set up early (isActive flipped
+// ahead of the season actually starting, the exact state this app is in
+// two weeks before a season begins) — the most recent PAST season
+// instead, so "last season" doesn't describe a season with zero races yet.
+function pickPastSeasonForSummary(seasons, candidate, today) {
+  if (candidate?.endDate && new Date(candidate.endDate) < today) return candidate;
+  return seasons.find((s) => s.year < (candidate?.year ?? Infinity)) ?? candidate ?? null;
+}
+
+async function buildSeasonSummary(teamId, season) {
+  if (!season) return null;
+  const [rosterCount, raceCount] = await Promise.all([
+    prisma.seasonRoster.count({ where: { seasonId: season.id, isActive: true } }),
+    prisma.race.count({ where: { teamId, season: season.year } }),
+  ]);
+  return { year: season.year, rosterCount, raceCount };
+}
+
+function serializeSeason(season) {
+  if (!season) return null;
+  return { id: season.id, year: season.year, isActive: season.isActive, startDate: season.startDate, endDate: season.endDate };
+}
+
+// GET /api/today's own season gate. Returns one of three states:
+//   'none'       — this team has no Season rows at all (SetupChecklist territory).
+//   'in-season'  — render the full Today page.
+//   'off-season' — render last season's summary instead of an empty dashboard.
+async function resolveTodaySeasonState(teamId, today = new Date()) {
+  const seasons = await prisma.season.findMany({ where: { teamId }, orderBy: { year: 'desc' } });
+  if (seasons.length === 0) {
+    return { state: 'none', season: null, lastSeasonSummary: null };
+  }
+
+  const candidate = pickTodaySeasonCandidate(seasons, today);
+
+  if (isInSeason(candidate, today)) {
+    return { state: 'in-season', season: serializeSeason(candidate), lastSeasonSummary: null };
+  }
+
+  const pastSeason = pickPastSeasonForSummary(seasons, candidate, today);
+  const lastSeasonSummary = await buildSeasonSummary(teamId, pastSeason);
+
+  return { state: 'off-season', season: serializeSeason(candidate), lastSeasonSummary };
+}
+
 module.exports = {
   FIRST_HS_GRADE,
   FINAL_HS_GRADE,
@@ -116,4 +193,10 @@ module.exports = {
   hasGraduated,
   listSeasonsWithData,
   resolveActiveSeason,
+  resolveTodaySeasonState,
+  // Exported for direct, DB-free unit testing of the decision logic.
+  isTodayBracketed,
+  pickTodaySeasonCandidate,
+  isInSeason,
+  pickPastSeasonForSummary,
 };

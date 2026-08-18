@@ -31,7 +31,7 @@ export function setAdminTeam(teamId: string, teamName: string, athleticTeamId: s
   sessionStorage.setItem(ADMIN_TEAM_ID_KEY, teamId);
   sessionStorage.setItem(ADMIN_TEAM_NAME_KEY, teamName);
   clearPreviewAthlete(false);
-  window.location.href = `/t/${athleticTeamId}/analytics`;
+  window.location.href = `/t/${athleticTeamId}`;
 }
 
 export function clearAdminTeam(reload = true) {

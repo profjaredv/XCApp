@@ -38,7 +38,7 @@ const OnboardingPage: React.FC = () => {
         // context may not have re-synced yet the instant after joining, which
         // would bounce back to /onboarding instead of forward.
         const athleticTeamId = response.data.user?.team?.athleticTeamId;
-        navigate(athleticTeamId ? `/t/${athleticTeamId}/analytics` : '/onboarding');
+        navigate(athleticTeamId ? `/t/${athleticTeamId}` : '/onboarding');
       } else {
         throw new Error(response.data.message || 'Failed to join team');
       }
@@ -75,7 +75,7 @@ const OnboardingPage: React.FC = () => {
         // Prefer the server's echoed value over the local form field, same
         // reasoning as handleJoinTeam above.
         const createdAthleticTeamId = response.data.team?.athleticTeamId ?? athleticTeamId;
-        navigate(`/t/${createdAthleticTeamId}/analytics`);
+        navigate(`/t/${createdAthleticTeamId}`);
       } else {
         throw new Error(response.data.message || 'Failed to create team');
       }

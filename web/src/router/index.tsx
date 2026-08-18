@@ -7,6 +7,7 @@ import ToolsPage from '../pages/ToolsPage';
 import DataManagementPage from '../pages/DataManagementPage';
 import SettingsPage from '../pages/SettingsPage';
 import RosterPage from '../pages/RosterPage';
+import TodayPage from '../pages/TodayPage';
 import GroupsPage from '../pages/GroupsPage';
 import PracticePlansPage from '../pages/PracticePlansPage';
 import MeetOpsPage from '../pages/MeetOpsPage';
@@ -88,9 +89,12 @@ export const router = createBrowserRouter([
           },
           // Pre-team-scoped-URL paths: bounce old bookmarks/links to the
           // equivalent /t/:athleticTeamId route instead of 404ing.
-          { path: '/analytics', element: <LegacyRedirect toSubpath="/analytics" /> },
-          { path: '/dashboard', element: <LegacyRedirect toSubpath="/analytics" /> },
-          { path: '/enhanced-analytics', element: <LegacyRedirect toSubpath="/analytics" /> },
+          // These three were all pre-team-scoped-URL aliases for "the
+          // default view when you sign in" — that's Today now (Workstream
+          // A), not Analytics, so they bounce to the bare team path.
+          { path: '/analytics', element: <LegacyRedirect toSubpath="" /> },
+          { path: '/dashboard', element: <LegacyRedirect toSubpath="" /> },
+          { path: '/enhanced-analytics', element: <LegacyRedirect toSubpath="" /> },
           // '/team' (bare roster listing) was merged into '/roster'; only
           // 'team/athlete/:id' still lives under the 'team' subpath.
           { path: '/team', element: <LegacyRedirect toSubpath="/roster" /> },
@@ -135,6 +139,19 @@ export const router = createBrowserRouter([
               {
                 element: <Layout />,
                 children: [
+                  // Workstream A (LeadPack Master Build Handoff): Today
+                  // replaces the old redirect-to-/analytics as the index
+                  // route. Also reachable at an explicit /today path so
+                  // links (and the nav item) don't depend on the index
+                  // route resolving.
+                  {
+                    index: true,
+                    element: <TodayPage />,
+                  },
+                  {
+                    path: 'today',
+                    element: <TodayPage />,
+                  },
                   {
                     path: 'analytics',
                     element: <AnalyticsPage />,
