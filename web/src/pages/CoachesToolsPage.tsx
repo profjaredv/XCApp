@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -109,6 +110,16 @@ export default function CoachesToolsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, currentSeason]);
 
+  // Axios's own err.message is a generic "Request failed with status code
+  // 503" — the actually useful text (e.g. "GEMINI_API_KEY is not set") is
+  // in the backend's response body, which every coaches-tools route
+  // returns as { message }.
+  const extractErrorMessage = (err: unknown, fallback: string): string => {
+    const responseMessage = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    if (responseMessage) return responseMessage;
+    return err instanceof Error ? err.message : fallback;
+  };
+
   const fetchImprovements = async () => {
     try {
       setLoadingImprovements(true);
@@ -119,8 +130,9 @@ export default function CoachesToolsPage() {
       setImprovements(response.data.data || []);
     } catch (err: unknown) {
       console.error('Error fetching improvements:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load improvement data';
+      const errorMessage = extractErrorMessage(err, 'Failed to load improvement data');
       setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setLoadingImprovements(false);
     }
@@ -134,10 +146,14 @@ export default function CoachesToolsPage() {
         `/coaches-tools/ai-insights/${currentSeason}`
       );
       setAiInsights(response.data.data);
+      if ((response.data.data?.insights?.length ?? 0) === 0) {
+        toast.info(response.data.data?.summary || 'No insights available yet for this season.');
+      }
     } catch (err: unknown) {
       console.error('Error generating AI insights:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to generate AI insights';
+      const errorMessage = extractErrorMessage(err, 'Failed to generate AI insights');
       setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setLoadingInsights(false);
     }
