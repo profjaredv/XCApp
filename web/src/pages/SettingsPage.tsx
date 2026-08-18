@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { Package, Upload, Database, MessageSquare, ArrowRight } from 'lucide-react';
 import api from '@/api/api';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,9 +31,17 @@ interface Team {
   currentSeason?: number;
 }
 
+const SETUP_LINKS = [
+  { to: '/equipment', icon: Package, label: 'Equipment', description: 'Checkout, assignments, and sizing.' },
+  { to: '/field-results', icon: Upload, label: 'Field Results', description: 'Manual upload for meets the scraper can\'t reach.' },
+  { to: '/data-management', icon: Database, label: 'Data Management', description: 'Import, recalculate, and clear season data.' },
+  { to: '/feedback', icon: MessageSquare, label: 'Feedback', description: 'Review what coaches and athletes have reported.' },
+] as const;
+
 const SimpleSettingsPage: React.FC = () => {
   const { currentUser, loading: authLoading } = useAuth();
   const { role: walkthroughRole, open: openWalkthrough } = useWalkthrough();
+  const teamPath = useTeamPath();
 
   // Team settings state
   const [team, setTeam] = useState<Team | null>(null);
@@ -159,8 +170,33 @@ const SimpleSettingsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Settings</h1>
-      
+      <h1 className="text-3xl font-bold">Setup</h1>
+
+      {/* Workstream B (LeadPack Master Build Handoff): Equipment, Field
+          Results, Data Management, and Feedback moved in from the sidebar —
+          they're admin/configuration tasks a coach reaches occasionally,
+          not part of the day-to-day spine. */}
+      {currentUser?.role === 'coach' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {SETUP_LINKS.map(({ to, icon: Icon, label, description }) => (
+            <Link key={to} to={teamPath(to)}>
+              <Card className="h-full transition-colors hover:bg-accent">
+                <CardContent className="flex items-start gap-3 pt-6">
+                  <Icon className="h-5 w-5 mt-0.5 text-muted-foreground flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium flex items-center gap-1">
+                      {label}
+                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    </p>
+                    <p className="text-sm text-muted-foreground">{description}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
+
       {/* Team Settings Card */}
       <Card>
         <CardHeader>

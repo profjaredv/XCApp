@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, NavLink } from 'react-router-dom';
-import { ChevronLeft, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, BarChart2, Database, Sparkles, ClipboardList, MessageSquare, Gauge, Calculator, Users, CalendarDays, Flag, Package, TrendingUp, Upload } from 'lucide-react';
+import { ChevronLeft, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, ClipboardList, Gauge, Users, CalendarDays, Flag, TrendingUp } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { FeedbackWidget } from './FeedbackWidget';
@@ -38,19 +38,6 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, label, isCollapsed, o
   </NavLink>
 );
 
-const NavSection: React.FC<{ label: string; isCollapsed: boolean; children: React.ReactNode }> = ({
-  label,
-  isCollapsed,
-  children,
-}) => (
-  <div className="space-y-1 pt-4 first:pt-0">
-    {!isCollapsed && (
-      <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">{label}</p>
-    )}
-    {children}
-  </div>
-);
-
 const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const isMobile = () => window.innerWidth < 768;
@@ -62,7 +49,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   };
   const { currentUser } = useAuth();
   const teamPath = useTeamPath();
-  const isCoach = currentUser?.role === 'coach';
+  // teamRole (TeamMember.role) is the real per-team authorization role —
+  // this is a navigation decision, not an authorization one, but it should
+  // still key off the same signal the server actually checks, not the
+  // legacy role hint. Volunteer coaches get the coach spine minus Setup.
+  const teamRole = currentUser?.teamRole;
+  const isVolunteerCoach = teamRole === 'VOLUNTEER_COACH';
+  const isCoachSpine = teamRole === 'HEAD_COACH' || teamRole === 'COACH' || isVolunteerCoach;
 
   const handleLogout = () => {
     authClient.signOut();
@@ -91,37 +84,37 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
         )}
       </div>
 
+      {/* Workstream B (LeadPack Master Build Handoff): one micro-to-macro
+          spine instead of three verb sections. An athlete belongs to a
+          group, a group trains at practice, practices build toward a meet,
+          meets make a season, seasons make a program — each item contains
+          the one before it. Coaches get all eight; volunteer coaches get
+          everything but Setup; a plain athlete account gets its own short
+          list rather than the coach spine with items hidden.
+          Athletes/Meets/Practice pages are coach-authorization-gated
+          server-side, so a pure athlete's list stops at what they can
+          actually open: Today, Groups (read-only), My Progress. */}
       <nav className="mt-2 flex-1 min-h-0 px-3 overflow-y-auto">
         <NavItem to={teamPath('/today')} icon={Home} label="Today" isCollapsed={isCollapsed} onClick={handleLinkClick} />
 
-        {currentUser?.linkedAthlete && (
-          <NavSection label="My Profile" isCollapsed={isCollapsed}>
+        {isCoachSpine ? (
+          <>
+            <NavItem to={teamPath('/roster')} icon={ClipboardList} label="Athletes" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath('/groups')} icon={Users} label="Groups" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath('/practice-plans')} icon={CalendarDays} label="Practice" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath('/meets')} icon={Flag} label="Meets" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath('/analytics')} icon={LayoutDashboard} label="Season" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath('/band-trends')} icon={TrendingUp} label="Program" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            {!isVolunteerCoach && (
+              <NavItem to={teamPath('/settings')} icon={Settings} label="Setup" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            )}
+          </>
+        ) : currentUser?.linkedAthlete ? (
+          <>
+            <NavItem to={teamPath('/groups')} icon={Users} label="Groups" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <NavItem to={teamPath('/me')} icon={Gauge} label="My Progress" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-          </NavSection>
-        )}
-
-        <NavSection label="Analyze" isCollapsed={isCollapsed}>
-          <NavItem to={teamPath('/analytics')} icon={LayoutDashboard} label="Analytics" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-          <NavItem to={teamPath('/band-trends')} icon={TrendingUp} label="Band Trends" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-          <NavItem to={teamPath('/results-grid')} icon={BarChart2} label="Results Grid" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-          <NavItem to={teamPath('/tools')} icon={Calculator} label="Pace Calculator" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-        </NavSection>
-
-        <NavSection label="Manage" isCollapsed={isCollapsed}>
-          <NavItem to={teamPath('/roster')} icon={ClipboardList} label="Roster" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-          <NavItem to={teamPath('/groups')} icon={Users} label="Groups" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-          {isCoach && (
-            <>
-              <NavItem to={teamPath('/practice-plans')} icon={CalendarDays} label="Practice Plans" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-              <NavItem to={teamPath('/meets')} icon={Flag} label="Meets" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-              <NavItem to={teamPath('/equipment')} icon={Package} label="Equipment" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-              <NavItem to={teamPath('/coaches-tools')} icon={Sparkles} label="Coaches Tools" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-              <NavItem to={teamPath('/data-management')} icon={Database} label="Data Management" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-              <NavItem to={teamPath('/field-results')} icon={Upload} label="Field Results" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-              <NavItem to={teamPath('/feedback')} icon={MessageSquare} label="Feedback" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            </>
-          )}
-        </NavSection>
+          </>
+        ) : null}
       </nav>
 
       <div className="flex-shrink-0 w-full border-t border-sidebar-border bg-sidebar/80 backdrop-blur-sm">

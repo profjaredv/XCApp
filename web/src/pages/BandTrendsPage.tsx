@@ -126,7 +126,7 @@ const BandTrendsPage = () => {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Band Analytics</h1>
+          <h1 className="text-2xl font-bold">Program</h1>
           <CardDescription>
             Top, middle, and bottom performance bands within gender, tracked across seasons.
           </CardDescription>

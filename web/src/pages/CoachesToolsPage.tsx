@@ -1,17 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Sparkles, TrendingUp, Loader2, Lightbulb, AlertCircle, Download, Play, Timer, Eye, X, RotateCcw, Search } from 'lucide-react';
+import { Sparkles, TrendingUp, Loader2, Lightbulb, AlertCircle, Download, Play, Eye, X, RotateCcw, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrentSeasonWithData } from '@/hooks/useCurrentSeasonWithData';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { useQueryParamNumber } from '@/hooks/useQueryState';
-import { useTeamPath } from '@/hooks/useTeamRoute';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatPace } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
@@ -172,9 +170,6 @@ export default function CoachesToolsPage() {
   const { data: availableSeasons = [] } = useAvailableSeasons(teamId);
   const [seasonParam, setSeasonParam] = useQueryParamNumber('season');
   const currentSeason = seasonParam ?? defaultSeason;
-  const teamPath = useTeamPath();
-  const navigate = useNavigate();
-
   const [improvements, setImprovements] = useState<ImprovementData[]>([]);
   const [aiInsights, setAiInsights] = useState<AiInsightsData | null>(null);
   const [coachUp, setCoachUp] = useState<CoachUpData | null>(null);
@@ -441,31 +436,6 @@ export default function CoachesToolsPage() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-
-      {/* Interval Sessions — the full capture tool lives at its own
-          full-screen route (no sidebar/header), opened from here. Group
-          creation is deliberately NOT offered here anymore — coaches build
-          groups by hand on the Groups screen; this app doesn't suggest
-          them. */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Timer className="h-5 w-5 text-purple-500" />
-                Interval Sessions
-              </CardTitle>
-              <CardDescription>
-                Capture reps on a grid instead of paper — opens full screen
-              </CardDescription>
-            </div>
-            <Button onClick={() => navigate(teamPath('/interval-sessions'))} className="gap-2">
-              <Timer className="h-4 w-4" />
-              Open Interval Sessions
-            </Button>
-          </div>
-        </CardHeader>
-      </Card>
 
       {/* Improvement Tracking */}
       <Card>

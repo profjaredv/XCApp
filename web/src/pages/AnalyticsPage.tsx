@@ -1,4 +1,9 @@
 import { useState, useMemo, useEffect, useCallback, useContext } from 'react';
+import { Link } from 'react-router-dom';
+import { Sparkles } from 'lucide-react';
+import { useTeamPath } from '@/hooks/useTeamRoute';
+import VDOTCalculator from '@/components/tools/VDOTCalculator';
+import ResultsGridPage from '@/pages/ResultsGridPage';
 import { useAnalyticsData } from '@/hooks/useAnalyticsData';
 import { useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
 import { performanceService } from '@/api/performanceService';
@@ -84,6 +89,7 @@ const AnalyticsPage = () => {
   const authContext = useContext(AuthContext);
   const currentUser = authContext?.currentUser;
   const teamId = currentUser?.team?.id || (currentUser as unknown as { team_id?: string })?.team_id;
+  const teamPath = useTeamPath();
 
   // Tab/season/athlete selection live directly in the URL — plain params
   // (?tab=athletes&season=2025&athlete=abc123), not local state mirrored
@@ -502,12 +508,15 @@ const AnalyticsPage = () => {
       />
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <div className="mb-4">
-          <ResponsiveTabsList value={activeTab} onValueChange={handleTabChange} className="md:grid md:w-full md:grid-cols-5">
+          <ResponsiveTabsList value={activeTab} onValueChange={handleTabChange} className="md:grid md:w-full md:grid-cols-8">
             <TabsTrigger value="dashboard" className="whitespace-nowrap">Dashboard</TabsTrigger>
             <TabsTrigger value="athletes" className="whitespace-nowrap">Athletes</TabsTrigger>
             <TabsTrigger value="meets" className="whitespace-nowrap">Meets</TabsTrigger>
             <TabsTrigger value="performance" className="whitespace-nowrap">Performance</TabsTrigger>
             <TabsTrigger value="byGroup" className="whitespace-nowrap">By Group</TabsTrigger>
+            <TabsTrigger value="resultsGrid" className="whitespace-nowrap">Results Grid</TabsTrigger>
+            <TabsTrigger value="tools" className="whitespace-nowrap">Pace Calculator</TabsTrigger>
+            <TabsTrigger value="coach" className="whitespace-nowrap">Coach Insights</TabsTrigger>
           </ResponsiveTabsList>
         </div>
         {needsCalculation ? (
@@ -595,6 +604,35 @@ const AnalyticsPage = () => {
             calculated. That's the whole point of it. */}
         <TabsContent value="byGroup">
           <GroupAnalyticsTab groupSeasonId={activeSeasonMeta?.id ?? null} dataYear={viewedSeason} />
+        </TabsContent>
+        {/* Workstream B (LeadPack Master Build Handoff): Results Grid and
+            Pace Calculator moved in from the sidebar — Season absorbs them
+            rather than the app carrying separate top-level nav items for a
+            grid view and a utility calculator. Neither depends on
+            AthleteSeasonMetrics, so both work in preseason too. */}
+        <TabsContent value="resultsGrid">
+          <ResultsGridPage />
+        </TabsContent>
+        <TabsContent value="tools">
+          <VDOTCalculator />
+        </TabsContent>
+        <TabsContent value="coach">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5" />
+                Coach Insights
+              </CardTitle>
+              <CardDescription>
+                AI performance insights and the deterministic "Who to Watch" consistency/growth analysis.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <Link to={teamPath('/coaches-tools')}>Open Coach Insights</Link>
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
       <AthleteDetailModal 

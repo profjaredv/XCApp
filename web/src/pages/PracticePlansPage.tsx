@@ -1,4 +1,6 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -22,7 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ChevronLeft, ChevronRight, Copy, Pencil, Plus, Trash2, Loader2, BookmarkPlus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Pencil, Plus, Trash2, Loader2, BookmarkPlus, Timer } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { useGroups } from '@/hooks/useGroups';
@@ -154,6 +156,8 @@ function assignmentFormToInput(form: AssignmentFormState): AssignmentInput {
 }
 
 const PracticePlansPage: React.FC = () => {
+  const navigate = useNavigate();
+  const teamPath = useTeamPath();
   const { data: context } = useTeamContext();
   const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
 
@@ -402,6 +406,14 @@ const PracticePlansPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-3xl font-bold">Practice Plans</h1>
         <div className="flex items-center gap-2">
+          {/* Workstream B: Interval Sessions' entry point moved here from
+              the deleted Coaches Tools nav item — the capture tool itself
+              stays at its own full-screen route (correct for a tool used
+              at the track), only where you launch it from changed. */}
+          <Button variant="outline" onClick={() => navigate(teamPath('/interval-sessions'))} className="gap-2">
+            <Timer className="h-4 w-4" />
+            Interval Sessions
+          </Button>
           <Select value={String(activeYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
             <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
             <SelectContent>
