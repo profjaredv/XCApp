@@ -5,6 +5,7 @@ const { authenticate, requireTeam, requireRole } = require('../middleware/auth')
 const logger = require('../utils/logger');
 const { resolveActiveSeason, listSeasonsWithData } = require('../lib/season');
 const { anonymizeAthletesForAnalysis } = require('../lib/kippwitAnonymize');
+const { computeCoachUpAnalysis } = require('../lib/coachUpAnalysis');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // No fallback literal here on purpose — a hardcoded key was committed to
@@ -236,6 +237,74 @@ Return JSON only, with every insight tagged by which of the three focus areas it
   } catch (error) {
     logger.error(`Error generating AI insights: ${error.message}`);
     res.status(500).json({ success: false, message: 'Failed to generate AI insights' });
+  }
+});
+
+/**
+ * @route   GET /api/coaches-tools/coach-up/:season
+ * @desc    Deterministic "who should we coach up" scoring — see
+ *          lib/coachUpAnalysis.js. No AI, no anonymization, no API key:
+ *          every athlete's consistency and season-long improvement is
+ *          z-scored against their own gender group, combined into one
+ *          score, and the team's already-fastest runners are excluded so
+ *          what's left is the athletes flying under the radar. Same
+ *          preseason fallback as ai-insights: no races yet this season
+ *          falls back to the most recent season with data.
+ */
+router.get('/coach-up/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+  try {
+    const teamId = req.user.teamId;
+    const requestedSeason = await resolveActiveSeason(teamId, req.params.season);
+
+    let usingSeason = requestedSeason;
+    let isPreseasonFallback = false;
+    let seasonRaces = await prisma.race.findMany({ where: { teamId, season: requestedSeason }, select: { id: true } });
+
+    if (seasonRaces.length === 0) {
+      const seasonsWithData = await listSeasonsWithData(teamId);
+      const fallbackSeason = seasonsWithData.find((s) => s < requestedSeason) ?? seasonsWithData[0];
+      if (Number.isFinite(fallbackSeason)) {
+        usingSeason = fallbackSeason;
+        isPreseasonFallback = true;
+        seasonRaces = await prisma.race.findMany({ where: { teamId, season: fallbackSeason }, select: { id: true } });
+      }
+    }
+
+    const raceIds = seasonRaces.map((r) => r.id);
+    if (raceIds.length === 0) {
+      return res.json({
+        success: true,
+        data: { athletes: [], watchList: [], consistencyConcerns: [], regressionRisks: [], usingSeason, isPreseasonFallback: false },
+      });
+    }
+
+    const athletes = await prisma.athlete.findMany({
+      where: { teamId },
+      select: { id: true, name: true, grade: true, gender: true },
+    });
+
+    const athletesWithRaces = await Promise.all(
+      athletes.map(async (athlete) => {
+        const results = await prisma.result.findMany({
+          where: { athleteId: athlete.id, teamId, raceId: { in: raceIds }, status: 'FINISHED', time: { gt: 0 } },
+          select: { time: true, race: { select: { date: true, distanceMeters: true } } },
+        });
+        return {
+          id: athlete.id,
+          name: athlete.name,
+          grade: athlete.grade,
+          gender: athlete.gender,
+          races: results.map((r) => ({ timeSec: r.time, distanceMeters: r.race.distanceMeters, date: r.race.date })),
+        };
+      })
+    );
+
+    const analysis = computeCoachUpAnalysis(athletesWithRaces);
+
+    res.json({ success: true, data: { ...analysis, usingSeason, isPreseasonFallback } });
+  } catch (error) {
+    logger.error(`Error computing coach-up analysis: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to compute coach-up analysis' });
   }
 });
 

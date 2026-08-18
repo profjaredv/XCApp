@@ -5,13 +5,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Sparkles, TrendingUp, Loader2, Lightbulb, AlertCircle, Download, Play, Timer } from 'lucide-react';
+import { Sparkles, TrendingUp, Loader2, Lightbulb, AlertCircle, Download, Play, Timer, Eye } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrentSeasonWithData } from '@/hooks/useCurrentSeasonWithData';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { useQueryParamNumber } from '@/hooks/useQueryState';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { formatPace } from '@/lib/formatUtils';
+import { gradeLabel } from '@/lib/seasonUtils';
 import axiosInstance from '@/api/axios';
 
 interface Athlete {
@@ -78,6 +80,33 @@ const CATEGORY_LABEL: Record<NonNullable<AiInsight['category']>, string> = {
   watch: 'Watch List',
 };
 
+// Deterministic scoring output — see backend/lib/coachUpAnalysis.js. No AI
+// involved: z-scored consistency/growth against the athlete's own gender
+// group, combined into one score, team's already-fastest excluded.
+interface CoachUpAthlete {
+  id: string;
+  name: string;
+  gender: string | null;
+  grade: number | null;
+  raceCount: number;
+  avgPaceSecPerMile: number;
+  improvementPct: number;
+  consistencyPct: number;
+  consistencyZ: number;
+  growthZ: number;
+  combinedScore: number;
+  alreadyVisible: boolean;
+}
+
+interface CoachUpData {
+  athletes: CoachUpAthlete[];
+  watchList: CoachUpAthlete[];
+  consistencyConcerns: CoachUpAthlete[];
+  regressionRisks: CoachUpAthlete[];
+  usingSeason?: number;
+  isPreseasonFallback?: boolean;
+}
+
 export default function CoachesToolsPage() {
   const { currentUser } = useAuth();
   const teamId = currentUser?.team?.id;
@@ -94,13 +123,18 @@ export default function CoachesToolsPage() {
 
   const [improvements, setImprovements] = useState<ImprovementData[]>([]);
   const [aiInsights, setAiInsights] = useState<AiInsightsData | null>(null);
+  const [coachUp, setCoachUp] = useState<CoachUpData | null>(null);
   const [loadingImprovements, setLoadingImprovements] = useState(false);
   const [loadingInsights, setLoadingInsights] = useState(false);
+  const [loadingCoachUp, setLoadingCoachUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (teamId && currentSeason) {
       fetchImprovements();
+      // Deterministic, cheap, no API key needed — load it automatically
+      // like Improvement Tracking, not on a button click like AI Insights.
+      fetchCoachUp();
       // AI insights are generated on demand (button click) for whichever
       // season was current when the coach clicked — clear on season change
       // so a switch doesn't leave last season's insights on screen
@@ -135,6 +169,19 @@ export default function CoachesToolsPage() {
       toast.error(errorMessage);
     } finally {
       setLoadingImprovements(false);
+    }
+  };
+
+  const fetchCoachUp = async () => {
+    try {
+      setLoadingCoachUp(true);
+      const response = await axiosInstance.get(`/coaches-tools/coach-up/${currentSeason}`);
+      setCoachUp(response.data.data);
+    } catch (err: unknown) {
+      console.error('Error fetching coach-up analysis:', err);
+      toast.error(extractErrorMessage(err, 'Failed to load who-to-watch analysis'));
+    } finally {
+      setLoadingCoachUp(false);
     }
   };
 
@@ -486,6 +533,107 @@ export default function CoachesToolsPage() {
               </table>
               </div>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Who to Watch — deterministic, no AI involved. See
+          backend/lib/coachUpAnalysis.js: consistency and season-long trend
+          are z-scored against each athlete's own gender group, combined
+          into one score, and the team's already-fastest runners are
+          filtered out — what's left is the athletes flying under the
+          radar. Loads automatically, same as Improvement Tracking, since
+          it's free and instant (no API key, no third-party call). */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Eye className="h-5 w-5 text-green-500" />
+            Who to Watch
+          </CardTitle>
+          <CardDescription>
+            Deterministic scoring, not AI — consistency and season trend vs. the team, with the obvious stars filtered out
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingCoachUp ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : !coachUp || coachUp.athletes.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Eye className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>Not enough race data yet — athletes need at least 2 races this season.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {coachUp.isPreseasonFallback && (
+                <Alert>
+                  <AlertDescription>
+                    No races yet in {currentSeason} — this analysis is based on the {coachUp.usingSeason} season instead.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div>
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-2">Flying under the radar</h3>
+                {coachUp.watchList.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nobody stands out beyond the team's usual names yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {coachUp.watchList.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm">
+                        <div>
+                          <span className="font-medium">{a.name}</span>
+                          <span className="text-muted-foreground ml-2">
+                            {gradeLabel(a.grade)} · {a.raceCount} races
+                          </span>
+                        </div>
+                        <div className="text-right text-xs text-muted-foreground">
+                          <div>{formatPace(a.avgPaceSecPerMile)}</div>
+                          <div>
+                            {a.improvementPct > 0 ? '+' : ''}
+                            {a.improvementPct}% trend · {a.consistencyPct}% variance
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {coachUp.consistencyConcerns.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-2">Consistency concerns</h3>
+                  <div className="space-y-2">
+                    {coachUp.consistencyConcerns.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm">
+                        <span className="font-medium">{a.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {a.consistencyPct}% variance ({a.raceCount} races)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {coachUp.regressionRisks.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-2">Regression risk</h3>
+                  <div className="space-y-2">
+                    {coachUp.regressionRisks.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm">
+                        <span className="font-medium">{a.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {a.improvementPct > 0 ? '+' : ''}
+                          {a.improvementPct}% trend ({a.raceCount} races)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
