@@ -301,10 +301,86 @@ router.get('/coach-up/:season', authenticate, requireTeam, requireRole(['HEAD_CO
 
     const analysis = computeCoachUpAnalysis(athletesWithRaces);
 
-    res.json({ success: true, data: { ...analysis, usingSeason, isPreseasonFallback } });
+    // Fold in this season's acknowledgments: dismissed (athlete, category)
+    // pairs drop out of the three flagged lists, but every athlete keeps
+    // showing up in the full `athletes` array (with which categories are
+    // dismissed attached) so a coach can still look them up or undo it.
+    const acknowledgements = await prisma.coachUpAcknowledgement.findMany({
+      where: { teamId, season: usingSeason },
+      select: { athleteId: true, category: true },
+    });
+    const acknowledgedKeys = new Set(acknowledgements.map((a) => `${a.athleteId}::${a.category}`));
+    const isAcknowledged = (athleteId, category) => acknowledgedKeys.has(`${athleteId}::${category}`);
+    const acknowledgedByAthlete = new Map();
+    for (const a of acknowledgements) {
+      if (!acknowledgedByAthlete.has(a.athleteId)) acknowledgedByAthlete.set(a.athleteId, []);
+      acknowledgedByAthlete.get(a.athleteId).push(a.category);
+    }
+
+    const withAcknowledgements = {
+      athletes: analysis.athletes.map((a) => ({ ...a, acknowledgedCategories: acknowledgedByAthlete.get(a.id) ?? [] })),
+      watchList: analysis.watchList.filter((a) => !isAcknowledged(a.id, 'watch')),
+      consistencyConcerns: analysis.consistencyConcerns.filter((a) => !isAcknowledged(a.id, 'consistency')),
+      regressionRisks: analysis.regressionRisks.filter((a) => !isAcknowledged(a.id, 'regression')),
+    };
+
+    res.json({ success: true, data: { ...withAcknowledgements, usingSeason, isPreseasonFallback } });
   } catch (error) {
     logger.error(`Error computing coach-up analysis: ${error.message}`);
     res.status(500).json({ success: false, message: 'Failed to compute coach-up analysis' });
+  }
+});
+
+const COACH_UP_CATEGORIES = ['watch', 'consistency', 'regression'];
+
+/**
+ * @route   POST /api/coaches-tools/coach-up/acknowledge
+ * @desc    Dismiss one athlete off one flagged list for one season —
+ *          idempotent (re-acknowledging an already-acknowledged pair is a
+ *          no-op, not an error).
+ */
+router.post('/coach-up/acknowledge', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+  const { athleteId, category, season } = req.body;
+  if (!athleteId || !COACH_UP_CATEGORIES.includes(category) || !Number.isFinite(Number(season))) {
+    return res.status(400).json({ success: false, message: `athleteId, season, and category (one of ${COACH_UP_CATEGORIES.join(', ')}) are required.` });
+  }
+
+  try {
+    const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId: req.user.teamId } });
+    if (!athlete) {
+      return res.status(404).json({ success: false, message: 'Athlete not found.' });
+    }
+
+    const row = await prisma.coachUpAcknowledgement.upsert({
+      where: { teamId_athleteId_category_season: { teamId: req.user.teamId, athleteId, category, season: Number(season) } },
+      update: { acknowledgedById: req.user.id, acknowledgedAt: new Date() },
+      create: { teamId: req.user.teamId, athleteId, category, season: Number(season), acknowledgedById: req.user.id },
+    });
+    res.status(201).json({ success: true, data: row });
+  } catch (error) {
+    logger.error(`Error acknowledging coach-up flag: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to acknowledge that flag' });
+  }
+});
+
+/**
+ * @route   DELETE /api/coaches-tools/coach-up/acknowledge
+ * @desc    Undo a dismissal — idempotent (nothing to delete is not an error).
+ */
+router.delete('/coach-up/acknowledge', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+  const { athleteId, category, season } = req.body;
+  if (!athleteId || !COACH_UP_CATEGORIES.includes(category) || !Number.isFinite(Number(season))) {
+    return res.status(400).json({ success: false, message: `athleteId, season, and category (one of ${COACH_UP_CATEGORIES.join(', ')}) are required.` });
+  }
+
+  try {
+    await prisma.coachUpAcknowledgement.deleteMany({
+      where: { teamId: req.user.teamId, athleteId, category, season: Number(season) },
+    });
+    res.json({ success: true });
+  } catch (error) {
+    logger.error(`Error un-acknowledging coach-up flag: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to undo that acknowledgment' });
   }
 });
 

@@ -12,6 +12,19 @@
 // then exclude the athletes who are already the team's fastest — the ones
 // a coach doesn't need an algorithm to notice. What's left, ranked, is the
 // watch list: real signal, low visibility.
+//
+// "Newbie gains" guard: improvement % is relative to the athlete's OWN
+// starting time, so someone who came in and ran a 40:00 5K, then dropped
+// to 30:00, posts a 25% improvement — bigger than almost anyone already
+// fit could ever produce — without being anywhere near competitive. That's
+// real fitness gain, just not the "quietly ready for more" signal this
+// list is for. So growth only counts toward the watch list if the
+// athlete's CURRENT pace (their most recent race, not the season average,
+// which would still be dragged down by that slow start) is within
+// `competitiveToleranceStdDev` of the team's average current pace —
+// competitiveness is decided by where they are now, not how far they
+// came. Consistency/regression flags are untouched by this gate: pacing
+// instruction and decline are worth flagging regardless of speed tier.
 
 const { paceSecPerMile } = require('./groupAnalytics');
 
@@ -66,6 +79,9 @@ function computeAthleteMetrics(athlete) {
     grade: athlete.grade ?? null,
     raceCount: withPace.length,
     avgPaceSecPerMile: round2(avgPaceSecPerMile),
+    // Where they are NOW, not blended with a slow start — the basis for
+    // the "newbie gains" competitiveness gate below.
+    mostRecentPaceSecPerMile: round2(paces[paces.length - 1]),
     improvementPct: round2(improvementPct),
     consistencyPct: round2(consistencyPct),
   };
@@ -73,7 +89,7 @@ function computeAthleteMetrics(athlete) {
 
 /**
  * @param athletes [{ id, name, gender, grade, races: [{ timeSec, distanceMeters, date }] }]
- * @param options  { topExcludeCount, watchListSize, consistencyWeight, growthWeight, concernThreshold, minRacesForRegressionRisk }
+ * @param options  { topExcludeCount, watchListSize, consistencyWeight, growthWeight, concernThreshold, minRacesForRegressionRisk, competitiveToleranceStdDev }
  */
 function computeCoachUpAnalysis(athletes, options = {}) {
   const {
@@ -83,6 +99,12 @@ function computeCoachUpAnalysis(athletes, options = {}) {
     growthWeight = 0.6,
     concernThreshold = -1.5,
     minRacesForRegressionRisk = 3,
+    // How far off the team's current pace an athlete may be and still
+    // count as "competitive enough to watch." 1.25 standard deviations
+    // above the group's average current pace — generous enough not to
+    // exclude a mid-pack athlete, tight enough to exclude someone who's
+    // still clearly building a base.
+    competitiveToleranceStdDev = 1.25,
   } = options;
 
   const metrics = (athletes || []).map(computeAthleteMetrics).filter((m) => m !== null);
@@ -108,6 +130,10 @@ function computeCoachUpAnalysis(athletes, options = {}) {
         .map((a) => a.id)
     );
 
+    // Positive recentPaceZ = slower than the group's current average;
+    // "competitive" means not more than the tolerance above that average.
+    const recentPaceZ = zScores(group.map((a) => a.mostRecentPaceSecPerMile));
+
     group.forEach((athlete, i) => {
       scored.push({
         ...athlete,
@@ -115,12 +141,13 @@ function computeCoachUpAnalysis(athletes, options = {}) {
         growthZ: round2(growthZ[i]),
         combinedScore: round2(consistencyWeight * consistencyZ[i] + growthWeight * growthZ[i]),
         alreadyVisible: alreadyVisible.has(athlete.id),
+        isCompetitive: recentPaceZ[i] <= competitiveToleranceStdDev,
       });
     });
   }
 
   const watchList = scored
-    .filter((a) => !a.alreadyVisible)
+    .filter((a) => !a.alreadyVisible && a.isCompetitive)
     .sort((a, b) => b.combinedScore - a.combinedScore)
     .slice(0, watchListSize);
 

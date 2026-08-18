@@ -49,23 +49,24 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  team                    Team?                 @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
-  coachedTeams            Team[]                @relation("TeamCoach")
+  team                    Team?                    @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
+  coachedTeams            Team[]                   @relation("TeamCoach")
   teamMemberships         TeamMember[]
-  createdRaceSplits       RaceSplit[]           @relation("RaceSplitCreator")
-  linkedAthlete           Athlete?              @relation("AthleteAccount")
+  createdRaceSplits       RaceSplit[]              @relation("RaceSplitCreator")
+  linkedAthlete           Athlete?                 @relation("AthleteAccount")
   athleteClaims           AthleteClaim[]
-  sentStaffInvites        StaffInvite[]         @relation("StaffInviteSender")
-  guardianLinks           GuardianLink[]        @relation("GuardianAccount")
-  resolvedGuardianLinks   GuardianLink[]        @relation("GuardianLinkResolver")
+  sentStaffInvites        StaffInvite[]            @relation("StaffInviteSender")
+  guardianLinks           GuardianLink[]           @relation("GuardianAccount")
+  resolvedGuardianLinks   GuardianLink[]           @relation("GuardianLinkResolver")
   ledGroups               GroupLeader[]
-  createdPracticePlans    PracticePlan[]        @relation("PracticePlanCreator")
-  createdWorkoutTemplates WorkoutTemplate[]     @relation("WorkoutTemplateCreator")
-  updatedMeetEntries      MeetEntry[]           @relation("MeetEntryUpdater")
-  equipmentCheckedOut     EquipmentAssignment[] @relation("EquipmentCheckedOutBy")
-  equipmentReturned       EquipmentAssignment[] @relation("EquipmentReturnedBy")
-  createdIntervalSessions IntervalSession[]     @relation("IntervalSessionCreator")
-  createdTrainingLogs     TrainingLog[]         @relation("TrainingLogCreator")
+  createdPracticePlans    PracticePlan[]           @relation("PracticePlanCreator")
+  createdWorkoutTemplates WorkoutTemplate[]        @relation("WorkoutTemplateCreator")
+  updatedMeetEntries      MeetEntry[]              @relation("MeetEntryUpdater")
+  equipmentCheckedOut     EquipmentAssignment[]    @relation("EquipmentCheckedOutBy")
+  equipmentReturned       EquipmentAssignment[]    @relation("EquipmentReturnedBy")
+  createdIntervalSessions IntervalSession[]        @relation("IntervalSessionCreator")
+  createdTrainingLogs     TrainingLog[]            @relation("TrainingLogCreator")
+  coachUpAcknowledgements CoachUpAcknowledgement[] @relation("CoachUpAcknowledgementBy")
 
   @@index([teamId])
   @@map("users")
@@ -82,27 +83,28 @@ model Team {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  coach                  User                     @relation("TeamCoach", fields: [coachUid], references: [id])
-  members                User[]                   @relation("TeamUsers")
-  teamMembers            TeamMember[]
-  athletes               Athlete[]
-  races                  Race[]
-  results                Result[]
-  seasons                Season[]
-  meetGroups             MeetGroup[]
-  raceSplits             RaceSplit[]
-  teamSeasonMetrics      TeamSeasonMetrics[]
-  athleteSeasonMetrics   AthleteSeasonMetrics[]
-  meetPerformanceMetrics MeetPerformanceMetrics[]
-  athleteInvites         AthleteInvite[]
-  athleteClaims          AthleteClaim[]
-  staffInvites           StaffInvite[]
-  groups                 Group[]
-  practicePlans          PracticePlan[]
-  workoutTemplates       WorkoutTemplate[]
-  meets                  Meet[]
-  equipment              Equipment[]
-  intervalSessions       IntervalSession[]
+  coach                   User                     @relation("TeamCoach", fields: [coachUid], references: [id])
+  members                 User[]                   @relation("TeamUsers")
+  teamMembers             TeamMember[]
+  athletes                Athlete[]
+  races                   Race[]
+  results                 Result[]
+  seasons                 Season[]
+  meetGroups              MeetGroup[]
+  raceSplits              RaceSplit[]
+  teamSeasonMetrics       TeamSeasonMetrics[]
+  athleteSeasonMetrics    AthleteSeasonMetrics[]
+  meetPerformanceMetrics  MeetPerformanceMetrics[]
+  athleteInvites          AthleteInvite[]
+  athleteClaims           AthleteClaim[]
+  staffInvites            StaffInvite[]
+  groups                  Group[]
+  practicePlans           PracticePlan[]
+  workoutTemplates        WorkoutTemplate[]
+  meets                   Meet[]
+  equipment               Equipment[]
+  intervalSessions        IntervalSession[]
+  coachUpAcknowledgements CoachUpAcknowledgement[]
 
   @@index([coachUid])
   @@map("teams")
@@ -175,22 +177,23 @@ model Athlete {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  team                   Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user                   User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
-  results                Result[]
-  raceSplits             RaceSplit[]
-  seasonRosterEntries    SeasonRoster[]
-  seasonMetrics          AthleteSeasonMetrics[]
-  bestInMeets            MeetPerformanceMetrics[] @relation("BestAthlete")
-  invite                 AthleteInvite?
-  claims                 AthleteClaim[]
-  trainingLogs           TrainingLog[]
-  guardianLinks          GuardianLink[]
-  groupMemberships       GroupMembership[]
-  meetEntries            MeetEntry[]
-  raceReflections        RaceReflection[]
-  equipmentAssignments   EquipmentAssignment[]
-  intervalSessionEntries IntervalSessionEntry[]
+  team                    Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user                    User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
+  results                 Result[]
+  raceSplits              RaceSplit[]
+  seasonRosterEntries     SeasonRoster[]
+  seasonMetrics           AthleteSeasonMetrics[]
+  bestInMeets             MeetPerformanceMetrics[] @relation("BestAthlete")
+  invite                  AthleteInvite?
+  claims                  AthleteClaim[]
+  trainingLogs            TrainingLog[]
+  guardianLinks           GuardianLink[]
+  groupMemberships        GroupMembership[]
+  meetEntries             MeetEntry[]
+  raceReflections         RaceReflection[]
+  equipmentAssignments    EquipmentAssignment[]
+  intervalSessionEntries  IntervalSessionEntry[]
+  coachUpAcknowledgements CoachUpAcknowledgement[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -963,6 +966,30 @@ model IntervalSessionEntry {
 
   @@unique([intervalSessionId, athleteId])
   @@map("interval_session_entries")
+}
+
+// A coach dismissing one athlete off one flagged list (watch/consistency/
+// regression — see lib/coachUpAnalysis.js) for one season, so the
+// deterministic "Who to Watch" analysis stops re-surfacing someone already
+// dealt with. Scoped to season (not just team+athlete+category) on
+// purpose: a new season is fresh data, so an acknowledgment from last
+// year shouldn't silently suppress a genuinely new flag this year.
+model CoachUpAcknowledgement {
+  id               String   @id @default(uuid()) @db.Uuid
+  teamId           String   @map("team_id") @db.Uuid
+  athleteId        String   @map("athlete_id") @db.Uuid
+  category         String // "watch" | "consistency" | "regression"
+  season           Int
+  acknowledgedById String?  @map("acknowledged_by") @db.Uuid
+  acknowledgedAt   DateTime @default(now()) @map("acknowledged_at")
+
+  team           Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  athlete        Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  acknowledgedBy User?   @relation("CoachUpAcknowledgementBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  @@unique([teamId, athleteId, category, season])
+  @@index([teamId, season])
+  @@map("coach_up_acknowledgements")
 }
 
 // ---------------------------------------------------------------------------

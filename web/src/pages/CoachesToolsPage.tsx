@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Sparkles, TrendingUp, Loader2, Lightbulb, AlertCircle, Download, Play, Timer, Eye } from 'lucide-react';
+import { Sparkles, TrendingUp, Loader2, Lightbulb, AlertCircle, Download, Play, Timer, Eye, X, RotateCcw, Search } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrentSeasonWithData } from '@/hooks/useCurrentSeasonWithData';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
@@ -83,6 +84,8 @@ const CATEGORY_LABEL: Record<NonNullable<AiInsight['category']>, string> = {
 // Deterministic scoring output — see backend/lib/coachUpAnalysis.js. No AI
 // involved: z-scored consistency/growth against the athlete's own gender
 // group, combined into one score, team's already-fastest excluded.
+type CoachUpCategory = 'watch' | 'consistency' | 'regression';
+
 interface CoachUpAthlete {
   id: string;
   name: string;
@@ -90,12 +93,19 @@ interface CoachUpAthlete {
   grade: number | null;
   raceCount: number;
   avgPaceSecPerMile: number;
+  mostRecentPaceSecPerMile: number;
   improvementPct: number;
   consistencyPct: number;
   consistencyZ: number;
   growthZ: number;
   combinedScore: number;
   alreadyVisible: boolean;
+  // False means their improvement, however large, hasn't actually landed
+  // them near the team's current pace yet — the "40:00 5K down to 30:00,
+  // still nowhere close" guard. Only gates the watch list, not the
+  // consistency/regression flags.
+  isCompetitive: boolean;
+  acknowledgedCategories: CoachUpCategory[];
 }
 
 interface CoachUpData {
@@ -106,6 +116,50 @@ interface CoachUpData {
   usingSeason?: number;
   isPreseasonFallback?: boolean;
 }
+
+// Mirrors backend/lib/coachUpAnalysis.js's defaults — needed here only so
+// the athlete-lookup panel can independently tell "would this person
+// qualify for category X" regardless of whether they've been dismissed
+// (the three server-filtered lists already exclude dismissed athletes, so
+// this logic never runs against them — only against the full `athletes`
+// array in the search panel). Keep in sync if those defaults change.
+const COACH_UP_CONCERN_THRESHOLD = -1.5;
+const COACH_UP_MIN_RACES_FOR_REGRESSION = 3;
+
+function qualifiesForCoachUpCategory(athlete: CoachUpAthlete, category: CoachUpCategory): boolean {
+  if (category === 'watch') return !athlete.alreadyVisible && athlete.isCompetitive;
+  if (category === 'consistency') return athlete.consistencyZ <= COACH_UP_CONCERN_THRESHOLD;
+  return athlete.growthZ <= COACH_UP_CONCERN_THRESHOLD && athlete.raceCount >= COACH_UP_MIN_RACES_FOR_REGRESSION;
+}
+
+const COACH_UP_CATEGORY_LABEL: Record<CoachUpCategory, string> = {
+  watch: 'Watch List',
+  consistency: 'Consistency',
+  regression: 'Regression',
+};
+
+const CoachUpRow: React.FC<{
+  athlete: CoachUpAthlete;
+  category: CoachUpCategory;
+  statText: React.ReactNode;
+  busy: boolean;
+  onDismiss: () => void;
+}> = ({ athlete, statText, busy, onDismiss }) => (
+  <div className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm">
+    <div>
+      <span className="font-medium">{athlete.name}</span>
+      <span className="text-muted-foreground ml-2">
+        {gradeLabel(athlete.grade)} · {athlete.raceCount} races
+      </span>
+    </div>
+    <div className="flex items-center gap-2">
+      <div className="text-right text-xs text-muted-foreground">{statText}</div>
+      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" disabled={busy} title="Dismiss — stop showing this flag" onClick={onDismiss}>
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+      </Button>
+    </div>
+  </div>
+);
 
 export default function CoachesToolsPage() {
   const { currentUser } = useAuth();
@@ -127,6 +181,9 @@ export default function CoachesToolsPage() {
   const [loadingImprovements, setLoadingImprovements] = useState(false);
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [loadingCoachUp, setLoadingCoachUp] = useState(false);
+  const [acknowledgingKey, setAcknowledgingKey] = useState<string | null>(null);
+  const [coachUpSearch, setCoachUpSearch] = useState('');
+  const [showFullWatchList, setShowFullWatchList] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -182,6 +239,28 @@ export default function CoachesToolsPage() {
       toast.error(extractErrorMessage(err, 'Failed to load who-to-watch analysis'));
     } finally {
       setLoadingCoachUp(false);
+    }
+  };
+
+  // Acknowledge against `coachUp.usingSeason`, not `currentSeason` — a
+  // preseason view is showing last season's data, and that's the season
+  // the acknowledgment needs to be scoped to for it to actually suppress
+  // anything on the next load.
+  const setCoachUpAcknowledged = async (athleteId: string, category: CoachUpCategory, acknowledged: boolean) => {
+    const season = coachUp?.usingSeason ?? currentSeason;
+    const key = `${athleteId}::${category}`;
+    setAcknowledgingKey(key);
+    try {
+      if (acknowledged) {
+        await axiosInstance.post('/coaches-tools/coach-up/acknowledge', { athleteId, category, season });
+      } else {
+        await axiosInstance.delete('/coaches-tools/coach-up/acknowledge', { data: { athleteId, category, season } });
+      }
+      await fetchCoachUp();
+    } catch (err: unknown) {
+      toast.error(extractErrorMessage(err, 'Could not update that acknowledgment'));
+    } finally {
+      setAcknowledgingKey(null);
     }
   };
 
@@ -307,6 +386,22 @@ export default function CoachesToolsPage() {
     link.click();
     document.body.removeChild(link);
   };
+
+  // The full ranked pool eligible for the watch list, mirroring the
+  // backend's own filter (see computeCoachUpAnalysis) so "Show more"
+  // doesn't need another round trip — everyone's metrics are already here.
+  const fullEligibleWatchPool = useMemo(() => {
+    if (!coachUp) return [];
+    return [...coachUp.athletes]
+      .filter((a) => !a.alreadyVisible && a.isCompetitive && !a.acknowledgedCategories.includes('watch'))
+      .sort((a, b) => b.combinedScore - a.combinedScore);
+  }, [coachUp]);
+
+  const coachUpSearchResults = useMemo(() => {
+    const term = coachUpSearch.trim().toLowerCase();
+    if (!term || !coachUp) return [];
+    return coachUp.athletes.filter((a) => a.name.toLowerCase().includes(term));
+  }, [coachUp, coachUpSearch]);
 
   if (!teamId) {
     return (
@@ -546,13 +641,26 @@ export default function CoachesToolsPage() {
           it's free and instant (no API key, no third-party call). */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Eye className="h-5 w-5 text-green-500" />
-            Who to Watch
-          </CardTitle>
-          <CardDescription>
-            Deterministic scoring, not AI — consistency and season trend vs. the team, with the obvious stars filtered out
-          </CardDescription>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Eye className="h-5 w-5 text-green-500" />
+                Who to Watch
+              </CardTitle>
+              <CardDescription>
+                Deterministic scoring, not AI — consistency and season trend vs. the team, with the obvious stars filtered out
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={coachUpSearch}
+                onChange={(e) => setCoachUpSearch(e.target.value)}
+                placeholder="Look up an athlete…"
+                className="pl-8"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {loadingCoachUp ? (
@@ -563,6 +671,67 @@ export default function CoachesToolsPage() {
             <div className="text-center py-8 text-muted-foreground">
               <Eye className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>Not enough race data yet — athletes need at least 2 races this season.</p>
+            </div>
+          ) : coachUpSearch.trim() ? (
+            // Lookup mode: every match, regardless of dismissal, with a
+            // toggle per category so a dismissal can be undone here.
+            <div className="space-y-2">
+              {coachUpSearchResults.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">No athlete matches "{coachUpSearch.trim()}".</p>
+              ) : (
+                coachUpSearchResults.map((a) => {
+                  const categories = (['watch', 'consistency', 'regression'] as CoachUpCategory[]).filter((c) =>
+                    qualifiesForCoachUpCategory(a, c)
+                  );
+                  return (
+                    <div key={a.id} className="rounded-md border p-3 text-sm space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium">
+                          {a.name} <span className="text-muted-foreground font-normal">{gradeLabel(a.grade)} · {a.raceCount} races</span>
+                        </span>
+                        <span className="text-xs text-muted-foreground text-right">
+                          {formatPace(a.mostRecentPaceSecPerMile)} current · {formatPace(a.avgPaceSecPerMile)} season avg
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {a.improvementPct > 0 ? '+' : ''}
+                        {a.improvementPct}% season trend · {a.consistencyPct}% variance · combined score {a.combinedScore}
+                        {!a.isCompetitive && ' · not yet at team pace'}
+                      </p>
+                      {categories.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Not currently flagged for anything.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {categories.map((category) => {
+                            const acknowledged = a.acknowledgedCategories.includes(category);
+                            const busy = acknowledgingKey === `${a.id}::${category}`;
+                            return (
+                              <Button
+                                key={category}
+                                size="sm"
+                                variant={acknowledged ? 'outline' : 'secondary'}
+                                className="h-7 text-xs gap-1"
+                                disabled={busy}
+                                onClick={() => setCoachUpAcknowledged(a.id, category, !acknowledged)}
+                              >
+                                {busy ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : acknowledged ? (
+                                  <RotateCcw className="h-3 w-3" />
+                                ) : (
+                                  <X className="h-3 w-3" />
+                                )}
+                                {COACH_UP_CATEGORY_LABEL[category]}
+                                {acknowledged ? ' (dismissed — undo)' : ''}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           ) : (
             <div className="space-y-6">
@@ -579,25 +748,33 @@ export default function CoachesToolsPage() {
                 {coachUp.watchList.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Nobody stands out beyond the team's usual names yet.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {coachUp.watchList.map((a) => (
-                      <div key={a.id} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm">
-                        <div>
-                          <span className="font-medium">{a.name}</span>
-                          <span className="text-muted-foreground ml-2">
-                            {gradeLabel(a.grade)} · {a.raceCount} races
-                          </span>
-                        </div>
-                        <div className="text-right text-xs text-muted-foreground">
-                          <div>{formatPace(a.avgPaceSecPerMile)}</div>
-                          <div>
-                            {a.improvementPct > 0 ? '+' : ''}
-                            {a.improvementPct}% trend · {a.consistencyPct}% variance
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <>
+                    <div className="space-y-2">
+                      {(showFullWatchList ? fullEligibleWatchPool : coachUp.watchList).map((a) => (
+                        <CoachUpRow
+                          key={a.id}
+                          athlete={a}
+                          category="watch"
+                          busy={acknowledgingKey === `${a.id}::watch`}
+                          onDismiss={() => setCoachUpAcknowledged(a.id, 'watch', true)}
+                          statText={
+                            <>
+                              <div>{formatPace(a.avgPaceSecPerMile)}</div>
+                              <div>
+                                {a.improvementPct > 0 ? '+' : ''}
+                                {a.improvementPct}% trend · {a.consistencyPct}% variance
+                              </div>
+                            </>
+                          }
+                        />
+                      ))}
+                    </div>
+                    {fullEligibleWatchPool.length > coachUp.watchList.length && (
+                      <Button variant="link" size="sm" className="mt-1 px-0" onClick={() => setShowFullWatchList((v) => !v)}>
+                        {showFullWatchList ? 'Show fewer' : `Show more (${fullEligibleWatchPool.length - coachUp.watchList.length} more)`}
+                      </Button>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -606,12 +783,14 @@ export default function CoachesToolsPage() {
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-2">Consistency concerns</h3>
                   <div className="space-y-2">
                     {coachUp.consistencyConcerns.map((a) => (
-                      <div key={a.id} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm">
-                        <span className="font-medium">{a.name}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {a.consistencyPct}% variance ({a.raceCount} races)
-                        </span>
-                      </div>
+                      <CoachUpRow
+                        key={a.id}
+                        athlete={a}
+                        category="consistency"
+                        busy={acknowledgingKey === `${a.id}::consistency`}
+                        onDismiss={() => setCoachUpAcknowledged(a.id, 'consistency', true)}
+                        statText={<div>{a.consistencyPct}% variance</div>}
+                      />
                     ))}
                   </div>
                 </div>
@@ -622,13 +801,19 @@ export default function CoachesToolsPage() {
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase mb-2">Regression risk</h3>
                   <div className="space-y-2">
                     {coachUp.regressionRisks.map((a) => (
-                      <div key={a.id} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm">
-                        <span className="font-medium">{a.name}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {a.improvementPct > 0 ? '+' : ''}
-                          {a.improvementPct}% trend ({a.raceCount} races)
-                        </span>
-                      </div>
+                      <CoachUpRow
+                        key={a.id}
+                        athlete={a}
+                        category="regression"
+                        busy={acknowledgingKey === `${a.id}::regression`}
+                        onDismiss={() => setCoachUpAcknowledged(a.id, 'regression', true)}
+                        statText={
+                          <div>
+                            {a.improvementPct > 0 ? '+' : ''}
+                            {a.improvementPct}% trend
+                          </div>
+                        }
+                      />
                     ))}
                   </div>
                 </div>

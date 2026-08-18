@@ -99,6 +99,33 @@ test('computeCoachUpAnalysis: flags a sliding veteran as a regression risk, not 
   assert.ok(!ids.includes('new'), 'fewer than minRacesForRegressionRisk races should not count as a regression risk');
 });
 
+test('computeCoachUpAnalysis: excludes a huge-percentage beginner improvement from the watch list', () => {
+  // Team of steady mid-pack racers around 8:30/mile pace...
+  const steady = (id, offset) => ({
+    id,
+    gender: 'M',
+    races: [
+      race(1020 + offset, 3200, '2025-09-01'),
+      race(1010 + offset, 3200, '2025-09-15'),
+      race(1000 + offset, 3200, '2025-10-01'),
+    ],
+  });
+  // ...and one athlete who came in at a 40:00 5K and dropped to 30:00 —
+  // a real ~25% improvement, but still far off the team's actual pace.
+  const beginner = {
+    id: 'beginner',
+    gender: 'M',
+    races: [race(2400, 5000, '2025-09-01'), race(1800, 5000, '2025-10-01')],
+  };
+  const athletes = [steady('s1', 0), steady('s2', 20), steady('s3', -20), steady('s4', 10), beginner];
+  const { watchList, athletes: scored } = computeCoachUpAnalysis(athletes, { topExcludeCount: 1 });
+
+  const beginnerScored = scored.find((a) => a.id === 'beginner');
+  assert.ok(beginnerScored.improvementPct > 20, 'sanity check: the beginner really does post a huge % improvement');
+  assert.equal(beginnerScored.isCompetitive, false);
+  assert.ok(!watchList.some((a) => a.id === 'beginner'), 'huge improvement alone should not surface a non-competitive beginner');
+});
+
 test('computeCoachUpAnalysis: empty input returns empty results without throwing', () => {
   const result = computeCoachUpAnalysis([]);
   assert.deepEqual(result.athletes, []);
