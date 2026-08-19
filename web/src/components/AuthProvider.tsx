@@ -22,6 +22,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           name: userData.name,
           role: userData.role,
           team: userData.team,
+          // TeamMember.role — GET /users/me has always returned this; it
+          // was just never copied into the object built here, so
+          // currentUser.teamRole was silently undefined for every coach
+          // account. Layout.tsx's nav spine (Workstream B) keys off this
+          // field to decide the coach vs. athlete sidebar, so that bug
+          // made every coach's sidebar collapse to just "Today."
+          teamRole: userData.teamRole ?? null,
           linkedAthlete: userData.linkedAthlete ?? null,
           isSuperAdmin: userData.isSuperAdmin ?? false,
           isImpersonating: userData.isImpersonating ?? false,
