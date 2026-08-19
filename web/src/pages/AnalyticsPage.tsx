@@ -35,6 +35,19 @@ import { useTeamContext } from '@/hooks/useTeamContext';
 import { SetupChecklist } from '@/components/SetupChecklist';
 import { currentCalendarSeason } from '@/lib/seasonUtils';
 
+// Values must match Layout.tsx's SeasonNavSection ANALYTICS_TABS exactly
+// — that's what sets ?tab= now that the in-page tab row is gone.
+const ANALYTICS_TAB_LABELS: Record<string, string> = {
+  dashboard: 'Dashboard',
+  athletes: 'Athletes',
+  meets: 'Meets',
+  performance: 'Performance',
+  byGroup: 'By Group',
+  resultsGrid: 'Results Grid',
+  tools: 'Pace Calculator',
+  coach: 'Coach Insights',
+};
+
 const gradeBorderColors: Record<number, string> = {
   9: 'border-blue-800',
   10: 'border-green-600',
@@ -507,18 +520,14 @@ const AnalyticsPage = () => {
         seasonDisplay={seasonDisplay}
       />
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <div className="mb-4">
-          <ResponsiveTabsList value={activeTab} onValueChange={handleTabChange} className="md:grid md:w-full md:grid-cols-8">
-            <TabsTrigger value="dashboard" className="whitespace-nowrap">Dashboard</TabsTrigger>
-            <TabsTrigger value="athletes" className="whitespace-nowrap">Athletes</TabsTrigger>
-            <TabsTrigger value="meets" className="whitespace-nowrap">Meets</TabsTrigger>
-            <TabsTrigger value="performance" className="whitespace-nowrap">Performance</TabsTrigger>
-            <TabsTrigger value="byGroup" className="whitespace-nowrap">By Group</TabsTrigger>
-            <TabsTrigger value="resultsGrid" className="whitespace-nowrap">Results Grid</TabsTrigger>
-            <TabsTrigger value="tools" className="whitespace-nowrap">Pace Calculator</TabsTrigger>
-            <TabsTrigger value="coach" className="whitespace-nowrap">Coach Insights</TabsTrigger>
-          </ResponsiveTabsList>
-        </div>
+        {/* The sidebar's Season dropdown (Layout.tsx's SeasonNavSection) is
+            now how these 8 views are navigated between — it links straight
+            to each one's ?tab= param. This heading is just "where am I",
+            not a second copy of that navigation; the sidebar sub-item
+            highlight already covers that when it's open, but the drawer is
+            closed by default on mobile, so the page itself still needs to
+            say which view it's showing. */}
+        <h2 className="text-xl font-semibold mb-4">{ANALYTICS_TAB_LABELS[activeTab] ?? 'Dashboard'}</h2>
         {needsCalculation ? (
           <Card className="mx-auto max-w-xl">
             <CardHeader className="text-center">
