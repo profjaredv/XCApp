@@ -54,15 +54,15 @@ export const PendingClaimsCard: React.FC<PendingClaimsCardProps> = ({ onClaimPro
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-lg">
             <Clock className="h-5 w-5" />
-            Pending Profile Claims
+            Profile Claims
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-            <span className="ml-2">Loading claims...</span>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+            Loading claims…
           </div>
         </CardContent>
       </Card>
@@ -73,21 +73,14 @@ export const PendingClaimsCard: React.FC<PendingClaimsCardProps> = ({ onClaimPro
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-lg">
             <Users className="h-5 w-5" />
             Profile Claims
           </CardTitle>
           <CardDescription>
-            Athletes who join via team code will request to claim their profiles here
+            Athletes who join via team code will request to claim their profiles here.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="text-center py-8 text-muted-foreground">
-            <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No pending profile claims</p>
-            <p className="text-sm">Athletes will appear here when they request to claim profiles</p>
-          </div>
-        </CardContent>
       </Card>
     );
   }
@@ -114,7 +107,7 @@ export const PendingClaimsCard: React.FC<PendingClaimsCardProps> = ({ onClaimPro
         {claims.map((claim) => (
           <div
             key={claim._id}
-            className="flex items-center justify-between p-4 border rounded-lg"
+            className="flex flex-wrap items-center justify-between gap-2 p-4 border rounded-lg"
           >
             <div className="space-y-1">
               <div className="flex items-center gap-2">

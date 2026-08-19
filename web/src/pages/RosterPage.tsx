@@ -373,44 +373,46 @@ const RosterPage: React.FC = () => {
       )}
 
       {isCoach && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <KeyRound className="h-5 w-5" />
-              Team Join Code
-            </CardTitle>
-            <CardDescription>
-              Generate a code athletes can use to join the team and claim their roster profile.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {joinCode ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-lg bg-muted p-3">
-                  <span className="font-mono text-lg font-semibold">{joinCode}</span>
-                  <Button size="sm" variant="outline" onClick={handleCopyJoinCode}>
-                    Copy Code
-                  </Button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <KeyRound className="h-5 w-5" />
+                Team Join Code
+              </CardTitle>
+              <CardDescription>
+                Generate a code athletes can use to join the team and claim their roster profile.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {joinCode ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                    <span className="font-mono text-lg font-semibold">{joinCode}</span>
+                    <Button size="sm" variant="outline" onClick={handleCopyJoinCode}>
+                      Copy Code
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Share this code with athletes so they can join the team and claim their profile.
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Share this code with athletes so they can join the team and claim their profile.
-                </p>
-              </div>
-            ) : (
-              <Button onClick={handleGenerateJoinCode} disabled={isGeneratingCode}>
-                {isGeneratingCode ? 'Generating…' : 'Generate Join Code'}
-              </Button>
-            )}
-            {joinCodeError && (
-              <Alert variant="destructive" className="mt-3">
-                <AlertDescription>{joinCodeError}</AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              ) : (
+                <Button onClick={handleGenerateJoinCode} disabled={isGeneratingCode}>
+                  {isGeneratingCode ? 'Generating…' : 'Generate Join Code'}
+                </Button>
+              )}
+              {joinCodeError && (
+                <Alert variant="destructive" className="mt-3">
+                  <AlertDescription>{joinCodeError}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
 
-      {isCoach && <PendingClaimsCard onClaimProcessed={invalidate} />}
+          <PendingClaimsCard onClaimProcessed={invalidate} />
+        </div>
+      )}
 
       {inviteNotice && (
         <Alert>
