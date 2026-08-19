@@ -167,6 +167,14 @@ function splitAnalysis(segs) {
   };
 }
 
+// The whole-race pace a coach expects to just be there next to the
+// splits, not something they compute by hand — finish time over the
+// race's actual full distance, not the segment-boundary math above.
+function overallPaceSecPerMile(finishSec, distanceMeters) {
+  if (!(finishSec > 0) || !(distanceMeters > 0)) return null;
+  return paceSecPerMile(finishSec, distanceMeters);
+}
+
 // entries: [{ sequence, markerMeters, elapsedSec }] for one athlete, as
 // typed into the entry grid or parsed from a CSV. Validation warns, it
 // does not block — invalid rows are dropped with a reason and the rest are
@@ -210,5 +218,6 @@ module.exports = {
   markersForRace,
   segments,
   splitAnalysis,
+  overallPaceSecPerMile,
   validateSplitEntries,
 };

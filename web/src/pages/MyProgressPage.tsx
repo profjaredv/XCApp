@@ -411,6 +411,11 @@ const MyProgressPage: React.FC = () => {
                         {seg.paceSecPerMile != null ? ` (${formatSplitMMSS(seg.paceSecPerMile)}/mi)` : ''}
                       </span>
                     ))}
+                    {r.overallPaceSecPerMile != null && (
+                      <span className="font-medium text-foreground">
+                        Pace: {formatSplitMMSS(r.overallPaceSecPerMile)}/mi
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

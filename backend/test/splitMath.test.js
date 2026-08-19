@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { markersForRace, segments, splitAnalysis, validateSplitEntries } = require('../lib/splitMath');
+const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, validateSplitEntries } = require('../lib/splitMath');
 
 // --- markersForRace: every distance in the handoff doc's worked table ---
 
@@ -168,4 +168,22 @@ test('validateSplitEntries: blank rows are simply absent from entries, not repre
   const { validEntries, flags } = validateSplitEntries(entries, { finishSec: 1200, distanceMeters: 5000 });
   assert.equal(validEntries.length, 1);
   assert.equal(flags.length, 0);
+});
+
+// --- overallPaceSecPerMile: the "Pace" column the grid should already show ---
+
+test('overallPaceSecPerMile: exactly 1 mile in 300s is 300s/mi', () => {
+  assert.equal(overallPaceSecPerMile(300, 1609.34), 300);
+});
+
+test('overallPaceSecPerMile: 5K in 15:30 matches Finish/3.1069mi, not the sheet\'s rounded /3.1', () => {
+  const pace = overallPaceSecPerMile(930, 5000);
+  assert.ok(Math.abs(pace - 930 / (5000 / 1609.34)) < 0.001);
+  assert.ok(Math.abs(Math.round(pace) - 299) <= 1);
+});
+
+test('overallPaceSecPerMile: null finish or distance returns null, not NaN/Infinity', () => {
+  assert.equal(overallPaceSecPerMile(null, 5000), null);
+  assert.equal(overallPaceSecPerMile(930, null), null);
+  assert.equal(overallPaceSecPerMile(0, 5000), null);
 });

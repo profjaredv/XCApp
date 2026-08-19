@@ -49,6 +49,7 @@ export interface RaceSplitRow {
   splits: AthleteSplitValue[];
   segments: DerivedSegment[];
   analysis: SplitAnalysis | null;
+  overallPaceSecPerMile: number | null;
 }
 
 export interface RaceSplitsView {
@@ -70,6 +71,7 @@ export interface AthleteSplitHistoryRow {
   finishSec: number | null;
   segments: DerivedSegment[];
   analysis: SplitAnalysis | null;
+  overallPaceSecPerMile: number | null;
 }
 
 // What the entry grid sends per cell/row edit.
@@ -94,6 +96,7 @@ export interface BatchSplitResultRow {
   splits: SplitEntryInput[];
   segments: DerivedSegment[];
   analysis: SplitAnalysis | null;
+  overallPaceSecPerMile: number | null;
 }
 
 export interface BatchSplitResponse {

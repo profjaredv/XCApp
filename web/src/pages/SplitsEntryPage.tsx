@@ -42,6 +42,13 @@ function readFileAsText(file: File): Promise<string> {
 
 type SaveState = 'idle' | 'queued' | 'saving' | 'saved' | 'error';
 const AUTOSAVE_DEBOUNCE_MS = 800;
+// Display-label purposes only (the "Final (x.xxmi)" header) — not part of
+// any split derivation, that's all server-side in lib/splitMath.js.
+const MILE_METERS = 1609.34;
+
+const headerCellClass =
+  'sticky top-0 z-10 bg-muted p-2 font-medium whitespace-nowrap border-b border-border';
+const derivedCellClass = 'p-2 text-center font-mono text-xs text-muted-foreground bg-muted/40 whitespace-nowrap';
 
 function cellKey(resultId: string, sequence: number) {
   return `${resultId}:${sequence}`;
@@ -73,6 +80,20 @@ const SplitsEntryPage: React.FC = () => {
 
   const rowsAll = useMemo(() => data?.results ?? [], [data]);
   const markers = useMemo(() => data?.markers ?? [], [data]);
+
+  // Every marker beyond the first is entered as a cumulative clock time
+  // (see lib/splitMath.js's header comment) but the segment it implies —
+  // and the closing segment to the tape, and overall pace — are exactly
+  // what a coach expects to see right there next to it, gray and
+  // uneditable, not something they have to compute by hand or go looking
+  // for. The first marker has no separate "segment" column since its
+  // segment IS the entered value (distance from the gun).
+  const derivedMarkers = useMemo(() => markers.slice(1), [markers]);
+  const closingMiles = useMemo(() => {
+    if (!data?.distanceMeters || markers.length === 0) return null;
+    return (data.distanceMeters - markers[markers.length - 1].markerMeters) / MILE_METERS;
+  }, [data, markers]);
+  const totalCols = 1 + markers.length + derivedMarkers.length + 1 + 1 + 1 + 1;
 
   const availableGenders = useMemo(() => {
     const set = new Set<string>();
@@ -264,23 +285,39 @@ const SplitsEntryPage: React.FC = () => {
   };
 
   // C7: export produces exactly what import consumes — one Athlete column
-  // to match rows back up, one column per marker, plus Finish for
-  // reference (Finish is read-only; the import ignores that column). A
-  // coach can pull this into a spreadsheet at the track, fill it in from a
-  // paper sheet, and bring it back rather than typing 40 rows one cell at
-  // a time on a phone.
+  // to match rows back up, one column per raw marker entry (the derived
+  // segment/Final/Pace columns are included too, for reference, but import
+  // ignores anything that isn't a real marker label). A coach can pull
+  // this into a spreadsheet at the track, fill it in from a paper sheet,
+  // and bring it back rather than typing 40 rows one cell at a time on a
+  // phone.
   const handleExportCsv = () => {
     if (!data) return;
-    const headers = ['Athlete', 'Gender', ...markers.map((m) => m.label), 'Finish'];
+    const headers = [
+      'Athlete',
+      'Gender',
+      ...markers.map((m) => m.label),
+      ...derivedMarkers.map((m) => `${m.label} split`),
+      'Final',
+      'Pace',
+      'Finish',
+    ];
     const csvRows = rowsAll.map((row) => {
       const bySequence = new Map(row.splits.map((s) => [s.sequence, s.elapsedSec]));
+      const closingSeg = row.segments.find((s) => s.isClosing);
       const obj: Record<string, string> = {
         Athlete: row.athleteName,
         Gender: row.gender ?? '',
+        Final: closingSeg ? formatSplitMMSS(closingSeg.segmentSec) : '',
+        Pace: row.overallPaceSecPerMile != null ? formatSplitMMSS(row.overallPaceSecPerMile) : '',
         Finish: formatSplitMMSS(row.finishSec),
       };
       markers.forEach((m) => {
         obj[m.label] = formatSplitMMSS(bySequence.get(m.sequence));
+      });
+      derivedMarkers.forEach((m) => {
+        const seg = row.segments.find((s) => s.sequence === m.sequence && !s.isClosing);
+        obj[`${m.label} split`] = seg ? formatSplitMMSS(seg.segmentSec) : '';
       });
       return obj;
     });
@@ -297,15 +334,21 @@ const SplitsEntryPage: React.FC = () => {
     if (!file) return;
 
     const text = await readFileAsText(file);
-    const { rows: parsedRows } = parseCsv(text);
+    const { headers: csvHeaders, rows: parsedRows } = parseCsv(text);
     const markerColByLabel = new Map(markers.map((m) => [m.label, m.sequence]));
     const nameToResultId = new Map(rowsAll.map((r) => [r.athleteName.trim().toLowerCase(), r.resultId]));
+    // Match the Athlete column by name case-insensitively rather than
+    // requiring the literal header "Athlete" — a coach's own spreadsheet
+    // (or one they hand-edited from our export) might call it "Name" or
+    // lowercase it, and the name is always the first column in practice.
+    const athleteHeader =
+      csvHeaders.find((h) => /^(athlete|name|runner)s?$/i.test(h.trim())) ?? csvHeaders[0] ?? 'Athlete';
 
     const entries: BatchSplitEntry[] = [];
     const errors: string[] = [];
 
     for (const parsedRow of parsedRows) {
-      const name = (parsedRow.Athlete ?? '').trim();
+      const name = (parsedRow[athleteHeader] ?? '').trim();
       if (!name) continue;
       const resultId = nameToResultId.get(name.toLowerCase());
       if (!resultId) {
@@ -434,23 +477,33 @@ const SplitsEntryPage: React.FC = () => {
           )}
         </div>
 
-        <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-sm">
-            <thead className="sticky top-[57px] bg-muted/50 border-b border-border">
+        <div className="overflow-auto rounded-md border border-border max-h-[calc(100vh-190px)]">
+          <table className="w-full text-sm border-separate border-spacing-0">
+            <thead>
               <tr>
-                <th className="text-left p-2 font-medium whitespace-nowrap">Athlete</th>
+                <th className={`${headerCellClass} text-left`}>Athlete</th>
                 {markers.map((m) => (
-                  <th key={m.sequence} className="text-center p-2 font-medium whitespace-nowrap w-28">
+                  <th key={m.sequence} className={`${headerCellClass} text-center w-28`}>
                     {m.label}
                   </th>
                 ))}
-                <th className="text-right p-2 font-medium whitespace-nowrap">Finish</th>
-                <th className="text-left p-2 font-medium whitespace-nowrap">Pattern</th>
+                {derivedMarkers.map((m) => (
+                  <th key={`derived-${m.sequence}`} className={`${headerCellClass} text-center w-24`}>
+                    {m.label} split
+                  </th>
+                ))}
+                <th className={`${headerCellClass} text-center w-28`}>
+                  Final{closingMiles != null ? ` (${closingMiles.toFixed(2)}mi)` : ''}
+                </th>
+                <th className={`${headerCellClass} text-center w-24`}>Pace</th>
+                <th className={`${headerCellClass} text-right`}>Finish</th>
+                <th className={`${headerCellClass} text-left`}>Pattern</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row: RaceSplitRow) => {
                 const state = rowSaveState[row.resultId] ?? 'idle';
+                const closingSeg = row.segments.find((s) => s.isClosing);
                 return (
                   <tr key={row.resultId} className="border-b border-border last:border-0">
                     <td className="p-2 whitespace-nowrap font-medium align-middle">
@@ -477,6 +530,18 @@ const SplitsEntryPage: React.FC = () => {
                         </td>
                       );
                     })}
+                    {derivedMarkers.map((m) => {
+                      const seg = row.segments.find((s) => s.sequence === m.sequence && !s.isClosing);
+                      return (
+                        <td key={`derived-${m.sequence}`} className={derivedCellClass}>
+                          {seg ? formatSplitMMSS(seg.segmentSec) : '—'}
+                        </td>
+                      );
+                    })}
+                    <td className={derivedCellClass}>{closingSeg ? formatSplitMMSS(closingSeg.segmentSec) : '—'}</td>
+                    <td className={derivedCellClass}>
+                      {row.overallPaceSecPerMile != null ? `${formatSplitMMSS(row.overallPaceSecPerMile)}/mi` : '—'}
+                    </td>
                     <td className="p-2 text-right font-mono whitespace-nowrap align-middle">
                       {row.finishSec != null ? formatTime(row.finishSec) : '—'}
                     </td>
@@ -494,7 +559,7 @@ const SplitsEntryPage: React.FC = () => {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={markers.length + 3} className="p-6 text-center text-muted-foreground">
+                  <td colSpan={totalCols} className="p-6 text-center text-muted-foreground">
                     No {genderFilter === 'F' ? 'girls' : 'boys'} results for this race.
                   </td>
                 </tr>

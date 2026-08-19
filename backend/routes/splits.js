@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
-const { markersForRace, segments, splitAnalysis, validateSplitEntries } = require('../lib/splitMath');
+const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, validateSplitEntries } = require('../lib/splitMath');
 
 // C5 (LeadPack Master Build Handoff): rewritten against the marker-based
 // Split model. The authorization pattern from the old RaceSplit-based file
@@ -33,6 +33,7 @@ function buildRaceView(race, results) {
         .map((s) => ({ id: s.id, sequence: s.sequence, elapsedSec: s.elapsedSec, label: markerLabelBySequence.get(s.sequence) ?? `Marker ${s.sequence}` })),
       segments: segs,
       analysis,
+      overallPaceSecPerMile: race.distanceMeters ? overallPaceSecPerMile(r.time, race.distanceMeters) : null,
     };
   });
 
@@ -103,6 +104,7 @@ router.get('/athlete/:athleteId', authenticate, requireTeam, async (req, res) =>
         finishSec: r.time,
         segments: segs,
         analysis: splitAnalysis(segs),
+        overallPaceSecPerMile: r.race.distanceMeters ? overallPaceSecPerMile(r.time, r.race.distanceMeters) : null,
       };
     });
 
@@ -213,6 +215,7 @@ router.post('/batch', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COA
           .map((e) => ({ sequence: e.sequence, elapsedSec: e.elapsedSec })),
         segments: segs,
         analysis: splitAnalysis(segs),
+        overallPaceSecPerMile: race.distanceMeters ? overallPaceSecPerMile(result.time, race.distanceMeters) : null,
       };
     });
 

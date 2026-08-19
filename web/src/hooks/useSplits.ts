@@ -48,6 +48,7 @@ export function useSaveSplitsBatch(raceId: string | null) {
               })),
               segments: patch.segments,
               analysis: patch.analysis,
+              overallPaceSecPerMile: patch.overallPaceSecPerMile,
             };
           }),
         };
