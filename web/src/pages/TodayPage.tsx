@@ -22,6 +22,7 @@ import { athleteService } from '@/api/athleteService';
 import { todayService, type TodayAttentionItem } from '@/api/todayService';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
+import { entryStatusLabel } from '@/api/meetOpsService';
 import { useWeekPlans, useSetPublished, useDuplicateDay } from '@/hooks/usePracticePlans';
 import { formatTime, formatDateShort } from '@/lib/formatUtils';
 import { SetupChecklist } from '@/components/SetupChecklist';
@@ -351,25 +352,6 @@ const CoachToday: React.FC<{ teamPath: (p: string) => string }> = ({ teamPath })
 // groups, no analytics (A4). Reuses the same hooks MyProgressPage already
 // uses for these exact calls.
 // ---------------------------------------------------------------------------
-
-function entryStatusLabel(status: string | undefined): string {
-  switch (status) {
-    case 'ENTERED':
-      return 'You are entered.';
-    case 'ALTERNATE':
-      return 'You are an alternate.';
-    case 'SCRATCHED':
-      return "You've been scratched.";
-    case 'INJURED':
-      return 'Marked injured for this meet.';
-    case 'ACADEMIC':
-      return 'Marked out for academic reasons.';
-    case 'EXCUSED':
-      return 'Excused from this meet.';
-    default:
-      return 'You are not entered.';
-  }
-}
 
 const AthleteToday: React.FC<{ teamPath: (p: string) => string; linkedAthleteId: string }> = ({ teamPath, linkedAthleteId }) => {
   const { data: planData, isLoading: planLoading, isError: planError } = useMyPracticePlan(todayIso(), true);

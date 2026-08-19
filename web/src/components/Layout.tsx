@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, NavLink } from 'react-router-dom';
-import { ChevronLeft, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, ClipboardList, Gauge, Users, CalendarDays, Flag, TrendingUp } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, ClipboardList, Gauge, Users, CalendarDays, Flag, TrendingUp, Database, Package, Upload, MessageSquare } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { FeedbackWidget } from './FeedbackWidget';
@@ -37,6 +37,36 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, label, isCollapsed, o
     {!isCollapsed && <span className="text-sm">{label}</span>}
   </NavLink>
 );
+
+// Setup (B2 in the handoff doc): collapsed by default. It's still one item
+// in the eight-item spine count — Data & Import, Equipment, Field Results,
+// Settings, and Feedback are configuration tasks a coach reaches
+// occasionally, not part of the day-to-day hierarchy above it.
+const CollapsibleSetupSection: React.FC<{ isCollapsed: boolean; children: React.ReactNode }> = ({ isCollapsed, children }) => {
+  const [open, setOpen] = useState(false);
+
+  if (isCollapsed) {
+    // Sidebar itself is icon-only-collapsed: no room for a disclosure
+    // toggle, so just show the items directly under their icons.
+    return <div className="space-y-1 pt-4">{children}</div>;
+  }
+
+  return (
+    <div className="pt-4">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sidebar-foreground/70 font-medium hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
+      >
+        <span className="flex items-center gap-3">
+          <Settings className="h-5 w-5" strokeWidth={2.5} />
+          <span className="text-sm">Setup</span>
+        </span>
+        <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && <div className="mt-1 space-y-1 pl-2">{children}</div>}
+    </div>
+  );
+};
 
 const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -84,16 +114,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
         )}
       </div>
 
-      {/* Workstream B (LeadPack Master Build Handoff): one micro-to-macro
-          spine instead of three verb sections. An athlete belongs to a
-          group, a group trains at practice, practices build toward a meet,
-          meets make a season, seasons make a program — each item contains
-          the one before it. Coaches get all eight; volunteer coaches get
-          everything but Setup; a plain athlete account gets its own short
-          list rather than the coach spine with items hidden.
-          Athletes/Meets/Practice pages are coach-authorization-gated
-          server-side, so a pure athlete's list stops at what they can
-          actually open: Today, Groups (read-only), My Progress. */}
+      {/* Workstream B (LeadPack Master Build Handoff), spine per B2/B4
+          verbatim: an athlete belongs to a group, a group trains at
+          practice, practices build toward a meet, meets make a season,
+          seasons make a program — each item contains the one before it.
+          Coaches get the full PROGRAM section plus Setup; volunteer
+          coaches get PROGRAM without Setup; a plain athlete account gets
+          its own four-item list rather than the coach spine with items
+          hidden. Meets is read-only for athletes (MeetOpsPage branches on
+          teamRole); My Group is /groups, already athlete-scoped
+          (GroupsPage's existing AthleteGroupsView). */}
       <nav className="mt-2 flex-1 min-h-0 px-3 overflow-y-auto">
         <NavItem to={teamPath('/today')} icon={Home} label="Today" isCollapsed={isCollapsed} onClick={handleLinkClick} />
 
@@ -106,13 +136,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
             <NavItem to={teamPath('/analytics')} icon={LayoutDashboard} label="Season" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <NavItem to={teamPath('/band-trends')} icon={TrendingUp} label="Program" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             {!isVolunteerCoach && (
-              <NavItem to={teamPath('/settings')} icon={Settings} label="Setup" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+              <CollapsibleSetupSection isCollapsed={isCollapsed}>
+                <NavItem to={teamPath('/data-management')} icon={Database} label="Data & Import" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                <NavItem to={teamPath('/equipment')} icon={Package} label="Equipment" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                <NavItem to={teamPath('/field-results')} icon={Upload} label="Field Results" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                <NavItem to={teamPath('/settings')} icon={Settings} label="Settings" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                <NavItem to={teamPath('/feedback')} icon={MessageSquare} label="Feedback" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+              </CollapsibleSetupSection>
             )}
           </>
         ) : currentUser?.linkedAthlete ? (
           <>
-            <NavItem to={teamPath('/groups')} icon={Users} label="Groups" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <NavItem to={teamPath('/me')} icon={Gauge} label="My Progress" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath('/groups')} icon={Users} label="My Group" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath('/meets')} icon={Flag} label="Meets" isCollapsed={isCollapsed} onClick={handleLinkClick} />
           </>
         ) : null}
       </nav>

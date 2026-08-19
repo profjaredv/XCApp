@@ -17,7 +17,9 @@ export interface MeetSummary {
   name: string;
   date: string;
   location: string | null;
-  races: Array<{ id: string; name: string; distance: string | null }>;
+  // myEntryStatus is only present when the caller has a linkedAthlete — the
+  // athlete/read-only "Meets" nav view (B4) uses it; coaches never see it.
+  races: Array<{ id: string; name: string; distance: string | null; myEntryStatus?: EntryStatus }>;
   planPublished: boolean;
 }
 
@@ -104,6 +106,27 @@ export function formatTimeSec(seconds: number | null): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.round(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Shared between TodayPage's "Next meet" block and the athlete/read-only
+// Meets list (B4) — one place for "what does this status mean in English."
+export function entryStatusLabel(status: EntryStatus | undefined): string {
+  switch (status) {
+    case 'ENTERED':
+      return 'You are entered.';
+    case 'ALTERNATE':
+      return 'You are an alternate.';
+    case 'SCRATCHED':
+      return "You've been scratched.";
+    case 'INJURED':
+      return 'Marked injured for this meet.';
+    case 'ACADEMIC':
+      return 'Marked out for academic reasons.';
+    case 'EXCUSED':
+      return 'Excused from this meet.';
+    default:
+      return 'You are not entered.';
+  }
 }
 
 export const meetOpsService = {

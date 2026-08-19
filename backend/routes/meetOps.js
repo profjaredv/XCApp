@@ -19,9 +19,16 @@ const { parseTeamCalendar } = require('../lib/icalMeets');
 // head/paid-coach territory — unlike T2/T3, the doc never scopes any part
 // of this domain to VOLUNTEER_COACH, so it isn't included below.
 const COACH_ROLES = ['HEAD_COACH', 'COACH'];
+// B4 (LeadPack Master Build Handoff): athletes get a "Meets" nav item
+// pointing at this same list, read-only. Volunteer coaches get the full
+// PROGRAM section of the nav spine (everything but Setup), which includes
+// Meets, so they need at least read access here too — the COACH_ROLES-only
+// gate above only ever covered entry/logistics *management*, never applied
+// to viewing the list.
+const LIST_VIEW_ROLES = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH', 'ATHLETE'];
 
 // GET /api/meet-ops?seasonId=
-router.get('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/', authenticate, requireTeam, requireRole(LIST_VIEW_ROLES), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
@@ -42,13 +49,32 @@ router.get('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req,
       orderBy: { date: 'asc' },
     });
 
+    // Athlete/read-only view: attach their own entry status per race so the
+    // list is self-contained (B4 — "Meets, read-only") without a second
+    // round trip. Coaches don't get this field; "my status" isn't a
+    // meaningful concept for someone managing every athlete's entries.
+    const linkedAthleteId = req.user.linkedAthlete?.id;
+    let myEntriesByRaceId = new Map();
+    if (linkedAthleteId) {
+      const raceIds = meets.flatMap((m) => m.races.map((r) => r.id));
+      const myEntries = raceIds.length
+        ? await prisma.meetEntry.findMany({
+            where: { athleteId: linkedAthleteId, raceId: { in: raceIds } },
+            select: { raceId: true, status: true },
+          })
+        : [];
+      myEntriesByRaceId = new Map(myEntries.map((e) => [e.raceId, e.status]));
+    }
+
     res.json(
       meets.map((m) => ({
         id: m.id,
         name: m.name,
         date: m.date,
         location: m.location,
-        races: m.races,
+        races: linkedAthleteId
+          ? m.races.map((r) => ({ ...r, myEntryStatus: myEntriesByRaceId.get(r.id) ?? 'NOT_ENTERED' }))
+          : m.races,
         planPublished: m.plan?.published ?? false,
       }))
     );

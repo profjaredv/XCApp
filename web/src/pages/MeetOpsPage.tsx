@@ -28,6 +28,8 @@ import { toast } from 'sonner';
 import { Plus, Loader2, AlertTriangle, Printer, Trash2, Download, CalendarDays } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
+import { useAuth } from '@/contexts/AuthContext';
+import { formatDateShort } from '@/lib/formatUtils';
 import {
   useMeets,
   useMeet,
@@ -45,6 +47,7 @@ import {
 import {
   ENTRY_STATUSES,
   formatTimeSec,
+  entryStatusLabel,
   type EntryStatus,
   type MeetEntryRow,
   type MeetPlan,
@@ -71,6 +74,7 @@ const STATUS_LABEL: Record<EntryStatus, string> = {
 };
 
 const MeetOpsPage: React.FC = () => {
+  const { currentUser } = useAuth();
   const { data: context } = useTeamContext();
   const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
 
@@ -116,6 +120,50 @@ const MeetOpsPage: React.FC = () => {
       toast.error('Could not create that meet.');
     }
   };
+
+  // B4 (LeadPack Master Build Handoff): athletes get "Meets, read-only" —
+  // GET /api/meet-ops now returns myEntryStatus per race for a caller with
+  // a linkedAthlete, so this reuses the exact same list query the coach
+  // composer below uses; it just renders it differently and skips all the
+  // composer-only mutations entirely. Volunteer coaches get the full
+  // composer, same as head/paid coaches — this branch is athlete-only.
+  // Placed after every hook above so hook call order never depends on role.
+  const teamRole = currentUser?.teamRole;
+  const isCoachViewer = teamRole === 'HEAD_COACH' || teamRole === 'COACH' || teamRole === 'VOLUNTEER_COACH';
+  if (!isCoachViewer) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold">Meets</h1>
+        {meetsLoading ? (
+          <p className="text-muted-foreground">Loading…</p>
+        ) : meets.length === 0 ? (
+          <p className="text-muted-foreground">No meets scheduled yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {meets.map((m) => (
+              <Card key={m.id}>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between text-base">
+                    <span>{m.name}</span>
+                    <span className="text-sm font-normal text-muted-foreground">{formatDateShort(m.date)}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {m.location && <p className="text-sm text-muted-foreground">{m.location}</p>}
+                  {m.races.map((r) => (
+                    <div key={r.id} className="flex items-center justify-between text-sm">
+                      <span>{r.name}</span>
+                      <span className="text-muted-foreground">{entryStatusLabel(r.myEntryStatus)}</span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (!activeYear || !seasonId) {
     return (
