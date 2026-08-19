@@ -2,12 +2,36 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Check, X, Loader2, WifiOff } from 'lucide-react';
+import { Check, X, Loader2, WifiOff, Download, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRaceSplits, useSaveSplitsBatch } from '@/hooks/useSplits';
 import { SplitCell, type CellNavigate } from '@/components/splits/SplitCell';
-import { formatTime } from '@/lib/formatUtils';
-import type { RaceSplitRow, SplitPattern } from '@/types/splits';
+import { formatTime, parseTimeToSeconds } from '@/lib/formatUtils';
+import { parseCsv, toCsv } from '@/lib/csvParse';
+import { SPLIT_PATTERN_LABEL, SPLIT_PATTERN_BADGE_CLASS, formatSplitMMSS } from '@/lib/splitPatternDisplay';
+import type { RaceSplitRow, BatchSplitEntry, SplitEntryInput } from '@/types/splits';
+
+function downloadCsv(filename: string, csvText: string) {
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
 
 // C6 (LeadPack Master Build Handoff): the full-screen splits entry grid.
 // Standalone outside <Layout /> (see router/index.tsx), same pattern as
@@ -18,17 +42,6 @@ import type { RaceSplitRow, SplitPattern } from '@/types/splits';
 
 type SaveState = 'idle' | 'queued' | 'saving' | 'saved' | 'error';
 const AUTOSAVE_DEBOUNCE_MS = 800;
-
-const PATTERN_LABEL: Record<SplitPattern, string> = {
-  negative: 'Negative split',
-  even: 'Even split',
-  positive: 'Positive split',
-};
-const PATTERN_CLASS: Record<SplitPattern, string> = {
-  negative: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30',
-  even: 'bg-muted text-muted-foreground border-border',
-  positive: 'bg-amber-500/10 text-amber-700 border-amber-500/30',
-};
 
 function cellKey(resultId: string, sequence: number) {
   return `${resultId}:${sequence}`;
@@ -250,6 +263,87 @@ const SplitsEntryPage: React.FC = () => {
     toast.success('Saving splits…');
   };
 
+  // C7: export produces exactly what import consumes — one Athlete column
+  // to match rows back up, one column per marker, plus Finish for
+  // reference (Finish is read-only; the import ignores that column). A
+  // coach can pull this into a spreadsheet at the track, fill it in from a
+  // paper sheet, and bring it back rather than typing 40 rows one cell at
+  // a time on a phone.
+  const handleExportCsv = () => {
+    if (!data) return;
+    const headers = ['Athlete', 'Gender', ...markers.map((m) => m.label), 'Finish'];
+    const csvRows = rowsAll.map((row) => {
+      const bySequence = new Map(row.splits.map((s) => [s.sequence, s.elapsedSec]));
+      const obj: Record<string, string> = {
+        Athlete: row.athleteName,
+        Gender: row.gender ?? '',
+        Finish: formatSplitMMSS(row.finishSec),
+      };
+      markers.forEach((m) => {
+        obj[m.label] = formatSplitMMSS(bySequence.get(m.sequence));
+      });
+      return obj;
+    });
+    const safeName = (data.raceName || 'splits').replace(/[^\w-]+/g, '_');
+    downloadCsv(`${safeName}-splits.csv`, toCsv(headers, csvRows));
+  };
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const text = await readFileAsText(file);
+    const { rows: parsedRows } = parseCsv(text);
+    const markerColByLabel = new Map(markers.map((m) => [m.label, m.sequence]));
+    const nameToResultId = new Map(rowsAll.map((r) => [r.athleteName.trim().toLowerCase(), r.resultId]));
+
+    const entries: BatchSplitEntry[] = [];
+    const errors: string[] = [];
+
+    for (const parsedRow of parsedRows) {
+      const name = (parsedRow.Athlete ?? '').trim();
+      if (!name) continue;
+      const resultId = nameToResultId.get(name.toLowerCase());
+      if (!resultId) {
+        errors.push(`No match for "${name}"`);
+        continue;
+      }
+
+      const splits: SplitEntryInput[] = [];
+      for (const [label, sequence] of markerColByLabel.entries()) {
+        const raw = (parsedRow[label] ?? '').trim();
+        if (!raw) continue;
+        const sec = raw.includes(':') ? parseTimeToSeconds(raw) : Number(raw);
+        if (!Number.isFinite(sec) || sec <= 0) {
+          errors.push(`${name}: couldn't read "${label}" value "${raw}"`);
+          continue;
+        }
+        splits.push({ sequence, elapsedSec: sec });
+      }
+      entries.push({ resultId, splits });
+    }
+
+    if (entries.length === 0) {
+      toast.error(errors[0] ?? 'No matching athletes found in that file.');
+      return;
+    }
+
+    try {
+      const result = await saveBatch.mutateAsync(entries);
+      toast.success(`Imported splits for ${entries.length} athlete${entries.length === 1 ? '' : 's'}.`);
+      const allErrors = [...errors, ...result.flags.map((f) => `${f.resultId}: ${f.reason}`)];
+      if (allErrors.length > 0) {
+        toast.error(`${allErrors.length} row(s) had issues: ${allErrors.slice(0, 3).join('; ')}${allErrors.length > 3 ? '…' : ''}`);
+      }
+    } catch {
+      toast.error('Import failed to save.');
+    }
+  };
+
   const topBar = (
     <div className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background px-6 py-3">
       <div>
@@ -261,6 +355,15 @@ const SplitsEntryPage: React.FC = () => {
         )}
       </div>
       <div className="flex items-center gap-2">
+        <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} className="hidden" />
+        <Button variant="outline" size="sm" onClick={handleImportClick} disabled={markers.length === 0}>
+          <Upload className="h-4 w-4 mr-1" />
+          Import CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={markers.length === 0}>
+          <Download className="h-4 w-4 mr-1" />
+          Export CSV
+        </Button>
         <Button variant="outline" size="sm" onClick={handleSave}>
           <Check className="h-4 w-4 mr-1" />
           Save
@@ -379,8 +482,8 @@ const SplitsEntryPage: React.FC = () => {
                     </td>
                     <td className="p-2 whitespace-nowrap align-middle">
                       {row.analysis ? (
-                        <Badge variant="outline" className={PATTERN_CLASS[row.analysis.pattern]}>
-                          {PATTERN_LABEL[row.analysis.pattern]}
+                        <Badge variant="outline" className={SPLIT_PATTERN_BADGE_CLASS[row.analysis.pattern]}>
+                          {SPLIT_PATTERN_LABEL[row.analysis.pattern]}
                         </Badge>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>

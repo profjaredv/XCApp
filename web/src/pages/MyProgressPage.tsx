@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -25,13 +26,15 @@ import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { Activity, Bus, CalendarDays, Lock, MessageCircleHeart, Trash2, Trophy, Users } from 'lucide-react';
+import { Activity, Bus, CalendarDays, Lock, MessageCircleHeart, Trash2, Trophy, Users, Flag } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { athleteService } from '@/api/athleteService';
 import { trainingLogService, type TrainingLogType } from '@/api/trainingLogService';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { formatTime, parseTimeToSeconds, formatDateShort } from '@/lib/formatUtils';
+import { useAthleteSplits } from '@/hooks/useSplits';
+import { SPLIT_PATTERN_LABEL, SPLIT_PATTERN_BADGE_CLASS, formatSplitMMSS } from '@/lib/splitPatternDisplay';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
 import { useMyReflection, useSavePreRace, useSavePostRace, useSetSharing } from '@/hooks/useRaceReflections';
@@ -61,6 +64,12 @@ const MyProgressPage: React.FC = () => {
     queryFn: () => athleteService.getRecentRaces(linkedAthlete!.id, 10),
     enabled: !!linkedAthlete,
   });
+
+  // C9 (LeadPack Master Build Handoff): athlete-facing splits — the same
+  // segment/pace/pattern derived server-side for the coach's entry grid
+  // (routes/splits.js's GET /athlete/:athleteId), never recomputed here.
+  const { data: athleteSplits = [] } = useAthleteSplits(linkedAthlete?.id ?? null);
+  const racesWithSplits = athleteSplits.filter((r) => r.segments.length > 0);
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const { data: todaysPlan } = useMyPracticePlan(todayIso, !!linkedAthlete);
@@ -370,6 +379,45 @@ const MyProgressPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {racesWithSplits.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Flag className="h-5 w-5" />
+              My splits
+            </CardTitle>
+            <CardDescription>How you paced yourself, race by race.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y">
+              {racesWithSplits.map((r) => (
+                <div key={r.resultId} className="py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{r.raceName}</p>
+                      <p className="text-xs text-muted-foreground">{formatDateShort(r.date)}</p>
+                    </div>
+                    {r.analysis && (
+                      <Badge variant="outline" className={SPLIT_PATTERN_BADGE_CLASS[r.analysis.pattern]}>
+                        {SPLIT_PATTERN_LABEL[r.analysis.pattern]}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+                    {r.segments.map((seg) => (
+                      <span key={seg.sequence}>
+                        {seg.isClosing ? 'Final' : `Seg ${seg.sequence}`}: {formatSplitMMSS(seg.segmentSec)}
+                        {seg.paceSecPerMile != null ? ` (${formatSplitMMSS(seg.paceSecPerMile)}/mi)` : ''}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

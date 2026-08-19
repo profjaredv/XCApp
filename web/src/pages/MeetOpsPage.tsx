@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,8 +26,9 @@ import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
 import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Plus, Loader2, AlertTriangle, Printer, Trash2, Download, CalendarDays } from 'lucide-react';
+import { Plus, Loader2, AlertTriangle, Printer, Trash2, Download, CalendarDays, Split } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatDateShort } from '@/lib/formatUtils';
@@ -294,6 +296,8 @@ const MeetDetail: React.FC<{
   setSelectedRaceId: (id: string) => void;
   seasonId: string | null;
 }> = ({ meet, selectedRaceId, setSelectedRaceId, seasonId }) => {
+  const navigate = useNavigate();
+  const teamPath = useTeamPath();
   const [detailTab, setDetailTab] = useState('entries');
 
   return (
@@ -311,6 +315,7 @@ const MeetDetail: React.FC<{
           <TabsTrigger value="entries">Entries</TabsTrigger>
           <TabsTrigger value="logistics">Logistics</TabsTrigger>
           <TabsTrigger value="roster">Printable roster</TabsTrigger>
+          <TabsTrigger value="splits">Splits</TabsTrigger>
           <TabsTrigger value="reflections">Reflections</TabsTrigger>
         </ResponsiveTabsList>
 
@@ -338,6 +343,36 @@ const MeetDetail: React.FC<{
 
         <TabsContent value="roster" className="pt-2">
           <PrintableRosterView meetId={meet.id} />
+        </TabsContent>
+
+        <TabsContent value="splits" className="space-y-4 pt-2">
+          {meet.races.length === 0 ? (
+            <p className="text-sm text-muted-foreground">This meet has no races linked yet.</p>
+          ) : (
+            <>
+              <Select value={selectedRaceId ?? undefined} onValueChange={setSelectedRaceId}>
+                <SelectTrigger className="w-[280px]"><SelectValue placeholder="Choose a race…" /></SelectTrigger>
+                <SelectContent>
+                  {meet.races.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedRaceId && (
+                <Card>
+                  <CardContent className="flex items-center justify-between pt-6">
+                    <p className="text-sm text-muted-foreground">
+                      Enter mile/km splits for this race in a full-screen grid.
+                    </p>
+                    <Button onClick={() => navigate(teamPath(`/race/${selectedRaceId}/splits`))}>
+                      <Split className="h-4 w-4 mr-2" />
+                      Enter splits
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="reflections" className="space-y-4 pt-2">

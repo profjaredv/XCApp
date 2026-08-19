@@ -207,7 +207,10 @@ const ATTENTION_ICON: Record<TodayAttentionItem['type'], React.ComponentType<{ c
 function attentionLink(item: TodayAttentionItem, teamPath: (p: string) => string): string {
   switch (item.type) {
     case 'splits':
-      return teamPath('/analytics');
+      // C8 (LeadPack Master Build Handoff): the splits entry grid didn't
+      // exist when this item type was added, so it fell back to a generic
+      // /analytics link — now it can go straight to the actual race.
+      return item.link.raceId ? teamPath(`/race/${item.link.raceId}/splits`) : teamPath('/analytics');
     case 'entries':
       return teamPath('/meets');
     case 'unpublished-plan':
