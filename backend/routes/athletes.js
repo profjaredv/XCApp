@@ -10,6 +10,7 @@ const {
   hasGraduated,
 } = require('../lib/season');
 const { normalizeGender } = require('../lib/gender');
+const { decideCanAcceptAthleteInvite } = require('../lib/athleteInvites');
 const { sendEmail } = require('../lib/email');
 const calculationService = require('../services/performance/calculationService');
 
@@ -448,6 +449,25 @@ router.post('/accept-invite', authenticate, async (req, res) => {
     }
     if (invite.athlete.userId && invite.athlete.userId !== userId) {
       return res.status(409).json({ msg: 'This athlete is already linked to a different account.' });
+    }
+
+    // Identity guard: `authenticate` only proves someone is signed in, not
+    // that they're the person this invite was meant for. Without this, a
+    // super admin who opens an invite link while already logged in gets
+    // silently converted into that athlete — their own account's teamId
+    // reassigned, a TeamMember(ATHLETE) row created — which is exactly the
+    // bug this closes. See lib/athleteInvites.js.
+    const existingLinkedAthlete = await prisma.athlete.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    const canAccept = decideCanAcceptAthleteInvite({
+      isSuperAdmin: Boolean(req.user.isSuperAdmin),
+      inviteAthleteId: invite.athleteId,
+      existingLinkedAthleteId: existingLinkedAthlete?.id ?? null,
+    });
+    if (!canAccept.allowed) {
+      return res.status(403).json({ msg: canAccept.reason });
     }
 
     const [athlete] = await prisma.$transaction([
