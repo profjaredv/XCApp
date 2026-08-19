@@ -100,6 +100,30 @@ function summarizeBand(entries, range) {
 //           single best-time point, and symmetric with meet-mode pooling
 //           more than one data point per band).
 //
+// entries: [{ athleteId, paceSecPerMile }] (raceId/time/fieldRatio ignored
+// here — only the per-athlete season-best pace matters for a rank). An
+// athlete with multiple races contributes multiple entries; only their
+// best pace counts. Returns rank 1 = fastest. Shared with
+// lib/athleteJourney.js — an athlete's rank on their own journey page has
+// to be the same number Program (Band Trends) would compute for them, so
+// there is exactly one place this ranking happens.
+function rankAthletesBySeasonBestPace(entries) {
+  const bestByAthlete = new Map();
+  for (const e of entries) {
+    const current = bestByAthlete.get(e.athleteId);
+    if (current === undefined || e.paceSecPerMile < current) {
+      bestByAthlete.set(e.athleteId, e.paceSecPerMile);
+    }
+  }
+  const ranked = [...bestByAthlete.entries()]
+    .map(([athleteId, bestPaceSecPerMile]) => ({ athleteId, bestPaceSecPerMile }))
+    .sort((a, b) => a.bestPaceSecPerMile - b.bestPaceSecPerMile);
+
+  const byAthleteId = new Map();
+  ranked.forEach((r, i) => byAthleteId.set(r.athleteId, { rank: i + 1, bestPaceSecPerMile: r.bestPaceSecPerMile }));
+  return { ranked, byAthleteId, rosterSize: ranked.length };
+}
+
 // entries: [{ athleteId, raceId, time, paceSecPerMile, fieldRatio }]
 function assignBandEntries(entries, mode, ranges) {
   const bandEntries = { top: [], middle: [], bottom: [] };
@@ -118,22 +142,12 @@ function assignBandEntries(entries, mode, ranges) {
       });
     }
   } else {
-    const byAthlete = new Map();
-    for (const e of entries) {
-      if (!byAthlete.has(e.athleteId)) byAthlete.set(e.athleteId, []);
-      byAthlete.get(e.athleteId).push(e);
-    }
-    const seasonBestByAthlete = [...byAthlete.entries()].map(([athleteId, athleteEntries]) => ({
-      athleteId,
-      bestPace: Math.min(...athleteEntries.map((e) => e.paceSecPerMile)),
-    }));
-    seasonBestByAthlete.sort((a, b) => a.bestPace - b.bestPace);
-
+    const { byAthleteId } = rankAthletesBySeasonBestPace(entries);
     const athleteBand = new Map();
-    seasonBestByAthlete.forEach((a, i) => {
-      const band = bandForRank(i + 1, ranges);
-      if (band) athleteBand.set(a.athleteId, band);
-    });
+    for (const [athleteId, { rank }] of byAthleteId) {
+      const band = bandForRank(rank, ranges);
+      if (band) athleteBand.set(athleteId, band);
+    }
 
     for (const e of entries) {
       const band = athleteBand.get(e.athleteId);
@@ -194,6 +208,7 @@ module.exports = {
   POSITION_SLOTS,
   computeBandRanges,
   bandForRank,
+  rankAthletesBySeasonBestPace,
   summarizeBand,
   assignBandEntries,
   computePositionCurve,

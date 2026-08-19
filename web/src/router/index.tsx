@@ -8,6 +8,7 @@ import DataManagementPage from '../pages/DataManagementPage';
 import SettingsPage from '../pages/SettingsPage';
 import RosterPage from '../pages/RosterPage';
 import TodayPage from '../pages/TodayPage';
+import AthleteJourneyPage from '../pages/AthleteJourneyPage';
 import GroupsPage from '../pages/GroupsPage';
 import PracticePlansPage from '../pages/PracticePlansPage';
 import MeetOpsPage from '../pages/MeetOpsPage';
@@ -213,6 +214,14 @@ export const router = createBrowserRouter([
                     // consolidated onto the one that works.
                     path: 'athlete/:athleteId',
                     element: <TeamAthleteProfilePage />,
+                  },
+                  {
+                    // E1: multi-season rank/band/PR/course spine for one
+                    // athlete. Stays inside Layout — it's a viewing page,
+                    // not a capture tool, so it doesn't follow the
+                    // RaceVisualization/IntervalSessions standalone pattern.
+                    path: 'athlete/:athleteId/journey',
+                    element: <AthleteJourneyPage />,
                   },
                   {
                     path: 'team/athlete/:athleteId',

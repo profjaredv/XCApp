@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -284,6 +284,9 @@ const TeamAthleteProfilePage = () => {
         </div>
 
         <div className="flex items-center gap-4">
+          <Button variant="outline" asChild>
+            <Link to={teamPath(`/athlete/${athleteId}/journey`)}>View Journey</Link>
+          </Button>
           <SeasonModeSelector
             mode={seasonMode as SeasonMode}
             onModeChange={handleSeasonModeChange as (mode: SeasonMode) => void}

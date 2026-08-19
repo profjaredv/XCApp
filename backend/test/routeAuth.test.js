@@ -51,6 +51,11 @@ const ALLOWED_UNGUARDED = new Set([
   // grants no access by itself (see requireApprovedGuardianLink, and
   // team.js POST /approve-guardian-link, which does require a role).
   'guardian.js POST /request-link',
+  // E2 usage logging: fires from pages a signed-in-but-teamless user can
+  // still land on (onboarding, join-team), and the write itself carries no
+  // team/user/athlete id at all (see lib/pageViewLogging.js) — there is no
+  // cross-team or cross-user surface here to guard against.
+  'pageViews.js POST /',
 ]);
 
 function collectRouteMiddlewareNames(routeLayer) {

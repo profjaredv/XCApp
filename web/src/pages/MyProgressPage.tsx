@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -139,12 +139,17 @@ const MyProgressPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">My Progress</h1>
-        <p className="text-muted-foreground">
-          {linkedAthlete.name}
-          {linkedAthlete.graduationYear ? ` • Class of ${linkedAthlete.graduationYear}` : ''}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">My Progress</h1>
+          <p className="text-muted-foreground">
+            {linkedAthlete.name}
+            {linkedAthlete.graduationYear ? ` • Class of ${linkedAthlete.graduationYear}` : ''}
+          </p>
+        </div>
+        <Button variant="outline" asChild>
+          <Link to={teamPath(`/athlete/${linkedAthlete.id}/journey`)}>My Journey</Link>
+        </Button>
       </div>
 
       <Card>

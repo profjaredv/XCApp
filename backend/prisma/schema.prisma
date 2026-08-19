@@ -1251,3 +1251,25 @@ model EquipmentAssignment {
   @@index([equipmentId, returnedAt])
   @@map("equipment_assignments")
 }
+
+// ---------------------------------------------------------------------------
+// E2 (LeadPack Master Build Handoff): "the input to every future cut
+// decision" — which pages get opened, by which kind of user, over time.
+// Deliberately three fields, no more: no userId, no athleteId, no teamId.
+// "route" is normalized server-side before it's ever written (see
+// lib/pageViewLogging.js) so a dynamic segment — an athlete's id in
+// /athlete/:athleteId/journey, for instance — can never end up stored in
+// plain text here. This table answers "how many times was Practice opened
+// by a coach this month," never "who opened it."
+// ---------------------------------------------------------------------------
+
+model PageView {
+  id        String   @id @default(uuid()) @db.Uuid
+  route     String
+  role      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([route])
+  @@index([createdAt])
+  @@map("page_views")
+}

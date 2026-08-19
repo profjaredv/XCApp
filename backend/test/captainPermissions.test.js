@@ -119,3 +119,34 @@ test('band analytics route never includes an athlete id or name in its response'
   assert.doesNotMatch(resJsonBody, /athleteId/i);
   assert.doesNotMatch(resJsonBody, /athleteName/i);
 });
+
+// E1 (LeadPack Master Build Handoff): "another athlete's analytics beyond
+// public race results" — flagged above as unenforced when this file was
+// written — is now real for GET /analytics/athlete/:athleteId/journey.
+// This is the first route in the app where a captain and a regular
+// athlete genuinely diverge in what they receive from the *same* handler:
+// both are TeamRole.ATHLETE, but the route computes isSelf per-request
+// (req.user.linkedAthlete.id === req.params.athleteId), so a captain
+// viewing anyone but themselves fails it exactly like any other athlete
+// would — see lib/athleteJourneyPermissions.test.js for the exhaustive
+// case coverage of decideCanViewAthleteJourney itself. This test just
+// confirms the route actually wires that function in, by source
+// inspection (same approach as the rest of this file).
+const ANALYTICS_ROUTE_PATH = path.join(__dirname, '..', 'routes', 'analytics.js');
+
+test('GET /analytics/athlete/:athleteId/journey is gated by decideCanViewAthleteJourney, not open to any team member', () => {
+  const source = fs.readFileSync(ANALYTICS_ROUTE_PATH, 'utf8');
+
+  assert.match(
+    source,
+    /require\(['"]\.\.\/lib\/athleteJourneyPermissions['"]\)/,
+    'routes/analytics.js does not import decideCanViewAthleteJourney'
+  );
+
+  const routeStart = source.indexOf("router.get('/athlete/:athleteId/journey'");
+  assert.ok(routeStart !== -1, 'journey route handler not found');
+  const journeySection = source.slice(routeStart, routeStart + 2000);
+
+  assert.match(journeySection, /decideCanViewAthleteJourney\(/, 'journey route never calls the permission decision function');
+  assert.match(journeySection, /status\(403\)/, 'journey route has no 403 path for a denied viewer');
+});

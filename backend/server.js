@@ -110,6 +110,7 @@ const main = async () => {
     const equipmentRoutes = require('./routes/equipment');
     const intervalSessionRoutes = require('./routes/intervalSessions');
     const todayRoutes = require('./routes/today');
+    const pageViewRoutes = require('./routes/pageViews');
     const adminRoutes = require('./routes/admin');
 
     app.get('/api', (req, res) => {
@@ -154,6 +155,7 @@ const main = async () => {
     app.use('/api/equipment', equipmentRoutes);
     app.use('/api/interval-sessions', intervalSessionRoutes);
     app.use('/api/today', todayRoutes);
+    app.use('/api/page-views', pageViewRoutes);
     app.use('/api/admin', adminRoutes);
 
     // Enhanced performance routes

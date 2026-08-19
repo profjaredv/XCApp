@@ -2,6 +2,17 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, hasTeamRole } = require('../middleware/auth');
+const { paceSecPerMile } = require('../lib/groupAnalytics');
+const {
+  rankAthletesBySeasonBestPace,
+  bandForSeasonRank,
+  computeSeasonBest,
+  computeCourseBests,
+  computePRs,
+} = require('../lib/athleteJourney');
+const { decideCanViewAthleteJourney } = require('../lib/athleteJourneyPermissions');
+
+const JOURNEY_COACH_ROLES = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'];
 
 const normalizeGender = (value) => {
   if (!value) return 'M';
@@ -222,6 +233,142 @@ router.get('/athletes/:athleteId', authenticate, requireTeam, async (req, res) =
     res.json({ athlete, results, stats });
   } catch (err) {
     console.error('Error fetching athlete analytics:', err.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/analytics/athlete/:athleteId/journey — Workstream E1 (LeadPack
+// Master Build Handoff). Reachable by the athlete themselves, any coach on
+// their team, or an approved guardian — deliberately NOT gated behind
+// requireTeam, since a guardian isn't a team member (same reasoning as
+// routes/guardian.js's GET /athletes/:athleteId). Computed live from
+// Result/Race rows, not the AthleteSeasonMetrics cache table, so it works
+// before a coach has ever run "Calculate Metrics" for a season.
+router.get('/athlete/:athleteId/journey', authenticate, async (req, res) => {
+  const { athleteId } = req.params;
+
+  try {
+    const athlete = await prisma.athlete.findUnique({
+      where: { id: athleteId },
+      select: { id: true, name: true, gender: true, teamId: true, graduationYear: true },
+    });
+    if (!athlete) {
+      return res.status(404).json({ msg: 'Athlete not found' });
+    }
+
+    const isSelf = req.user.linkedAthlete?.id === athleteId;
+    const isTeamCoach = req.user.teamId === athlete.teamId && JOURNEY_COACH_ROLES.includes(req.user.teamRole);
+
+    let hasApprovedGuardianLink = false;
+    if (!isSelf && !isTeamCoach) {
+      const link = await prisma.guardianLink.findUnique({
+        where: { userId_athleteId: { userId: req.user.id, athleteId } },
+      });
+      hasApprovedGuardianLink = Boolean(link && link.status === 'approved');
+    }
+
+    if (!decideCanViewAthleteJourney({ isSelf, isTeamCoach, hasApprovedGuardianLink })) {
+      return res.status(403).json({ msg: 'Access denied.' });
+    }
+
+    const ownResults = await prisma.result.findMany({
+      where: { athleteId, status: 'FINISHED', time: { gt: 0 } },
+      select: {
+        time: true,
+        race: {
+          select: {
+            id: true,
+            name: true,
+            date: true,
+            season: true,
+            distanceMeters: true,
+            courseId: true,
+            course: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    const seasonYears = [...new Set(ownResults.map((r) => r.race.season))].sort((a, b) => a - b);
+
+    const [teamGenderResults, seasonRosterRows] = await Promise.all([
+      seasonYears.length
+        ? prisma.result.findMany({
+            where: {
+              teamId: athlete.teamId,
+              status: 'FINISHED',
+              time: { gt: 0 },
+              race: { season: { in: seasonYears } },
+              athlete: { gender: athlete.gender },
+            },
+            select: { athleteId: true, time: true, race: { select: { season: true, distanceMeters: true } } },
+          })
+        : [],
+      seasonYears.length
+        ? prisma.seasonRoster.findMany({
+            where: { athleteId, season: { teamId: athlete.teamId, year: { in: seasonYears } } },
+            select: { isCaptain: true, season: { select: { year: true } } },
+          })
+        : [],
+    ]);
+
+    const captainBySeasonYear = new Map(seasonRosterRows.map((r) => [r.season.year, r.isCaptain]));
+
+    const teamGenderBySeasonYear = new Map();
+    for (const r of teamGenderResults) {
+      const pace = paceSecPerMile(r.time, r.race.distanceMeters);
+      if (pace == null) continue;
+      const year = r.race.season;
+      if (!teamGenderBySeasonYear.has(year)) teamGenderBySeasonYear.set(year, []);
+      teamGenderBySeasonYear.get(year).push({ athleteId: r.athleteId, paceSecPerMile: pace });
+    }
+
+    const ownResultsBySeasonYear = new Map();
+    for (const r of ownResults) {
+      const year = r.race.season;
+      if (!ownResultsBySeasonYear.has(year)) ownResultsBySeasonYear.set(year, []);
+      ownResultsBySeasonYear.get(year).push({
+        raceId: r.race.id,
+        raceName: r.race.name,
+        date: r.race.date,
+        time: r.time,
+        distanceMeters: r.race.distanceMeters,
+      });
+    }
+
+    const seasons = seasonYears.map((year) => {
+      const genderEntries = teamGenderBySeasonYear.get(year) || [];
+      const { byAthleteId, rosterSize } = rankAthletesBySeasonBestPace(genderEntries);
+      const mine = byAthleteId.get(athleteId) || null;
+
+      return {
+        year,
+        rank: mine?.rank ?? null,
+        rosterSize,
+        band: mine ? bandForSeasonRank(mine.rank, rosterSize) : null,
+        seasonBest: computeSeasonBest(ownResultsBySeasonYear.get(year) || []),
+        isCaptain: captainBySeasonYear.get(year) ?? false,
+      };
+    });
+
+    const allOwnResultsFlat = ownResults.map((r) => ({
+      raceId: r.race.id,
+      raceName: r.race.name,
+      date: r.race.date,
+      time: r.time,
+      distanceMeters: r.race.distanceMeters,
+      courseId: r.race.courseId,
+      courseName: r.race.course?.name ?? null,
+    }));
+
+    res.json({
+      athlete: { id: athlete.id, name: athlete.name, gender: athlete.gender, graduationYear: athlete.graduationYear },
+      seasons,
+      courseBests: computeCourseBests(allOwnResultsFlat),
+      prs: computePRs(allOwnResultsFlat),
+    });
+  } catch (err) {
+    console.error('Error building athlete journey:', err.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
