@@ -3,7 +3,9 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Flag } from 'lucide-react';
+import { useAthleteSplitsAggregate } from '@/hooks/useSplits';
+import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSummary';
 import { useAthletePerformance, useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
 import { performanceService } from '@/api/performanceService';
 import { athleteService } from '@/api/athleteService';
@@ -66,6 +68,13 @@ const TeamAthleteProfilePage = () => {
   const [isRecalculating, setIsRecalculating] = useState(false);
 
   const { data: athleteAllSeasons } = useAthleteAllSeasons(athleteId || '', { enabled: !!athleteId });
+
+  // C10: same pacing-averages summary the athlete sees on their own My
+  // Progress page — independent of the metrics-calculation-gated data
+  // below, same reasoning as recentRaces/TrainingPacesCard: a coach
+  // shouldn't need to have run season analytics first to see how an
+  // athlete typically splits their races.
+  const { data: splitsAggregate } = useAthleteSplitsAggregate(athleteId ?? null);
 
   // Independent of the metrics-calculation-gated data below on purpose —
   // training paces (and specifically "what should my 800m T-pace be")
@@ -297,6 +306,23 @@ const TeamAthleteProfilePage = () => {
       <div className="mb-6">
         <TrainingPacesCard recentRaces={recentRaces} />
       </div>
+
+      {splitsAggregate && splitsAggregate.aggregates.length > 0 && (
+        <div className="mb-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Flag className="h-5 w-5" />
+                Splits
+              </CardTitle>
+              <CardDescription>How this athlete typically paces themselves, by distance.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SplitsAggregateSummary aggregates={splitsAggregate.aggregates} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {!enhancedAthlete ? (
         // The season query settled but returned nothing — almost always

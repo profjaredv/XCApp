@@ -18,6 +18,17 @@ export function useAthleteSplits(athleteId: string | null) {
   });
 }
 
+// C10: per-distance-bucket pacing averages — used by both the athlete's
+// own "My splits" card and the coach-facing athlete profile, so both read
+// the exact same numbers (routes/splits.js's /aggregate route).
+export function useAthleteSplitsAggregate(athleteId: string | null) {
+  return useQuery({
+    queryKey: ['splits', 'athlete', athleteId, 'aggregate'],
+    queryFn: () => splitsService.getAthleteSplitsAggregate(athleteId as string),
+    enabled: !!athleteId,
+  });
+}
+
 // C6: patches just the edited rows into the cached race view from the save
 // response instead of invalidating/refetching the whole grid — a refetch on
 // every 800ms-debounced autosave would be disruptive, and computing

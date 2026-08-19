@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, validateSplitEntries } = require('../lib/splitMath');
+const { normalizeDistanceMeters, aggregateSplitsByDistance } = require('../lib/splitAggregates');
 
 // C5 (LeadPack Master Build Handoff): rewritten against the marker-based
 // Split model. The authorization pattern from the old RaceSplit-based file
@@ -11,7 +12,11 @@ const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, validate
 // from the verified Result row — never trust a client-supplied one — and
 // run in a transaction.
 
-function buildRaceView(race, results) {
+// previousByAthleteId: Map<athleteId, { raceId, raceName, date, finishSec }
+// | undefined> — this athlete's most recent OTHER result at roughly the
+// same distance, before this race's date. Passed in rather than queried
+// per-row to keep this one query for the whole race, not N.
+function buildRaceView(race, results, previousByAthleteId) {
   const markers = markersForRace(race.distanceMeters, race.splitMarkerScheme, race.splitMarkersMeters);
   const markerLabelBySequence = new Map(markers.map((m) => [m.sequence, m.label]));
 
@@ -19,6 +24,7 @@ function buildRaceView(race, results) {
     const splitInputs = r.splits.map((s) => ({ sequence: s.sequence, markerMeters: s.markerMeters, elapsedSec: s.elapsedSec }));
     const segs = race.distanceMeters ? segments(splitInputs, r.time, race.distanceMeters) : [];
     const analysis = splitAnalysis(segs);
+    const previous = previousByAthleteId?.get(r.athlete.id) ?? null;
 
     return {
       resultId: r.id,
@@ -34,6 +40,16 @@ function buildRaceView(race, results) {
       segments: segs,
       analysis,
       overallPaceSecPerMile: race.distanceMeters ? overallPaceSecPerMile(r.time, race.distanceMeters) : null,
+      previousSameDistance:
+        previous && r.time != null
+          ? {
+              raceId: previous.raceId,
+              raceName: previous.raceName,
+              date: previous.date,
+              finishSec: previous.finishSec,
+              deltaSec: r.time - previous.finishSec,
+            }
+          : null,
     };
   });
 
@@ -48,9 +64,34 @@ function buildRaceView(race, results) {
   };
 }
 
+// One row per (resultId), shaped identically for GET /athlete/:athleteId
+// and the /aggregate route below — the aggregate route needs exactly this
+// per-race shape to feed lib/splitAggregates.js, so both build it here
+// instead of the aggregate route re-deriving it from raw Result rows.
+function buildAthleteSplitRows(results) {
+  return results.map((r) => {
+    const splitInputs = r.splits.map((s) => ({ sequence: s.sequence, markerMeters: s.markerMeters, elapsedSec: s.elapsedSec }));
+    const segs = r.race.distanceMeters ? segments(splitInputs, r.time, r.race.distanceMeters) : [];
+    return {
+      resultId: r.id,
+      raceId: r.race.id,
+      raceName: r.race.name,
+      date: r.race.date,
+      distanceMeters: r.race.distanceMeters,
+      finishSec: r.time,
+      segments: segs,
+      analysis: splitAnalysis(segs),
+      overallPaceSecPerMile: r.race.distanceMeters ? overallPaceSecPerMile(r.time, r.race.distanceMeters) : null,
+    };
+  });
+}
+
 // GET /api/splits/race/:raceId — results in finish order, splits and
 // derived segments computed server-side so the grid renders without
-// client-side math.
+// client-side math. Each row also carries previousSameDistance — this
+// athlete's most recent other result at roughly the same distance before
+// this race's date — so the grid can flag a finish as faster/slower than
+// last time without the coach doing that math themselves.
 router.get('/race/:raceId', authenticate, requireTeam, async (req, res) => {
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
@@ -71,7 +112,35 @@ router.get('/race/:raceId', authenticate, requireTeam, async (req, res) => {
       return 0;
     });
 
-    res.json(buildRaceView(race, results));
+    let previousByAthleteId = null;
+    if (race.distanceMeters) {
+      const targetBucket = normalizeDistanceMeters(race.distanceMeters);
+      const athleteIds = results.map((r) => r.athlete.id);
+      const priorResults = await prisma.result.findMany({
+        where: {
+          athleteId: { in: athleteIds },
+          teamId: req.user.teamId,
+          raceId: { not: race.id },
+          time: { not: null },
+          race: { date: { lt: race.date }, distanceMeters: { not: null } },
+        },
+        select: { athleteId: true, time: true, race: { select: { id: true, name: true, date: true, distanceMeters: true } } },
+        orderBy: { race: { date: 'desc' } },
+      });
+      previousByAthleteId = new Map();
+      for (const pr of priorResults) {
+        if (previousByAthleteId.has(pr.athleteId)) continue; // already have this athlete's most recent (results are date-desc)
+        if (normalizeDistanceMeters(pr.race.distanceMeters) !== targetBucket) continue;
+        previousByAthleteId.set(pr.athleteId, {
+          raceId: pr.race.id,
+          raceName: pr.race.name,
+          date: pr.race.date,
+          finishSec: pr.time,
+        });
+      }
+    }
+
+    res.json(buildRaceView(race, results, previousByAthleteId));
   } catch (err) {
     console.error('Error fetching race splits:', err.message);
     res.status(500).json({ msg: 'Server error' });
@@ -92,25 +161,33 @@ router.get('/athlete/:athleteId', authenticate, requireTeam, async (req, res) =>
       orderBy: { race: { date: 'desc' } },
     });
 
-    const rows = results.map((r) => {
-      const splitInputs = r.splits.map((s) => ({ sequence: s.sequence, markerMeters: s.markerMeters, elapsedSec: s.elapsedSec }));
-      const segs = r.race.distanceMeters ? segments(splitInputs, r.time, r.race.distanceMeters) : [];
-      return {
-        resultId: r.id,
-        raceId: r.race.id,
-        raceName: r.race.name,
-        date: r.race.date,
-        distanceMeters: r.race.distanceMeters,
-        finishSec: r.time,
-        segments: segs,
-        analysis: splitAnalysis(segs),
-        overallPaceSecPerMile: r.race.distanceMeters ? overallPaceSecPerMile(r.time, r.race.distanceMeters) : null,
-      };
-    });
-
-    res.json(rows);
+    res.json(buildAthleteSplitRows(results));
   } catch (err) {
     console.error('Error fetching athlete splits:', err.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/splits/athlete/:athleteId/aggregate — C10: "how does this
+// athlete typically pace themselves," averaged per distance bucket (never
+// mixing a 5K with an 8K — see lib/splitAggregates.js). Same broad
+// requireTeam visibility as the routes above: race splits are public
+// results within the team, same as everywhere else in this file.
+router.get('/athlete/:athleteId/aggregate', authenticate, requireTeam, async (req, res) => {
+  try {
+    const results = await prisma.result.findMany({
+      where: { athleteId: req.params.athleteId, teamId: req.user.teamId },
+      include: {
+        race: true,
+        splits: true,
+      },
+      orderBy: { race: { date: 'desc' } },
+    });
+
+    const rows = buildAthleteSplitRows(results);
+    res.json({ athleteId: req.params.athleteId, aggregates: aggregateSplitsByDistance(rows) });
+  } catch (err) {
+    console.error('Error aggregating athlete splits:', err.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

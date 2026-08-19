@@ -1,19 +1,22 @@
-import type { SplitPattern } from '@/types/splits';
+import type { AggregateSplitPattern } from '@/types/splits';
 
 // Shared presentation for a SplitAnalysis.pattern badge — used by the
-// coach's entry grid (SplitsEntryPage) and the athlete-facing splits view
-// (MyProgressPage) so the two never drift into describing the same three
-// values differently.
-export const SPLIT_PATTERN_LABEL: Record<SplitPattern, string> = {
+// coach's entry grid (SplitsEntryPage), the athlete-facing splits view
+// (MyProgressPage), and the C10 pacing-aggregate summary (which adds a
+// 'mixed' outcome for an exact tie across a distance bucket's races) — so
+// none of them drift into describing the same values differently.
+export const SPLIT_PATTERN_LABEL: Record<AggregateSplitPattern, string> = {
   negative: 'Negative split',
   even: 'Even split',
   positive: 'Positive split',
+  mixed: 'Mixed',
 };
 
-export const SPLIT_PATTERN_BADGE_CLASS: Record<SplitPattern, string> = {
+export const SPLIT_PATTERN_BADGE_CLASS: Record<AggregateSplitPattern, string> = {
   negative: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30',
   even: 'bg-muted text-muted-foreground border-border',
   positive: 'bg-amber-500/10 text-amber-700 border-amber-500/30',
+  mixed: 'bg-sky-500/10 text-sky-700 border-sky-500/30',
 };
 
 // Splits are always whole seconds (see SplitCell's 4-digit MMSS entry) —

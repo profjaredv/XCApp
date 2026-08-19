@@ -33,8 +33,9 @@ import { athleteService } from '@/api/athleteService';
 import { trainingLogService, type TrainingLogType } from '@/api/trainingLogService';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { formatTime, parseTimeToSeconds, formatDateShort } from '@/lib/formatUtils';
-import { useAthleteSplits } from '@/hooks/useSplits';
+import { useAthleteSplits, useAthleteSplitsAggregate } from '@/hooks/useSplits';
 import { SPLIT_PATTERN_LABEL, SPLIT_PATTERN_BADGE_CLASS, formatSplitMMSS } from '@/lib/splitPatternDisplay';
+import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSummary';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
 import { useMyReflection, useSavePreRace, useSavePostRace, useSetSharing } from '@/hooks/useRaceReflections';
@@ -70,6 +71,9 @@ const MyProgressPage: React.FC = () => {
   // (routes/splits.js's GET /athlete/:athleteId), never recomputed here.
   const { data: athleteSplits = [] } = useAthleteSplits(linkedAthlete?.id ?? null);
   const racesWithSplits = athleteSplits.filter((r) => r.segments.length > 0);
+  // C10: "how do you typically pace yourself" — averaged per distance
+  // bucket, shared with the coach-facing view on TeamAthleteProfilePage.
+  const { data: splitsAggregate } = useAthleteSplitsAggregate(linkedAthlete?.id ?? null);
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const { data: todaysPlan } = useMyPracticePlan(todayIso, !!linkedAthlete);
@@ -389,7 +393,10 @@ const MyProgressPage: React.FC = () => {
             </CardTitle>
             <CardDescription>How you paced yourself, race by race.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {splitsAggregate && splitsAggregate.aggregates.length > 0 && (
+              <SplitsAggregateSummary aggregates={splitsAggregate.aggregates} />
+            )}
             <div className="divide-y">
               {racesWithSplits.map((r) => (
                 <div key={r.resultId} className="py-2.5">

@@ -39,6 +39,14 @@ export interface SplitAnalysis {
   segmentPaces: number[];
 }
 
+export interface PreviousSameDistanceComparison {
+  raceId: string;
+  raceName: string;
+  date: string;
+  finishSec: number;
+  deltaSec: number; // negative = faster than that previous race
+}
+
 export interface RaceSplitRow {
   resultId: string;
   athleteId: string;
@@ -50,6 +58,7 @@ export interface RaceSplitRow {
   segments: DerivedSegment[];
   analysis: SplitAnalysis | null;
   overallPaceSecPerMile: number | null;
+  previousSameDistance: PreviousSameDistanceComparison | null;
 }
 
 export interface RaceSplitsView {
@@ -104,4 +113,41 @@ export interface BatchSplitResponse {
   entriesSaved: number;
   flags: BatchSplitFlag[];
   results: BatchSplitResultRow[];
+}
+
+// C10: "how does this athlete typically pace themselves" — averaged per
+// distance bucket by backend/lib/splitAggregates.js, never mixing a 5K
+// with an 8K.
+export interface SegmentAverage {
+  position: number;
+  label: string;
+  avgSegmentSec: number | null;
+  avgPaceSecPerMile: number | null;
+  raceCount: number;
+}
+
+export interface ClosingSegmentAverage {
+  avgSegmentSec: number | null;
+  avgPaceSecPerMile: number | null;
+  raceCount: number;
+}
+
+export type AggregateSplitPattern = SplitPattern | 'mixed';
+
+export interface SplitsAggregateByDistance {
+  distanceBucketMeters: number;
+  distanceLabel: string;
+  raceCount: number;
+  segmentAverages: SegmentAverage[];
+  closingAverage: ClosingSegmentAverage | null;
+  overallAveragePaceSecPerMile: number | null;
+  pattern: {
+    predominant: AggregateSplitPattern | null;
+    counts: { negative: number; even: number; positive: number };
+  };
+}
+
+export interface AthleteSplitsAggregateResponse {
+  athleteId: string;
+  aggregates: SplitsAggregateByDistance[];
 }

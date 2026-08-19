@@ -2,6 +2,7 @@ import { axiosInstance } from './axios';
 import type {
   RaceSplitsView,
   AthleteSplitHistoryRow,
+  AthleteSplitsAggregateResponse,
   BatchSplitEntry,
   BatchSplitResponse,
 } from '../types/splits';
@@ -16,6 +17,13 @@ export const splitsService = {
 
   async getAthleteSplits(athleteId: string): Promise<AthleteSplitHistoryRow[]> {
     const response = await axiosInstance.get<AthleteSplitHistoryRow[]>(`/splits/athlete/${athleteId}`);
+    return response.data;
+  },
+
+  // C10: per-distance-bucket averages (Mile 1/2/.../closing/pace, typical
+  // split pattern) — never recomputed client-side, see lib/splitAggregates.js.
+  async getAthleteSplitsAggregate(athleteId: string): Promise<AthleteSplitsAggregateResponse> {
+    const response = await axiosInstance.get<AthleteSplitsAggregateResponse>(`/splits/athlete/${athleteId}/aggregate`);
     return response.data;
   },
 

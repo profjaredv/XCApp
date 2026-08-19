@@ -2,14 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Check, X, Loader2, WifiOff, Download, Upload } from 'lucide-react';
+import { Check, X, Loader2, WifiOff, Download, Upload, Printer, ArrowDown, ArrowUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRaceSplits, useSaveSplitsBatch } from '@/hooks/useSplits';
 import { SplitCell, type CellNavigate } from '@/components/splits/SplitCell';
-import { formatTime, parseTimeToSeconds } from '@/lib/formatUtils';
+import { formatTime, parseTimeToSeconds, formatDateShort } from '@/lib/formatUtils';
 import { parseCsv, toCsv } from '@/lib/csvParse';
 import { SPLIT_PATTERN_LABEL, SPLIT_PATTERN_BADGE_CLASS, formatSplitMMSS } from '@/lib/splitPatternDisplay';
-import type { RaceSplitRow, BatchSplitEntry, SplitEntryInput } from '@/types/splits';
+import type { RaceSplitRow, BatchSplitEntry, SplitEntryInput, PreviousSameDistanceComparison } from '@/types/splits';
 
 function downloadCsv(filename: string, csvText: string) {
   const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
@@ -54,6 +54,26 @@ function cellKey(resultId: string, sequence: number) {
   return `${resultId}:${sequence}`;
 }
 
+// Faster/slower than this athlete's most recent other race at roughly the
+// same distance (backend/lib/distance bucketing — see routes/splits.js's
+// GET /race/:raceId). Print-view and interactive-grid finish cells both
+// use this so the two never show it differently.
+const FinishComparisonIndicator: React.FC<{ previous: PreviousSameDistanceComparison | null }> = ({ previous }) => {
+  if (!previous) return null;
+  const faster = previous.deltaSec < 0;
+  const slower = previous.deltaSec > 0;
+  const title = `${formatSplitMMSS(Math.abs(previous.deltaSec))} ${faster ? 'faster' : slower ? 'slower' : 'even'} than ${previous.raceName} (${formatDateShort(previous.date)})`;
+  return (
+    <span
+      className={`inline-flex items-center ${faster ? 'text-emerald-600' : slower ? 'text-destructive' : 'text-muted-foreground'}`}
+      title={title}
+    >
+      {faster && <ArrowDown className="h-3 w-3" />}
+      {slower && <ArrowUp className="h-3 w-3" />}
+    </span>
+  );
+};
+
 const SplitsEntryPage: React.FC = () => {
   const navigate = useNavigate();
   const { raceId } = useParams<{ raceId: string }>();
@@ -92,6 +112,15 @@ const SplitsEntryPage: React.FC = () => {
   const closingMiles = useMemo(() => {
     if (!data?.distanceMeters || markers.length === 0) return null;
     return (data.distanceMeters - markers[markers.length - 1].markerMeters) / MILE_METERS;
+  }, [data, markers]);
+  // Whole-mile numbering, matching the same "Mile N" / "NK" convention
+  // lib/splitMath.js already uses for the real markers — a 5K's closing
+  // segment (really 1.11mi) reads as "Mile 3," exactly how a coach's own
+  // sheet already labels it, not as a fussy "Final (1.11mi)."
+  const closingLabel = useMemo(() => {
+    if (data?.splitMarkerScheme === 'KM') return `${markers.length + 1}K`;
+    if (data?.splitMarkerScheme === 'CUSTOM') return 'Final';
+    return `Mile ${markers.length + 1}`;
   }, [data, markers]);
   const totalCols = 1 + markers.length + derivedMarkers.length + 1 + 1 + 1 + 1;
 
@@ -284,6 +313,11 @@ const SplitsEntryPage: React.FC = () => {
     toast.success('Saving splits…');
   };
 
+  const handlePrint = () => {
+    flushAll();
+    window.print();
+  };
+
   // C7: export produces exactly what import consumes — one Athlete column
   // to match rows back up, one column per raw marker entry (the derived
   // segment/Final/Pace columns are included too, for reference, but import
@@ -388,7 +422,7 @@ const SplitsEntryPage: React.FC = () => {
   };
 
   const topBar = (
-    <div className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background px-6 py-3">
+    <div className="print:hidden sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background px-6 py-3">
       <div>
         <h1 className="text-lg font-semibold">{data?.raceName ?? 'Splits'}</h1>
         {offline && (
@@ -406,6 +440,10 @@ const SplitsEntryPage: React.FC = () => {
         <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={markers.length === 0}>
           <Download className="h-4 w-4 mr-1" />
           Export CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={handlePrint} disabled={markers.length === 0}>
+          <Printer className="h-4 w-4 mr-1" />
+          Print
         </Button>
         <Button variant="outline" size="sm" onClick={handleSave}>
           <Check className="h-4 w-4 mr-1" />
@@ -454,7 +492,7 @@ const SplitsEntryPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       {topBar}
-      <div className="p-6 space-y-4">
+      <div className="print:hidden p-6 space-y-4">
         <div className="flex items-center gap-4">
           <p className="text-sm text-muted-foreground">
             Enter the clock time at each marker — segment times and pace are calculated for you.
@@ -492,8 +530,11 @@ const SplitsEntryPage: React.FC = () => {
                     {m.label} split
                   </th>
                 ))}
-                <th className={`${headerCellClass} text-center w-28`}>
-                  Final{closingMiles != null ? ` (${closingMiles.toFixed(2)}mi)` : ''}
+                <th
+                  className={`${headerCellClass} text-center w-28`}
+                  title={closingMiles != null ? `${closingMiles.toFixed(2)} miles from the last marker to the tape` : undefined}
+                >
+                  {closingLabel}
                 </th>
                 <th className={`${headerCellClass} text-center w-24`}>Pace</th>
                 <th className={`${headerCellClass} text-right`}>Finish</th>
@@ -543,7 +584,10 @@ const SplitsEntryPage: React.FC = () => {
                       {row.overallPaceSecPerMile != null ? `${formatSplitMMSS(row.overallPaceSecPerMile)}/mi` : '—'}
                     </td>
                     <td className="p-2 text-right font-mono whitespace-nowrap align-middle">
-                      {row.finishSec != null ? formatTime(row.finishSec) : '—'}
+                      <span className="inline-flex items-center gap-1">
+                        {row.finishSec != null ? formatTime(row.finishSec) : '—'}
+                        <FinishComparisonIndicator previous={row.previousSameDistance} />
+                      </span>
                     </td>
                     <td className="p-2 whitespace-nowrap align-middle">
                       {row.analysis ? (
@@ -567,6 +611,89 @@ const SplitsEntryPage: React.FC = () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Print view: plain formatted cells (not the interactive grid), both
+          genders in their own section, so a printed sheet reads like a
+          real meet results page rather than a screenshot of input boxes. */}
+      <div className="hidden print:block p-4">
+        <h1 className="text-lg font-semibold mb-3">{data.raceName}</h1>
+        {(['F', 'M'] as const)
+          .filter((g) => availableGenders.has(g) || (availableGenders.size === 0 && g === genderFilter))
+          .map((g) => {
+            const groupRows = rowsAll.filter((r) => (r.gender ?? 'M') === g);
+            if (groupRows.length === 0) return null;
+            return (
+              <div key={g} className="mb-6 break-inside-avoid">
+                <h2 className="text-sm font-semibold mb-1">{g === 'F' ? 'Girls' : 'Boys'}</h2>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr>
+                      <th className="text-left p-1 border border-border">Athlete</th>
+                      {markers.map((m) => (
+                        <th key={m.sequence} className="text-center p-1 border border-border">
+                          {m.label}
+                        </th>
+                      ))}
+                      {derivedMarkers.map((m) => (
+                        <th key={`derived-${m.sequence}`} className="text-center p-1 border border-border">
+                          {m.label} split
+                        </th>
+                      ))}
+                      <th className="text-center p-1 border border-border">{closingLabel}</th>
+                      <th className="text-center p-1 border border-border">Pace</th>
+                      <th className="text-right p-1 border border-border">Finish</th>
+                      <th className="text-left p-1 border border-border">Pattern</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupRows.map((row) => {
+                      const closingSeg = row.segments.find((s) => s.isClosing);
+                      return (
+                        <tr key={row.resultId}>
+                          <td className="p-1 border border-border whitespace-nowrap">{row.athleteName}</td>
+                          {markers.map((m) => {
+                            const existing = row.splits.find((s) => s.sequence === m.sequence);
+                            return (
+                              <td key={m.sequence} className="text-center p-1 border border-border font-mono">
+                                {formatSplitMMSS(existing?.elapsedSec) || '—'}
+                              </td>
+                            );
+                          })}
+                          {derivedMarkers.map((m) => {
+                            const seg = row.segments.find((s) => s.sequence === m.sequence && !s.isClosing);
+                            return (
+                              <td key={`derived-${m.sequence}`} className="text-center p-1 border border-border font-mono">
+                                {seg ? formatSplitMMSS(seg.segmentSec) : '—'}
+                              </td>
+                            );
+                          })}
+                          <td className="text-center p-1 border border-border font-mono">
+                            {closingSeg ? formatSplitMMSS(closingSeg.segmentSec) : '—'}
+                          </td>
+                          <td className="text-center p-1 border border-border font-mono">
+                            {row.overallPaceSecPerMile != null ? `${formatSplitMMSS(row.overallPaceSecPerMile)}/mi` : '—'}
+                          </td>
+                          <td className="text-right p-1 border border-border font-mono">
+                            {row.finishSec != null ? formatTime(row.finishSec) : '—'}
+                            {row.previousSameDistance && (
+                              <span className={row.previousSameDistance.deltaSec < 0 ? 'text-emerald-700' : 'text-red-700'}>
+                                {' '}
+                                {row.previousSameDistance.deltaSec < 0 ? '▼' : '▲'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="text-left p-1 border border-border">
+                            {row.analysis ? SPLIT_PATTERN_LABEL[row.analysis.pattern] : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
       </div>
     </div>
   );
