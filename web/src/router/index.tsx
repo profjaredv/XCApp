@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom';
 import App from '../App';
-import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, BandTrendsPage, FieldResultsPage } from '../pages';
+import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, BandTrendsPage, FieldResultsPage } from '../pages';
+import CheckoutPage from '../pages/CheckoutPage';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
@@ -56,6 +57,12 @@ export const router = createBrowserRouter([
       {
         path: '/staff-invite/:token',
         element: <StaffInviteAcceptPage />,
+      },
+      // F3 (LeadPack Master Build Handoff): public — shows the team name
+      // and masked email before sign-in. See routes/teamClaims.js.
+      {
+        path: '/claim/:token',
+        element: <ClaimTeamPage />,
       },
       {
         path: '/join-team',
@@ -204,6 +211,13 @@ export const router = createBrowserRouter([
                   {
                     path: 'settings',
                     element: <SettingsPage />,
+                  },
+                  {
+                    // F4: the required-every-time checkout step. Reachable
+                    // even at plan: 'pending' — only join codes/invites are
+                    // 402'd server-side (lib/entitlements.js), not this page.
+                    path: 'checkout',
+                    element: <CheckoutPage />,
                   },
                   {
                     path: 'results-grid',

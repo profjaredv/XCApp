@@ -130,6 +130,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return response.data;
   };
 
+  // F3 (LeadPack Master Build Handoff): claiming an admin-created team —
+  // same reasoning as acceptStaffInvite, this just granted HEAD_COACH, so
+  // currentUser needs to reflect that immediately.
+  const claimTeam = async (token: string) => {
+    const response = await api.post(`/team-claims/${token}/claim`);
+    const fresh = await getFreshToken();
+    if (fresh) {
+      const refreshedUser = await fetchUserData(fresh);
+      if (refreshedUser) setCurrentUser(refreshedUser);
+    }
+    return response.data;
+  };
+
   const value = {
     currentUser,
     loading,
@@ -139,6 +152,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     getFreshToken,
     acceptInvite,
     acceptStaffInvite,
+    claimTeam,
   };
 
   if (loading) {

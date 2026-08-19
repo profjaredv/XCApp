@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const { customAlphabet } = require('nanoid');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const calculationService = require('../services/performance/calculationService');
@@ -17,56 +16,14 @@ const { normalizeAthleteName, matchAthlete } = require('../lib/athleteMatching')
 const { normalizeGender } = require('../lib/gender');
 const { mergeStaffRoster } = require('../lib/teamStaff');
 
-const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
-
-// POST /api/teams
-router.post('/', authenticate, async (req, res) => {
-  const { name, athleticTeamId } = req.body;
-  const userId = req.user.id;
-
-  if (!name || !athleticTeamId) {
-    return res.status(400).json({ message: 'Team name and Athletic.net Team ID are required.' });
-  }
-
-  try {
-    const existingTeam = await prisma.team.findUnique({ where: { athleticTeamId: String(athleticTeamId) } });
-    if (existingTeam) {
-      return res.status(409).json({ message: 'A team with this Athletic.net ID already exists.' });
-    }
-
-    const newTeam = await prisma.team.create({
-      data: {
-        name,
-        athleticTeamId: String(athleticTeamId),
-        joinCode: nanoid(),
-        coachUid: userId,
-      },
-    });
-
-    await prisma.user.update({
-      where: { id: userId },
-      data: { role: 'coach', teamId: newTeam.id },  // User.role: onboarding hint only, unchanged
-    });
-
-    await prisma.teamMember.upsert({
-      where: { teamId_userId: { teamId: newTeam.id, userId } },
-      update: { role: 'HEAD_COACH' },
-      create: { teamId: newTeam.id, userId, role: 'HEAD_COACH' },
-    });
-
-    const updatedUser = await prisma.user.findUnique({ where: { id: userId }, include: { team: true } });
-
-    res.status(201).json({
-      success: true,
-      message: 'Team created successfully. You have been upgraded to coach role.',
-      user: updatedUser,
-      team: newTeam,
-    });
-  } catch (error) {
-    console.error('Error creating team:', error.message);
-    res.status(500).json({ message: 'Failed to create team.' });
-  }
-});
+// F2 (LeadPack Master Build Handoff): self-serve team creation is gone.
+// POST /api/teams used to let any signed-in user become HEAD_COACH of any
+// unclaimed athleticTeamId — a global namespace, first-come-first-served,
+// with no check that the caller had any real connection to that school.
+// The owner now creates every team by hand via POST /api/admin/teams
+// (routes/admin.js, requireSuperAdmin), which issues a claim link instead
+// of granting access directly — see routes/teamClaims.js. Deliberately not
+// leaving both an open route and an admin route serving the same purpose.
 
 // GET /api/teams/current
 router.get('/current', authenticate, requireTeam, async (req, res) => {
@@ -668,7 +625,7 @@ router.get('/context', authenticate, requireTeam, async (req, res) => {
     const [team, activeSeason, seasonsWithData, athleteCount, raceCount] = await Promise.all([
       prisma.team.findUnique({
         where: { id: teamId },
-        select: { id: true, name: true, athleticTeamId: true, currentSeason: true, joinCode: true },
+        select: { id: true, name: true, athleticTeamId: true, currentSeason: true, joinCode: true, plan: true },
       }),
       resolveActiveSeason(teamId),
       listSeasonsWithData(teamId),

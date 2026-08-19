@@ -10,6 +10,7 @@ interface AuthContextType {
     getFreshToken: () => Promise<string | null>;
     acceptInvite: (token: string) => Promise<unknown>;
     acceptStaffInvite: (token: string) => Promise<unknown>;
+    claimTeam: (token: string) => Promise<{ teamId: string; athleticTeamId: string; teamName: string; checkoutRequired: boolean }>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);

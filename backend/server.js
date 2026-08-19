@@ -64,12 +64,20 @@ const main = async () => {
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization']
     }));
+    // F4 (LeadPack Master Build Handoff): Stripe's signature check needs the
+    // exact raw request body, which a JSON-parsed-and-reserialized body
+    // would not reproduce byte for byte — this route gets its own raw-body
+    // parser and MUST be registered before the global express.json() below,
+    // or Stripe's signature verification (lib/stripeWebhook.js) fails on
+    // every request.
+    app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), require('./lib/stripeWebhook').handleStripeWebhook);
+
     app.use(express.json({ limit: '1mb' }));
 
-    // These three routes let an authenticated-but-unprivileged account
-    // change its own team/role standing (join a team, upgrade to coach) by
-    // guessing a code — exactly the kind of endpoint worth throttling
-    // per-IP regardless of how strong the code itself is.
+    // These routes let an authenticated-but-unprivileged account change its
+    // own team/role standing (join a team, upgrade to coach, claim a team)
+    // by guessing a code/token — exactly the kind of endpoint worth
+    // throttling per-IP regardless of how strong the code itself is.
     const roleChangeLimiter = rateLimit({
         windowMs: 60 * 60 * 1000, // 1 hour
         limit: 10,
@@ -80,6 +88,7 @@ const main = async () => {
     app.use('/api/profile/join-team', roleChangeLimiter);
     app.use('/api/profile/upgrade-to-coach', roleChangeLimiter);
     app.use('/api/team/join', roleChangeLimiter);
+    app.post('/api/team-claims/:token/claim', roleChangeLimiter);
 
     const { authenticate } = require('./middleware/auth');
 
@@ -112,6 +121,8 @@ const main = async () => {
     const todayRoutes = require('./routes/today');
     const pageViewRoutes = require('./routes/pageViews');
     const adminRoutes = require('./routes/admin');
+    const teamClaimRoutes = require('./routes/teamClaims');
+    const billingRoutes = require('./routes/billing');
 
     app.get('/api', (req, res) => {
         res.send('XC Analytics Backend API is running!');
@@ -157,6 +168,8 @@ const main = async () => {
     app.use('/api/today', todayRoutes);
     app.use('/api/page-views', pageViewRoutes);
     app.use('/api/admin', adminRoutes);
+    app.use('/api/team-claims', teamClaimRoutes);
+    app.use('/api/billing', billingRoutes);
 
     // Enhanced performance routes
     const enhancedPerformanceRoutes = require('./routes/enhancedPerformanceRoutes');

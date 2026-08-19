@@ -12,6 +12,7 @@ const {
 const { normalizeGender } = require('../lib/gender');
 const { decideCanAcceptAthleteInvite } = require('../lib/athleteInvites');
 const { sendEmail } = require('../lib/email');
+const { requireActivePlan } = require('../lib/entitlements');
 const calculationService = require('../services/performance/calculationService');
 
 // www, not the apex — the apex leadpack.cc has no DNS record pointed at
@@ -367,7 +368,7 @@ router.delete('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH
 const INVITE_TTL_DAYS = 30;
 
 // POST /api/athletes/:athleteId/invite
-router.post('/:athleteId/invite', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/:athleteId/invite', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), requireActivePlan, async (req, res) => {
   const { email } = req.body;
   const teamId = req.user.teamId;
 

@@ -12,6 +12,8 @@ export interface TeamContextTeam {
   athleticTeamId: string | null;
   currentSeason: number | null;
   joinCode: string | null;
+  /** F4: 'pending' until a completed Stripe checkout — see CheckoutPage. */
+  plan: 'pending' | 'active' | 'past_due' | 'canceled';
 }
 
 export interface TeamContext {

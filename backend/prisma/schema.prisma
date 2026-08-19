@@ -76,7 +76,11 @@ model User {
 model Team {
   id              String   @id @default(uuid()) @db.Uuid
   name            String
-  coachUid        String   @map("coach_uid") @db.Uuid
+  // Nullable (F2, LeadPack Master Build Handoff): an admin-created team sits
+  // with no coach at all between creation and claim — "creates no User and
+  // no TeamMember yet." Every existing row already has a real coachUid; this
+  // only widens what a NEW row is allowed to omit.
+  coachUid        String?  @map("coach_uid") @db.Uuid
   joinCode        String   @unique @map("join_code")
   athleticTeamId  String   @unique @map("athletic_team_id")
   importedSeasons Int[]    @default([]) @map("imported_seasons")
@@ -84,7 +88,17 @@ model Team {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  coach                   User                     @relation("TeamCoach", fields: [coachUid], references: [id])
+  // F4: billing/checkout state. 'pending' until a completed Stripe Checkout
+  // Session — checkout.session.completed — flips it to 'active', regardless
+  // of the resulting charge amount (a $0 promo-code session unlocks
+  // identically to a $199 one). requireActivePlan (lib/entitlements.js)
+  // reads this and only this.
+  plan                 String    @default("pending")
+  stripeCustomerId     String?   @map("stripe_customer_id")
+  stripeSubscriptionId String?   @map("stripe_subscription_id")
+  checkoutCompletedAt  DateTime? @map("checkout_completed_at")
+
+  coach                   User?                    @relation("TeamCoach", fields: [coachUid], references: [id])
   members                 User[]                   @relation("TeamUsers")
   teamMembers             TeamMember[]
   athletes                Athlete[]
@@ -107,9 +121,32 @@ model Team {
   equipment               Equipment[]
   intervalSessions        IntervalSession[]
   coachUpAcknowledgements CoachUpAcknowledgement[]
+  claim                   TeamClaim?
 
   @@index([coachUid])
   @@map("teams")
+}
+
+// F2 (LeadPack Master Build Handoff): the trust mechanism for Year 1. The
+// owner creates the Team and this claim by hand (no self-serve creation —
+// see the removed public POST /api/teams), then sends the coach a link
+// containing `token`. Same shape as StaffInvite on purpose — reuse its
+// expiry/status conventions rather than inventing new ones. Whoever holds
+// the link and signs in becomes HEAD_COACH; the account's email is never
+// required to match `email` (see F3 — the link itself is the credential).
+model TeamClaim {
+  id        String    @id @default(uuid()) @db.Uuid
+  teamId    String    @unique @map("team_id") @db.Uuid
+  email     String // the address the owner set — shown masked, never enforced
+  token     String    @unique @default(uuid())
+  status    String    @default("pending") // pending | claimed | expired
+  createdAt DateTime  @default(now()) @map("created_at")
+  claimedAt DateTime? @map("claimed_at")
+  expiresAt DateTime  @map("expires_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_claims")
 }
 
 // T1 (Team Management handoff): replaces the old free-text 'coach'|'athlete'

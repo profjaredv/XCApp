@@ -6,6 +6,7 @@ const { authenticate, requireTeam, requireRole } = require('../middleware/auth')
 const { resolveActiveSeason } = require('../lib/season');
 const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 const { sendEmail } = require('../lib/email');
+const { requireActivePlan } = require('../lib/entitlements');
 
 // www, not the apex — the apex leadpack.cc has no DNS record pointed at
 // the app, so bare-domain invite links 404 at the DNS level before ever
@@ -146,7 +147,7 @@ function nameMatchScore(athleteName, userName) {
 // POST /api/team/generate-join-code
 // The frontend's join-code panel (RosterPage) has called this since it was
 // built; the backend route never existed, so it 404'd every time.
-router.post('/generate-join-code', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/generate-join-code', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), requireActivePlan, async (req, res) => {
   try {
     let joinCode;
     // joinCode is globally unique across all teams — retry on the rare
@@ -224,7 +225,7 @@ router.get('/staff', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COAC
 // POST /api/team/staff-invite
 // Head-coach-only: granting HEAD_COACH/COACH/VOLUNTEER_COACH authority is
 // exactly the "staff management" the Build Spec keeps head-coach-scoped.
-router.post('/staff-invite', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+router.post('/staff-invite', authenticate, requireTeam, requireRole(['HEAD_COACH']), requireActivePlan, async (req, res) => {
   const { email, role } = req.body;
   const teamId = req.user.teamId;
 
@@ -549,7 +550,7 @@ router.get('/pending-guardian-links', authenticate, requireTeam, requireRole(['H
 });
 
 // POST /api/team/approve-guardian-link
-router.post('/approve-guardian-link', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/approve-guardian-link', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), requireActivePlan, async (req, res) => {
   const { linkId, action } = req.body;
 
   if (!linkId || !['approve', 'reject'].includes(action)) {

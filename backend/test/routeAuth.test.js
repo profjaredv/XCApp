@@ -33,9 +33,11 @@ const ALLOWED_UNGUARDED = new Set([
   'profile.js POST /upgrade-to-coach',
   'profile.js POST /fix-coach-role',
   'team.js POST /join',
-  // Creating a brand-new team: the caller isn't on any team yet by
-  // definition, so requireTeam/requireRole is a logical contradiction here.
-  'teams.js POST /',
+  // F2/F3 (LeadPack Master Build Handoff): claiming a team is what GRANTS
+  // team membership, same logical contradiction as team.js POST /join and
+  // POST /accept-staff-invite above — requireTeam/requireRole can't apply
+  // before the caller has either. The token itself is the authorization.
+  'teamClaims.js POST /:token/claim',
   // Self-scoped: writes only req.user.id's own row, never a body-supplied
   // user id — no cross-user or cross-team surface exists to guard.
   'users.js PUT /me',

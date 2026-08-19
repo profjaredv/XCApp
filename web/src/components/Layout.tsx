@@ -7,6 +7,7 @@ import { FeedbackWidget } from './FeedbackWidget';
 import { useTeamPath } from '../hooks/useTeamRoute';
 import { AdminTeamSwitcher } from './AdminTeamSwitcher';
 import { ImpersonationBanner } from './ImpersonationBanner';
+import { CheckoutReminderBanner } from './CheckoutReminderBanner';
 
 interface SidebarProps {
   isMobileOpen: boolean;
@@ -267,6 +268,7 @@ const Layout: React.FC = () => {
   return (
     <div className="flex flex-col h-screen">
       <ImpersonationBanner />
+      <CheckoutReminderBanner />
       <div className="flex flex-1 bg-background overflow-hidden md:overflow-auto">
         <Sidebar isMobileOpen={isMobileOpen} setIsMobileOpen={setIsMobileOpen} />
         <div className="flex-1 flex flex-col overflow-hidden">
