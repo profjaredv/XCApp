@@ -6,8 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { axiosInstance } from '@/api/axios';
+import { authClient } from '@/lib/auth';
+import { useAuth } from '@/contexts/AuthContext';
 
 const OnboardingPage: React.FC = () => {
+  const { currentUser } = useAuth();
   const [step, setStep] = useState<'choice' | 'join' | 'create'>('choice');
   const [joinCode, setJoinCode] = useState('');
   const [error, setError] = useState('');
@@ -15,6 +18,14 @@ const OnboardingPage: React.FC = () => {
   const [contactMessage, setContactMessage] = useState('');
   const [contactSent, setContactSent] = useState(false);
   const navigate = useNavigate();
+
+  // Onboarding has no header/nav chrome — without this, someone stuck here
+  // (wrong account, needs to re-authenticate) has no way back to /login
+  // short of clearing cookies. signOut() redirects through Neon Auth, which
+  // lands back on /login once there's no session.
+  const handleSignOut = () => {
+    authClient.signOut();
+  };
 
   const handleJoinTeam = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,7 +95,15 @@ const OnboardingPage: React.FC = () => {
 
   if (step === 'choice') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 gap-3">
+        {currentUser && (
+          <div className="text-xs text-muted-foreground flex items-center gap-2">
+            Signed in as {currentUser.email}
+            <button type="button" onClick={handleSignOut} className="text-blue-600 hover:underline">
+              Not you? Sign out
+            </button>
+          </div>
+        )}
         <Card className="mx-auto max-w-lg w-full">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">Welcome to LeadPack XC!</CardTitle>
@@ -120,7 +139,15 @@ const OnboardingPage: React.FC = () => {
 
   if (step === 'join') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 gap-3">
+        {currentUser && (
+          <div className="text-xs text-muted-foreground flex items-center gap-2">
+            Signed in as {currentUser.email}
+            <button type="button" onClick={handleSignOut} className="text-blue-600 hover:underline">
+              Not you? Sign out
+            </button>
+          </div>
+        )}
         <Card className="mx-auto max-w-md w-full">
           <CardHeader>
             <CardTitle>Join Your Team</CardTitle>
@@ -181,7 +208,15 @@ const OnboardingPage: React.FC = () => {
   // The owner now creates every team by hand and sends a claim link
   // (routes/teamClaims.js, /claim/:token) instead.
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 gap-3">
+      {currentUser && (
+        <div className="text-xs text-muted-foreground flex items-center gap-2">
+          Signed in as {currentUser.email}
+          <button type="button" onClick={handleSignOut} className="text-blue-600 hover:underline">
+            Not you? Sign out
+          </button>
+        </div>
+      )}
       <Card className="mx-auto max-w-md w-full">
         <CardHeader>
           <CardTitle>Get Your Team Set Up</CardTitle>
@@ -194,7 +229,7 @@ const OnboardingPage: React.FC = () => {
           {contactSent ? (
             <>
               <div className="bg-green-100 text-green-700 p-3 rounded text-sm">
-                Sent — we'll follow up and send a claim link once your team is set up.
+                Sent — we'll follow up at {currentUser?.email ?? 'your account email'} once your team is set up.
               </div>
               <Button variant="outline" onClick={() => setStep('choice')} className="w-full">
                 Back
@@ -207,6 +242,9 @@ const OnboardingPage: React.FC = () => {
                   {error}
                 </div>
               )}
+              <p className="text-sm text-muted-foreground">
+                We'll follow up at <strong>{currentUser?.email ?? 'the email on this account'}</strong>.
+              </p>
               <div className="space-y-2">
                 <Label htmlFor="contact-message">Your school and team name</Label>
                 <Textarea
