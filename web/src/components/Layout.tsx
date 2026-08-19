@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, Link, NavLink } from 'react-router-dom';
+import { Outlet, Link, NavLink, useLocation } from 'react-router-dom';
 import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, ClipboardList, Gauge, Users, CalendarDays, Flag, TrendingUp, Database, Package, Upload, MessageSquare } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
@@ -64,6 +64,80 @@ const CollapsibleSetupSection: React.FC<{ isCollapsed: boolean; children: React.
         <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && <div className="mt-1 space-y-1 pl-2">{children}</div>}
+    </div>
+  );
+};
+
+// Same 8 sub-views AnalyticsPage.tsx's own ResponsiveTabsList tabs between
+// (values must match its TabsTrigger values exactly — tab state there is
+// a ?tab= URL param, see useQueryParam('tab')).
+const ANALYTICS_TABS: { tab: string; label: string }[] = [
+  { tab: 'dashboard', label: 'Dashboard' },
+  { tab: 'athletes', label: 'Athletes' },
+  { tab: 'meets', label: 'Meets' },
+  { tab: 'performance', label: 'Performance' },
+  { tab: 'byGroup', label: 'By Group' },
+  { tab: 'resultsGrid', label: 'Results Grid' },
+  { tab: 'tools', label: 'Pace Calculator' },
+  { tab: 'coach', label: 'Coach Insights' },
+];
+
+// "Season" used to be a single link straight to the Analytics dashboard
+// tab — on mobile that meant landing on a heavy header + tab-switcher just
+// to reach, say, Meets. Clicking it now expands in place (mirrors
+// CollapsibleSetupSection's pattern below) to the same 8 sub-views
+// Analytics itself tabs between, so a coach can jump straight to one
+// without the intermediate stop. Auto-expands (and highlights the current
+// sub-tab) whenever already on the Analytics page, so the sidebar doubles
+// as a "where am I" indicator instead of just going quiet once you're in.
+const SeasonNavSection: React.FC<{
+  isCollapsed: boolean;
+  teamPath: (p: string) => string;
+  onLinkClick: () => void;
+}> = ({ isCollapsed, teamPath, onLinkClick }) => {
+  const location = useLocation();
+  const analyticsPath = teamPath('/analytics');
+  const isOnAnalytics = location.pathname === analyticsPath;
+  const activeTab = isOnAnalytics ? new URLSearchParams(location.search).get('tab') ?? 'dashboard' : null;
+  const [manualOpen, setManualOpen] = useState(false);
+  const open = isOnAnalytics || manualOpen;
+
+  if (isCollapsed) {
+    return <NavItem to={analyticsPath} icon={LayoutDashboard} label="Season" isCollapsed={isCollapsed} onClick={onLinkClick} />;
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => setManualOpen(!manualOpen)}
+        className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 font-medium transition-colors ${
+          isOnAnalytics ? 'text-sidebar-foreground' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+        }`}
+      >
+        <span className="flex items-center gap-3">
+          <LayoutDashboard className="h-5 w-5" strokeWidth={2.5} />
+          <span className="text-sm">Season</span>
+        </span>
+        <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="mt-1 space-y-0.5 pl-8">
+          {ANALYTICS_TABS.map((t) => (
+            <Link
+              key={t.tab}
+              to={`${analyticsPath}?tab=${t.tab}`}
+              onClick={onLinkClick}
+              className={`block rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                activeTab === t.tab
+                  ? 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary'
+                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+              }`}
+            >
+              {t.label}
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -133,7 +207,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
             <NavItem to={teamPath('/groups')} icon={Users} label="Groups" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <NavItem to={teamPath('/practice-plans')} icon={CalendarDays} label="Practice" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <NavItem to={teamPath('/meets')} icon={Flag} label="Meets" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            <NavItem to={teamPath('/analytics')} icon={LayoutDashboard} label="Season" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <SeasonNavSection isCollapsed={isCollapsed} teamPath={teamPath} onLinkClick={handleLinkClick} />
             <NavItem to={teamPath('/band-trends')} icon={TrendingUp} label="Program" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             {!isVolunteerCoach && (
               <CollapsibleSetupSection isCollapsed={isCollapsed}>

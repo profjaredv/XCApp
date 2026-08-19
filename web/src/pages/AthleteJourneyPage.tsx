@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Trophy, TrendingUp } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
+import { BackButton } from '@/components/BackButton';
 import { athleteJourneyService, type Band } from '@/api/athleteJourneyService';
 import { formatTime, formatPace, formatDateShort } from '@/lib/formatUtils';
 import { deriveGrade, gradeLabel } from '@/lib/seasonUtils';
@@ -36,6 +37,7 @@ const AthleteJourneyPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="max-w-xl mx-auto space-y-4">
+        <BackButton className="-ml-2" />
         <Skeleton className="h-8 w-1/2" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-40 w-full" />
@@ -45,7 +47,8 @@ const AthleteJourneyPage: React.FC = () => {
 
   if (isError || !data) {
     return (
-      <div className="max-w-xl mx-auto">
+      <div className="max-w-xl mx-auto space-y-4">
+        <BackButton className="-ml-2" />
         <p className="text-muted-foreground">Couldn't load this journey.</p>
       </div>
     );
@@ -55,6 +58,7 @@ const AthleteJourneyPage: React.FC = () => {
 
   return (
     <div className="max-w-xl mx-auto space-y-6 pb-12">
+      <BackButton className="-ml-2" />
       <div>
         <h1 className="text-2xl font-bold">{athlete.name}</h1>
         <p className="text-sm text-muted-foreground">
