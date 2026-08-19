@@ -3,6 +3,10 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { resolveTodaySeasonState } = require('../lib/season');
+const { mergeStaffRoster } = require('../lib/teamStaff');
+const { getGroupOn } = require('../lib/groups');
+const { decideCanViewReflection } = require('../lib/raceReflections');
+const { decideCanViewTrainingLog } = require('../lib/trainingLogSharing');
 
 // Workstream A (LeadPack Master Build Handoff): the Today page's backend.
 // Each block on the page fetches independently, so this file is several
@@ -13,6 +17,19 @@ const { resolveTodaySeasonState } = require('../lib/season');
 // genuinely new aggregations (season-state gate, next-meet-with-counts,
 // needs-attention, recent-result) get new routes.
 const COACH_ROLES = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'];
+
+// Resolves the requesting coach's own TeamRole the same way every other
+// per-row-permission route in this codebase does (raceReflections.js,
+// meetOps.js): the owner fast-path first, then a TeamMember lookup — see
+// middleware/auth.js's hasTeamRole comment for why the fast path exists.
+async function resolveViewerRole(req) {
+  const isOwnerCoach = req.user.team?.coachUid === req.user.id;
+  if (isOwnerCoach) return 'HEAD_COACH';
+  const membership = await prisma.teamMember.findUnique({
+    where: { teamId_userId: { teamId: req.user.teamId, userId: req.user.id } },
+  });
+  return membership?.role ?? null;
+}
 
 function normalizeToday() {
   const now = new Date();
@@ -214,6 +231,134 @@ router.get('/recent-result', authenticate, requireTeam, requireRole(COACH_ROLES)
     });
   } catch (error) {
     console.error('Error fetching today recent result:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/today/staff — coaching staff roster + athlete count. See
+// lib/teamStaff.js for why the owner and the TeamMember table both have
+// to be consulted and merged rather than just counting TeamMember rows.
+router.get('/staff', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  try {
+    const teamId = req.user.teamId;
+    const [team, members, athleteCount] = await Promise.all([
+      prisma.team.findUnique({ where: { id: teamId }, select: { coach: { select: { id: true, name: true, email: true } } } }),
+      prisma.teamMember.findMany({
+        where: { teamId, active: true, role: { in: COACH_ROLES } },
+        select: { userId: true, role: true, joinedAt: true, user: { select: { name: true, email: true } } },
+        orderBy: { joinedAt: 'asc' },
+      }),
+      prisma.athlete.count({ where: { teamId } }),
+    ]);
+
+    const staff = mergeStaffRoster(
+      team?.coach ?? null,
+      members.map((m) => ({ userId: m.userId, role: m.role, name: m.user.name, email: m.user.email }))
+    );
+
+    res.json({ athleteCount, staff });
+  } catch (error) {
+    console.error('Error fetching today staff:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/today/activity — recent shared-with-coach training logs and
+// race-plan/reflection submissions, last 14 days, newest first. Nothing
+// here ever includes an unshared training log (sharedWithCoach must be
+// true — training logs are private by default) or an unshared reflection
+// (same sharedWithCoach gate the existing race-reflections routes use).
+// VOLUNTEER_COACH is group-scoped, same as everywhere else that shows
+// per-athlete data to a volunteer.
+router.get('/activity', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  try {
+    const teamId = req.user.teamId;
+    const windowStart = addDays(normalizeToday(), -14);
+    const viewerRole = await resolveViewerRole(req);
+
+    const [logs, reflections] = await Promise.all([
+      prisma.trainingLog.findMany({
+        where: { athlete: { teamId }, sharedWithCoach: true, createdAt: { gte: windowStart } },
+        include: { athlete: { select: { id: true, name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
+      prisma.raceReflection.findMany({
+        where: {
+          athlete: { teamId },
+          sharedWithCoach: true,
+          OR: [{ preSubmittedAt: { gte: windowStart } }, { postSubmittedAt: { gte: windowStart } }],
+        },
+        include: { athlete: { select: { id: true, name: true } }, race: { select: { id: true, name: true, date: true } } },
+        take: 20,
+      }),
+    ]);
+
+    async function volunteerLeadsAthlete(athleteId, onDate) {
+      if (viewerRole !== 'VOLUNTEER_COACH') return false;
+      const membershipRow = await getGroupOn(athleteId, onDate, 'TRAINING');
+      if (!membershipRow) return false;
+      const leaderRow = await prisma.groupLeader.findFirst({ where: { groupId: membershipRow.groupId, userId: req.user.id } });
+      return Boolean(leaderRow);
+    }
+
+    const items = [];
+
+    for (const log of logs) {
+      const viewerLeadsAthleteGroup = await volunteerLeadsAthlete(log.athleteId, log.date);
+      const canView = decideCanViewTrainingLog({
+        viewerRole,
+        isOwner: false,
+        sharedWithCoach: log.sharedWithCoach,
+        sharedWithTeam: log.sharedWithTeam,
+        viewerLeadsAthleteGroup,
+      });
+      if (!canView) continue;
+      items.push({
+        type: 'training-log',
+        athleteId: log.athleteId,
+        athleteName: log.athlete.name,
+        date: log.createdAt,
+        summary: `${log.athlete.name} logged a ${log.type} run${log.distanceMi ? ` (${log.distanceMi}mi)` : ''}`,
+      });
+    }
+
+    for (const r of reflections) {
+      const viewerLeadsAthleteGroup = await volunteerLeadsAthlete(r.athleteId, r.race.date);
+      const canView = decideCanViewReflection({
+        viewerRole,
+        isOwner: false,
+        sharedWithCoach: r.sharedWithCoach,
+        viewerLeadsAthleteGroup,
+      });
+      if (!canView) continue;
+
+      if (r.preSubmittedAt && r.preSubmittedAt >= windowStart) {
+        items.push({
+          type: 'race-plan',
+          athleteId: r.athleteId,
+          athleteName: r.athlete.name,
+          date: r.preSubmittedAt,
+          summary: `${r.athlete.name} set a race plan for ${r.race.name}`,
+          link: { raceId: r.raceId },
+        });
+      }
+      if (r.postSubmittedAt && r.postSubmittedAt >= windowStart) {
+        items.push({
+          type: 'race-reflection',
+          athleteId: r.athleteId,
+          athleteName: r.athlete.name,
+          date: r.postSubmittedAt,
+          summary: `${r.athlete.name} reflected on ${r.race.name}`,
+          link: { raceId: r.raceId },
+        });
+      }
+    }
+
+    items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    res.json({ items: items.slice(0, 10) });
+  } catch (error) {
+    console.error('Error fetching today activity:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

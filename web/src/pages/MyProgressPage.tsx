@@ -94,6 +94,11 @@ const MyProgressPage: React.FC = () => {
   const [logDistance, setLogDistance] = useState('');
   const [logDuration, setLogDuration] = useState('');
   const [logNotes, setLogNotes] = useState('');
+  // Private by default — matches the backend's default and the card's own
+  // "yours alone" copy below. An athlete has to actively check one of
+  // these to let anyone else see a run.
+  const [logShareCoach, setLogShareCoach] = useState(false);
+  const [logShareTeam, setLogShareTeam] = useState(false);
 
   const invalidateLogs = () => queryClient.invalidateQueries({ queryKey: ['myTrainingLogs'] });
 
@@ -109,6 +114,8 @@ const MyProgressPage: React.FC = () => {
         distanceMi: logDistance ? parseFloat(logDistance) : undefined,
         durationSec,
         notes: logNotes.trim() || undefined,
+        sharedWithCoach: logShareCoach,
+        sharedWithTeam: logShareTeam,
       });
     },
     onSuccess: () => {
@@ -116,6 +123,8 @@ const MyProgressPage: React.FC = () => {
       setLogDistance('');
       setLogDuration('');
       setLogNotes('');
+      setLogShareCoach(false);
+      setLogShareTeam(false);
       invalidateLogs();
     },
     onError: (err: unknown) => {
@@ -130,6 +139,13 @@ const MyProgressPage: React.FC = () => {
     mutationFn: (logId: string) => trainingLogService.deleteLog(logId),
     onSuccess: invalidateLogs,
     onError: () => toast.error('Could not delete that entry'),
+  });
+
+  const updateLogSharing = useMutation({
+    mutationFn: ({ logId, sharedWithCoach, sharedWithTeam }: { logId: string; sharedWithCoach: boolean; sharedWithTeam: boolean }) =>
+      trainingLogService.updateSharing(logId, sharedWithCoach, sharedWithTeam),
+    onSuccess: invalidateLogs,
+    onError: () => toast.error('Could not update sharing'),
   });
 
   if (!linkedAthlete) {
@@ -293,7 +309,7 @@ const MyProgressPage: React.FC = () => {
             Log a run
           </CardTitle>
           <CardDescription>
-            Training runs are yours alone — they never show up in team results or meet history.
+            Training runs are private by default — check a box below to share one with your coach, your team, or both.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -349,6 +365,16 @@ const MyProgressPage: React.FC = () => {
               rows={2}
             />
           </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Checkbox id="log-share-coach" checked={logShareCoach} onCheckedChange={(v) => setLogShareCoach(v === true)} />
+              <Label htmlFor="log-share-coach" className="text-sm font-normal">Share with coach</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="log-share-team" checked={logShareTeam} onCheckedChange={(v) => setLogShareTeam(v === true)} />
+              <Label htmlFor="log-share-team" className="text-sm font-normal">Share with team</Label>
+            </div>
+          </div>
           <Button onClick={() => logRun.mutate()} disabled={logRun.isPending}>
             {logRun.isPending ? 'Saving…' : 'Log run'}
           </Button>
@@ -368,6 +394,28 @@ const MyProgressPage: React.FC = () => {
                       {log.durationSec ? formatTime(log.durationSec) : ''}
                       {log.notes ? ` • ${log.notes}` : ''}
                     </p>
+                    <div className="flex items-center gap-3 mt-1">
+                      <button
+                        type="button"
+                        className={`text-xs ${log.sharedWithCoach ? 'text-primary font-medium' : 'text-muted-foreground hover:text-foreground'}`}
+                        onClick={() =>
+                          updateLogSharing.mutate({ logId: log.id, sharedWithCoach: !log.sharedWithCoach, sharedWithTeam: log.sharedWithTeam })
+                        }
+                        disabled={updateLogSharing.isPending}
+                      >
+                        {log.sharedWithCoach ? '✓ Shared with coach' : 'Share with coach'}
+                      </button>
+                      <button
+                        type="button"
+                        className={`text-xs ${log.sharedWithTeam ? 'text-primary font-medium' : 'text-muted-foreground hover:text-foreground'}`}
+                        onClick={() =>
+                          updateLogSharing.mutate({ logId: log.id, sharedWithCoach: log.sharedWithCoach, sharedWithTeam: !log.sharedWithTeam })
+                        }
+                        disabled={updateLogSharing.isPending}
+                      >
+                        {log.sharedWithTeam ? '✓ Shared with team' : 'Share with team'}
+                      </button>
+                    </div>
                   </div>
                   <Button
                     variant="ghost"

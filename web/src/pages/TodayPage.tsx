@@ -14,18 +14,22 @@ import {
   Gauge,
   Package,
   ClipboardList,
+  Users,
+  Activity,
+  NotebookPen,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { athleteService } from '@/api/athleteService';
-import { todayService, type TodayAttentionItem } from '@/api/todayService';
+import { todayService, type TodayAttentionItem, type TodayActivityItem } from '@/api/todayService';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
 import { entryStatusLabel } from '@/api/meetOpsService';
 import { useWeekPlans, useSetPublished, useDuplicateDay } from '@/hooks/usePracticePlans';
 import { formatTime, formatDateShort } from '@/lib/formatUtils';
 import { SetupChecklist } from '@/components/SetupChecklist';
+import { SeasonReadinessChecklist } from '@/components/SeasonReadinessChecklist';
 
 // Workstream A (LeadPack Master Build Handoff): the index route under
 // /t/:athleticTeamId. No season selector, no date picker, no filters —
@@ -279,6 +283,87 @@ const CoachRecentResultBlock: React.FC<{ seasonId: string; teamPath: (p: string)
   );
 };
 
+const STAFF_ROLE_LABEL: Record<string, string> = {
+  HEAD_COACH: 'Head Coach',
+  COACH: 'Coach',
+  VOLUNTEER_COACH: 'Volunteer',
+};
+
+const CoachStaffBlock: React.FC<{ teamPath: (p: string) => string }> = ({ teamPath }) => {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['today-staff'],
+    queryFn: () => todayService.getStaff(),
+  });
+
+  return (
+    <BlockShell title="Coaching staff" icon={Users} isLoading={isLoading} isError={isError} linkTo={teamPath('/settings')} linkLabel="Settings">
+      {!data ? (
+        <p className="text-sm text-muted-foreground">No staff on record.</p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            {data.athleteCount} athlete{data.athleteCount === 1 ? '' : 's'} on the roster
+          </p>
+          <ul className="space-y-1">
+            {data.staff.map((s) => (
+              <li key={s.userId} className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate">{s.name || s.email}</span>
+                <Badge variant="secondary" className="font-normal">
+                  {STAFF_ROLE_LABEL[s.role] ?? s.role}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+          <Link to={teamPath('/settings')} className="text-sm text-primary hover:underline inline-flex items-center gap-1">
+            Manage staff <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
+      )}
+    </BlockShell>
+  );
+};
+
+const ACTIVITY_ICON: Record<TodayActivityItem['type'], React.ComponentType<{ className?: string }>> = {
+  'training-log': Activity,
+  'race-plan': NotebookPen,
+  'race-reflection': Trophy,
+};
+
+const CoachActivityBlock: React.FC<{ teamPath: (p: string) => string }> = ({ teamPath }) => {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['today-activity'],
+    queryFn: () => todayService.getActivity(),
+  });
+  const items = data?.items ?? [];
+
+  // A3: nothing manufactured when there's no recent activity to show.
+  if (!isLoading && !isError && items.length === 0) return null;
+
+  return (
+    <BlockShell title="Athlete activity" icon={Activity} isLoading={isLoading} isError={isError} linkTo={teamPath('/roster')} linkLabel="Roster">
+      <ul className="space-y-2">
+        {items.map((item, i) => {
+          const Icon = ACTIVITY_ICON[item.type];
+          return (
+            <li key={i}>
+              <Link
+                to={teamPath(`/team/athlete/${item.athleteId}`)}
+                className="flex items-start gap-2 text-sm hover:text-primary"
+              >
+                <Icon className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground mt-0.5" />
+                <span className="min-w-0">
+                  <span className="block truncate">{item.summary}</span>
+                  <span className="block text-xs text-muted-foreground">{formatDateShort(item.date)}</span>
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </BlockShell>
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Coach view container: resolves season state, orders blocks (next meet is
 // promoted above practice inside 48 hours), renders the off-season / no-
@@ -340,11 +425,14 @@ const CoachToday: React.FC<{ teamPath: (p: string) => string }> = ({ teamPath })
 
   return (
     <div className="space-y-4">
+      <SeasonReadinessChecklist />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <CoachNextMeetBlock seasonId={seasonId} teamPath={teamPath} />
         <CoachPracticeBlock seasonId={seasonId} teamPath={teamPath} />
         <CoachAttentionBlock seasonId={seasonId} teamPath={teamPath} />
         <CoachRecentResultBlock seasonId={seasonId} teamPath={teamPath} />
+        <CoachStaffBlock teamPath={teamPath} />
+        <CoachActivityBlock teamPath={teamPath} />
       </div>
     </div>
   );

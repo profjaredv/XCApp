@@ -11,6 +11,10 @@ export interface TrainingLog {
   durationSec: number | null;
   notes: string | null;
   createdAt: string;
+  // Private ("yours alone") unless the athlete opts in, at creation or
+  // later via updateSharing below.
+  sharedWithCoach: boolean;
+  sharedWithTeam: boolean;
 }
 
 export interface NewTrainingLog {
@@ -19,6 +23,8 @@ export interface NewTrainingLog {
   distanceMi?: number;
   durationSec?: number;
   notes?: string;
+  sharedWithCoach?: boolean;
+  sharedWithTeam?: boolean;
 }
 
 export const trainingLogService = {
@@ -31,6 +37,14 @@ export const trainingLogService = {
 
   async logRun(input: NewTrainingLog): Promise<TrainingLog> {
     const response = await axiosInstance.post<TrainingLog>('/athletes/me/training-logs', input);
+    return response.data;
+  },
+
+  async updateSharing(logId: string, sharedWithCoach: boolean, sharedWithTeam: boolean): Promise<TrainingLog> {
+    const response = await axiosInstance.put<TrainingLog>(`/athletes/me/training-logs/${logId}/sharing`, {
+      sharedWithCoach,
+      sharedWithTeam,
+    });
     return response.data;
   },
 

@@ -322,6 +322,13 @@ model TrainingLog {
   notes       String?
   createdAt   DateTime @default(now()) @map("created_at")
 
+  // Private by default (the original design: "yours alone"). An athlete
+  // can opt a given log into being visible to coaches and/or teammates —
+  // two independent flags, not one enum, since "coaches only," "teammates
+  // only," and "both" are all real choices a runner might make log to log.
+  sharedWithCoach Boolean @default(false) @map("shared_with_coach")
+  sharedWithTeam  Boolean @default(false) @map("shared_with_team")
+
   // Set only when a coach's IntervalSession entry wrote this row (T6 item
   // 6: coach-recorded reps get logged back to the athlete). Every other
   // TrainingLog is athlete-self-reported, per this model's own comment

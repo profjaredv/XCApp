@@ -33,6 +33,11 @@ export interface TeamContext {
     hasRoster: boolean;
     hasResults: boolean;
     isComplete: boolean;
+    /** Meets/groups/plans are scoped to the active season; staff is team-wide. */
+    hasMeets: boolean;
+    hasGroups: boolean;
+    hasTrainingPlans: boolean;
+    hasStaff: boolean;
   };
 }
 

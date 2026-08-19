@@ -15,6 +15,7 @@ const {
 const { parseDistanceToMeters } = require('../lib/distance');
 const { normalizeAthleteName, matchAthlete } = require('../lib/athleteMatching');
 const { normalizeGender } = require('../lib/gender');
+const { mergeStaffRoster } = require('../lib/teamStaff');
 
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 
@@ -688,6 +689,29 @@ router.get('/context', authenticate, requireTeam, async (req, res) => {
       where: { teamId, season: activeSeason },
     });
 
+    // Season-readiness signals for the Today page's checklist (below the
+    // "is there a season at all" gate above) — meets/groups/plans are
+    // scoped to the active season specifically, since last year's don't
+    // count toward this year being ready. Staff is team-wide (TeamMember
+    // rows are durable, not per-season) and only counts active rows.
+    const [meetCount, groupCount, practicePlanCount, teamOwner, coachTeamMembers] = await Promise.all([
+      activeRosterSeason ? prisma.meet.count({ where: { teamId, seasonId: activeRosterSeason.id } }) : 0,
+      activeRosterSeason ? prisma.group.count({ where: { teamId, seasonId: activeRosterSeason.id, archived: false } }) : 0,
+      activeRosterSeason ? prisma.practicePlan.count({ where: { teamId, seasonId: activeRosterSeason.id } }) : 0,
+      prisma.team.findUnique({ where: { id: teamId }, select: { coach: { select: { id: true, name: true, email: true } } } }),
+      prisma.teamMember.findMany({
+        where: { teamId, active: true, role: { in: ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'] } },
+        select: { userId: true, role: true, user: { select: { name: true, email: true } } },
+      }),
+    ]);
+    // See lib/teamStaff.js — the team owner may not have their own
+    // TeamMember row, so a plain count() here would sometimes read one
+    // short.
+    const staffCount = mergeStaffRoster(
+      teamOwner?.coach ?? null,
+      coachTeamMembers.map((m) => ({ userId: m.userId, role: m.role, name: m.user.name, email: m.user.email }))
+    ).length;
+
     res.json({
       team,
       activeSeason,
@@ -707,6 +731,15 @@ router.get('/context', authenticate, requireTeam, async (req, res) => {
         hasRoster: athleteCount > 0,
         hasResults: raceCount > 0,
         isComplete: Boolean(team?.athleticTeamId) && athleteCount > 0 && raceCount > 0,
+        // Season-level readiness — only meaningful once a season exists;
+        // all false (not true) when there isn't one, so a "no season yet"
+        // team never looks like it's missing four things it can't have.
+        hasMeets: meetCount > 0,
+        hasGroups: groupCount > 0,
+        hasTrainingPlans: practicePlanCount > 0,
+        // >1 because the coach who set the team up is themselves a staff
+        // row — this asks "has anyone ELSE been added."
+        hasStaff: staffCount > 1,
       },
     });
   } catch (error) {

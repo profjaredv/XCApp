@@ -525,8 +525,10 @@ router.get('/me/training-logs', authenticate, requireLinkedAthlete, async (req, 
 });
 
 // POST /api/athletes/me/training-logs
+// sharedWithCoach/sharedWithTeam default false — a log is private unless
+// the athlete opts it in, at creation or later via the PUT below.
 router.post('/me/training-logs', authenticate, requireLinkedAthlete, async (req, res) => {
-  const { date, type, distanceMi, durationSec, notes } = req.body;
+  const { date, type, distanceMi, durationSec, notes, sharedWithCoach, sharedWithTeam } = req.body;
 
   if (!date || Number.isNaN(new Date(date).getTime())) {
     return res.status(400).json({ msg: 'A valid date is required.' });
@@ -550,11 +552,39 @@ router.post('/me/training-logs', authenticate, requireLinkedAthlete, async (req,
         distanceMi: distanceMi ?? null,
         durationSec: durationSec ?? null,
         notes: notes || null,
+        sharedWithCoach: Boolean(sharedWithCoach),
+        sharedWithTeam: Boolean(sharedWithTeam),
       },
     });
     res.status(201).json(log);
   } catch (error) {
     console.error('Error in POST /athletes/me/training-logs:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// PUT /api/athletes/me/training-logs/:logId/sharing — change who can see a
+// log already saved, without re-entering the whole thing.
+router.put('/me/training-logs/:logId/sharing', authenticate, requireLinkedAthlete, async (req, res) => {
+  const { sharedWithCoach, sharedWithTeam } = req.body;
+  if (typeof sharedWithCoach !== 'boolean' || typeof sharedWithTeam !== 'boolean') {
+    return res.status(400).json({ msg: 'sharedWithCoach and sharedWithTeam must both be booleans.' });
+  }
+
+  try {
+    const log = await prisma.trainingLog.findFirst({
+      where: { id: req.params.logId, athleteId: req.user.linkedAthlete.id },
+    });
+    if (!log) {
+      return res.status(404).json({ msg: 'Training log not found.' });
+    }
+    const updated = await prisma.trainingLog.update({
+      where: { id: log.id },
+      data: { sharedWithCoach, sharedWithTeam },
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('Error in PUT /athletes/me/training-logs/:logId/sharing:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
