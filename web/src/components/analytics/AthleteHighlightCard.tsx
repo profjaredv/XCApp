@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
-import { formatTime, formatPace } from '@/lib/formatUtils';
+import { formatTime } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import html2canvas from 'html2canvas';
 
@@ -24,6 +24,7 @@ interface AthleteHighlightCardProps {
     sbTime?: number;
     avgPace: number;
     bestPace?: number;
+    /** Seconds — an actual 1-mile race result, not a pace. */
     milePR?: number;
     improvement?: number;
     timeDropped?: number;
@@ -296,7 +297,7 @@ export const AthleteHighlightCard: React.FC<AthleteHighlightCardProps> = ({
                   1 Mile PR
                 </p>
                 <p className="text-5xl font-black text-white bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent">
-                  {formatPace(stats.milePR)}
+                  {formatTime(stats.milePR)}
                 </p>
               </div>
             )}

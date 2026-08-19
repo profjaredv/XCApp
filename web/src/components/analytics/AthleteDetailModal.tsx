@@ -549,16 +549,7 @@ export const AthleteDetailModal = ({
                   const firstRaceTime = progressionData[0];
                   const fastestRaceTime = Math.min(...progressionData);
                   const timeDropped = firstRaceTime && fastestRaceTime ? firstRaceTime - fastestRaceTime : 0;
-                  
-                  // Find the best race (fastest time)
-                  const bestRace = currentSeasonRaces.find(r => r.time === fastestRaceTime);
-                  const bestRaceName = bestRace?.name || '';
-                  
-                  // Calculate best mile pace from all races
-                  const milePR = currentSeasonRaces.length > 0 
-                    ? Math.min(...currentSeasonRaces.map(r => r.time / r.distanceMi))
-                    : 0;
-                  
+
                   // Get best races by distance category. Labels come from
                   // rounding to a nearby common XC/track distance — a fixed
                   // 4-bucket enum used to merge every race >=3.0mi (5K, 6K,
@@ -589,7 +580,24 @@ export const AthleteDetailModal = ({
 
                   const bestRacesByDistance = Object.values(racesByDistance)
                     .sort((a, b) => a.distanceMi - b.distanceMi);
-                  
+
+                  // "Season Best 5K" and its race-name caption have to come
+                  // from the SAME bucketed lookup used just above — pulling
+                  // the headline number from currentSeasonData.best5kTime (a
+                  // separately cached metric) while the caption came from an
+                  // unbucketed Math.min() over every race >=3.0mi let the two
+                  // drift out of sync (a stale cached time next to a race
+                  // name that actually ran a different time), and could even
+                  // let an 8K "win" a headline explicitly labeled 5K.
+                  const best5kEntry = racesByDistance['5K'];
+                  const bestRaceName = best5kEntry?.raceName || '';
+
+                  // The actual 1-mile PR — a real 1-mile race result, not
+                  // (as this used to compute) the best per-mile PACE across
+                  // 5K-and-longer races, which produced a number nowhere
+                  // close to any mile this athlete has actually run.
+                  const bestMileEntry = racesByDistance['1 Mile'];
+
                   return (
                     <div>
                       <h3 className="text-lg font-semibold mb-4">Current Season Highlights ({currentSeasonData.season})</h3>
@@ -602,10 +610,10 @@ export const AthleteDetailModal = ({
                         stats={{
                           totalRaces: currentSeasonData.totalRaces,
                           totalMiles: currentSeasonData.totalMiles,
-                          prTime: currentSeasonData.best5kTime || enhancedSelectedAthlete.bestTime,
+                          prTime: best5kEntry?.time ?? currentSeasonData.best5kTime ?? enhancedSelectedAthlete.bestTime,
                           sbTime: currentSeasonData.best5kTime,
                           avgPace: currentSeasonData.avgPace,
-                          milePR: milePR > 0 ? milePR : undefined,
+                          milePR: bestMileEntry?.time,
                           improvement: enhancedSelectedAthlete.improvementPercent,
                           timeDropped: timeDropped > 0 ? timeDropped : undefined,
                           firstRaceTime,
@@ -632,19 +640,10 @@ export const AthleteDetailModal = ({
                     const careerProgressionData = all5KRaces.map(r => r.time);
                     const firstCareerRaceTime = careerProgressionData[0];
                     const fastestCareerRaceTime = Math.min(...careerProgressionData);
-                    const careerTimeDropped = firstCareerRaceTime && fastestCareerRaceTime 
-                      ? firstCareerRaceTime - fastestCareerRaceTime 
+                    const careerTimeDropped = firstCareerRaceTime && fastestCareerRaceTime
+                      ? firstCareerRaceTime - fastestCareerRaceTime
                       : 0;
-                    
-                    // Find the best race (fastest time) across career
-                    const bestCareerRace = all5KRaces.find(r => r.time === fastestCareerRaceTime);
-                    const bestCareerRaceName = bestCareerRace?.name || '';
-                    
-                    // Calculate best mile pace from all career races
-                    const careerMilePR = all5KRaces.length > 0 
-                      ? Math.min(...all5KRaces.map(r => r.time / r.distanceMi))
-                      : 0;
-                    
+
                     // Get best races by distance category for career — see
                     // the season-scoped version above for why this sorts by
                     // distanceMi rather than a fixed label order array.
@@ -669,7 +668,20 @@ export const AthleteDetailModal = ({
 
                     const careerBestRacesByDistance = Object.values(careerRacesByDistance)
                       .sort((a, b) => a.distanceMi - b.distanceMi);
-                    
+
+                    // Same fix as the season card above: the headline
+                    // number and its race-name caption both come from the
+                    // same bucketed "5K" lookup now, instead of pairing a
+                    // separately cached prBest5K with a race name derived
+                    // from an unbucketed min() that could point at an 8K.
+                    const best5kCareerEntry = careerRacesByDistance['5K'];
+                    const bestCareerRaceName = best5kCareerEntry?.raceName || '';
+
+                    // A real career 1-mile PR, not the best per-mile pace
+                    // across 5K-and-longer races (which is what this used
+                    // to compute — see the season card's comment above).
+                    const bestCareerMileEntry = careerRacesByDistance['1 Mile'];
+
                     return (
                       <AthleteHighlightCard
                         athleteName={enhancedSelectedAthlete.name}
@@ -680,9 +692,9 @@ export const AthleteDetailModal = ({
                         stats={{
                           totalRaces: enhancedCareerSummary.totalRaces || 0,
                           totalMiles: enhancedCareerSummary.totalMiles || 0,
-                          prTime: enhancedCareerSummary.prBest5K || enhancedSelectedAthlete.bestTime,
+                          prTime: best5kCareerEntry?.time ?? enhancedCareerSummary.prBest5K ?? enhancedSelectedAthlete.bestTime,
                           avgPace: enhancedCareerSummary.avgPace || enhancedSelectedAthlete.avgPace,
-                          milePR: careerMilePR > 0 ? careerMilePR : undefined,
+                          milePR: bestCareerMileEntry?.time,
                           bestPace: enhancedSelectedAthlete.avgPace,
                           timeDropped: careerTimeDropped > 0 ? careerTimeDropped : undefined,
                           firstRaceTime: firstCareerRaceTime,
