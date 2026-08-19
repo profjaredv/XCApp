@@ -238,6 +238,19 @@ export function seasonBestTime(athlete: RosterAthleteWithRaces): number | null {
   return times.length > 0 ? Math.min(...times) : null;
 }
 
+/** Fastest (lowest) pace per mile this season, distance-normalized across races — safe for
+ * ranking a roster fastest-to-slowest, unlike seasonBestTime's raw finish time which isn't
+ * comparable across different race distances. */
+export function bestPaceSecPerMile(athlete: RosterAthleteWithRaces): number | null {
+  const paces = athlete.races
+    .filter(
+      (r): r is { time: number; race: { date: string; distanceMeters: number } } =>
+        typeof r.time === 'number' && r.time > 0 && typeof r.race.distanceMeters === 'number' && r.race.distanceMeters > 0
+    )
+    .map((r) => r.time / (r.race.distanceMeters / 1609.34));
+  return paces.length > 0 ? Math.min(...paces) : null;
+}
+
 export function formatTime(seconds: number | null): string {
   if (seconds == null) return '—';
   const mins = Math.floor(seconds / 60);

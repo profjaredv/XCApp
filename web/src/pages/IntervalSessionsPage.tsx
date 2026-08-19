@@ -22,7 +22,7 @@ import {
   useUpdateIntervalEntry,
   useRemoveIntervalEntry,
 } from '@/hooks/useIntervalSessions';
-import type { RosterAthleteWithRaces } from '@/api/groupService';
+import { bestPaceSecPerMile, type RosterAthleteWithRaces } from '@/api/groupService';
 import type { IntervalSession, IntervalSessionEntry, IntervalZone, RepUpdateInput } from '@/api/intervalSessionService';
 import { trainingPacesFromRace, splitTimeSec } from '@/lib/vdotPaces';
 import { formatTime, formatDateShort, parseTimeToSeconds } from '@/lib/formatUtils';
@@ -83,10 +83,11 @@ function suggestedSplitSeconds(
 const EntryRow: React.FC<{
   entry: IntervalSessionEntry;
   suggestedSec: number | null;
+  activeRep: number;
   onSave: (reps: RepUpdateInput) => void;
   onRemove: () => void;
   removing: boolean;
-}> = ({ entry, suggestedSec, onSave, onRemove, removing }) => {
+}> = ({ entry, suggestedSec, activeRep, onSave, onRemove, removing }) => {
   const [reps, setReps] = useState<string[]>(
     [entry.rep1, entry.rep2, entry.rep3, entry.rep4, entry.rep5, entry.rep6].map((v) =>
       v != null ? formatTime(v) : ''
@@ -113,8 +114,11 @@ const EntryRow: React.FC<{
           </Badge>
         )}
       </TableCell>
+      <TableCell className="text-center text-xs text-muted-foreground whitespace-nowrap">
+        {suggestedSec ? formatTime(suggestedSec) : '—'}
+      </TableCell>
       {reps.map((val, i) => (
-        <TableCell key={i} className="p-1">
+        <TableCell key={i} className={`p-1 ${i === activeRep ? '' : 'hidden md:table-cell'}`}>
           <Input
             className="h-8 w-20 text-xs text-center"
             placeholder={suggestedSec ? formatTime(suggestedSec) : '—'}
@@ -143,10 +147,28 @@ const SessionCard: React.FC<{
   const addEntry = useAddIntervalEntry(seasonId);
   const deleteSession = useDeleteIntervalSession(seasonId);
   const [addAthleteId, setAddAthleteId] = useState('');
+  const [activeRep, setActiveRep] = useState(0);
 
   const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
   const enteredIds = useMemo(() => new Set(session.entries.map((e) => e.athleteId)), [session.entries]);
   const available = roster.filter((a) => !enteredIds.has(a.id)).sort((a, b) => a.name.localeCompare(b.name));
+
+  // Fastest-to-slowest by each athlete's best distance-normalized pace this
+  // season, so the group runs in the order they'll actually line up on the
+  // track. Athletes with no race data yet sort to the end, ties by name.
+  const sortedEntries = useMemo(() => {
+    const withPace = session.entries.map((entry) => {
+      const athlete = rosterById.get(entry.athleteId);
+      return { entry, pace: athlete ? bestPaceSecPerMile(athlete) : null };
+    });
+    withPace.sort((a, b) => {
+      if (a.pace == null && b.pace == null) return a.entry.athleteName.localeCompare(b.entry.athleteName);
+      if (a.pace == null) return 1;
+      if (b.pace == null) return -1;
+      return a.pace - b.pace;
+    });
+    return withPace.map((w) => w.entry);
+  }, [session.entries, rosterById]);
 
   const handleAdd = async () => {
     if (!addAthleteId) return;
@@ -185,33 +207,57 @@ const SessionCard: React.FC<{
         {session.entries.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2">No athletes yet — add one below.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Athlete</TableHead>
-                  {Array.from({ length: REP_COUNT }, (_, i) => (
-                    <TableHead key={i} className="text-center">
-                      Rep {i + 1}
-                    </TableHead>
+          <>
+            <div className="flex md:hidden items-center gap-1.5 pb-3">
+              <span className="text-xs text-muted-foreground mr-1">Active rep:</span>
+              {Array.from({ length: REP_COUNT }, (_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setActiveRep(i)}
+                  className={`h-7 w-7 rounded-full text-xs font-medium border transition-colors ${
+                    i === activeRep
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background text-muted-foreground border-border'
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Athlete</TableHead>
+                    <TableHead className="text-center whitespace-nowrap">Target</TableHead>
+                    {Array.from({ length: REP_COUNT }, (_, i) => (
+                      <TableHead
+                        key={i}
+                        className={`text-center ${i === activeRep ? '' : 'hidden md:table-cell'}`}
+                      >
+                        Rep {i + 1}
+                      </TableHead>
+                    ))}
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedEntries.map((entry) => (
+                    <EntryRow
+                      key={entry.id}
+                      entry={entry}
+                      suggestedSec={suggestedSplitSeconds(rosterById.get(entry.athleteId), session.zone, session.repDistanceM)}
+                      activeRep={activeRep}
+                      removing={removeEntry.isPending}
+                      onSave={(reps) => updateEntry.mutate({ entryId: entry.id, input: reps })}
+                      onRemove={() => removeEntry.mutate(entry.id)}
+                    />
                   ))}
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {session.entries.map((entry) => (
-                  <EntryRow
-                    key={entry.id}
-                    entry={entry}
-                    suggestedSec={suggestedSplitSeconds(rosterById.get(entry.athleteId), session.zone, session.repDistanceM)}
-                    removing={removeEntry.isPending}
-                    onSave={(reps) => updateEntry.mutate({ entryId: entry.id, input: reps })}
-                    onRemove={() => removeEntry.mutate(entry.id)}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
         <div className="flex items-center gap-2 pt-3">
           <Select value={addAthleteId} onValueChange={setAddAthleteId}>
