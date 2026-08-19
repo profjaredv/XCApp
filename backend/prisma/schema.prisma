@@ -53,6 +53,7 @@ model User {
   coachedTeams            Team[]                   @relation("TeamCoach")
   teamMemberships         TeamMember[]
   createdRaceSplits       RaceSplit[]              @relation("RaceSplitCreator")
+  createdSplits           Split[]                  @relation("SplitCreator")
   linkedAthlete           Athlete?                 @relation("AthleteAccount")
   athleteClaims           AthleteClaim[]
   sentStaffInvites        StaffInvite[]            @relation("StaffInviteSender")
@@ -92,6 +93,7 @@ model Team {
   seasons                 Season[]
   meetGroups              MeetGroup[]
   raceSplits              RaceSplit[]
+  splits                  Split[]
   teamSeasonMetrics       TeamSeasonMetrics[]
   athleteSeasonMetrics    AthleteSeasonMetrics[]
   meetPerformanceMetrics  MeetPerformanceMetrics[]
@@ -519,6 +521,14 @@ model Race {
   fieldMeanSec       Float?   @map("field_mean_sec")
   fieldMedianSec     Float?   @map("field_median_sec")
   fieldFinisherCount Int?     @map("field_finisher_count")
+  // C3/C4 (LeadPack Master Build Handoff): which mile markers a coach films
+  // for this race — 'MILE' | 'KM' | 'CUSTOM'. Null defaults to MILE in
+  // lib/splitMath.js's markersForRace, which is correct for every race this
+  // program runs; the scheme exists for college/metric-marked courses, not
+  // something a high school coach needs to think about. splitMarkersMeters
+  // only matters when scheme = 'CUSTOM' (e.g. a course marked at 2K/4K only).
+  splitMarkerScheme  String?  @map("split_marker_scheme")
+  splitMarkersMeters Float[]  @map("split_markers_meters")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -646,6 +656,7 @@ model Result {
   athlete   Athlete    @relation(fields: [athleteId], references: [id], onDelete: Cascade)
   team      Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
   raceSplit RaceSplit?
+  splits    Split[]
 
   @@unique([athleteId, raceId])
   @@index([raceId])
@@ -677,6 +688,42 @@ model RaceSplit {
   @@index([raceId])
   @@index([teamId])
   @@map("race_splits")
+}
+
+// C3 (LeadPack Master Build Handoff): replaces RaceSplit's fixed mile1/
+// mile2/mile3 columns with one row per marker a coach actually filmed,
+// keyed by sequence. elapsedSec is ALWAYS cumulative from the gun — the
+// ambiguity this app used to have around that (RaceSplitsModal.tsx summing
+// mile1+mile2 for a "two mile time," which only makes sense for segment
+// times) existed because nobody wrote the convention down anywhere. Segment
+// times and the closing-segment-to-finish are derived on read
+// (lib/splitMath.js) and never stored — a 5K is two rows here (Mile 1,
+// Mile 2), not three; the last ~1.1mi comes from the finish time the app
+// already has.
+//
+// RaceSplit stays in place, unread, until this model is live end to end —
+// see the migration note on it above. It gets dropped in a follow-up
+// migration once that's confirmed, at which point its relation fields
+// listed there also come out.
+model Split {
+  id           String   @id @default(uuid()) @db.Uuid
+  resultId     String   @map("result_id") @db.Uuid
+  sequence     Int
+  markerMeters Float    @map("marker_meters")
+  elapsedSec   Float    @map("elapsed_sec")
+  teamId       String   @map("team_id") @db.Uuid
+  createdById  String?  @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  result    Result @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  team      Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("SplitCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([resultId, sequence])
+  @@index([resultId])
+  @@index([teamId])
+  @@map("splits")
 }
 
 // ---------------------------------------------------------------------------

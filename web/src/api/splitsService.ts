@@ -1,29 +1,31 @@
 import { axiosInstance } from './axios';
-import type { RaceSplit, SplitFormData } from '../types/splits';
+import type {
+  RaceSplitsView,
+  AthleteSplitHistoryRow,
+  BatchSplitEntry,
+  BatchSplitResponse,
+} from '../types/splits';
 
+// C8 (LeadPack Master Build Handoff): rewritten against the marker-based
+// Split model / backend/routes/splits.js.
 export const splitsService = {
-  async getRaceSplits(raceId: string): Promise<RaceSplit[]> {
-    const response = await axiosInstance.get<RaceSplit[]>(`/splits/race/${raceId}`);
+  async getRaceSplits(raceId: string): Promise<RaceSplitsView> {
+    const response = await axiosInstance.get<RaceSplitsView>(`/splits/race/${raceId}`);
     return response.data;
   },
 
-  async getAthleteSplits(athleteId: string): Promise<RaceSplit[]> {
-    const response = await axiosInstance.get<RaceSplit[]>(`/splits/athlete/${athleteId}`);
+  async getAthleteSplits(athleteId: string): Promise<AthleteSplitHistoryRow[]> {
+    const response = await axiosInstance.get<AthleteSplitHistoryRow[]>(`/splits/athlete/${athleteId}`);
     return response.data;
   },
 
-  async saveSplitsBatch(splits: SplitFormData[]): Promise<{ success: boolean; count: number; splits: RaceSplit[] }> {
-    const response = await axiosInstance.post('/splits/batch', { splits });
-    return response.data;
-  },
-
-  async updateSplit(splitId: string, data: { mile1: number; mile2: number; mile3: number }): Promise<RaceSplit> {
-    const response = await axiosInstance.put(`/splits/${splitId}`, data);
+  async saveSplitsBatch(raceId: string, entries: BatchSplitEntry[]): Promise<BatchSplitResponse> {
+    const response = await axiosInstance.post<BatchSplitResponse>('/splits/batch', { raceId, entries });
     return response.data;
   },
 
   async deleteSplit(splitId: string): Promise<{ success: boolean }> {
     const response = await axiosInstance.delete(`/splits/${splitId}`);
     return response.data;
-  }
+  },
 };

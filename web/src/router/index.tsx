@@ -17,6 +17,7 @@ import IntervalSessionsPage from '../pages/IntervalSessionsPage';
 import FeedbackPage from '../pages/FeedbackPage';
 import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
+import SplitsEntryPage from '../pages/SplitsEntryPage';
 import LandingPage from '../pages/LandingPage';
 // Enhanced analytics now integrated into main analytics page
 import ProtectedRoute from './ProtectedRoute';
@@ -135,6 +136,13 @@ export const router = createBrowserRouter([
               {
                 path: 'interval-sessions',
                 element: <IntervalSessionsPage />,
+              },
+              // Splits entry grid (C6) - standalone without Layout too,
+              // opened full screen from a race's context menu. Its own
+              // Close button navigates back to wherever it was opened from.
+              {
+                path: 'race/:raceId/splits',
+                element: <SplitsEntryPage />,
               },
               // All other routes with Layout (sidebar)
               {

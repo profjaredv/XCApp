@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
@@ -9,7 +10,7 @@ import { gradeLabel } from '@/lib/seasonUtils';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { meetService } from '@/api/meetService';
 import { X, Split } from 'lucide-react';
-import { RaceSplitsModal } from './RaceSplitsModal';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 import type { Meet, RaceResult, Athlete } from '@/types/analytics';
 
 interface MeetsTabProps {
@@ -19,13 +20,13 @@ interface MeetsTabProps {
 }
 
 export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) => {
+  const navigate = useNavigate();
+  const teamPath = useTeamPath();
   const [selectedMeet, setSelectedMeet] = useState<Meet | null>(null);
   const [selectedMeetWithResults, setSelectedMeetWithResults] = useState<Meet | null>(null);
   const [isLoadingMeetDetails, setIsLoadingMeetDetails] = useState(false);
   const [genderFilter, setGenderFilter] = useState<'all' | 'M' | 'F'>('all');
   const [gradeFilter, setGradeFilter] = useState<'all' | number>('all');
-  const [splitsModalOpen, setSplitsModalOpen] = useState(false);
-  const [splitsModalMeet, setSplitsModalMeet] = useState<Meet | null>(null);
   const [meetStatsTab, setMeetStatsTab] = useState('overview');
 
   // Fetch full meet details when a meet is selected
@@ -330,24 +331,10 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                 >
                   Analyze Meet
                 </Button>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
-                  onClick={async () => {
-                    // Fetch meet details if not already loaded
-                    if (!meet.results || meet.results.length === 0) {
-                      try {
-                        const meetData = await meetService.getMeet(meet.id);
-                        setSplitsModalMeet({ ...meet, results: meetData.results || [] });
-                        setSplitsModalOpen(true);
-                      } catch (error) {
-                        console.error('Error fetching meet for splits:', error);
-                      }
-                    } else {
-                      setSplitsModalMeet(meet);
-                      setSplitsModalOpen(true);
-                    }
-                  }}
+                  onClick={() => navigate(teamPath(`/race/${meet.id}/splits`))}
                 >
                   <Split className="h-4 w-4 mr-1" />
                   Add Splits
@@ -991,24 +978,6 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
         </Card>
           </div>
         </div>
-      )}
-
-      {/* Splits Modal */}
-      {splitsModalOpen && splitsModalMeet && splitsModalMeet.results && (
-        <RaceSplitsModal
-          raceId={splitsModalMeet.id}
-          raceName={splitsModalMeet.name}
-          raceDistance={splitsModalMeet.distance || 5000}
-          results={splitsModalMeet.results}
-          onClose={() => {
-            setSplitsModalOpen(false);
-            setSplitsModalMeet(null);
-          }}
-          onSave={() => {
-            // Optionally refresh meet data here
-            console.log('Splits saved successfully');
-          }}
-        />
       )}
     </div>
   );
