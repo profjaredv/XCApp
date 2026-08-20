@@ -453,6 +453,8 @@ model Meet {
   name           String
   date           DateTime @db.Date
   location       String?
+  // Null = unspecified (e.g. imported meets before a coach sets it).
+  isHome         Boolean? @map("is_home")
   sourceUrl      String?  @map("source_url") // Athletic.net meet page
   // Athletic.net's own meet ID — same value Race.athleticMeetId stores from
   // results scraping. Nullable (a coach can hand-create a Meet with no

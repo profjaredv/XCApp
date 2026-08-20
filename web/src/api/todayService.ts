@@ -24,12 +24,12 @@ export interface TodayMeet {
   name: string;
   date: string;
   location: string | null;
+  isHome: boolean | null;
   daysUntil: number;
-  planPublished: boolean;
-  races: Array<{ id: string; name: string; enteredCount: number }>;
+  races: Array<{ id: string; name: string }>;
 }
 
-export type TodayAttentionItemType = 'splits' | 'entries' | 'unpublished-plan' | 'overdue-equipment';
+export type TodayAttentionItemType = 'splits' | 'unpublished-plan' | 'overdue-equipment';
 
 export interface TodayAttentionItem {
   type: TodayAttentionItemType;

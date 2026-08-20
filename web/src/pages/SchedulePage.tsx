@@ -177,7 +177,7 @@ const SchedulePage: React.FC = () => {
                   role="link"
                   onClick={(e) => {
                     e.stopPropagation();
-                    navigate(teamPath(`/meets?meetId=${m.id}`));
+                    navigate(teamPath(`/meet/${m.id}`));
                   }}
                   className="text-[11px] rounded px-1 py-0.5 truncate bg-secondary text-secondary-foreground hover:underline"
                 >

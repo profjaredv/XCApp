@@ -12,7 +12,8 @@ import TodayPage from '../pages/TodayPage';
 import AthleteJourneyPage from '../pages/AthleteJourneyPage';
 import GroupsPage from '../pages/GroupsPage';
 import SchedulePage from '../pages/SchedulePage';
-import MeetOpsPage from '../pages/MeetOpsPage';
+import MeetsPage from '../pages/MeetsPage';
+import MeetDetailPage from '../pages/MeetDetailPage';
 import EquipmentPage from '../pages/EquipmentPage';
 import IntervalSessionsPage from '../pages/IntervalSessionsPage';
 import IntervalSessionManagePage from '../pages/IntervalSessionManagePage';
@@ -202,8 +203,9 @@ export const router = createBrowserRouter([
                   // Schedule rework: Practice and Meets merged into one
                   // month calendar. 'practice-plans' redirects old
                   // bookmarks/links; 'meets' stays a real route (deep-linked
-                  // into from a Schedule day via ?meetId=) even though it's
-                  // no longer a top-level nav item.
+                  // into from a Schedule day) even though it's no longer a
+                  // top-level nav item. 'meet/:meetId' is the simplified
+                  // single-meet detail a click on the list opens.
                   {
                     path: 'practice-plans',
                     element: <Navigate to="../schedule" replace />,
@@ -214,7 +216,11 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'meets',
-                    element: <MeetOpsPage />,
+                    element: <MeetsPage />,
+                  },
+                  {
+                    path: 'meet/:meetId',
+                    element: <MeetDetailPage />,
                   },
                   {
                     path: 'equipment',

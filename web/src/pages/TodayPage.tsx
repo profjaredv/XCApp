@@ -13,7 +13,6 @@ import {
   ArrowRight,
   Gauge,
   Package,
-  ClipboardList,
   Users,
   Activity,
   NotebookPen,
@@ -185,16 +184,12 @@ const CoachNextMeetBlock: React.FC<{ seasonId: string; teamPath: (p: string) => 
               {meet.daysUntil === 0 ? 'Today' : meet.daysUntil === 1 ? 'Tomorrow' : `In ${meet.daysUntil} days`}
             </Badge>
           </div>
-          <div className="flex flex-wrap gap-1.5 text-sm text-muted-foreground">
-            {meet.races.map((r) => (
-              <span key={r.id} className="whitespace-nowrap">
-                {r.name}: {r.enteredCount} entered
-              </span>
-            ))}
+          <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+            {meet.location && <span>{meet.location}</span>}
+            {meet.isHome != null && (
+              <Badge variant="outline" className="font-normal">{meet.isHome ? 'Home' : 'Away'}</Badge>
+            )}
           </div>
-          {!meet.planPublished && (
-            <Badge variant="outline" className="font-normal">Logistics not published</Badge>
-          )}
           <Link to={teamPath('/meets')} className="text-sm text-primary hover:underline inline-flex items-center gap-1">
             Open Meets <ArrowRight className="h-3 w-3" />
           </Link>
@@ -206,7 +201,6 @@ const CoachNextMeetBlock: React.FC<{ seasonId: string; teamPath: (p: string) => 
 
 const ATTENTION_ICON: Record<TodayAttentionItem['type'], React.ComponentType<{ className?: string }>> = {
   splits: Flag,
-  entries: ClipboardList,
   'unpublished-plan': CalendarDays,
   'overdue-equipment': Package,
 };
@@ -218,8 +212,6 @@ function attentionLink(item: TodayAttentionItem, teamPath: (p: string) => string
       // exist when this item type was added, so it fell back to a generic
       // /analytics link — now it can go straight to the actual race.
       return item.link.raceId ? teamPath(`/race/${item.link.raceId}/splits`) : teamPath('/analytics');
-    case 'entries':
-      return teamPath('/meets');
     case 'unpublished-plan':
       return teamPath('/schedule');
     case 'overdue-equipment':
@@ -485,12 +477,7 @@ const AthleteToday: React.FC<{ teamPath: (p: string) => string; linkedAthleteId:
           <div className="space-y-1">
             <p className="font-medium truncate">{meetCard.meet.name}</p>
             <p className="text-sm text-muted-foreground">{entryStatusLabel(meetCard.entry?.status)}</p>
-            {meetCard.plan?.departureTime && (
-              <p className="text-sm text-muted-foreground">Departs {meetCard.plan.departureTime}</p>
-            )}
-            {meetCard.plan?.bringList && (
-              <p className="text-sm text-muted-foreground">Bring: {meetCard.plan.bringList}</p>
-            )}
+            {meetCard.meet.location && <p className="text-sm text-muted-foreground">{meetCard.meet.location}</p>}
           </div>
         )}
       </BlockShell>

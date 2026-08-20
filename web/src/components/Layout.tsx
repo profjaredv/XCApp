@@ -196,7 +196,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
           Coaches get the full PROGRAM section plus Setup; volunteer
           coaches get PROGRAM without Setup; a plain athlete account gets
           its own four-item list rather than the coach spine with items
-          hidden. Meets is read-only for athletes (MeetOpsPage branches on
+          hidden. Meets is read-only for athletes (MeetsPage branches on
           teamRole); My Group is /groups, already athlete-scoped
           (GroupsPage's existing AthleteGroupsView). */}
       <nav className="mt-2 flex-1 min-h-0 px-3 overflow-y-auto">

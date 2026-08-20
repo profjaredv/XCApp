@@ -265,51 +265,8 @@ const MyProgressPage: React.FC = () => {
                 ? "You're an alternate for this meet."
                 : "You're not entered in this meet."}
             </p>
-            {!meetCard.plan ? (
-              <p className="text-sm text-muted-foreground">Logistics haven't been posted yet.</p>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 text-sm">
-                {meetCard.plan.departureTime && (
-                  <div>
-                    <p className="text-muted-foreground">Bus departs</p>
-                    <p className="font-medium">{new Date(meetCard.plan.departureTime).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>
-                  </div>
-                )}
-                {meetCard.plan.returnTime && (
-                  <div>
-                    <p className="text-muted-foreground">Return</p>
-                    <p className="font-medium">{new Date(meetCard.plan.returnTime).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>
-                  </div>
-                )}
-                {meetCard.plan.departureLoc && (
-                  <div>
-                    <p className="text-muted-foreground">Departs from</p>
-                    <p className="font-medium">{meetCard.plan.departureLoc}</p>
-                  </div>
-                )}
-                {meetCard.plan.uniformNotes && (
-                  <div>
-                    <p className="text-muted-foreground">Uniform</p>
-                    <p className="font-medium">{meetCard.plan.uniformNotes}</p>
-                  </div>
-                )}
-                {meetCard.plan.bringList && (
-                  <div className="sm:col-span-2">
-                    <p className="text-muted-foreground">Bring</p>
-                    <p className="font-medium">{meetCard.plan.bringList}</p>
-                  </div>
-                )}
-                {meetCard.plan.itinerary && meetCard.plan.itinerary.length > 0 && (
-                  <div className="sm:col-span-2 space-y-1">
-                    <p className="text-muted-foreground">Itinerary</p>
-                    {meetCard.plan.itinerary.map((item, i) => (
-                      <p key={i}>
-                        <span className="font-medium">{item.time}</span> — {item.label}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {meetCard.meet.isHome != null && (
+              <Badge variant="outline" className="font-normal">{meetCard.meet.isHome ? 'Home' : 'Away'}</Badge>
             )}
           </CardContent>
         </Card>

@@ -17,23 +17,10 @@ export interface MeetSummary {
   name: string;
   date: string;
   location: string | null;
+  isHome: boolean | null;
   // myEntryStatus is only present when the caller has a linkedAthlete — the
   // athlete/read-only "Meets" nav view (B4) uses it; coaches never see it.
   races: Array<{ id: string; name: string; distance: string | null; myEntryStatus?: EntryStatus }>;
-  planPublished: boolean;
-}
-
-export interface MeetPlan {
-  id?: string;
-  meetId?: string;
-  departureTime: string | null;
-  returnTime: string | null;
-  departureLoc: string | null;
-  transportNotes: string | null;
-  uniformNotes: string | null;
-  bringList: string | null;
-  itinerary: Array<{ time: string; label: string }> | null;
-  published: boolean;
 }
 
 export interface MeetDetail {
@@ -41,35 +28,14 @@ export interface MeetDetail {
   name: string;
   date: string;
   location: string | null;
+  isHome: boolean | null;
   races: Array<{ id: string; name: string; distance: string | null }>;
-  plan: MeetPlan | null;
-}
-
-export interface MeetEntryRow {
-  athleteId: string;
-  name: string;
-  gender: string | null;
-  grade: number | null;
-  seasonBestSec: number | null;
-  status: EntryStatus;
-  seedTimeSec: number | null;
-  bibNumber: string | null;
-  notes: string | null;
-}
-
-export interface EntriesResponse {
-  raceId: string;
-  raceName: string;
-  entries: MeetEntryRow[];
-  enteredCount: number;
-  entryCapWarning: boolean;
 }
 
 export interface MyMeetCard {
-  meet: { id: string; name: string; date: string; location: string | null } | null;
+  meet: { id: string; name: string; date: string; location: string | null; isHome: boolean | null } | null;
   race: { id: string; name: string; distance: string | null } | null;
   entry: { status: EntryStatus; bibNumber: string | null; seedTimeSec: number | null; notes: string | null } | null;
-  plan: MeetPlan | null;
 }
 
 export interface ProposedMeet {
@@ -90,15 +56,6 @@ export interface ProposedCalendarMeet {
   alreadyImported: boolean;
   /** Races already scraped for this meet ID but not yet linked to a Meet — confirming links them. */
   unlinkedRaceCount: number;
-}
-
-export interface PrintableRoster {
-  meet: { id: string; name: string; date: string; location: string | null };
-  races: Array<{
-    id: string;
-    name: string;
-    entries: Array<{ athleteId: string; name: string; grade: number | null; bibNumber: string | null; seedTimeSec: number | null; status: EntryStatus }>;
-  }>;
 }
 
 export function formatTimeSec(seconds: number | null): string {
@@ -140,41 +97,13 @@ export const meetOpsService = {
     return response.data;
   },
 
-  async createMeet(input: { seasonId: string; name: string; date: string; location?: string }): Promise<MeetDetail> {
+  async createMeet(input: { seasonId: string; name: string; date: string; location?: string; isHome?: boolean | null }): Promise<MeetDetail> {
     const response = await api.post<MeetDetail>('/meet-ops', input);
     return response.data;
   },
 
-  async updateMeet(meetId: string, input: Partial<{ name: string; date: string; location: string }>): Promise<MeetDetail> {
+  async updateMeet(meetId: string, input: Partial<{ name: string; date: string; location: string; isHome: boolean | null }>): Promise<MeetDetail> {
     const response = await api.put<MeetDetail>(`/meet-ops/${meetId}`, input);
-    return response.data;
-  },
-
-  async getEntries(raceId: string): Promise<EntriesResponse> {
-    const response = await api.get<EntriesResponse>(`/meet-ops/races/${raceId}/entries`);
-    return response.data;
-  },
-
-  async saveEntries(
-    raceId: string,
-    entries: Array<{ athleteId: string; status: EntryStatus; seedTimeSec?: number | null; bibNumber?: string | null; notes?: string | null }>
-  ) {
-    const response = await api.put(`/meet-ops/races/${raceId}/entries`, { entries });
-    return response.data as { msg: string; count: number; enteredCount: number; entryCapWarning: boolean };
-  },
-
-  async getPlan(meetId: string): Promise<MeetPlan | null> {
-    const response = await api.get<MeetPlan | null>(`/meet-ops/${meetId}/plan`);
-    return response.data;
-  },
-
-  async savePlan(meetId: string, input: MeetPlan): Promise<MeetPlan> {
-    const response = await api.put<MeetPlan>(`/meet-ops/${meetId}/plan`, input);
-    return response.data;
-  },
-
-  async getRoster(meetId: string): Promise<PrintableRoster> {
-    const response = await api.get<PrintableRoster>(`/meet-ops/${meetId}/roster`);
     return response.data;
   },
 

@@ -30,7 +30,7 @@ export const SeasonReadinessChecklist: React.FC = () => {
   const steps: Step[] = [
     {
       label: 'Schedule your meets',
-      description: 'Import your calendar or add meets by hand so entries and logistics have somewhere to live.',
+      description: 'Import your calendar or add meets by hand.',
       done: context.setup.hasMeets,
       href: teamPath('/meets'),
       cta: 'Open Meets',

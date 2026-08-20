@@ -53,10 +53,10 @@ router.get('/season', authenticate, requireTeam, requireRole(COACH_ROLES), async
   }
 });
 
-// GET /api/today/meet?seasonId= — nearest upcoming meet with entry counts
-// per race, so a coach doesn't have to open Meets to see whether entries
-// are in. Athlete view doesn't need this: GET /api/meet-ops/mine already
-// does the same job scoped to one athlete.
+// GET /api/today/meet?seasonId= — nearest upcoming meet, so a coach
+// doesn't have to open Schedule to see what's next. Athlete view doesn't
+// need this: GET /api/meet-ops/mine already does the same job scoped to
+// one athlete.
 router.get('/meet', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
@@ -75,23 +75,11 @@ router.get('/meet', authenticate, requireTeam, requireRole(COACH_ROLES), async (
       orderBy: { date: 'asc' },
       include: {
         races: { select: { id: true, name: true } },
-        plan: { select: { published: true } },
       },
     });
 
     if (!meet) {
       return res.json({ meet: null });
-    }
-
-    const raceIds = meet.races.map((r) => r.id);
-    const entries = raceIds.length
-      ? await prisma.meetEntry.groupBy({ by: ['raceId', 'status'], where: { raceId: { in: raceIds } }, _count: true })
-      : [];
-
-    const enteredByRace = new Map();
-    for (const row of entries) {
-      if (row.status !== 'ENTERED') continue;
-      enteredByRace.set(row.raceId, (enteredByRace.get(row.raceId) ?? 0) + row._count);
     }
 
     const daysUntil = Math.round((new Date(meet.date) - today) / (1000 * 60 * 60 * 24));
@@ -102,9 +90,9 @@ router.get('/meet', authenticate, requireTeam, requireRole(COACH_ROLES), async (
         name: meet.name,
         date: meet.date,
         location: meet.location,
+        isHome: meet.isHome,
         daysUntil,
-        planPublished: meet.plan?.published ?? false,
-        races: meet.races.map((r) => ({ id: r.id, name: r.name, enteredCount: enteredByRace.get(r.id) ?? 0 })),
+        races: meet.races.map((r) => ({ id: r.id, name: r.name })),
       },
     });
   } catch (error) {
@@ -133,9 +121,8 @@ router.get('/attention', authenticate, requireTeam, requireRole(COACH_ROLES), as
     const today = normalizeToday();
     const tomorrow = addDays(today, 1);
     const weekAgo = addDays(today, -7);
-    const weekAhead = addDays(today, 7);
 
-    const [racesNeedingSplits, meetsNeedingEntries, tomorrowPlan, overdueEquipment] = await Promise.all([
+    const [racesNeedingSplits, tomorrowPlan, overdueEquipment] = await Promise.all([
       prisma.race.findMany({
         where: {
           teamId,
@@ -145,15 +132,6 @@ router.get('/attention', authenticate, requireTeam, requireRole(COACH_ROLES), as
         },
         select: { id: true, name: true, date: true },
         orderBy: { date: 'desc' },
-      }),
-      prisma.meet.findMany({
-        where: {
-          teamId,
-          date: { gte: today, lte: weekAhead },
-          races: { none: { meetEntries: { some: { status: 'ENTERED' } } } },
-        },
-        select: { id: true, name: true, date: true },
-        orderBy: { date: 'asc' },
       }),
       prisma.practicePlan.findFirst({
         where: { teamId, date: tomorrow, published: false },
@@ -170,9 +148,6 @@ router.get('/attention', authenticate, requireTeam, requireRole(COACH_ROLES), as
     const items = [];
     for (const race of racesNeedingSplits) {
       items.push({ type: 'splits', label: `Enter splits for ${race.name}`, date: race.date, link: { raceId: race.id } });
-    }
-    for (const meet of meetsNeedingEntries) {
-      items.push({ type: 'entries', label: `No entries yet for ${meet.name}`, date: meet.date, link: { meetId: meet.id } });
     }
     if (tomorrowPlan) {
       items.push({ type: 'unpublished-plan', label: "Tomorrow's practice plan is still a draft", date: tomorrowPlan.date, link: { practicePlanId: tomorrowPlan.id } });
