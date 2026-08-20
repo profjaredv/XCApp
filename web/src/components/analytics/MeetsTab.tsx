@@ -323,9 +323,9 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                   <p className="font-semibold">{meet.runners}</p>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => setSelectedMeet(meet)}
                 >
@@ -337,10 +337,10 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                   onClick={() => navigate(teamPath(`/race/${meet.id}/splits`))}
                 >
                   <Split className="h-4 w-4 mr-1" />
-                  Add Splits
+                  {meet.hasSplits ? 'View Splits' : 'Add Splits'}
                 </Button>
-                <Button 
-                  variant="link" 
+                <Button
+                  variant="link"
                   size="sm"
                   onClick={async () => {
                     // Fetch meet details if not already loaded

@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar, RefreshCw } from 'lucide-react';
+import { Calendar, RefreshCw, MoreVertical } from 'lucide-react';
 import { SeasonModeSelector } from './SeasonModeSelector';
 import { SeasonMode } from './types';
 import type { User } from '@/types';
@@ -52,11 +53,30 @@ export const AnalyticsHeader = ({
   // button from being shown to everyone else in the first place, rather
   // than letting them find out via a 403 after clicking.
   const canClearData = currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH';
+  // Recalculate/Clear Data are rare admin actions, not something a coach
+  // needs on every visit — stacked full-width with the season controls on
+  // mobile (flex-col below sm:), they used to push the actual page content
+  // (Meets list, etc.) below the fold. Collapsed behind a toggle on mobile
+  // only; desktop keeps them inline as before.
+  const [showDataActions, setShowDataActions] = useState(false);
+
+  const dataActionButtons = (
+    <>
+      <Button variant="outline" size="sm" onClick={handleRecalculateMetrics} disabled={isRecalculating || !team} title={!team ? 'Team ID unavailable' : undefined}>
+        <RefreshCw className={`h-4 w-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
+        {isRecalculating ? 'Recalculating…' : 'Recalculate Metrics'}
+      </Button>
+      {canClearData && (
+        <Button variant="destructive" size="sm" onClick={handleClearTeamData}>Clear Team Data</Button>
+      )}
+    </>
+  );
+
   return (
     <div className="mb-8">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
         <h1 className="text-3xl font-bold tracking-tight">{currentUser?.team?.name || 'Team Analytics'}</h1>
-        <div className="flex flex-col sm:flex-row items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
           {!isLoadingSeasons && availableSeasons && availableSeasons.length > 0 && (
             <>
               <SeasonModeSelector
@@ -77,13 +97,16 @@ export const AnalyticsHeader = ({
                   </Select>
                 </div>
               )}
-              <Button variant="outline" size="sm" onClick={handleRecalculateMetrics} disabled={isRecalculating || !team} title={!team ? 'Team ID unavailable' : undefined}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
-                {isRecalculating ? 'Recalculating…' : 'Recalculate Metrics'}
-              </Button>
-              {canClearData && (
-                <Button variant="destructive" size="sm" onClick={handleClearTeamData}>Clear Team Data</Button>
-              )}
+              <div className="hidden sm:flex items-center gap-2">{dataActionButtons}</div>
+              <div className="sm:hidden w-full">
+                <Button variant="ghost" size="sm" className="w-full" onClick={() => setShowDataActions((v) => !v)}>
+                  <MoreVertical className="h-4 w-4 mr-1" />
+                  {showDataActions ? 'Hide data actions' : 'Data actions'}
+                </Button>
+                {showDataActions && (
+                  <div className="flex flex-col gap-2 mt-2">{dataActionButtons}</div>
+                )}
+              </div>
             </>
           )}
           {/* Enhanced Analytics now integrated as tabs - no separate page needed */}

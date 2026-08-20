@@ -77,6 +77,8 @@ export interface ApiMeet {
   avgPace?: number;
   runners?: number;
   conditions?: string;
+  /** Whether any splits have been entered for this race — GET /analytics/overview only. */
+  hasSplits?: boolean;
   // Total FINISHED count in this race's uploaded field-results — the
   // denominator for `results[].place` ("place of fieldFinisherCount").
   // Null/undefined until a field-results upload exists for this race.

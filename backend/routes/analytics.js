@@ -57,6 +57,21 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
       orderBy: { meetDate: 'asc' },
     });
 
+    // hasSplits: which of these races already have splits entered, so the
+    // Meets tab can offer "View Splits" instead of "Add Splits" — Split has
+    // no raceId column of its own (only resultId), so this goes through
+    // Result. distinct: ['resultId'] keeps the row count bounded to one per
+    // athlete-in-a-race that has any split, not one per marker.
+    const raceIds = meetMetrics.map((mm) => mm.raceId);
+    const splitResultRows = raceIds.length
+      ? await prisma.split.findMany({
+          where: { teamId, result: { raceId: { in: raceIds } } },
+          select: { result: { select: { raceId: true } } },
+          distinct: ['resultId'],
+        })
+      : [];
+    const raceIdsWithSplits = new Set(splitResultRows.map((s) => s.result.raceId));
+
     // Season-best (bestTime5k above) is scoped to this one season; PR is the
     // athlete's best 5k across every season they've ever run — a single
     // groupBy across AthleteSeasonMetrics rather than N per-athlete queries.
@@ -98,6 +113,7 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
       avgPace: mm.averagePace || 0,
       runners: mm.participantCount || 0,
       conditions: '',
+      hasSplits: raceIdsWithSplits.has(mm.raceId),
     }));
 
     const mostImproved = athletes
