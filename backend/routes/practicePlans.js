@@ -70,12 +70,16 @@ function serializePlan(plan) {
   };
 }
 
-// GET /api/practice-plans?seasonId=&from=&to= — the Schedule calendar's data
-// for a date range (typically one visible month).
+// GET /api/practice-plans?seasonId=&from=&to= — the Schedule calendar's
+// data for a date range (typically one visible month/week). from/to are
+// both optional (omit both for every plan in the season, used by the
+// Schedule List view) but only as a pair — a lone from or to would be
+// ambiguous about which side is unbounded, so either both are present or
+// neither is.
 router.get('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
   const { seasonId, from, to } = req.query;
-  if (!seasonId || !from || !to) {
-    return res.status(400).json({ msg: 'seasonId, from, and to are required.' });
+  if (!seasonId || (Boolean(from) !== Boolean(to))) {
+    return res.status(400).json({ msg: 'seasonId is required; from and to must be given together or not at all.' });
   }
 
   try {
@@ -85,7 +89,7 @@ router.get('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', '
     }
 
     const plans = await prisma.practicePlan.findMany({
-      where: { seasonId, date: { gte: new Date(from), lte: new Date(to) } },
+      where: { seasonId, ...(from && to ? { date: { gte: new Date(from), lte: new Date(to) } } : {}) },
       include: INCLUDE,
       orderBy: { date: 'asc' },
     });
@@ -310,14 +314,15 @@ router.post('/duplicate-week', authenticate, requireTeam, requireRole(['HEAD_COA
 });
 
 // GET /api/practice-plans/export?seasonId=&from=&to= — practices in a date
-// range, shaped as CSV-ready rows (header-keyed, matching EXPORT_HEADERS)
-// so the frontend just serializes them client-side (lib/csvParse.ts's
-// toCsv, same helper Field Results uses) rather than this route owning
-// file-download headers.
+// range (both omitted for the whole season, used by Schedule's List view),
+// shaped as CSV-ready rows (header-keyed, matching EXPORT_HEADERS) so the
+// frontend just serializes them client-side (lib/csvParse.ts's toCsv, same
+// helper Field Results uses) rather than this route owning file-download
+// headers.
 router.get('/export', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
   const { seasonId, from, to } = req.query;
-  if (!seasonId || !from || !to) {
-    return res.status(400).json({ msg: 'seasonId, from, and to are required.' });
+  if (!seasonId || (Boolean(from) !== Boolean(to))) {
+    return res.status(400).json({ msg: 'seasonId is required; from and to must be given together or not at all.' });
   }
 
   try {
@@ -327,7 +332,7 @@ router.get('/export', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COA
     }
 
     const plans = await prisma.practicePlan.findMany({
-      where: { seasonId, date: { gte: new Date(from), lte: new Date(to) } },
+      where: { seasonId, ...(from && to ? { date: { gte: new Date(from), lte: new Date(to) } } : {}) },
       include: INCLUDE,
       orderBy: { date: 'asc' },
     });

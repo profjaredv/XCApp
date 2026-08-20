@@ -60,6 +60,12 @@ export const practicePlanService = {
     return response.data;
   },
 
+  /** Every practice plan in the season, no date bound — the Schedule List view. */
+  async listSeason(seasonId: string): Promise<PracticePlan[]> {
+    const response = await api.get<PracticePlan[]>('/practice-plans', { params: { seasonId } });
+    return response.data;
+  },
+
   async myPlan(date: string): Promise<{ date: string; plan: PracticePlan | null }> {
     const response = await api.get('/practice-plans/mine', { params: { date } });
     return response.data;
@@ -87,6 +93,12 @@ export const practicePlanService = {
 
   async exportRange(seasonId: string, from: string, to: string) {
     const response = await api.get('/practice-plans/export', { params: { seasonId, from, to } });
+    return response.data as { headers: string[]; rows: Record<string, string>[] };
+  },
+
+  /** Every practice plan in the season, no date bound. */
+  async exportSeason(seasonId: string) {
+    const response = await api.get('/practice-plans/export', { params: { seasonId } });
     return response.data as { headers: string[]; rows: Record<string, string>[] };
   },
 

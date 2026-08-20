@@ -14,6 +14,7 @@ import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import {
   usePracticePlanRange,
+  usePracticePlanSeason,
   useSavePracticePlan,
   useSetPublished,
   useDuplicateDay,
@@ -51,7 +52,7 @@ const NEW_TEMPLATE = '__new_template__';
 const GOTO_INTERVAL_SESSIONS = '__goto_interval_sessions__';
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-type ViewMode = 'month' | 'week' | 'agenda';
+type ViewMode = 'month' | 'week' | 'agenda' | 'list';
 const AGENDA_WINDOW_DAYS = 30;
 
 function toISODate(d: Date): string {
@@ -131,10 +132,19 @@ const SchedulePage: React.FC = () => {
   const rangeEnd =
     viewMode === 'month' ? gridDays[41] : viewMode === 'week' ? weekDays[6] : agendaDays[AGENDA_WINDOW_DAYS - 1];
 
-  const { data: plans = [] } = usePracticePlanRange(seasonId, toISODate(rangeStart), toISODate(rangeEnd));
+  const { data: plans = [] } = usePracticePlanRange(
+    viewMode === 'list' ? null : seasonId,
+    toISODate(rangeStart),
+    toISODate(rangeEnd)
+  );
+  // Schedule's List view: every practice for the season, practices only
+  // (no meets) — a flat, scannable alternative to scanning a calendar grid
+  // day by day. Only fetched while that view is active.
+  const { data: seasonPlans = [] } = usePracticePlanSeason(viewMode === 'list' ? seasonId : null);
   const { data: meets = [] } = useMeets(seasonId);
 
   const planByDate = useMemo(() => new Map(plans.map((p) => [p.date.slice(0, 10), p])), [plans]);
+  const seasonPlanByDate = useMemo(() => new Map(seasonPlans.map((p) => [p.date.slice(0, 10), p])), [seasonPlans]);
   const meetsByDate = useMemo(() => {
     const map = new Map<string, typeof meets>();
     for (const m of meets) {
@@ -160,16 +170,18 @@ const SchedulePage: React.FC = () => {
   const exportPlans = useExportPracticePlans();
   const handleExport = async () => {
     try {
-      const { headers, rows } = await exportPlans.mutateAsync({
-        seasonId: seasonId as string,
-        from: toISODate(rangeStart),
-        to: toISODate(rangeEnd),
-      });
+      const isWholeSeason = viewMode === 'list';
+      const { headers, rows } = await exportPlans.mutateAsync(
+        isWholeSeason
+          ? { seasonId: seasonId as string }
+          : { seasonId: seasonId as string, from: toISODate(rangeStart), to: toISODate(rangeEnd) }
+      );
       if (rows.length === 0) {
         toast('No practices to export in this range.');
         return;
       }
-      downloadCsv(`practices-${toISODate(rangeStart)}-to-${toISODate(rangeEnd)}.csv`, toCsv(headers, rows));
+      const filename = isWholeSeason ? 'practices-season.csv' : `practices-${toISODate(rangeStart)}-to-${toISODate(rangeEnd)}.csv`;
+      downloadCsv(filename, toCsv(headers, rows));
     } catch {
       toast.error('Could not export practices.');
     }
@@ -224,7 +236,7 @@ const SchedulePage: React.FC = () => {
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="inline-flex rounded-md border p-0.5 bg-muted/40">
-          {(['month', 'week', 'agenda'] as ViewMode[]).map((mode) => (
+          {(['month', 'week', 'agenda', 'list'] as ViewMode[]).map((mode) => (
             <button
               key={mode}
               type="button"
@@ -238,37 +250,41 @@ const SchedulePage: React.FC = () => {
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => {
-              if (viewMode === 'month') setViewMonth((m) => addMonths(m, -1));
-              else if (viewMode === 'week') setViewWeekStart((w) => addDays(w, -7));
-              else setAgendaStart((a) => addDays(a, -AGENDA_WINDOW_DAYS));
-            }}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <h2 className="text-lg font-semibold whitespace-nowrap">
-            {viewMode === 'month' && viewMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
-            {viewMode === 'week' &&
-              `${weekDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${weekDays[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`}
-            {viewMode === 'agenda' &&
-              `${agendaDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${agendaDays[AGENDA_WINDOW_DAYS - 1].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`}
-          </h2>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => {
-              if (viewMode === 'month') setViewMonth((m) => addMonths(m, 1));
-              else if (viewMode === 'week') setViewWeekStart((w) => addDays(w, 7));
-              else setAgendaStart((a) => addDays(a, AGENDA_WINDOW_DAYS));
-            }}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
+        {viewMode === 'list' ? (
+          <h2 className="text-lg font-semibold whitespace-nowrap">All practices this season</h2>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                if (viewMode === 'month') setViewMonth((m) => addMonths(m, -1));
+                else if (viewMode === 'week') setViewWeekStart((w) => addDays(w, -7));
+                else setAgendaStart((a) => addDays(a, -AGENDA_WINDOW_DAYS));
+              }}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <h2 className="text-lg font-semibold whitespace-nowrap">
+              {viewMode === 'month' && viewMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+              {viewMode === 'week' &&
+                `${weekDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${weekDays[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`}
+              {viewMode === 'agenda' &&
+                `${agendaDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${agendaDays[AGENDA_WINDOW_DAYS - 1].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`}
+            </h2>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                if (viewMode === 'month') setViewMonth((m) => addMonths(m, 1));
+                else if (viewMode === 'week') setViewWeekStart((w) => addDays(w, 7));
+                else setAgendaStart((a) => addDays(a, AGENDA_WINDOW_DAYS));
+              }}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
       {viewMode === 'month' && (
@@ -380,11 +396,60 @@ const SchedulePage: React.FC = () => {
         </div>
       )}
 
+      {viewMode === 'list' && (
+        <div className="overflow-x-auto rounded-lg border">
+          {seasonPlans.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-6">No practices scheduled yet this season.</p>
+          ) : (
+            <table className="w-full text-sm min-w-[600px]">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  <th className="text-left p-2">Date</th>
+                  <th className="text-left p-2">Location</th>
+                  <th className="text-left p-2">Run</th>
+                  <th className="text-left p-2">Attached</th>
+                  <th className="text-left p-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {seasonPlans.map((p) => {
+                  const iso = p.date.slice(0, 10);
+                  const attached = [p.workoutTemplate?.name, p.intervalSession?.title].filter(Boolean).join(', ');
+                  return (
+                    <tr
+                      key={p.id}
+                      className="border-b hover:bg-accent/50 cursor-pointer"
+                      onClick={() => setEditorDate(iso)}
+                    >
+                      <td className="p-2 whitespace-nowrap">{formatDateShort(new Date(`${iso}T00:00:00`))}</td>
+                      <td className="p-2">
+                        {[p.locationName, p.startTime].filter(Boolean).join(' · ') || <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="p-2">{p.run || <span className="text-muted-foreground">—</span>}</td>
+                      <td className="p-2">{attached || <span className="text-muted-foreground">—</span>}</td>
+                      <td className="p-2">
+                        <span
+                          className={`text-[11px] rounded px-1.5 py-0.5 whitespace-nowrap ${
+                            p.published ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {p.published ? 'Published' : 'Draft'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
       {editorDate && (
         <DayEditorDialog
           date={editorDate}
           seasonId={seasonId}
-          plan={planByDate.get(editorDate) ?? null}
+          plan={(viewMode === 'list' ? seasonPlanByDate : planByDate).get(editorDate) ?? null}
           onClose={() => setEditorDate(null)}
         />
       )}

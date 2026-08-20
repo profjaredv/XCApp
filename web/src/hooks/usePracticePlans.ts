@@ -9,6 +9,17 @@ export function usePracticePlanRange(seasonId: string | null, from: string | nul
   });
 }
 
+// Schedule's List view — every practice in the season, not just one
+// visible month/week. Separate query key (no from/to) so it doesn't
+// collide with or get invalidated in lockstep with a specific date range.
+export function usePracticePlanSeason(seasonId: string | null) {
+  return useQuery({
+    queryKey: ['practicePlans', seasonId, 'season'],
+    queryFn: () => practicePlanService.listSeason(seasonId as string),
+    enabled: !!seasonId,
+  });
+}
+
 export function useMyPracticePlan(date: string, enabled = true) {
   return useQuery({
     queryKey: ['myPracticePlan', date],
@@ -58,8 +69,8 @@ export function useDuplicateWeek(seasonId: string | null) {
 
 export function useExportPracticePlans() {
   return useMutation({
-    mutationFn: ({ seasonId, from, to }: { seasonId: string; from: string; to: string }) =>
-      practicePlanService.exportRange(seasonId, from, to),
+    mutationFn: ({ seasonId, from, to }: { seasonId: string; from?: string; to?: string }) =>
+      from && to ? practicePlanService.exportRange(seasonId, from, to) : practicePlanService.exportSeason(seasonId),
   });
 }
 
