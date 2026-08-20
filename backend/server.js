@@ -102,6 +102,7 @@ const main = async () => {
     const performanceRoutes = require('./routes/performanceRoutes');
     const seasonRoutes = require('./routes/seasons');
     const bandAnalyticsRoutes = require('./routes/bandAnalytics');
+    const programAnalyticsRoutes = require('./routes/programAnalytics');
     const fieldResultsRoutes = require('./routes/fieldResults');
     const dataManagementRoutes = require('./routes/dataManagement');
     const meetRoutes = require('./routes/meets');
@@ -150,6 +151,9 @@ const main = async () => {
     // hook have been deleted outright (not just disabled) now that this is
     // live — "one endpoint, one implementation."
     app.use('/api/analytics/bands', bandAnalyticsRoutes);
+    // Program tab multi-season overview (participants, miles, top-20%-of-
+    // field, attrition) — see routes/programAnalytics.js.
+    app.use('/api/analytics/program', programAnalyticsRoutes);
     // Manual field-results upload (fallback for the blocked meet scraper —
     // see routes/fieldResults.js).
     app.use('/api/field-results', fieldResultsRoutes);

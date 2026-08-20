@@ -9,6 +9,8 @@ import { formatPace, formatTime } from '@/lib/formatUtils';
 import { useBandAnalytics, useBandAnalyticsCourses } from '@/hooks/useBandAnalytics';
 import type { BandStats } from '@/hooks/useBandAnalytics';
 import { useQueryParam } from '@/hooks/useQueryState';
+import { useProgramAnalytics } from '@/hooks/useProgramAnalytics';
+import { ProgramOverviewSection } from '@/components/analytics/ProgramOverviewSection';
 
 // Band Analytics (XCApp Pre-Season Fixes + Phase 3 doc, Part B). "One
 // screen a coach looks at in November with a cup of coffee, not a
@@ -58,6 +60,7 @@ const BandTrendsPage = () => {
 
   const { data: courses = [] } = useBandAnalyticsCourses();
   const { data, isLoading, error } = useBandAnalytics({ gender, mode, courseId });
+  const { data: programData, isLoading: isLoadingProgram } = useProgramAnalytics();
 
   const chartData = useMemo(() => {
     if (!data) return [];
@@ -124,9 +127,19 @@ const BandTrendsPage = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 className="text-2xl font-bold">Program</h1>
+        <CardDescription>
+          The story behind the numbers: participation, mileage, field standing, and retention, across every season loaded.
+        </CardDescription>
+      </div>
+
+      {isLoadingProgram && <p className="text-sm text-muted-foreground">Loading program overview...</p>}
+      {programData && <ProgramOverviewSection data={programData} />}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <div>
-          <h1 className="text-2xl font-bold">Program</h1>
+          <h2 className="text-lg font-semibold">Performance Bands</h2>
           <CardDescription>
             Top, middle, and bottom performance bands within gender, tracked across seasons.
           </CardDescription>
