@@ -57,7 +57,7 @@ interface AiInsight {
   description: string;
   athletes?: string[];
   priority: 'high' | 'medium' | 'low';
-  category?: 'consistency' | 'growth' | 'watch';
+  category?: 'consistency' | 'breakout' | 'attention';
 }
 
 interface AiInsightsData {
@@ -70,12 +70,18 @@ interface AiInsightsData {
   // Athlete names are tokenized before this analysis runs — see
   // backend/lib/kippwitAnonymize.js — and this names who built that.
   anonymization?: { poweredBy: string; url: string };
+  // Not part of the backend's persisted insight blob — merged in from the
+  // response envelope in generateAiInsights below. `cached: true` means
+  // this request didn't actually call Gemini (nothing new since
+  // `generatedAt`); see AiInsightSnapshot's schema comment for why.
+  cached?: boolean;
+  generatedAt?: string;
 }
 
 const CATEGORY_LABEL: Record<NonNullable<AiInsight['category']>, string> = {
   consistency: 'Consistency',
-  growth: 'Growth',
-  watch: 'Watch List',
+  breakout: 'Breakout Watch',
+  attention: 'Needs Attention',
 };
 
 // Deterministic scoring output — see backend/lib/coachUpAnalysis.js. No AI
@@ -258,14 +264,18 @@ export default function CoachesToolsPage() {
     }
   };
 
-  const generateAiInsights = async () => {
+  // `force` only actually bypasses the backend's regeneration gate for a
+  // superadmin (see routes/coachesTools.js) — a non-superadmin passing it
+  // is a no-op server-side, so this isn't itself an access control point,
+  // just wiring for the admin-only button below.
+  const generateAiInsights = async (force = false) => {
     try {
       setLoadingInsights(true);
       setError(null);
       const response = await axiosInstance.post(
-        `/coaches-tools/ai-insights/${currentSeason}`
+        `/coaches-tools/ai-insights/${currentSeason}${force ? '?force=true' : ''}`
       );
-      setAiInsights(response.data.data);
+      setAiInsights({ ...response.data.data, cached: response.data.cached, generatedAt: response.data.generatedAt });
       if ((response.data.data?.insights?.length ?? 0) === 0) {
         toast.info(response.data.data?.summary || 'No insights available yet for this season.');
       }
@@ -802,7 +812,8 @@ export default function CoachesToolsPage() {
                 AI Performance Insights
               </CardTitle>
               <CardDescription>
-                Consistency, growth, and who to watch — before the season starts, uses last season's data
+                Scouting notes, not a stats dump — consistency, middle-of-the-pack breakout candidates, and what needs a coaching
+                conversation. Before the season starts, uses last season's data.
               </CardDescription>
               <p className="text-xs text-muted-foreground mt-1">
                 Athlete names are anonymized before analysis —{' '}
@@ -815,24 +826,52 @@ export default function CoachesToolsPage() {
                   powered by Kippwit
                 </a>
               </p>
-            </div>
-            <Button 
-              onClick={generateAiInsights} 
-              disabled={loadingInsights}
-              variant="outline"
-            >
-              {loadingInsights ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Generate Insights
-                </>
+              {aiInsights?.generatedAt && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Generated {new Date(aiInsights.generatedAt).toLocaleString()}
+                  {aiInsights.cached ? ' — no new race results since then' : ''}
+                </p>
               )}
-            </Button>
+            </div>
+            {/* Regeneration is gated server-side on the underlying race
+                data actually changing — see routes/coachesTools.js. A
+                coach clicking again on unchanged data gets the same
+                insights back at no extra cost, so once insights exist
+                there's nothing useful left for them to click; only a
+                superadmin gets an explicit override, for testing. */}
+            {currentUser?.isSuperAdmin ? (
+              <Button onClick={() => generateAiInsights(true)} disabled={loadingInsights} variant="outline">
+                {loadingInsights ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    {aiInsights ? 'Regenerate (admin)' : 'Generate Insights'}
+                  </>
+                )}
+              </Button>
+            ) : aiInsights ? (
+              <Button disabled variant="outline" title="These update automatically once new race results come in">
+                Insights up to date
+              </Button>
+            ) : (
+              <Button onClick={() => generateAiInsights()} disabled={loadingInsights} variant="outline">
+                {loadingInsights ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Generate Insights
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>

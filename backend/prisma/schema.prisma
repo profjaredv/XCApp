@@ -111,6 +111,7 @@ model Team {
   teamSeasonMetrics       TeamSeasonMetrics[]
   athleteSeasonMetrics    AthleteSeasonMetrics[]
   meetPerformanceMetrics  MeetPerformanceMetrics[]
+  aiInsightSnapshots      AiInsightSnapshot[]
   athleteInvites          AthleteInvite[]
   athleteClaims           AthleteClaim[]
   staffInvites            StaffInvite[]
@@ -1252,6 +1253,33 @@ model MeetPerformanceMetrics {
   @@index([teamId])
   @@index([raceId])
   @@map("meet_performance_metrics")
+}
+
+// The AI Insights card's persisted result — regeneration is gated on
+// whether the underlying race data has actually changed since raceCount/
+// resultCount were captured (see routes/coachesTools.js), not on a bare
+// time-based TTL. A coach clicking "Generate Insights" again on unchanged
+// data gets this row back instead of a fresh (costly, and non-
+// deterministic — an LLM re-run on identical input isn't guaranteed to
+// say the same thing twice) Gemini call. Persisted rather than kept
+// in-memory specifically so a routine deploy/restart doesn't silently
+// throw away "already generated, nothing new" state and let it regenerate
+// again for free.
+model AiInsightSnapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  teamId      String   @map("team_id") @db.Uuid
+  season      Int
+  data        Json
+  raceCount   Int      @map("race_count")
+  resultCount Int      @map("result_count")
+  generatedAt DateTime @default(now()) @map("generated_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, season])
+  @@index([teamId])
+  @@map("ai_insight_snapshots")
 }
 
 // ---------------------------------------------------------------------------
