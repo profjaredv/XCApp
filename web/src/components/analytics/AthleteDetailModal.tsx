@@ -7,6 +7,8 @@ import { X, ChevronUp, ChevronDown } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import AthleteProgressChart from './AthleteProgressChart';
 import { AthleteHighlightCard } from './AthleteHighlightCard';
+import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSummary';
+import { useAthleteSplitsAggregate } from '@/hooks/useSplits';
 import { formatTime, formatPace } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { enrichRacesWithPRs, getPRBadgeStyle } from '@/utils/prTracking';
@@ -66,6 +68,13 @@ export const AthleteDetailModal = ({
   const [sortField, setSortField] = useState<'meet' | 'season' | 'distance' | 'time' | 'pace'>('season');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [detailTab, setDetailTab] = useState('summary');
+
+  // C10's per-distance-bucket pacing averages (Mile 1 vs Mile 2 vs closing,
+  // and a "typically negative/even/positive split" classification) —
+  // already computed and shown on the athlete's own My Progress page and
+  // the coach's roster profile page (see backend/lib/splitAggregates.js);
+  // this modal just hadn't been wired to read the same query.
+  const { data: splitsAggregate } = useAthleteSplitsAggregate(selectedAthlete?.id ?? null);
 
   // Deduplicate races by creating a unique key (before early return)
   const uniqueRaces = useMemo(() => {
@@ -260,6 +269,7 @@ export const AthleteDetailModal = ({
                 <TabsTrigger value="summary" className="whitespace-nowrap">Career Summary</TabsTrigger>
                 <TabsTrigger value="seasons" className="whitespace-nowrap">Season Breakdown</TabsTrigger>
                 <TabsTrigger value="races" className="whitespace-nowrap">All Races</TabsTrigger>
+                <TabsTrigger value="splits" className="whitespace-nowrap">Splits</TabsTrigger>
                 <TabsTrigger value="highlights" className="whitespace-nowrap">Highlights</TabsTrigger>
               </ResponsiveTabsList>
             </div>
@@ -526,6 +536,20 @@ export const AthleteDetailModal = ({
                   </CardContent>
                 </Card>
               </div>
+            </TabsContent>
+            <TabsContent value="splits">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Splits</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    How this athlete typically paces themselves, by distance — average Mile 1/Mile 2/closing pace and
+                    whether they tend to run a negative, even, or positive split.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <SplitsAggregateSummary aggregates={splitsAggregate?.aggregates ?? []} />
+                </CardContent>
+              </Card>
             </TabsContent>
             <TabsContent value="highlights">
               <div className="space-y-8">

@@ -36,6 +36,7 @@ import { formatTime, parseTimeToSeconds, formatDateShort } from '@/lib/formatUti
 import { useAthleteSplits, useAthleteSplitsAggregate } from '@/hooks/useSplits';
 import { SPLIT_PATTERN_LABEL, SPLIT_PATTERN_BADGE_CLASS, formatSplitMMSS } from '@/lib/splitPatternDisplay';
 import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSummary';
+import { PracticePlanPreview } from '@/components/practicePlans/PracticePlanPreview';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
 import { useMyReflection, useSavePreRace, useSavePostRace, useSetSharing } from '@/hooks/useRaceReflections';
@@ -193,54 +194,7 @@ const MyProgressPage: React.FC = () => {
           {!todaysPlan?.plan ? (
             <p className="text-sm text-muted-foreground">Nothing published for today yet.</p>
           ) : (
-            <div className="space-y-3">
-              {(todaysPlan.plan.locationName || todaysPlan.plan.startTime) && (
-                <p className="text-sm text-muted-foreground">
-                  {[todaysPlan.plan.locationName, todaysPlan.plan.startTime].filter(Boolean).join(' · ')}
-                </p>
-              )}
-              {todaysPlan.plan.announcements && <p className="text-sm font-medium">{todaysPlan.plan.announcements}</p>}
-              {todaysPlan.plan.preRun && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pre Run</p>
-                  <p className="text-sm">{todaysPlan.plan.preRun}</p>
-                </div>
-              )}
-              {todaysPlan.plan.run && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Run</p>
-                  <p className="text-sm">{todaysPlan.plan.run}</p>
-                </div>
-              )}
-              {todaysPlan.plan.postRun && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Post Run</p>
-                  <p className="text-sm">{todaysPlan.plan.postRun}</p>
-                </div>
-              )}
-              {todaysPlan.plan.workoutTemplate && (
-                <div className="rounded-lg border p-3 text-sm">
-                  <p className="font-medium">{todaysPlan.plan.workoutTemplate.name}</p>
-                  {todaysPlan.plan.workoutTemplate.details && (
-                    <p className="text-muted-foreground mt-1">{todaysPlan.plan.workoutTemplate.details}</p>
-                  )}
-                </div>
-              )}
-              {todaysPlan.plan.intervalSession && (
-                <div className="rounded-lg border p-3 text-sm">
-                  <p className="font-medium">{todaysPlan.plan.intervalSession.title}</p>
-                  <p className="text-muted-foreground">{todaysPlan.plan.intervalSession.groupName ?? 'All groups'}</p>
-                </div>
-              )}
-              {!todaysPlan.plan.announcements &&
-                !todaysPlan.plan.preRun &&
-                !todaysPlan.plan.run &&
-                !todaysPlan.plan.postRun &&
-                !todaysPlan.plan.workoutTemplate &&
-                !todaysPlan.plan.intervalSession && (
-                  <p className="text-sm text-muted-foreground">No workout details posted yet.</p>
-                )}
-            </div>
+            <PracticePlanPreview plan={todaysPlan.plan} />
           )}
         </CardContent>
       </Card>

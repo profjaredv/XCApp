@@ -28,6 +28,7 @@ import { useMeets } from '@/hooks/useMeetOps';
 import type { PracticePlan } from '@/api/practicePlanService';
 import type { MeetSummary } from '@/api/meetOpsService';
 import type { WorkoutTemplate, WorkoutTemplateInput } from '@/api/workoutTemplateService';
+import { PracticePlanPreview } from '@/components/practicePlans/PracticePlanPreview';
 import { formatDateShort } from '@/lib/formatUtils';
 import { toCsv } from '@/lib/csvParse';
 
@@ -802,6 +803,28 @@ const DayEditorDialog: React.FC<{
   const [workoutTemplateId, setWorkoutTemplateId] = useState(plan?.workoutTemplateId ?? NONE);
   const [intervalSessionId, setIntervalSessionId] = useState(plan?.intervalSessionId ?? NONE);
   const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
+  const [dialogTab, setDialogTab] = useState<'edit' | 'preview'>('edit');
+
+  // Built from the form's own live state, not a fetch — GET /practice-
+  // plans/mine deliberately only ever returns a published plan (an
+  // athlete can't see a draft), so a coach previewing an unpublished or
+  // still-being-edited day has no API response to preview from. Same
+  // rendering component the athlete's real My Progress card uses, so this
+  // preview can't drift from what athletes actually see once published.
+  const selectedLocationName =
+    locationId === NEW_LOCATION ? newLocationName.trim() || null : locations.find((l) => l.id === locationId)?.name ?? null;
+  const selectedTemplate = templates.find((t) => t.id === workoutTemplateId) ?? null;
+  const selectedSession = activeSessions.find((s) => s.id === intervalSessionId) ?? null;
+  const previewData = {
+    locationName: selectedLocationName,
+    startTime: startTime || null,
+    announcements: announcements || null,
+    preRun: preRun || null,
+    run: run || null,
+    postRun: postRun || null,
+    workoutTemplate: selectedTemplate,
+    intervalSession: selectedSession ? { title: selectedSession.title, groupName: selectedSession.groupName } : null,
+  };
 
   const handleSave = async () => {
     try {
@@ -876,6 +899,29 @@ const DayEditorDialog: React.FC<{
           </DialogDescription>
         </DialogHeader>
 
+        <div className="inline-flex rounded-md border p-0.5 bg-muted/40 self-start">
+          {(['edit', 'preview'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setDialogTab(tab)}
+              className={`px-3 py-1 text-sm rounded capitalize transition-colors ${
+                dialogTab === tab ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {dialogTab === 'preview' ? (
+          <div className="rounded-lg border p-4">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
+              What athletes will see once published
+            </p>
+            <PracticePlanPreview plan={previewData} />
+          </div>
+        ) : (
         <div className="space-y-4">
           <div>
             <Label>Location</Label>
@@ -1009,6 +1055,7 @@ const DayEditorDialog: React.FC<{
             </div>
           )}
         </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
