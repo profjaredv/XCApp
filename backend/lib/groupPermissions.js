@@ -10,17 +10,4 @@ function decideCanManageGroup({ isOwner, membership, isGroupLeader }) {
   return false;
 }
 
-// T3: the same decision, extended for practice-plan rows, which can also
-// be team-wide (groupId null — strength sessions, meetings). A volunteer
-// coach's authority is scoped to specific groups they lead, never to
-// team-wide rows, so groupId === null collapses straight to "head/paid
-// coach only" regardless of isGroupLeader.
-function decideCanManagePracticePlanRow({ groupId, isOwner, membership, isGroupLeader }) {
-  if (groupId == null) {
-    if (isOwner) return true;
-    return Boolean(membership?.active && ['HEAD_COACH', 'COACH'].includes(membership.role));
-  }
-  return decideCanManageGroup({ isOwner, membership, isGroupLeader });
-}
-
-module.exports = { decideCanManageGroup, decideCanManagePracticePlanRow };
+module.exports = { decideCanManageGroup };

@@ -75,6 +75,14 @@ export const intervalSessionService = {
     return response.data;
   },
 
+  // Schedule rework: "one interval sheet gets created, then another coach
+  // duplicates it and selects their group." A fully independent new
+  // session, entries seeded from that group's current roster.
+  async duplicate(id: string, input: { groupId?: string | null; date?: string }): Promise<IntervalSession> {
+    const response = await api.post<IntervalSession>(`/interval-sessions/${id}/duplicate`, input);
+    return response.data;
+  },
+
   async addEntry(sessionId: string, athleteId: string): Promise<IntervalSessionEntry> {
     const response = await api.post<IntervalSessionEntry>(`/interval-sessions/${sessionId}/entries`, { athleteId });
     return response.data;

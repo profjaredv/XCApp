@@ -206,8 +206,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
           <>
             <NavItem to={teamPath('/roster')} icon={ClipboardList} label="Athletes" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <NavItem to={teamPath('/groups')} icon={Users} label="Groups" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            <NavItem to={teamPath('/practice-plans')} icon={CalendarDays} label="Practice" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            <NavItem to={teamPath('/meets')} icon={Flag} label="Meets" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath('/schedule')} icon={CalendarDays} label="Schedule" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <SeasonNavSection isCollapsed={isCollapsed} teamPath={teamPath} onLinkClick={handleLinkClick} />
             <NavItem to={teamPath('/band-trends')} icon={TrendingUp} label="Program" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             {!isVolunteerCoach && (

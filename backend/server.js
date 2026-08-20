@@ -113,6 +113,7 @@ const main = async () => {
     const guardianRoutes = require('./routes/guardian');
     const groupRoutes = require('./routes/groups');
     const practicePlanRoutes = require('./routes/practicePlans');
+    const practiceLocationRoutes = require('./routes/practiceLocations');
     const workoutTemplateRoutes = require('./routes/workoutTemplates');
     const meetOpsRoutes = require('./routes/meetOps');
     const raceReflectionRoutes = require('./routes/raceReflections');
@@ -160,6 +161,7 @@ const main = async () => {
     app.use('/api/guardian', guardianRoutes);
     app.use('/api/groups', groupRoutes);
     app.use('/api/practice-plans', practicePlanRoutes);
+    app.use('/api/practice-locations', practiceLocationRoutes);
     app.use('/api/workout-templates', workoutTemplateRoutes);
     app.use('/api/meet-ops', meetOpsRoutes);
     app.use('/api/race-reflections', raceReflectionRoutes);

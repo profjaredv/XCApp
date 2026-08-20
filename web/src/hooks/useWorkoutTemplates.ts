@@ -16,15 +16,6 @@ export function useCreateWorkoutTemplate() {
   });
 }
 
-export function useSaveAssignmentAsTemplate() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ assignmentId, name }: { assignmentId: string; name: string }) =>
-      workoutTemplateService.saveFromAssignment(assignmentId, name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workoutTemplates'] }),
-  });
-}
-
 export function useUpdateWorkoutTemplate() {
   const queryClient = useQueryClient();
   return useMutation({

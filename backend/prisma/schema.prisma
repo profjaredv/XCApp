@@ -116,6 +116,7 @@ model Team {
   staffInvites            StaffInvite[]
   groups                  Group[]
   practicePlans           PracticePlan[]
+  practiceLocations       PracticeLocation[]
   workoutTemplates        WorkoutTemplate[]
   meets                   Meet[]
   equipment               Equipment[]
@@ -855,11 +856,10 @@ model Group {
   color     String?
   archived  Boolean   @default(false)
 
-  team             Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  season           Season                   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  team             Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season           Season            @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   memberships      GroupMembership[]
   leaders          GroupLeader[]
-  planAssignments  PracticePlanAssignment[]
   intervalSessions IntervalSession[]
 
   @@unique([seasonId, name])
@@ -911,65 +911,77 @@ model GroupMembership {
 }
 
 // ---------------------------------------------------------------------------
-// T3 (Team Management handoff): practice plans. One day, several groups, a
-// different assignment per group — this module owns training-plan creation.
+// Practice plans + Schedule rework (2026-08-20 request): one shared plan per
+// day, not a different row per group — a coach fills in Location,
+// Announcements, and Pre Run/Run/Post Run once for the whole practice, then
+// attaches the day's structured workout rather than re-typing tier/focus/
+// duration/distance for every group (that granular per-group model —
+// PracticePlanAssignment — is gone; nothing preserved it on request, the
+// season hadn't started). Per-group structure now lives in what's attached:
+// a WorkoutTemplate (a named, reusable workout) or an IntervalSession (a
+// live rep-tracking sheet, itself per-group — see IntervalSession.groupId
+// and duplicatedFromId below for "one sheet gets created, another coach
+// duplicates it for their own group").
 // ---------------------------------------------------------------------------
 
-// One row per (season, date) — a day's practice. `published` gates athlete
-// visibility so a coach can draft Tuesday's plan on Sunday without athletes
-// seeing half a workout (see routes/practicePlans.js).
-model PracticePlan {
-  id          String   @id @default(uuid()) @db.Uuid
-  teamId      String   @map("team_id") @db.Uuid
-  seasonId    String   @map("season_id") @db.Uuid
-  date        DateTime @db.Date
-  title       String? // "Hill repeats", "Meet prep"
-  teamNotes   String?  @map("team_notes") // applies to everyone
-  location    String?
-  startTime   String?  @map("start_time") // "15:30"
-  published   Boolean  @default(false)
-  createdById String?  @map("created_by") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+// A team's saved practice spots ("EHS Track", "Carey Lakes", "Manastash
+// Trail") — a short, reusable list instead of retyping the same handful of
+// place names into a free-text field every single day.
+model PracticeLocation {
+  id       String  @id @default(uuid()) @db.Uuid
+  teamId   String  @map("team_id") @db.Uuid
+  name     String
+  archived Boolean @default(false)
 
-  team        Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  season      Season                   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  createdBy   User?                    @relation("PracticePlanCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  assignments PracticePlanAssignment[]
+  team          Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  practicePlans PracticePlan[]
+
+  @@unique([teamId, name])
+  @@map("practice_locations")
+}
+
+// One row per (season, date) — a day's practice, shared by the whole team.
+// `published` gates athlete visibility so a coach can draft Tuesday's plan
+// on Sunday without athletes seeing half a workout (see routes/practicePlans.js).
+// workoutTemplateId/intervalSessionId are live references, not copies — a
+// coach editing the attached template later is expected to update what the
+// plan shows, unlike the old per-assignment copy semantics.
+model PracticePlan {
+  id                String   @id @default(uuid()) @db.Uuid
+  teamId            String   @map("team_id") @db.Uuid
+  seasonId          String   @map("season_id") @db.Uuid
+  date              DateTime @db.Date
+  locationId        String?  @map("location_id") @db.Uuid
+  startTime         String?  @map("start_time") // "15:30"
+  announcements     String?
+  preRun            String?  @map("pre_run")
+  run               String?
+  postRun           String?  @map("post_run")
+  workoutTemplateId String?  @map("workout_template_id") @db.Uuid
+  intervalSessionId String?  @map("interval_session_id") @db.Uuid
+  published         Boolean  @default(false)
+  createdById       String?  @map("created_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  team            Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season          Season            @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  location        PracticeLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  workoutTemplate WorkoutTemplate?  @relation(fields: [workoutTemplateId], references: [id], onDelete: SetNull)
+  intervalSession IntervalSession?  @relation(fields: [intervalSessionId], references: [id], onDelete: SetNull)
+  createdBy       User?             @relation("PracticePlanCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@unique([seasonId, date])
   @@index([seasonId, date])
   @@map("practice_plans")
 }
 
-// groupId null means team-wide (strength sessions, meetings). A copy of a
-// WorkoutTemplate's fields at insertion time, never a reference — see
-// WorkoutTemplate's own comment for why.
-model PracticePlanAssignment {
-  id              String  @id @default(uuid()) @db.Uuid
-  practicePlanId  String  @map("practice_plan_id") @db.Uuid
-  groupId         String? @map("group_id") @db.Uuid
-  volumeTier      String? @map("volume_tier") // "low" | "medium" | "high" | "high_plus"
-  focus           String? // "tempo", "long run", "recovery"
-  durationMinutes Int?    @map("duration_minutes")
-  distanceMi      Float?  @map("distance_mi")
-  strength        Boolean @default(false)
-  details         String? // the actual workout text
-  sortOrder       Int     @default(0) @map("sort_order")
-
-  practicePlan PracticePlan @relation(fields: [practicePlanId], references: [id], onDelete: Cascade)
-  group        Group?       @relation(fields: [groupId], references: [id], onDelete: SetNull)
-
-  @@index([practicePlanId])
-  @@map("practice_plan_assignments")
-}
-
 // Reusable workouts survive across seasons and get named ("Tempo Tuesday").
 // NOT season-scoped — a workout that worked in 2024 should be one click
-// away in 2027. Inserting one into a day COPIES its fields into a new
-// PracticePlanAssignment; nothing ever references a template by id, so
-// editing a template later can never retroactively change a plan that
-// already used it.
+// away in 2027. A PracticePlan attaches one by reference (PracticePlan.
+// workoutTemplateId) — editing a template later updates every plan that
+// still references it, which is the point of "attach a template" instead
+// of retyping the workout by hand.
 model WorkoutTemplate {
   id              String   @id @default(uuid()) @db.Uuid
   teamId          String   @map("team_id") @db.Uuid
@@ -984,8 +996,9 @@ model WorkoutTemplate {
   createdById     String?  @map("created_by") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at")
 
-  team      Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  createdBy User? @relation("WorkoutTemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  team          Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy     User?          @relation("WorkoutTemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  practicePlans PracticePlan[]
 
   @@unique([teamId, name])
   @@map("workout_templates")
@@ -1023,15 +1036,25 @@ model IntervalSession {
   // active/archived client-side and lets a coach restore one.
   archived Boolean @default(false)
 
+  // Schedule rework: "one interval sheet gets created, then when another
+  // coach is ready to track, they duplicate it and select their group."
+  // Points at the session it was duplicated from, purely for traceability —
+  // duplicating copies title/repDistanceM/zone into a fully independent new
+  // row with its own entries, never a live reference back to this one.
+  duplicatedFromId String? @map("duplicated_from_id") @db.Uuid
+
   createdById String?  @map("created_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  team      Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  season    Season                 @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  group     Group?                 @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  createdBy User?                  @relation("IntervalSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  entries   IntervalSessionEntry[]
+  team            Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season          Season                 @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  group           Group?                 @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdBy       User?                  @relation("IntervalSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  duplicatedFrom  IntervalSession?       @relation("IntervalSessionDuplicate", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
+  duplicates      IntervalSession[]      @relation("IntervalSessionDuplicate")
+  entries         IntervalSessionEntry[]
+  practicePlans   PracticePlan[]
 
   @@index([teamId, seasonId, date])
   @@map("interval_sessions")

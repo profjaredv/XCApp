@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Trash2, Archive, Loader2, X, Check, ClipboardList } from 'lucide-react';
+import { Plus, Trash2, Archive, Loader2, X, Check, ClipboardList, Copy } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
@@ -17,6 +17,7 @@ import {
   useCreateIntervalSession,
   useDeleteIntervalSession,
   useSetIntervalSessionArchived,
+  useDuplicateIntervalSession,
 } from '@/hooks/useIntervalSessions';
 import type { IntervalSession, IntervalZone } from '@/api/intervalSessionService';
 import { formatDateShort } from '@/lib/formatUtils';
@@ -56,11 +57,12 @@ const EMPTY_NEW_SESSION: NewSessionForm = {
 const SessionSummaryCard: React.FC<{
   session: IntervalSession;
   onManage: () => void;
+  onDuplicate: () => void;
   onArchiveToggle: () => void;
   onDelete: () => void;
   archiving: boolean;
   deleting: boolean;
-}> = ({ session, onManage, onArchiveToggle, onDelete, archiving, deleting }) => (
+}> = ({ session, onManage, onDuplicate, onArchiveToggle, onDelete, archiving, deleting }) => (
   <Card>
     <CardHeader className="flex flex-row items-start justify-between gap-2 py-4">
       <div>
@@ -71,6 +73,9 @@ const SessionSummaryCard: React.FC<{
         </p>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
+        <Button variant="ghost" size="icon" onClick={onDuplicate} title="Duplicate for another group">
+          <Copy className="h-4 w-4" />
+        </Button>
         <Button variant="ghost" size="icon" onClick={onArchiveToggle} disabled={archiving} title="Archive">
           <Archive className="h-4 w-4" />
         </Button>
@@ -110,9 +115,14 @@ const IntervalSessionsPage: React.FC = () => {
   const [form, setForm] = useState<NewSessionForm>(EMPTY_NEW_SESSION);
   const { data: groupMembers = [] } = useGroupMembers(form.groupId !== AD_HOC ? form.groupId : null);
 
+  const [duplicateSource, setDuplicateSource] = useState<IntervalSession | null>(null);
+  const [duplicateGroupId, setDuplicateGroupId] = useState(AD_HOC);
+  const [duplicateDate, setDuplicateDate] = useState(new Date().toISOString().slice(0, 10));
+
   const createSession = useCreateIntervalSession(seasonId);
   const deleteSession = useDeleteIntervalSession(seasonId);
   const setArchived = useSetIntervalSessionArchived(seasonId);
+  const duplicateSession = useDuplicateIntervalSession(seasonId);
 
   // Opened full screen from Coaches Tools (see router/index.tsx — this
   // route is deliberately outside <Layout>, no sidebar/header).
@@ -176,6 +186,28 @@ const IntervalSessionsPage: React.FC = () => {
     }
   };
 
+  const openDuplicate = (session: IntervalSession) => {
+    setDuplicateSource(session);
+    setDuplicateGroupId(session.groupId ?? AD_HOC);
+    setDuplicateDate(session.date.slice(0, 10));
+  };
+
+  const handleDuplicate = async () => {
+    if (!duplicateSource) return;
+    try {
+      const created = await duplicateSession.mutateAsync({
+        id: duplicateSource.id,
+        groupId: duplicateGroupId === AD_HOC ? null : duplicateGroupId,
+        date: duplicateDate,
+      });
+      toast.success('Session duplicated.');
+      setDuplicateSource(null);
+      navigate(teamPath(`/interval-sessions/${created.id}`));
+    } catch {
+      toast.error('Could not duplicate that session.');
+    }
+  };
+
   if (!activeYear || !seasonId) {
     return (
       <div className="min-h-screen bg-background">
@@ -232,6 +264,7 @@ const IntervalSessionsPage: React.FC = () => {
                   key={session.id}
                   session={session}
                   onManage={() => navigate(teamPath(`/interval-sessions/${session.id}`))}
+                  onDuplicate={() => openDuplicate(session)}
                   onArchiveToggle={() => handleArchiveToggle(session)}
                   onDelete={() => handleDelete(session)}
                   archiving={setArchived.isPending}
@@ -341,6 +374,48 @@ const IntervalSessionsPage: React.FC = () => {
             <Button onClick={handleCreate} disabled={!form.title.trim() || createSession.isPending}>
               {createSession.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!duplicateSource} onOpenChange={(open) => !open && setDuplicateSource(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Duplicate "{duplicateSource?.title}"</DialogTitle>
+            <DialogDescription>
+              Creates a new, independent session with the same title, rep distance, and zone — pick who's running it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Date</Label>
+              <Input type="date" className="mt-1" value={duplicateDate} onChange={(e) => setDuplicateDate(e.target.value)} />
+            </div>
+            <div>
+              <Label>Group</Label>
+              <Select value={duplicateGroupId} onValueChange={setDuplicateGroupId}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AD_HOC}>Ad hoc (add athletes manually)</SelectItem>
+                  {trainingGroups.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDuplicateSource(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleDuplicate} disabled={duplicateSession.isPending}>
+              {duplicateSession.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Duplicate
             </Button>
           </DialogFooter>
         </DialogContent>

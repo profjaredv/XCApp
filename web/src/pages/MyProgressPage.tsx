@@ -194,37 +194,52 @@ const MyProgressPage: React.FC = () => {
             <p className="text-sm text-muted-foreground">Nothing published for today yet.</p>
           ) : (
             <div className="space-y-3">
-              {(todaysPlan.plan.title || todaysPlan.plan.startTime || todaysPlan.plan.location) && (
+              {(todaysPlan.plan.locationName || todaysPlan.plan.startTime) && (
+                <p className="text-sm text-muted-foreground">
+                  {[todaysPlan.plan.locationName, todaysPlan.plan.startTime].filter(Boolean).join(' · ')}
+                </p>
+              )}
+              {todaysPlan.plan.announcements && <p className="text-sm font-medium">{todaysPlan.plan.announcements}</p>}
+              {todaysPlan.plan.preRun && (
                 <div>
-                  {todaysPlan.plan.title && <p className="font-medium">{todaysPlan.plan.title}</p>}
-                  {(todaysPlan.plan.startTime || todaysPlan.plan.location) && (
-                    <p className="text-sm text-muted-foreground">
-                      {[todaysPlan.plan.startTime, todaysPlan.plan.location].filter(Boolean).join(' · ')}
-                    </p>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pre Run</p>
+                  <p className="text-sm">{todaysPlan.plan.preRun}</p>
+                </div>
+              )}
+              {todaysPlan.plan.run && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Run</p>
+                  <p className="text-sm">{todaysPlan.plan.run}</p>
+                </div>
+              )}
+              {todaysPlan.plan.postRun && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Post Run</p>
+                  <p className="text-sm">{todaysPlan.plan.postRun}</p>
+                </div>
+              )}
+              {todaysPlan.plan.workoutTemplate && (
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="font-medium">{todaysPlan.plan.workoutTemplate.name}</p>
+                  {todaysPlan.plan.workoutTemplate.details && (
+                    <p className="text-muted-foreground mt-1">{todaysPlan.plan.workoutTemplate.details}</p>
                   )}
                 </div>
               )}
-              {todaysPlan.plan.teamNotes && <p className="text-sm">{todaysPlan.plan.teamNotes}</p>}
-              {todaysPlan.plan.assignments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No workout details posted for your group yet.</p>
-              ) : (
-                <div className="space-y-2">
-                  {todaysPlan.plan.assignments.map((a, i) => (
-                    <div key={i} className="rounded-lg border p-3 text-sm">
-                      <p className="font-medium">
-                        {a.focus || (a.strength ? 'Strength' : 'Workout')}
-                      </p>
-                      <p className="text-muted-foreground">
-                        {a.durationMinutes ? `${a.durationMinutes} min` : ''}
-                        {a.durationMinutes && a.distanceMi ? ' · ' : ''}
-                        {a.distanceMi ? `${a.distanceMi} mi` : ''}
-                        {a.strength ? ' · Strength' : ''}
-                      </p>
-                      {a.details && <p className="text-muted-foreground mt-1">{a.details}</p>}
-                    </div>
-                  ))}
+              {todaysPlan.plan.intervalSession && (
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="font-medium">{todaysPlan.plan.intervalSession.title}</p>
+                  <p className="text-muted-foreground">{todaysPlan.plan.intervalSession.groupName ?? 'All groups'}</p>
                 </div>
               )}
+              {!todaysPlan.plan.announcements &&
+                !todaysPlan.plan.preRun &&
+                !todaysPlan.plan.run &&
+                !todaysPlan.plan.postRun &&
+                !todaysPlan.plan.workoutTemplate &&
+                !todaysPlan.plan.intervalSession && (
+                  <p className="text-sm text-muted-foreground">No workout details posted yet.</p>
+                )}
             </div>
           )}
         </CardContent>

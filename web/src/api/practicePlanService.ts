@@ -1,76 +1,71 @@
 import api from './api';
 
-export interface PracticePlanAssignment {
+// Schedule rework: one shared plan per day (no more per-group assignment
+// rows). Location/template/interval-session are live references — the
+// backend resolves and embeds their display fields alongside the id.
+
+export interface PracticePlanWorkoutTemplate {
   id: string;
-  groupId: string | null;
-  groupName: string;
+  name: string;
   volumeTier: string | null;
   focus: string | null;
   durationMinutes: number | null;
   distanceMi: number | null;
   strength: boolean;
   details: string | null;
-  sortOrder: number;
+}
+
+export interface PracticePlanIntervalSession {
+  id: string;
+  title: string;
+  groupId: string | null;
+  groupName: string | null;
+  repDistanceM: number;
+  zone: string;
 }
 
 export interface PracticePlan {
   id: string;
   date: string;
-  title: string | null;
-  teamNotes: string | null;
-  location: string | null;
-  startTime: string | null;
   published: boolean;
-  assignments: PracticePlanAssignment[];
-}
-
-export interface MyPracticePlanAssignment {
-  focus: string | null;
-  durationMinutes: number | null;
-  distanceMi: number | null;
-  strength: boolean;
-  details: string | null;
-}
-
-export interface MyPracticePlan {
-  title: string | null;
-  teamNotes: string | null;
-  location: string | null;
   startTime: string | null;
-  assignments: MyPracticePlanAssignment[];
+  locationId: string | null;
+  locationName: string | null;
+  announcements: string | null;
+  preRun: string | null;
+  run: string | null;
+  postRun: string | null;
+  workoutTemplateId: string | null;
+  workoutTemplate: PracticePlanWorkoutTemplate | null;
+  intervalSessionId: string | null;
+  intervalSession: PracticePlanIntervalSession | null;
 }
 
-export interface AssignmentInput {
-  groupId?: string | null;
-  templateId?: string;
-  volumeTier?: string | null;
-  focus?: string | null;
-  durationMinutes?: number | null;
-  distanceMi?: number | null;
-  strength?: boolean;
-  details?: string | null;
-  sortOrder?: number;
+export interface PracticePlanInput {
+  seasonId: string;
+  date: string;
+  locationId?: string | null;
+  startTime?: string | null;
+  announcements?: string | null;
+  preRun?: string | null;
+  run?: string | null;
+  postRun?: string | null;
+  workoutTemplateId?: string | null;
+  intervalSessionId?: string | null;
 }
 
 export const practicePlanService = {
-  async listWeek(seasonId: string, from: string, to: string): Promise<PracticePlan[]> {
+  async listRange(seasonId: string, from: string, to: string): Promise<PracticePlan[]> {
     const response = await api.get<PracticePlan[]>('/practice-plans', { params: { seasonId, from, to } });
     return response.data;
   },
 
-  async myPlan(date: string): Promise<{ date: string; plan: MyPracticePlan | null }> {
+  async myPlan(date: string): Promise<{ date: string; plan: PracticePlan | null }> {
     const response = await api.get('/practice-plans/mine', { params: { date } });
     return response.data;
   },
 
-  async saveDayShell(input: {
-    seasonId: string;
-    date: string;
-    title?: string;
-    teamNotes?: string;
-    location?: string;
-    startTime?: string;
-  }): Promise<PracticePlan> {
+  async savePlan(input: PracticePlanInput): Promise<PracticePlan> {
     const response = await api.post<PracticePlan>('/practice-plans', input);
     return response.data;
   },
@@ -80,23 +75,9 @@ export const practicePlanService = {
     return response.data;
   },
 
-  async addAssignment(planId: string, input: AssignmentInput): Promise<PracticePlanAssignment> {
-    const response = await api.post<PracticePlanAssignment>(`/practice-plans/${planId}/assignments`, input);
+  async duplicateDay(planId: string, toDate: string, toSeasonId?: string): Promise<PracticePlan> {
+    const response = await api.post<PracticePlan>(`/practice-plans/${planId}/duplicate-day`, { toDate, toSeasonId });
     return response.data;
-  },
-
-  async updateAssignment(assignmentId: string, input: Partial<AssignmentInput>): Promise<PracticePlanAssignment> {
-    const response = await api.put<PracticePlanAssignment>(`/practice-plans/assignments/${assignmentId}`, input);
-    return response.data;
-  },
-
-  async deleteAssignment(assignmentId: string): Promise<void> {
-    await api.delete(`/practice-plans/assignments/${assignmentId}`);
-  },
-
-  async duplicateDay(planId: string, toDate: string, toSeasonId?: string) {
-    const response = await api.post(`/practice-plans/${planId}/duplicate-day`, { toDate, toSeasonId });
-    return response.data as { id: string };
   },
 
   async duplicateWeek(input: { seasonId: string; fromWeekStart: string; toWeekStart: string; toSeasonId?: string }) {

@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { Gauge, Home, BarChart2, Calculator, ClipboardList, Users, CalendarDays, Flag } from 'lucide-react';
+import { Gauge, Home, BarChart2, Calculator, ClipboardList, Users, CalendarDays } from 'lucide-react';
 
 export type WalkthroughRole = 'coach' | 'athlete';
 
@@ -40,17 +40,10 @@ export const WALKTHROUGH_STEPS: Record<WalkthroughRole, WalkthroughStep[]> = {
     },
     {
       icon: CalendarDays,
-      title: 'Practice Plans',
-      description: 'Build workouts from templates and assign them to the whole team or to specific groups.',
-      path: '/practice-plans',
-      cta: 'Open Practice Plans',
-    },
-    {
-      icon: Flag,
-      title: 'Meets',
-      description: 'Plan meet-day entries and lineups, and import your season schedule straight from Athletic.net.',
-      path: '/meets',
-      cta: 'Open Meets',
+      title: 'Schedule',
+      description: 'A month calendar of practices and meets — plan each day, attach a workout, and import your season from Athletic.net.',
+      path: '/schedule',
+      cta: 'Open Schedule',
     },
   ],
   athlete: [

@@ -33,11 +33,6 @@ export const workoutTemplateService = {
     return response.data;
   },
 
-  async saveFromAssignment(assignmentId: string, name: string): Promise<WorkoutTemplate> {
-    const response = await api.post<WorkoutTemplate>(`/workout-templates/from-assignment/${assignmentId}`, { name });
-    return response.data;
-  },
-
   async update(id: string, input: Partial<WorkoutTemplateInput & { archived: boolean }>): Promise<WorkoutTemplate> {
     const response = await api.put<WorkoutTemplate>(`/workout-templates/${id}`, input);
     return response.data;

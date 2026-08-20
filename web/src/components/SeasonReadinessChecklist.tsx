@@ -53,8 +53,8 @@ export const SeasonReadinessChecklist: React.FC = () => {
       label: 'Build a practice plan',
       description: "Athletes see nothing on their own Today page until a plan is published.",
       done: context.setup.hasTrainingPlans,
-      href: teamPath('/practice-plans'),
-      cta: 'Open Practice Plans',
+      href: teamPath('/schedule'),
+      cta: 'Open Schedule',
     },
   ];
 

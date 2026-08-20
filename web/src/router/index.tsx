@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
 import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, BandTrendsPage, FieldResultsPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
@@ -11,7 +11,7 @@ import RosterPage from '../pages/RosterPage';
 import TodayPage from '../pages/TodayPage';
 import AthleteJourneyPage from '../pages/AthleteJourneyPage';
 import GroupsPage from '../pages/GroupsPage';
-import PracticePlansPage from '../pages/PracticePlansPage';
+import SchedulePage from '../pages/SchedulePage';
 import MeetOpsPage from '../pages/MeetOpsPage';
 import EquipmentPage from '../pages/EquipmentPage';
 import IntervalSessionsPage from '../pages/IntervalSessionsPage';
@@ -199,9 +199,18 @@ export const router = createBrowserRouter([
                     path: 'groups',
                     element: <GroupsPage />,
                   },
+                  // Schedule rework: Practice and Meets merged into one
+                  // month calendar. 'practice-plans' redirects old
+                  // bookmarks/links; 'meets' stays a real route (deep-linked
+                  // into from a Schedule day via ?meetId=) even though it's
+                  // no longer a top-level nav item.
                   {
                     path: 'practice-plans',
-                    element: <PracticePlansPage />,
+                    element: <Navigate to="../schedule" replace />,
+                  },
+                  {
+                    path: 'schedule',
+                    element: <SchedulePage />,
                   },
                   {
                     path: 'meets',

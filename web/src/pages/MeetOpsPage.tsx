@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -86,7 +86,10 @@ const MeetOpsPage: React.FC = () => {
   const seasonId = selectedSeason?.id ?? null;
 
   const { data: meets = [], isLoading: meetsLoading } = useMeets(seasonId);
-  const [selectedMeetId, setSelectedMeetId] = useState<string | null>(null);
+  // Deep-linked from the Schedule calendar (?meetId=) — seeded once from the
+  // URL so it wins over the "default to the first meet" fallback below.
+  const [searchParams] = useSearchParams();
+  const [selectedMeetId, setSelectedMeetId] = useState<string | null>(() => searchParams.get('meetId'));
   useEffect(() => {
     if (!selectedMeetId && meets.length > 0) setSelectedMeetId(meets[0].id);
   }, [meets, selectedMeetId]);

@@ -26,7 +26,7 @@ import { todayService, type TodayAttentionItem, type TodayActivityItem } from '@
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
 import { entryStatusLabel } from '@/api/meetOpsService';
-import { useWeekPlans, useSetPublished, useDuplicateDay } from '@/hooks/usePracticePlans';
+import { usePracticePlanRange, useSetPublished, useDuplicateDay } from '@/hooks/usePracticePlans';
 import { formatTime, formatDateShort } from '@/lib/formatUtils';
 import { SetupChecklist } from '@/components/SetupChecklist';
 import { SeasonReadinessChecklist } from '@/components/SeasonReadinessChecklist';
@@ -96,8 +96,8 @@ const BlockShell: React.FC<BlockShellProps> = ({ title, icon: Icon, isLoading, i
 const CoachPracticeBlock: React.FC<{ seasonId: string; teamPath: (p: string) => string }> = ({ seasonId, teamPath }) => {
   const today = todayIso();
   const yesterday = yesterdayIso();
-  const { data: todayPlans, isLoading, isError } = useWeekPlans(seasonId, today, today);
-  const { data: yesterdayPlans } = useWeekPlans(seasonId, yesterday, yesterday);
+  const { data: todayPlans, isLoading, isError } = usePracticePlanRange(seasonId, today, today);
+  const { data: yesterdayPlans } = usePracticePlanRange(seasonId, yesterday, yesterday);
   const setPublished = useSetPublished(seasonId);
   const duplicateDay = useDuplicateDay(seasonId);
 
@@ -110,8 +110,8 @@ const CoachPracticeBlock: React.FC<{ seasonId: string; teamPath: (p: string) => 
       icon={CalendarDays}
       isLoading={isLoading}
       isError={isError}
-      linkTo={teamPath('/practice-plans')}
-      linkLabel="Practice Plans"
+      linkTo={teamPath('/schedule')}
+      linkLabel="Schedule"
     >
       {!plan ? (
         <div className="space-y-3">
@@ -128,7 +128,7 @@ const CoachPracticeBlock: React.FC<{ seasonId: string; teamPath: (p: string) => 
               </Button>
             )}
             <Button size="sm" variant="outline" asChild>
-              <Link to={teamPath('/practice-plans')}>Create from template</Link>
+              <Link to={teamPath('/schedule')}>Create today's plan</Link>
             </Button>
           </div>
         </div>
@@ -143,18 +143,21 @@ const CoachPracticeBlock: React.FC<{ seasonId: string; teamPath: (p: string) => 
             </div>
           )}
           <div className="flex flex-wrap gap-1.5">
-            {plan.assignments.length === 0 ? (
-              <span className="text-sm text-muted-foreground">No group assignments yet.</span>
-            ) : (
-              plan.assignments.map((a) => (
-                <Badge key={a.id} variant="secondary" className="font-normal">
-                  {a.groupName}
-                  {a.focus ? `: ${a.focus}` : ''}
-                </Badge>
-              ))
+            {plan.locationName && (
+              <Badge variant="secondary" className="font-normal">{plan.locationName}</Badge>
+            )}
+            {plan.workoutTemplate && (
+              <Badge variant="secondary" className="font-normal">{plan.workoutTemplate.name}</Badge>
+            )}
+            {plan.intervalSession && (
+              <Badge variant="secondary" className="font-normal">{plan.intervalSession.title}</Badge>
+            )}
+            {!plan.locationName && !plan.workoutTemplate && !plan.intervalSession && !plan.run && (
+              <span className="text-sm text-muted-foreground">No details posted yet.</span>
             )}
           </div>
-          <Link to={teamPath('/practice-plans')} className="text-sm text-primary hover:underline inline-flex items-center gap-1">
+          {plan.run && <p className="text-sm text-muted-foreground truncate">{plan.run}</p>}
+          <Link to={teamPath('/schedule')} className="text-sm text-primary hover:underline inline-flex items-center gap-1">
             View full plan <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
@@ -218,7 +221,7 @@ function attentionLink(item: TodayAttentionItem, teamPath: (p: string) => string
     case 'entries':
       return teamPath('/meets');
     case 'unpublished-plan':
-      return teamPath('/practice-plans');
+      return teamPath('/schedule');
     case 'overdue-equipment':
       return teamPath('/equipment');
     default:
@@ -462,14 +465,14 @@ const AthleteToday: React.FC<{ teamPath: (p: string) => string; linkedAthleteId:
           <p className="text-sm text-muted-foreground">No practice planned for today.</p>
         ) : (
           <div className="space-y-1">
-            {plan.title && <p className="font-medium">{plan.title}</p>}
-            {plan.assignments.map((a, i) => (
-              <p key={i} className="text-sm text-muted-foreground">
-                {a.focus ?? 'Workout'}
-                {a.distanceMi ? ` · ${a.distanceMi} mi` : ''}
-                {a.durationMinutes ? ` · ${a.durationMinutes} min` : ''}
-              </p>
-            ))}
+            {plan.locationName && <p className="font-medium">{plan.locationName}</p>}
+            {plan.run && <p className="text-sm text-muted-foreground">{plan.run}</p>}
+            {plan.workoutTemplate && (
+              <p className="text-sm text-muted-foreground">{plan.workoutTemplate.name}</p>
+            )}
+            {plan.intervalSession && (
+              <p className="text-sm text-muted-foreground">{plan.intervalSession.title}</p>
+            )}
             {plan.startTime && <p className="text-sm text-muted-foreground">Starts {plan.startTime}</p>}
           </div>
         )}

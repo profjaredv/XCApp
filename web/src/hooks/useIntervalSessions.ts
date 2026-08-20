@@ -58,6 +58,15 @@ export function useSetIntervalSessionArchived(seasonId: string | null) {
   });
 }
 
+export function useDuplicateIntervalSession(seasonId: string | null) {
+  const invalidate = useInvalidateSessions(seasonId);
+  return useMutation({
+    mutationFn: ({ id, groupId, date }: { id: string; groupId?: string | null; date?: string }) =>
+      intervalSessionService.duplicate(id, { groupId, date }),
+    onSuccess: invalidate,
+  });
+}
+
 export function useAddIntervalEntry(seasonId: string | null) {
   const invalidate = useInvalidateSessions(seasonId);
   return useMutation({

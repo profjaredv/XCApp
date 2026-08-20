@@ -48,46 +48,6 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
   }
 });
 
-// POST /api/workout-templates/from-assignment/:assignmentId
-// "Save as template" — copies the assignment's current fields into a new
-// named template. The assignment itself is never linked to it afterward.
-router.post('/from-assignment/:assignmentId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
-  const { name } = req.body;
-  if (!name || !name.trim()) {
-    return res.status(400).json({ msg: 'name is required.' });
-  }
-
-  try {
-    const assignment = await prisma.practicePlanAssignment.findFirst({
-      where: { id: req.params.assignmentId, practicePlan: { teamId: req.user.teamId } },
-    });
-    if (!assignment) {
-      return res.status(404).json({ msg: 'Assignment not found.' });
-    }
-
-    const template = await prisma.workoutTemplate.create({
-      data: {
-        teamId: req.user.teamId,
-        name: name.trim(),
-        volumeTier: assignment.volumeTier,
-        focus: assignment.focus,
-        durationMinutes: assignment.durationMinutes,
-        distanceMi: assignment.distanceMi,
-        strength: assignment.strength,
-        details: assignment.details,
-        createdById: req.user.id,
-      },
-    });
-    res.status(201).json(template);
-  } catch (error) {
-    if (error.code === 'P2002') {
-      return res.status(409).json({ msg: 'A template with that name already exists.' });
-    }
-    console.error('Error saving assignment as template:', error.message);
-    res.status(500).json({ msg: 'Server error' });
-  }
-});
-
 // PUT /api/workout-templates/:id
 router.put('/:id', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { name, volumeTier, focus, durationMinutes, distanceMi, strength, details, archived } = req.body;

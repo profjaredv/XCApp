@@ -199,6 +199,57 @@ router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req
   }
 });
 
+// POST /api/interval-sessions/:id/duplicate — Schedule rework: "one
+// interval sheet gets created, then when another coach is ready to track,
+// they duplicate it and select their group." Copies title/repDistanceM/
+// zone into a fully independent new session (own entries, not shared with
+// the source), seeded from the target group's current roster — same
+// seeding the create-flow does. duplicatedFromId is traceability only.
+router.post('/:id/duplicate', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { groupId, date } = req.body;
+
+  try {
+    const source = await prisma.intervalSession.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
+    if (!source) {
+      return res.status(404).json({ msg: 'Session not found.' });
+    }
+
+    let athleteIds = [];
+    if (groupId) {
+      const group = await prisma.group.findFirst({ where: { id: groupId, teamId: req.user.teamId } });
+      if (!group) {
+        return res.status(404).json({ msg: 'Group not found.' });
+      }
+      const members = await prisma.groupMembership.findMany({ where: { groupId, endDate: null }, select: { athleteId: true } });
+      athleteIds = members.map((m) => m.athleteId);
+    }
+
+    const duplicate = await prisma.intervalSession.create({
+      data: {
+        teamId: req.user.teamId,
+        seasonId: source.seasonId,
+        groupId: groupId || null,
+        date: date ? new Date(date) : source.date,
+        title: source.title,
+        repDistanceM: source.repDistanceM,
+        zone: source.zone,
+        duplicatedFromId: source.id,
+        createdById: req.user.id,
+        entries: { create: athleteIds.map((athleteId) => ({ athleteId })) },
+      },
+      include: {
+        group: { select: { name: true } },
+        entries: { include: { athlete: { select: { name: true } } } },
+      },
+    });
+
+    res.status(201).json(serializeSession(duplicate));
+  } catch (error) {
+    console.error('Error duplicating interval session:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // PUT /api/interval-sessions/:id — session-level fields only; date/group
 // are part of its identity, so change those by deleting and recreating.
 router.put('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
