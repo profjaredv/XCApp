@@ -400,6 +400,11 @@ router.get('/distance-analysis/:season', authenticate, requireTeam, async (req, 
       return res.status(404).json({ success: false, message: 'Team metrics not found. Please calculate metrics first.' });
     }
 
+    // Per-athlete breakdown is computed live (not cached alongside
+    // teamMetrics) — this page loads rarely enough that the extra query
+    // isn't worth a schema change + recompute step to persist it.
+    const athletes = await calculationService.calculateAthleteDistanceBreakdown(teamId, season);
+
     const distanceAnalysis = {
       team: teamMetrics.byDistance || {
         oneMile: { athleteCount: 0, raceCount: 0, avgTime: 0, bestTime: 0, avgPace: 0 },
@@ -407,7 +412,7 @@ router.get('/distance-analysis/:season', authenticate, requireTeam, async (req, 
         threeMile: { athleteCount: 0, raceCount: 0, avgTime: 0, bestTime: 0, avgPace: 0 },
         fiveK: { athleteCount: 0, raceCount: 0, avgTime: 0, bestTime: 0, avgPace: 0 },
       },
-      athletes: [], // per-athlete distance breakdown not implemented
+      athletes,
     };
 
     res.json({ success: true, data: distanceAnalysis });

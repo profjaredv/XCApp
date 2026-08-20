@@ -718,6 +718,102 @@ class CalculationService {
   }
 
   /**
+   * Per-athlete distance-bucketed performance — same bucket boundaries as
+   * calculateDistanceBreakdown above, just grouped by athleteId instead of
+   * aggregated across the whole team. Backs Season > Performance's
+   * "Athlete Comparison" / "Distance Specialists" reports
+   * (routes/enhancedPerformanceRoutes.js's GET /distance-analysis/:season),
+   * which used to hardcode athletes: [] — computed live here rather than
+   * cached, since this route is a low-traffic page view, not a hot path.
+   */
+  async calculateAthleteDistanceBreakdown(teamId, season) {
+    try {
+      const results = await prisma.result.findMany({
+        where: { status: 'FINISHED', time: { gt: 0 }, race: { teamId, season } },
+        select: {
+          time: true,
+          athleteId: true,
+          athlete: { select: { name: true } },
+          race: { select: { distanceMeters: true } },
+        },
+      });
+
+      const byAthlete = new Map();
+      for (const r of results) {
+        if (!byAthlete.has(r.athleteId)) {
+          byAthlete.set(r.athleteId, { athleteId: r.athleteId, athleteName: r.athlete?.name || 'Unknown', results: [] });
+        }
+        byAthlete.get(r.athleteId).results.push(r);
+      }
+
+      const buckets = [
+        ['oneMile', 1500, 1700],
+        ['onePointFiveMile', 2300, 2600],
+        ['threeMile', 4700, 4900],
+        ['fiveK', 4900, 5100],
+      ];
+
+      const athletes = [];
+      for (const { athleteId, athleteName, results: athleteResults } of byAthlete.values()) {
+        const byDistance = {};
+        const bucketed = new Set();
+        for (const [key, minMeters, maxMeters] of buckets) {
+          const inBucket = athleteResults.filter((r) => {
+            const distance = r.race?.distanceMeters || 0;
+            return distance >= minMeters && distance <= maxMeters;
+          });
+          inBucket.forEach((r) => bucketed.add(r));
+          byDistance[key] = this._athleteDistanceStats(inBucket);
+        }
+        byDistance.other = this._athleteOtherStats(athleteResults.filter((r) => !bucketed.has(r)));
+        athletes.push({ athleteId, athleteName, byDistance });
+      }
+
+      return athletes;
+    } catch (error) {
+      logger.error(`Error calculating athlete distance breakdown: ${error.message}`);
+      return [];
+    }
+  }
+
+  _athleteDistanceStats(rows) {
+    if (rows.length === 0) {
+      return { count: 0, bestTime: 0, worstTime: 0, avgTime: 0, avgPace: 0, consistency: 0, totalMiles: 0 };
+    }
+    const times = rows.map((r) => r.time);
+    const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
+    const totalMiles = rows.reduce((sum, r) => sum + (r.race?.distanceMeters || 0) / 1609.34, 0);
+    const avgPace = totalMiles > 0 ? times.reduce((a, b) => a + b, 0) / totalMiles : 0;
+    // Coefficient of variation, as a percentage — lower means more
+    // consistent (same "lower is better" convention as coachUpAnalysis.js's
+    // consistencyPct).
+    const variance = times.reduce((sum, t) => sum + (t - avgTime) ** 2, 0) / times.length;
+    const consistency = avgTime > 0 ? parseFloat(((Math.sqrt(variance) / avgTime) * 100).toFixed(2)) : 0;
+
+    return {
+      count: rows.length,
+      bestTime: parseFloat(Math.min(...times).toFixed(2)),
+      worstTime: parseFloat(Math.max(...times).toFixed(2)),
+      avgTime: parseFloat(avgTime.toFixed(2)),
+      avgPace: parseFloat(avgPace.toFixed(2)),
+      consistency,
+      totalMiles: parseFloat(totalMiles.toFixed(2)),
+    };
+  }
+
+  _athleteOtherStats(rows) {
+    if (rows.length === 0) return { count: 0, avgTime: 0, avgPace: 0, totalMiles: 0 };
+    const totalMiles = rows.reduce((sum, r) => sum + (r.race?.distanceMeters || 0) / 1609.34, 0);
+    const totalTime = rows.reduce((sum, r) => sum + r.time, 0);
+    return {
+      count: rows.length,
+      avgTime: parseFloat((totalTime / rows.length).toFixed(2)),
+      avgPace: parseFloat((totalMiles > 0 ? totalTime / totalMiles : 0).toFixed(2)),
+      totalMiles: parseFloat(totalMiles.toFixed(2)),
+    };
+  }
+
+  /**
    * Calculate team depth metrics (top 5/7 spread). One query for all
    * results in the season instead of one query per race (the original
    * looped a query per race — this fetches once and groups in memory).
