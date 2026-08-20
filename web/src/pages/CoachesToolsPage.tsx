@@ -57,7 +57,7 @@ interface AiInsight {
   description: string;
   athletes?: string[];
   priority: 'high' | 'medium' | 'low';
-  category?: 'consistency' | 'breakout' | 'attention';
+  category?: 'starters' | 'breakout' | 'consistency' | 'attention';
 }
 
 interface AiInsightsData {
@@ -79,8 +79,9 @@ interface AiInsightsData {
 }
 
 const CATEGORY_LABEL: Record<NonNullable<AiInsight['category']>, string> = {
-  consistency: 'Consistency',
+  starters: 'Top Performers',
   breakout: 'Breakout Watch',
+  consistency: 'Consistency',
   attention: 'Needs Attention',
 };
 
@@ -812,8 +813,9 @@ export default function CoachesToolsPage() {
                 AI Performance Insights
               </CardTitle>
               <CardDescription>
-                Scouting notes, not a stats dump — consistency, middle-of-the-pack breakout candidates, and what needs a coaching
-                conversation. Before the season starts, uses last season's data.
+                Scouting notes, not a stats dump — projected top performers, middle-of-the-pack breakout candidates, consistency, and
+                what needs a coaching conversation. Before the season starts, uses last season's final 3 races and excludes graduated
+                seniors.
               </CardDescription>
               <p className="text-xs text-muted-foreground mt-1">
                 Athlete names are anonymized before analysis —{' '}
