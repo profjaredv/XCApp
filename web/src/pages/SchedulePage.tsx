@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ChevronLeft, ChevronRight, Loader2, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Loader2, Plus, Upload } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
@@ -17,6 +17,8 @@ import {
   useSetPublished,
   useDuplicateDay,
   useDuplicateWeek,
+  useExportPracticePlans,
+  useImportPracticePlans,
 } from '@/hooks/usePracticePlans';
 import { usePracticeLocations, useCreatePracticeLocation } from '@/hooks/usePracticeLocations';
 import { useWorkoutTemplates } from '@/hooks/useWorkoutTemplates';
@@ -25,6 +27,7 @@ import { useMeets } from '@/hooks/useMeetOps';
 import type { PracticePlan } from '@/api/practicePlanService';
 import type { MeetSummary } from '@/api/meetOpsService';
 import { formatDateShort } from '@/lib/formatUtils';
+import { toCsv } from '@/lib/csvParse';
 
 // Schedule rework: Practice Plans and Meets merged into one calendar, with
 // month/week/agenda views (all sharing the same DayCell rendering, agenda
@@ -63,6 +66,27 @@ function isSameDay(a: Date, b: Date): boolean {
 }
 function formatDayHeading(d: Date): string {
   return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
+
+function downloadCsv(filename: string, csvText: string) {
+  const blob = new Blob([csvText], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 const SchedulePage: React.FC = () => {
@@ -113,12 +137,31 @@ const SchedulePage: React.FC = () => {
   }, [meets]);
 
   const [editorDate, setEditorDate] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const today = new Date();
 
   const handleModeChange = (mode: ViewMode) => {
     if (mode === 'week') setViewWeekStart(startOfWeek(viewMonth));
     if (mode === 'agenda') setAgendaStart(viewMonth);
     setViewMode(mode);
+  };
+
+  const exportPlans = useExportPracticePlans();
+  const handleExport = async () => {
+    try {
+      const { headers, rows } = await exportPlans.mutateAsync({
+        seasonId: seasonId as string,
+        from: toISODate(rangeStart),
+        to: toISODate(rangeEnd),
+      });
+      if (rows.length === 0) {
+        toast('No practices to export in this range.');
+        return;
+      }
+      downloadCsv(`practices-${toISODate(rangeStart)}-to-${toISODate(rangeEnd)}.csv`, toCsv(headers, rows));
+    } catch {
+      toast.error('Could not export practices.');
+    }
   };
 
   if (!activeYear || !seasonId) {
@@ -136,18 +179,28 @@ const SchedulePage: React.FC = () => {
           <h1 className="text-2xl font-bold">Schedule</h1>
           <p className="text-sm text-muted-foreground">Practices and meets for the season.</p>
         </div>
-        <Select value={String(activeYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-          <SelectTrigger className="w-[120px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {seasons.map((s) => (
-              <SelectItem key={s.year} value={String(s.year)}>
-                {s.year}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select value={String(activeYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+            <SelectTrigger className="w-[120px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {seasons.map((s) => (
+                <SelectItem key={s.year} value={String(s.year)}>
+                  {s.year}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" onClick={handleExport} disabled={exportPlans.isPending}>
+            {exportPlans.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+            Export
+          </Button>
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -316,6 +369,8 @@ const SchedulePage: React.FC = () => {
           onClose={() => setEditorDate(null)}
         />
       )}
+
+      <ImportPracticesDialog open={importOpen} onClose={() => setImportOpen(false)} seasonId={seasonId} />
     </div>
   );
 };
@@ -373,6 +428,100 @@ const DayCell: React.FC<{
         </span>
       ))}
     </button>
+  );
+};
+
+// Practices-only bulk import (routes/practicePlans.js's POST /import) —
+// meets keep using the separate Athletic.net/scraped-race importers on the
+// Meets page. A coach can either upload a .csv file or paste CSV text
+// straight in; both land in the same csvText state.
+const ImportPracticesDialog: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  seasonId: string;
+}> = ({ open, onClose, seasonId }) => {
+  const importPlans = useImportPracticePlans(seasonId);
+  const [csvText, setCsvText] = useState('');
+  const [result, setResult] = useState<{ imported: number; skipped: number; warnings: Array<{ row: number; message: string }> } | null>(
+    null
+  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleClose = () => {
+    onClose();
+    setCsvText('');
+    setResult(null);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvText(await readFileAsText(file));
+    setResult(null);
+  };
+
+  const handleImport = async () => {
+    if (!csvText.trim()) return;
+    try {
+      const res = await importPlans.mutateAsync(csvText);
+      setResult(res);
+      toast.success(res.msg);
+    } catch {
+      toast.error('Could not import that CSV.');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Import practices</DialogTitle>
+          <DialogDescription>
+            Columns: Date (YYYY-MM-DD, required), Location, Start Time, Announcements, Pre Run, Run, Post Run, Workout
+            Template, Interval Sheet, Published (TRUE/FALSE). A row overwrites that day's existing plan; new locations
+            are created automatically, but Workout Template/Interval Sheet names must already exist.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} className="text-sm" />
+          <Textarea
+            rows={8}
+            value={csvText}
+            onChange={(e) => {
+              setCsvText(e.target.value);
+              setResult(null);
+            }}
+            placeholder="Or paste CSV text here…"
+            className="font-mono text-xs"
+          />
+          {result && (
+            <div className="text-sm space-y-1">
+              <p>
+                {result.imported} imported, {result.skipped} skipped.
+              </p>
+              {result.warnings.length > 0 && (
+                <ul className="text-xs text-amber-700 list-disc pl-4 max-h-32 overflow-y-auto">
+                  {result.warnings.map((w, i) => (
+                    <li key={i}>
+                      Row {w.row}: {w.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>
+            Close
+          </Button>
+          <Button onClick={handleImport} disabled={!csvText.trim() || importPlans.isPending}>
+            {importPlans.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Import
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

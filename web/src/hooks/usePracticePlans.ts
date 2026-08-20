@@ -55,3 +55,18 @@ export function useDuplicateWeek(seasonId: string | null) {
     onSuccess: invalidate,
   });
 }
+
+export function useExportPracticePlans() {
+  return useMutation({
+    mutationFn: ({ seasonId, from, to }: { seasonId: string; from: string; to: string }) =>
+      practicePlanService.exportRange(seasonId, from, to),
+  });
+}
+
+export function useImportPracticePlans(seasonId: string | null) {
+  const invalidate = useInvalidatePlans(seasonId);
+  return useMutation({
+    mutationFn: (csvData: string) => practicePlanService.importCsv(seasonId as string, csvData),
+    onSuccess: invalidate,
+  });
+}

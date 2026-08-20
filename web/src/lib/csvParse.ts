@@ -1,11 +1,12 @@
-// Small client-side CSV parser for the Field Results upload dialog
-// (FieldResultsPage.tsx) — it needs to read a pasted/uploaded CSV's header
-// row to find the "Division" column and split rows by division *before*
-// anything is sent to the server, so no backend dependency here. RFC4180-
-// lite: quoted fields, embedded commas/newlines inside quotes, and ""
-// escaping — everything the bookmarklet's own csvCell() produces, plus
-// plain unquoted fields for a coach who hand-edits or pastes from a
-// spreadsheet export.
+// Small client-side CSV parser, originally built for the Field Results
+// upload dialog (FieldResultsPage.tsx — it needs to read a pasted/uploaded
+// CSV's header row to find the "Division" column and split rows by
+// division *before* anything is sent to the server) and reused as-is by
+// the Schedule practices export (SchedulePage.tsx, serializing rows the
+// backend already shaped). RFC4180-lite: quoted fields, embedded
+// commas/newlines inside quotes, and "" escaping — everything the
+// bookmarklet's own csvCell() produces, plus plain unquoted fields for a
+// coach who hand-edits or pastes from a spreadsheet export.
 
 function parseCsvRows(text: string): string[][] {
   const rows: string[][] = [];

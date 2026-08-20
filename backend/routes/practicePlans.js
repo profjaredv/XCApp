@@ -1,7 +1,22 @@
 const express = require('express');
 const router = express.Router();
+const { parse } = require('csv-parse/sync');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
+const { parsePracticePlanCsv } = require('../lib/practicePlanCsv');
+
+const EXPORT_HEADERS = [
+  'Date',
+  'Location',
+  'Start Time',
+  'Announcements',
+  'Pre Run',
+  'Run',
+  'Post Run',
+  'Workout Template',
+  'Interval Sheet',
+  'Published',
+];
 
 // Schedule rework (2026-08-20 request): one shared plan per day, not a
 // per-group row with granular tier/focus/duration/distance fields — see
@@ -290,6 +305,152 @@ router.post('/duplicate-week', authenticate, requireTeam, requireRole(['HEAD_COA
     res.status(201).json({ msg: `Duplicated ${count} days.`, count });
   } catch (error) {
     console.error('Error duplicating week:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/practice-plans/export?seasonId=&from=&to= — practices in a date
+// range, shaped as CSV-ready rows (header-keyed, matching EXPORT_HEADERS)
+// so the frontend just serializes them client-side (lib/csvParse.ts's
+// toCsv, same helper Field Results uses) rather than this route owning
+// file-download headers.
+router.get('/export', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
+  const { seasonId, from, to } = req.query;
+  if (!seasonId || !from || !to) {
+    return res.status(400).json({ msg: 'seasonId, from, and to are required.' });
+  }
+
+  try {
+    const season = await prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    const plans = await prisma.practicePlan.findMany({
+      where: { seasonId, date: { gte: new Date(from), lte: new Date(to) } },
+      include: INCLUDE,
+      orderBy: { date: 'asc' },
+    });
+
+    res.json({
+      headers: EXPORT_HEADERS,
+      rows: plans.map((p) => ({
+        Date: p.date.toISOString().slice(0, 10),
+        Location: p.location?.name ?? '',
+        'Start Time': p.startTime ?? '',
+        Announcements: p.announcements ?? '',
+        'Pre Run': p.preRun ?? '',
+        Run: p.run ?? '',
+        'Post Run': p.postRun ?? '',
+        'Workout Template': p.workoutTemplate?.name ?? '',
+        'Interval Sheet': p.intervalSession?.title ?? '',
+        Published: p.published ? 'TRUE' : 'FALSE',
+      })),
+    });
+  } catch (error) {
+    console.error('Error exporting practice plans:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/practice-plans/import — practices only, a bulk alternative to
+// filling in the Schedule day editor one day at a time (see
+// lib/practicePlanCsv.js for the "why"). Body: { seasonId, csvData }.
+// Locations named in the CSV that don't exist yet are created, same as the
+// day editor's own inline "Add new location" — a coach naming a new
+// practice spot in a spreadsheet shouldn't have to go create it by hand
+// first. Workout Template and Interval Sheet names must already exist and
+// are matched by name (case-insensitive, scoped to this team/season); not
+// found is a per-row warning, not a fatal error, and that day still
+// imports without the attachment.
+router.post('/import', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+  const { seasonId, csvData } = req.body;
+  if (!seasonId || !csvData || typeof csvData !== 'string') {
+    return res.status(400).json({ msg: 'seasonId and csvData are required.' });
+  }
+
+  try {
+    const season = await prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    let rows;
+    try {
+      rows = parse(csvData, { columns: true, skip_empty_lines: true, trim: true });
+    } catch (parseError) {
+      return res.status(400).json({ msg: `Could not parse CSV: ${parseError.message}` });
+    }
+
+    const { plans: parsedPlans, errors, skipped } = parsePracticePlanCsv(rows);
+    if (parsedPlans.length === 0) {
+      return res.status(400).json({ msg: 'No valid rows to import.', imported: 0, skipped, warnings: errors });
+    }
+
+    const [locations, templates, sessions] = await Promise.all([
+      prisma.practiceLocation.findMany({ where: { teamId: req.user.teamId } }),
+      prisma.workoutTemplate.findMany({ where: { teamId: req.user.teamId } }),
+      prisma.intervalSession.findMany({ where: { teamId: req.user.teamId, seasonId } }),
+    ]);
+    const locationByName = new Map(locations.map((l) => [l.name.toLowerCase(), l]));
+    const templateByName = new Map(templates.map((t) => [t.name.toLowerCase(), t]));
+    const sessionByTitle = new Map(sessions.map((s) => [s.title.toLowerCase(), s]));
+
+    const warnings = [...errors];
+    let imported = 0;
+
+    await prisma.$transaction(async (tx) => {
+      for (let i = 0; i < parsedPlans.length; i++) {
+        const row = parsedPlans[i];
+
+        let locationId = null;
+        if (row.location) {
+          let loc = locationByName.get(row.location.toLowerCase());
+          if (!loc) {
+            loc = await tx.practiceLocation.create({ data: { teamId: req.user.teamId, name: row.location } });
+            locationByName.set(row.location.toLowerCase(), loc);
+          }
+          locationId = loc.id;
+        }
+
+        let workoutTemplateId = null;
+        if (row.workoutTemplate) {
+          const t = templateByName.get(row.workoutTemplate.toLowerCase());
+          if (t) workoutTemplateId = t.id;
+          else warnings.push({ row: i + 1, message: `Workout template "${row.workoutTemplate}" not found — imported without it.` });
+        }
+
+        let intervalSessionId = null;
+        if (row.intervalSheet) {
+          const s = sessionByTitle.get(row.intervalSheet.toLowerCase());
+          if (s) intervalSessionId = s.id;
+          else warnings.push({ row: i + 1, message: `Interval sheet "${row.intervalSheet}" not found — imported without it.` });
+        }
+
+        const fields = {
+          locationId,
+          startTime: row.startTime,
+          announcements: row.announcements,
+          preRun: row.preRun,
+          run: row.run,
+          postRun: row.postRun,
+          workoutTemplateId,
+          intervalSessionId,
+          published: row.published,
+        };
+        const normalizedDate = new Date(row.date);
+        await tx.practicePlan.upsert({
+          where: { seasonId_date: { seasonId, date: normalizedDate } },
+          update: fields,
+          create: { teamId: req.user.teamId, seasonId, date: normalizedDate, createdById: req.user.id, ...fields },
+        });
+        imported++;
+      }
+    });
+
+    res.status(201).json({ msg: `Imported ${imported} day${imported === 1 ? '' : 's'}.`, imported, skipped, warnings });
+  } catch (error) {
+    console.error('Error importing practice plans:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

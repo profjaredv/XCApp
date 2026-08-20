@@ -84,4 +84,14 @@ export const practicePlanService = {
     const response = await api.post('/practice-plans/duplicate-week', input);
     return response.data as { msg: string; count: number };
   },
+
+  async exportRange(seasonId: string, from: string, to: string) {
+    const response = await api.get('/practice-plans/export', { params: { seasonId, from, to } });
+    return response.data as { headers: string[]; rows: Record<string, string>[] };
+  },
+
+  async importCsv(seasonId: string, csvData: string) {
+    const response = await api.post('/practice-plans/import', { seasonId, csvData });
+    return response.data as { msg: string; imported: number; skipped: number; warnings: Array<{ row: number; message: string }> };
+  },
 };
