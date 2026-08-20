@@ -30,7 +30,6 @@ interface AnalyticsHeaderProps {
   isRecalculating: boolean;
   team: Team | undefined;
   handleClearTeamData: () => void;
-  seasonDisplay: string;
 }
 
 export const AnalyticsHeader = ({
@@ -46,7 +45,6 @@ export const AnalyticsHeader = ({
   isRecalculating,
   team,
   handleClearTeamData,
-  seasonDisplay
 }: AnalyticsHeaderProps) => {
   // Backend only ever lets HEAD_COACH (or an impersonating super admin)
   // actually clear team data (routes/teams.js) — this just keeps the
@@ -72,47 +70,43 @@ export const AnalyticsHeader = ({
     </>
   );
 
+  // No team-name heading or "which year" summary line here anymore —
+  // Layout's persistent header already shows both on every screen now, so
+  // repeating them here was pure duplication ("Ellensburg High XC" twice,
+  // the year mentioned three times over). What's genuinely specific to
+  // Analytics stays: the current/historical mode toggle (a real behavior
+  // switch, not just a year picker) and, only in historical mode, the
+  // specific-year picker that mode needs.
+  if (isLoadingSeasons || !availableSeasons || availableSeasons.length === 0) {
+    return null;
+  }
+
   return (
-    <div className="mb-8">
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-        <h1 className="text-3xl font-bold tracking-tight">{currentUser?.team?.name || 'Team Analytics'}</h1>
-        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-          {!isLoadingSeasons && availableSeasons && availableSeasons.length > 0 && (
-            <>
-              <SeasonModeSelector
-                mode={seasonMode}
-                onModeChange={handleSeasonModeChange}
-                className="mb-2 sm:mb-0"
-              />
-              {seasonMode === 'historical' && (
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5 text-muted-foreground" />
-                  <Select value={selectedSeason?.toString()} onValueChange={(v) => setSelectedSeason(Number(v))}>
-                    <SelectTrigger className="w-[180px]"><SelectValue placeholder="Select season" /></SelectTrigger>
-                    <SelectContent>
-                      {availableSeasons.map((s) => (
-                        <SelectItem key={s.year} value={s.year.toString()}>{s.year} Cross{s.year === activeSeason ? ' (Current)' : ''}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div className="hidden sm:flex items-center gap-2">{dataActionButtons}</div>
-              <div className="sm:hidden w-full">
-                <Button variant="ghost" size="sm" className="w-full" onClick={() => setShowDataActions((v) => !v)}>
-                  <MoreVertical className="h-4 w-4 mr-1" />
-                  {showDataActions ? 'Hide data actions' : 'Data actions'}
-                </Button>
-                {showDataActions && (
-                  <div className="flex flex-col gap-2 mt-2">{dataActionButtons}</div>
-                )}
-              </div>
-            </>
-          )}
-          {/* Enhanced Analytics now integrated as tabs - no separate page needed */}
+    <div className="mb-4 flex flex-col sm:flex-row sm:justify-end items-center gap-2 sm:gap-3">
+      <SeasonModeSelector mode={seasonMode} onModeChange={handleSeasonModeChange} />
+      {seasonMode === 'historical' && (
+        <div className="flex items-center gap-2">
+          <Calendar className="h-5 w-5 text-muted-foreground" />
+          <Select value={selectedSeason?.toString()} onValueChange={(v) => setSelectedSeason(Number(v))}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Select season" /></SelectTrigger>
+            <SelectContent>
+              {availableSeasons.map((s) => (
+                <SelectItem key={s.year} value={s.year.toString()}>{s.year} Cross{s.year === activeSeason ? ' (Current)' : ''}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+      )}
+      <div className="hidden sm:flex items-center gap-2">{dataActionButtons}</div>
+      <div className="sm:hidden w-full">
+        <Button variant="ghost" size="sm" className="w-full" onClick={() => setShowDataActions((v) => !v)}>
+          <MoreVertical className="h-4 w-4 mr-1" />
+          {showDataActions ? 'Hide data actions' : 'Data actions'}
+        </Button>
+        {showDataActions && (
+          <div className="flex flex-col gap-2 mt-2">{dataActionButtons}</div>
+        )}
       </div>
-      <p className="text-lg text-muted-foreground text-center sm:text-left">{seasonDisplay}</p>
     </div>
   );
 };

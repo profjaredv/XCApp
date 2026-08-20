@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Archive, ChevronLeft, ChevronRight, Download, Loader2, Pencil, Plus, Timer, Upload } from 'lucide-react';
+import { Archive, ChevronLeft, ChevronRight, Download, Loader2, MoreVertical, Pencil, Plus, Timer, Upload } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import {
@@ -155,6 +155,13 @@ const SchedulePage: React.FC = () => {
   const [editorDate, setEditorDate] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
+  // Workout Templates / Interval Sessions / Export / Import are all
+  // once-in-a-while actions, not something a coach needs visible every
+  // time they open Schedule — as four separate full-text buttons they used
+  // to eat close to a third of a phone screen before any actual calendar
+  // showed up. Collapsed behind one toggle on mobile only, same pattern as
+  // AnalyticsHeader's "Data actions"; desktop keeps them inline.
+  const [showScheduleActions, setShowScheduleActions] = useState(false);
   const today = new Date();
 
   const handleModeChange = (mode: ViewMode) => {
@@ -191,6 +198,27 @@ const SchedulePage: React.FC = () => {
     );
   }
 
+  const scheduleActionButtons = (
+    <>
+      <Button variant="outline" onClick={() => setTemplateManagerOpen(true)}>
+        <Pencil className="h-4 w-4 mr-2" />
+        Workout Templates
+      </Button>
+      <Button variant="outline" onClick={() => navigate(teamPath('/interval-sessions'))}>
+        <Timer className="h-4 w-4 mr-2" />
+        Interval Sessions
+      </Button>
+      <Button variant="outline" onClick={handleExport} disabled={exportPlans.isPending}>
+        {exportPlans.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+        Export
+      </Button>
+      <Button variant="outline" onClick={() => setImportOpen(true)}>
+        <Upload className="h-4 w-4 mr-2" />
+        Import
+      </Button>
+    </>
+  );
+
   return (
     <div className="p-3 md:p-6 space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -198,23 +226,13 @@ const SchedulePage: React.FC = () => {
           <h1 className="text-2xl font-bold">Schedule</h1>
           <p className="text-sm text-muted-foreground">Click any day to add or edit its practice plan.</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" onClick={() => setTemplateManagerOpen(true)}>
-            <Pencil className="h-4 w-4 mr-2" />
-            Workout Templates
+        <div className="hidden sm:flex items-center gap-2 flex-wrap">{scheduleActionButtons}</div>
+        <div className="sm:hidden w-full">
+          <Button variant="ghost" size="sm" className="w-full" onClick={() => setShowScheduleActions((v) => !v)}>
+            <MoreVertical className="h-4 w-4 mr-1" />
+            {showScheduleActions ? 'Hide actions' : 'More actions'}
           </Button>
-          <Button variant="outline" onClick={() => navigate(teamPath('/interval-sessions'))}>
-            <Timer className="h-4 w-4 mr-2" />
-            Interval Sessions
-          </Button>
-          <Button variant="outline" onClick={handleExport} disabled={exportPlans.isPending}>
-            {exportPlans.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-            Export
-          </Button>
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            Import
-          </Button>
+          {showScheduleActions && <div className="flex flex-col gap-2 mt-2">{scheduleActionButtons}</div>}
         </div>
       </div>
 

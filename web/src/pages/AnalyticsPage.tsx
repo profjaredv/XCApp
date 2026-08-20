@@ -330,8 +330,6 @@ const AnalyticsPage = () => {
     }
   }, [refetch, toast]);
 
-  const seasonDisplay = `${selectedSeason} Cross Country${selectedSeason === activeSeason ? ' (Current)' : ''}`;
-
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value);
   const handleGenderFilterChange = (value: 'all' | 'M' | 'F') => setGenderFilter(value);
   const handleGradeFilterChange = (value: string) => setGradeFilter(value);
@@ -529,7 +527,6 @@ const AnalyticsPage = () => {
         isRecalculating={isRecalculating}
         team={team}
         handleClearTeamData={handleClearTeamData}
-        seasonDisplay={seasonDisplay}
       />
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         {/* The sidebar's Season dropdown (Layout.tsx's SeasonNavSection) is
