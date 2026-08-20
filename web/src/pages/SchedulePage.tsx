@@ -23,24 +23,32 @@ import { useWorkoutTemplates } from '@/hooks/useWorkoutTemplates';
 import { useIntervalSessions } from '@/hooks/useIntervalSessions';
 import { useMeets } from '@/hooks/useMeetOps';
 import type { PracticePlan } from '@/api/practicePlanService';
+import type { MeetSummary } from '@/api/meetOpsService';
 import { formatDateShort } from '@/lib/formatUtils';
 
-// Schedule rework: Practice Plans and Meets merged into one month calendar
-// — a coach opened two separate, mostly-empty pages before this and had to
-// hold the actual paper calendar to know what day was what. Clicking a day
-// opens the simplified plan editor (Location, Announcements, Pre Run/Run/
-// Post Run, plus an attached workout template or interval sheet); clicking
-// a meet navigates into the existing Meets page for that specific meet.
+// Schedule rework: Practice Plans and Meets merged into one calendar, with
+// month/week/agenda views (all sharing the same DayCell rendering, agenda
+// just lists its own rows) — a coach opened two separate, mostly-empty
+// pages before this and had to hold the actual paper calendar to know what
+// day was what. Clicking a day opens the simplified plan editor (Location,
+// Announcements, Pre Run/Run/Post Run, plus an attached workout template or
+// interval sheet); clicking a meet navigates to that meet's detail page.
 
 const NONE = '__none__';
 const NEW_LOCATION = '__new__';
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+type ViewMode = 'month' | 'week' | 'agenda';
+const AGENDA_WINDOW_DAYS = 30;
 
 function toISODate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+function startOfWeek(d: Date): Date {
+  return addDays(d, -d.getDay());
 }
 function addDays(d: Date, n: number): Date {
   const r = new Date(d);
@@ -53,6 +61,9 @@ function addMonths(d: Date, n: number): Date {
 function isSameDay(a: Date, b: Date): boolean {
   return toISODate(a) === toISODate(b);
 }
+function formatDayHeading(d: Date): string {
+  return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+}
 
 const SchedulePage: React.FC = () => {
   const navigate = useNavigate();
@@ -60,7 +71,10 @@ const SchedulePage: React.FC = () => {
   const { data: context } = useTeamContext();
   const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
 
+  const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
+  const [viewWeekStart, setViewWeekStart] = useState(() => startOfWeek(new Date()));
+  const [agendaStart, setAgendaStart] = useState(() => new Date());
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const activeYear = selectedYear ?? context?.activeSeason ?? seasons[0]?.year ?? null;
   const selectedSeason = seasons.find((s) => s.year === activeYear) ?? null;
@@ -72,7 +86,18 @@ const SchedulePage: React.FC = () => {
     return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
   }, [viewMonth]);
 
-  const { data: plans = [] } = usePracticePlanRange(seasonId, toISODate(gridDays[0]), toISODate(gridDays[41]));
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(viewWeekStart, i)), [viewWeekStart]);
+
+  const agendaDays = useMemo(
+    () => Array.from({ length: AGENDA_WINDOW_DAYS }, (_, i) => addDays(agendaStart, i)),
+    [agendaStart]
+  );
+
+  const rangeStart = viewMode === 'month' ? gridDays[0] : viewMode === 'week' ? weekDays[0] : agendaDays[0];
+  const rangeEnd =
+    viewMode === 'month' ? gridDays[41] : viewMode === 'week' ? weekDays[6] : agendaDays[AGENDA_WINDOW_DAYS - 1];
+
+  const { data: plans = [] } = usePracticePlanRange(seasonId, toISODate(rangeStart), toISODate(rangeEnd));
   const { data: meets = [] } = useMeets(seasonId);
 
   const planByDate = useMemo(() => new Map(plans.map((p) => [p.date.slice(0, 10), p])), [plans]);
@@ -89,6 +114,12 @@ const SchedulePage: React.FC = () => {
 
   const [editorDate, setEditorDate] = useState<string | null>(null);
   const today = new Date();
+
+  const handleModeChange = (mode: ViewMode) => {
+    if (mode === 'week') setViewWeekStart(startOfWeek(viewMonth));
+    if (mode === 'agenda') setAgendaStart(viewMonth);
+    setViewMode(mode);
+  };
 
   if (!activeYear || !seasonId) {
     return (
@@ -119,75 +150,163 @@ const SchedulePage: React.FC = () => {
         </Select>
       </div>
 
-      <div className="flex items-center justify-between">
-        <Button variant="outline" size="icon" onClick={() => setViewMonth((m) => addMonths(m, -1))}>
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <h2 className="text-lg font-semibold">
-          {viewMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
-        </h2>
-        <Button variant="outline" size="icon" onClick={() => setViewMonth((m) => addMonths(m, 1))}>
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden border">
-        {WEEKDAY_LABELS.map((d) => (
-          <div key={d} className="bg-muted text-xs font-medium text-muted-foreground text-center py-1.5">
-            {d}
-          </div>
-        ))}
-        {gridDays.map((day) => {
-          const iso = toISODate(day);
-          const inMonth = day.getMonth() === viewMonth.getMonth();
-          const plan = planByDate.get(iso);
-          const dayMeets = meetsByDate.get(iso) ?? [];
-          const planLabel = plan
-            ? plan.locationName ?? plan.run ?? plan.workoutTemplate?.name ?? plan.intervalSession?.title
-            : null;
-
-          return (
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="inline-flex rounded-md border p-0.5 bg-muted/40">
+          {(['month', 'week', 'agenda'] as ViewMode[]).map((mode) => (
             <button
-              key={iso}
+              key={mode}
               type="button"
-              onClick={() => setEditorDate(iso)}
-              className={`min-h-[84px] bg-background p-1.5 text-left flex flex-col gap-1 hover:bg-accent/50 transition-colors ${
-                inMonth ? '' : 'opacity-40'
+              onClick={() => handleModeChange(mode)}
+              className={`px-3 py-1 text-sm rounded capitalize transition-colors ${
+                viewMode === mode ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <span
-                className={`text-xs w-5 h-5 inline-flex items-center justify-center ${
-                  isSameDay(day, today) ? 'rounded-full bg-primary text-primary-foreground font-semibold' : 'text-muted-foreground'
-                }`}
-              >
-                {day.getDate()}
-              </span>
-              {planLabel && (
-                <span
-                  className={`text-[11px] rounded px-1 py-0.5 truncate ${
-                    plan?.published ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-800'
-                  }`}
-                >
-                  {planLabel}
-                </span>
-              )}
-              {dayMeets.map((m) => (
-                <span
-                  key={m.id}
-                  role="link"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(teamPath(`/meet/${m.id}`));
-                  }}
-                  className="text-[11px] rounded px-1 py-0.5 truncate bg-secondary text-secondary-foreground hover:underline"
-                >
-                  {m.name}
-                </span>
-              ))}
+              {mode}
             </button>
-          );
-        })}
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              if (viewMode === 'month') setViewMonth((m) => addMonths(m, -1));
+              else if (viewMode === 'week') setViewWeekStart((w) => addDays(w, -7));
+              else setAgendaStart((a) => addDays(a, -AGENDA_WINDOW_DAYS));
+            }}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <h2 className="text-lg font-semibold whitespace-nowrap">
+            {viewMode === 'month' && viewMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+            {viewMode === 'week' &&
+              `${weekDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${weekDays[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`}
+            {viewMode === 'agenda' &&
+              `${agendaDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${agendaDays[AGENDA_WINDOW_DAYS - 1].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`}
+          </h2>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              if (viewMode === 'month') setViewMonth((m) => addMonths(m, 1));
+              else if (viewMode === 'week') setViewWeekStart((w) => addDays(w, 7));
+              else setAgendaStart((a) => addDays(a, AGENDA_WINDOW_DAYS));
+            }}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
+
+      {viewMode === 'month' && (
+        <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden border">
+          {WEEKDAY_LABELS.map((d) => (
+            <div key={d} className="bg-muted text-xs font-medium text-muted-foreground text-center py-1.5">
+              {d}
+            </div>
+          ))}
+          {gridDays.map((day) => (
+            <DayCell
+              key={toISODate(day)}
+              day={day}
+              faded={day.getMonth() !== viewMonth.getMonth()}
+              isToday={isSameDay(day, today)}
+              plan={planByDate.get(toISODate(day)) ?? null}
+              dayMeets={meetsByDate.get(toISODate(day)) ?? []}
+              onSelectDay={() => setEditorDate(toISODate(day))}
+              onSelectMeet={(id) => navigate(teamPath(`/meet/${id}`))}
+            />
+          ))}
+        </div>
+      )}
+
+      {viewMode === 'week' && (
+        <div className="overflow-x-auto">
+          <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden border min-w-[720px]">
+            {weekDays.map((day) => (
+              <div key={toISODate(day)} className="bg-muted text-xs font-medium text-muted-foreground text-center py-1.5">
+                {day.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
+              </div>
+            ))}
+            {weekDays.map((day) => (
+              <DayCell
+                key={toISODate(day)}
+                day={day}
+                faded={false}
+                isToday={isSameDay(day, today)}
+                plan={planByDate.get(toISODate(day)) ?? null}
+                dayMeets={meetsByDate.get(toISODate(day)) ?? []}
+                onSelectDay={() => setEditorDate(toISODate(day))}
+                onSelectMeet={(id) => navigate(teamPath(`/meet/${id}`))}
+                roomy
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'agenda' && (
+        <div className="space-y-2">
+          {(() => {
+            const activeDays = agendaDays.filter(
+              (day) => planByDate.get(toISODate(day)) || (meetsByDate.get(toISODate(day)) ?? []).length > 0
+            );
+            if (activeDays.length === 0) {
+              return <p className="text-sm text-muted-foreground py-6">Nothing scheduled in this window.</p>;
+            }
+            return activeDays.map((day) => {
+              const iso = toISODate(day);
+              const plan = planByDate.get(iso) ?? null;
+              const dayMeets = meetsByDate.get(iso) ?? [];
+              return (
+                <div key={iso} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditorDate(iso)}
+                      className={`text-sm font-medium hover:underline text-left ${isSameDay(day, today) ? 'text-primary' : ''}`}
+                    >
+                      {formatDayHeading(day)}
+                    </button>
+                  </div>
+                  {plan && (
+                    <button type="button" onClick={() => setEditorDate(iso)} className="block w-full text-left space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap text-sm">
+                        {plan.locationName && <span className="font-medium">{plan.locationName}</span>}
+                        {plan.startTime && <span className="text-muted-foreground">{plan.startTime}</span>}
+                        <span
+                          className={`text-[11px] rounded px-1.5 py-0.5 ${
+                            plan.published ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {plan.published ? 'Published' : 'Draft'}
+                        </span>
+                      </div>
+                      {(plan.run || plan.workoutTemplate?.name || plan.intervalSession?.title) && (
+                        <p className="text-sm text-muted-foreground">
+                          {[plan.run, plan.workoutTemplate?.name, plan.intervalSession?.title].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
+                    </button>
+                  )}
+                  {dayMeets.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => navigate(teamPath(`/meet/${m.id}`))}
+                      className="block w-full text-left text-sm rounded px-2 py-1 bg-secondary text-secondary-foreground hover:underline"
+                    >
+                      {m.name}
+                      {m.location ? ` · ${m.location}` : ''}
+                    </button>
+                  ))}
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
 
       {editorDate && (
         <DayEditorDialog
@@ -198,6 +317,62 @@ const SchedulePage: React.FC = () => {
         />
       )}
     </div>
+  );
+};
+
+const DayCell: React.FC<{
+  day: Date;
+  faded: boolean;
+  isToday: boolean;
+  plan: PracticePlan | null;
+  dayMeets: MeetSummary[];
+  onSelectDay: () => void;
+  onSelectMeet: (meetId: string) => void;
+  roomy?: boolean;
+}> = ({ day, faded, isToday, plan, dayMeets, onSelectDay, onSelectMeet, roomy }) => {
+  const planLabel = plan ? plan.locationName ?? plan.run ?? plan.workoutTemplate?.name ?? plan.intervalSession?.title : null;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelectDay}
+      className={`bg-background p-1.5 text-left flex flex-col gap-1 hover:bg-accent/50 transition-colors ${
+        roomy ? 'min-h-[180px]' : 'min-h-[84px]'
+      } ${faded ? 'opacity-40' : ''}`}
+    >
+      <span
+        className={`text-xs w-5 h-5 inline-flex items-center justify-center ${
+          isToday ? 'rounded-full bg-primary text-primary-foreground font-semibold' : 'text-muted-foreground'
+        }`}
+      >
+        {day.getDate()}
+      </span>
+      {planLabel && (
+        <span
+          className={`text-[11px] rounded px-1 py-0.5 truncate ${
+            plan?.published ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-800'
+          }`}
+        >
+          {planLabel}
+        </span>
+      )}
+      {roomy && plan?.run && plan.run !== planLabel && (
+        <span className="text-[11px] text-muted-foreground truncate">{plan.run}</span>
+      )}
+      {dayMeets.map((m) => (
+        <span
+          key={m.id}
+          role="link"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectMeet(m.id);
+          }}
+          className="text-[11px] rounded px-1 py-0.5 truncate bg-secondary text-secondary-foreground hover:underline"
+        >
+          {m.name}
+        </span>
+      ))}
+    </button>
   );
 };
 
