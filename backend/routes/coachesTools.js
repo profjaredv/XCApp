@@ -28,6 +28,14 @@ const TIER_BOTTOM_SIZE = 30;
 // Performers section below.
 const TOP_STARTERS_COUNT = 11;
 
+// Bumped whenever the analysis logic itself changes materially (a new
+// focus area, a different data window, an eligibility fix) — folded into
+// the snapshot fingerprint below alongside raceCount/resultCount.
+// Without this, a logic fix ships but stays invisible behind an old
+// snapshot until real new race data happens to arrive, which in
+// preseason can be months away.
+const INSIGHTS_LOGIC_VERSION = 2;
+
 function formatPaceForPrompt(secPerMile) {
   // Round the total first, then split — rounding minutes and seconds
   // separately can land on e.g. "6:60" (59.6s rounds to 60) instead of
@@ -157,6 +165,7 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
       existingSnapshot &&
       existingSnapshot.raceCount === raceCount &&
       existingSnapshot.resultCount === resultCount &&
+      existingSnapshot.data?._insightsVersion === INSIGHTS_LOGIC_VERSION &&
       !forceRegenerate
     ) {
       return res.json({
@@ -381,6 +390,7 @@ Return JSON only, with every insight tagged by which of the four focus areas it 
     aiResponse.usingSeason = usingSeason;
     aiResponse.isPreseasonFallback = isPreseasonFallback;
     aiResponse.anonymization = { poweredBy: 'Kippwit', url: 'https://kippwit.com' };
+    aiResponse._insightsVersion = INSIGHTS_LOGIC_VERSION;
 
     await prisma.aiInsightSnapshot.upsert({
       where: { teamId_season: { teamId, season: usingSeason } },
