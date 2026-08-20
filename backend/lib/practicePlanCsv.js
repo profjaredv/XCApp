@@ -12,7 +12,37 @@
 // that the CSV itself is well-formed.
 
 const REQUIRED_HEADERS = ['Date'];
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+// Excel/Sheets' default US locale writes dates as M/D/YYYY (or MM/DD/YYYY)
+// when a coach hand-builds a CSV instead of using our own export — without
+// this, every row in a spreadsheet-authored CSV failed to parse and the
+// whole import rejected with a blanket "no valid rows," no clue why.
+const US_SLASH_DATE_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+
+function isRealCalendarDate(year, month, day) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
+}
+
+/** Normalizes a Date cell to YYYY-MM-DD, or returns null if it's not a recognizable/real date. */
+function normalizeDateCell(raw) {
+  const isoMatch = ISO_DATE_RE.exec(raw);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    return isRealCalendarDate(Number(y), Number(m), Number(d)) ? raw : null;
+  }
+  const slashMatch = US_SLASH_DATE_RE.exec(raw);
+  if (slashMatch) {
+    const [, m, d, y] = slashMatch;
+    const month = Number(m);
+    const day = Number(d);
+    const year = Number(y);
+    if (!isRealCalendarDate(year, month, day)) return null;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  return null;
+}
 
 /**
  * rows: array of objects from csv-parse({ columns: true }) — one per CSV
@@ -51,15 +81,16 @@ function parsePracticePlanCsv(rows) {
       skipped++;
       return;
     }
-    if (!DATE_RE.test(dateRaw)) {
-      errors.push({ row: rowNum, message: `Unparseable date "${dateRaw}" (expected YYYY-MM-DD).` });
+    const normalizedDate = normalizeDateCell(dateRaw);
+    if (!normalizedDate) {
+      errors.push({ row: rowNum, message: `Unparseable date "${dateRaw}" (expected YYYY-MM-DD or MM/DD/YYYY).` });
       return;
     }
 
     const publishedRaw = (row['Published'] || '').trim().toUpperCase();
 
     plans.push({
-      date: dateRaw,
+      date: normalizedDate,
       location: (row['Location'] || '').trim() || null,
       startTime: (row['Start Time'] || '').trim() || null,
       announcements: (row['Announcements'] || '').trim() || null,

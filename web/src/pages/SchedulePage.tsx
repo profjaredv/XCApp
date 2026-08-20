@@ -549,8 +549,20 @@ const ImportPracticesDialog: React.FC<{
       const res = await importPlans.mutateAsync(csvText);
       setResult(res);
       toast.success(res.msg);
-    } catch {
-      toast.error('Could not import that CSV.');
+    } catch (err) {
+      // A 400 (e.g. every row failed to parse) still comes back with the
+      // same { msg, imported, skipped, warnings } shape as a success — show
+      // it in the same warnings list instead of a dead-end generic toast,
+      // so a coach can actually see which rows failed and why.
+      const data = (
+        err as {
+          response?: { data?: { msg?: string; imported?: number; skipped?: number; warnings?: Array<{ row: number; message: string }> } };
+        }
+      )?.response?.data;
+      if (data?.warnings) {
+        setResult({ imported: data.imported ?? 0, skipped: data.skipped ?? 0, warnings: data.warnings });
+      }
+      toast.error(data?.msg ?? 'Could not import that CSV.');
     }
   };
 

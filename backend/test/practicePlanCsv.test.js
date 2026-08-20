@@ -61,12 +61,30 @@ test('parsePracticePlanCsv: a blank date row is skipped, not an error', () => {
 });
 
 test('parsePracticePlanCsv: an unparseable date is a per-row error, not fatal', () => {
-  const rows = [{ Date: '08/26/2026' }, { Date: '2026-08-27' }];
+  const rows = [{ Date: 'next Tuesday' }, { Date: '2026-08-27' }];
   const { plans, errors } = parsePracticePlanCsv(rows);
   assert.equal(errors.length, 1);
   assert.match(errors[0].message, /Unparseable date/);
   assert.equal(plans.length, 1);
   assert.equal(plans[0].date, '2026-08-27');
+});
+
+test('parsePracticePlanCsv: accepts M/D/YYYY and MM/DD/YYYY — Excel/Sheets\' default export format', () => {
+  const rows = [{ Date: '8/26/2026' }, { Date: '08/26/2026' }, { Date: '12/3/2026' }];
+  const { plans, errors } = parsePracticePlanCsv(rows);
+  assert.equal(errors.length, 0);
+  assert.equal(plans[0].date, '2026-08-26');
+  assert.equal(plans[1].date, '2026-08-26');
+  assert.equal(plans[2].date, '2026-12-03');
+});
+
+test('parsePracticePlanCsv: rejects a calendar-impossible date in either format', () => {
+  const rows = [{ Date: '2026-02-30' }, { Date: '13/40/2026' }];
+  const { plans, errors } = parsePracticePlanCsv(rows);
+  assert.equal(plans.length, 0);
+  assert.equal(errors.length, 2);
+  assert.match(errors[0].message, /Unparseable date/);
+  assert.match(errors[1].message, /Unparseable date/);
 });
 
 test('parsePracticePlanCsv: missing the Date column entirely is fatal', () => {
