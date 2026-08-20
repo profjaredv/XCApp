@@ -26,6 +26,15 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const BASELINE_MIGRATION = '20260720175808_init';
+// One-time recovery (2026-08-20): this migration's two ALTER TABLE
+// statements actually committed in production — confirmed by hand via
+// Neon's SQL editor, both training_logs columns exist — but the connection
+// dropped before Prisma recorded it as finished, leaving it "failed" and
+// blocking every migration after it with P3009 (including the splits and
+// team-claims/billing migrations that came later). Safe to remove this
+// block once a deploy log shows a clean "Migrations applied." with no
+// CRITICAL line — it only exists to unblock this one already-known-good case.
+const KNOWN_APPLIED_STUCK_MIGRATION = '20260819030000_training_log_sharing';
 // Prisma resolves schema/migrations relative to cwd, and this is invoked from
 // the repo root by the start script.
 const BACKEND_DIR = path.resolve(__dirname, '..');
@@ -64,6 +73,22 @@ try {
       console.error(
         'CRITICAL: migrations still failed after baselining. Starting anyway on the ' +
           'existing schema — features needing new tables will fail until this is resolved.'
+      );
+    }
+  } else if (combined.includes('P3009') && combined.includes(KNOWN_APPLIED_STUCK_MIGRATION)) {
+    console.warn(
+      `"${KNOWN_APPLIED_STUCK_MIGRATION}" is recorded as failed but its DDL already committed ` +
+        '(confirmed by hand — see the comment above). Resolving it as applied and retrying.'
+    );
+    try {
+      runPrisma(['migrate', 'resolve', '--applied', KNOWN_APPLIED_STUCK_MIGRATION]);
+      attemptDeploy();
+      console.log('Migrations applied after resolving the stuck migration.');
+    } catch (retryError) {
+      process.stderr.write(`${retryError.stdout || ''}${retryError.stderr || ''}`);
+      console.error(
+        'CRITICAL: migrations still failed after resolving the stuck migration. Starting anyway on ' +
+          'the existing schema — features needing new tables will fail until this is resolved.'
       );
     }
   } else {
