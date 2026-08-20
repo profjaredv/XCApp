@@ -133,16 +133,27 @@ const AnalyticsPage = () => {
   const activeSeason = teamContext?.activeSeason;
   const viewedSeason = selectedSeason ?? activeSeason;
 
-  // One-way sync out to the shared header's season badge (SeasonContext) —
-  // this page's own mode-aware (current/historical) season logic above is
-  // deliberately untouched and stays the source of truth for itself; this
-  // just keeps the global indicator from showing a stale year while a coach
-  // is deep in a past season here, and seeds that year as the default the
-  // next screen they navigate to opens on.
-  const { setSelectedYear: setSharedSelectedYear } = useSeasonSelection();
+  // Two-way sync with the shared header's season picker (SeasonContext) —
+  // that picker is now the only visible "which year" control while in
+  // historical mode (AnalyticsHeader's own copy was removed as a literal
+  // duplicate). This page's mode-aware (current/historical) logic above
+  // stays the source of truth for itself and is otherwise untouched:
+  // - Out: whenever selectedSeason changes (including this page's own
+  //   auto-detected preseason fallback), mirror it to the shared picker so
+  //   it never shows a stale year.
+  // - In: picking a year in the shared picker while sitting on this page
+  //   should actually change what the page shows, not just update a badge
+  //   nobody's looking at — switches into historical mode if needed.
+  // Both directions are idempotent once the two values match, so this
+  // can't ping-pong.
+  const { selectedYear: sharedSelectedYear, setSelectedYear: setSharedSelectedYear } = useSeasonSelection();
   useEffect(() => {
     if (selectedSeason != null) setSharedSelectedYear(selectedSeason);
   }, [selectedSeason, setSharedSelectedYear]);
+  useEffect(() => {
+    if (sharedSelectedYear == null || sharedSelectedYear === selectedSeason) return;
+    setQueryParams({ seasonMode: 'historical', season: sharedSelectedYear });
+  }, [sharedSelectedYear, selectedSeason, setQueryParams]);
   const viewedSeasonMeta = availableSeasons.find((s) => s.year === viewedSeason);
   // The Groups tab's roster always comes from the team's actively-managed
   // season, not whichever year is being viewed — a coach setting up 2026
@@ -348,10 +359,6 @@ const AnalyticsPage = () => {
     setTabParam(tab);
   }, [setTabParam]);
 
-  const handleSeasonChange = useCallback((season: number | undefined) => {
-    setSelectedSeasonParam(season);
-  }, [setSelectedSeasonParam]);
-
   const handleAthleteSelect = useCallback((athlete: Athlete | null) => {
     setSelectedAthlete(athlete);
     setUrlSelectedAthleteId(athlete?.id);
@@ -520,9 +527,6 @@ const AnalyticsPage = () => {
         availableSeasons={availableSeasons}
         seasonMode={seasonMode}
         handleSeasonModeChange={handleSeasonModeChange}
-        selectedSeason={selectedSeason}
-        setSelectedSeason={handleSeasonChange}
-        activeSeason={activeSeason}
         handleRecalculateMetrics={handleRecalculateMetrics}
         isRecalculating={isRecalculating}
         team={team}

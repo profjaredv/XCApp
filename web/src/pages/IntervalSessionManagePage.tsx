@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
@@ -11,6 +10,7 @@ import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { useRosterWithRaces } from '@/hooks/useGroups';
+import { useAthleteRecentRace, type AthleteRecentRace } from '@/hooks/useAthleteRecentRace';
 import {
   useIntervalSession,
   useAddIntervalEntry,
@@ -18,7 +18,7 @@ import {
   useRemoveIntervalEntry,
   useSetIntervalSessionArchived,
 } from '@/hooks/useIntervalSessions';
-import { bestPaceSecPerMile, formatTime, type RosterAthleteWithRaces } from '@/api/groupService';
+import { bestPaceSecPerMile, formatTime } from '@/api/groupService';
 import type { IntervalSessionEntry, IntervalZone, RepUpdateInput } from '@/api/intervalSessionService';
 import { trainingPacesFromRace, splitTimeSec } from '@/lib/vdotPaces';
 import { formatDateShort, compactName } from '@/lib/formatUtils';
@@ -63,21 +63,17 @@ function repInput(rep: number, value: number | null): RepUpdateInput {
   }
 }
 
+// Season-agnostic on purpose — see useAthleteRecentRace's comment. A
+// preseason interval session (the exact time a coach is most likely
+// setting one up) has zero results in the *current* season, so this needs
+// whichever race actually happened most recently, any season.
 function suggestedSplitSeconds(
-  athlete: RosterAthleteWithRaces | undefined,
+  recentRace: AthleteRecentRace | null | undefined,
   zone: IntervalZone,
   repDistanceM: number
 ): number | null {
-  if (!athlete) return null;
-  const validRaces = athlete.races.filter(
-    (r): r is { time: number; race: { date: string; distanceMeters: number } } =>
-      r.time != null && r.race.distanceMeters != null
-  );
-  if (validRaces.length === 0) return null;
-  const mostRecent = [...validRaces].sort(
-    (a, b) => new Date(b.race.date).getTime() - new Date(a.race.date).getTime()
-  )[0];
-  const result = trainingPacesFromRace(mostRecent.race.distanceMeters / 1609.34, mostRecent.time);
+  if (!recentRace) return null;
+  const result = trainingPacesFromRace(recentRace.distance, recentRace.time);
   if (!result) return null;
   const paceZone = result.paces.find((p) => p.key === zone);
   if (!paceZone) return null;
@@ -99,16 +95,9 @@ const EntryRow: React.FC<{
 
   return (
     <TableRow>
-      <TableCell className="whitespace-nowrap">
-        {compactName(entry.athleteName)}
-        {entry.addedManually && (
-          <Badge variant="outline" className="ml-2 text-[10px] align-middle">
-            not in group
-          </Badge>
-        )}
-      </TableCell>
+      <TableCell className="whitespace-nowrap">{compactName(entry.athleteName)}</TableCell>
       <TableCell className="text-center text-sm md:text-xs text-muted-foreground whitespace-nowrap font-mono">
-        {suggestedSec ? formatTime(suggestedSec) : '—'}
+        {suggestedSec ? `T = ${formatTime(suggestedSec)}` : '—'}
       </TableCell>
       {REPS.map((rep) => (
         <TableCell key={rep} className={`p-1 ${rep - 1 === activeRep ? '' : 'hidden md:table-cell'}`}>
@@ -159,6 +148,9 @@ const IntervalSessionManagePage: React.FC = () => {
   const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
   const enteredIds = useMemo(() => new Set((session?.entries ?? []).map((e) => e.athleteId)), [session?.entries]);
   const available = roster.filter((a) => !enteredIds.has(a.id)).sort((a, b) => a.name.localeCompare(b.name));
+
+  const entryAthleteIds = useMemo(() => (session?.entries ?? []).map((e) => e.athleteId), [session?.entries]);
+  const { data: recentRaceByAthlete } = useAthleteRecentRace(entryAthleteIds);
 
   // Fastest-to-slowest by each athlete's best distance-normalized pace this
   // season, so the group runs in the order they'll actually line up on the
@@ -375,7 +367,7 @@ const IntervalSessionManagePage: React.FC = () => {
                         <EntryRow
                           key={entry.id}
                           entry={entry}
-                          suggestedSec={suggestedSplitSeconds(rosterById.get(entry.athleteId), session.zone, session.repDistanceM)}
+                          suggestedSec={suggestedSplitSeconds(recentRaceByAthlete?.get(entry.athleteId), session.zone, session.repDistanceM)}
                           activeRep={activeRep}
                           registerRef={registerRef}
                           onComplete={handleComplete}

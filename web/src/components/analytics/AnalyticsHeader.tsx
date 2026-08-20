@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar, RefreshCw, MoreVertical } from 'lucide-react';
+import { RefreshCw, MoreVertical } from 'lucide-react';
 import { SeasonModeSelector } from './SeasonModeSelector';
 import { SeasonMode } from './types';
 import type { User } from '@/types';
@@ -23,9 +22,6 @@ interface AnalyticsHeaderProps {
   availableSeasons: Season[];
   seasonMode: SeasonMode;
   handleSeasonModeChange: (mode: SeasonMode) => void;
-  selectedSeason?: number;
-  setSelectedSeason: (year: number) => void;
-  activeSeason?: number;
   handleRecalculateMetrics: () => void;
   isRecalculating: boolean;
   team: Team | undefined;
@@ -38,9 +34,6 @@ export const AnalyticsHeader = ({
   availableSeasons,
   seasonMode,
   handleSeasonModeChange,
-  selectedSeason,
-  setSelectedSeason,
-  activeSeason,
   handleRecalculateMetrics,
   isRecalculating,
   team,
@@ -70,13 +63,14 @@ export const AnalyticsHeader = ({
     </>
   );
 
-  // No team-name heading or "which year" summary line here anymore —
-  // Layout's persistent header already shows both on every screen now, so
-  // repeating them here was pure duplication ("Ellensburg High XC" twice,
-  // the year mentioned three times over). What's genuinely specific to
-  // Analytics stays: the current/historical mode toggle (a real behavior
-  // switch, not just a year picker) and, only in historical mode, the
-  // specific-year picker that mode needs.
+  // No team-name heading, "which year" summary line, or year picker here
+  // anymore — Layout's persistent header already shows the team name and
+  // lets you pick a year on every screen now (the two are wired together:
+  // see AnalyticsPage.tsx's two-way SeasonContext sync), so repeating any
+  // of it here was pure duplication that could also drift out of sync
+  // with the real selection. What's genuinely specific to Analytics stays:
+  // the current/historical mode toggle, a real behavior switch, not just
+  // another copy of "which year."
   if (isLoadingSeasons || !availableSeasons || availableSeasons.length === 0) {
     return null;
   }
@@ -84,19 +78,6 @@ export const AnalyticsHeader = ({
   return (
     <div className="mb-4 flex flex-col sm:flex-row sm:justify-end items-center gap-2 sm:gap-3">
       <SeasonModeSelector mode={seasonMode} onModeChange={handleSeasonModeChange} />
-      {seasonMode === 'historical' && (
-        <div className="flex items-center gap-2">
-          <Calendar className="h-5 w-5 text-muted-foreground" />
-          <Select value={selectedSeason?.toString()} onValueChange={(v) => setSelectedSeason(Number(v))}>
-            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Select season" /></SelectTrigger>
-            <SelectContent>
-              {availableSeasons.map((s) => (
-                <SelectItem key={s.year} value={s.year.toString()}>{s.year} Cross{s.year === activeSeason ? ' (Current)' : ''}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
       <div className="hidden sm:flex items-center gap-2">{dataActionButtons}</div>
       <div className="sm:hidden w-full">
         <Button variant="ghost" size="sm" className="w-full" onClick={() => setShowDataActions((v) => !v)}>
