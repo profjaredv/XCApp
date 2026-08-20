@@ -519,7 +519,7 @@ const RosterPage: React.FC = () => {
                       {athlete.raceCount > 0 ? ` • ${athlete.raceCount} races in ${season}` : ''}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {athlete.graduated && <Badge variant="secondary">Graduated</Badge>}
                     {!athlete.graduationYear && <Badge variant="outline">Needs class year</Badge>}
                     {isCoach && athlete.seasonId && (

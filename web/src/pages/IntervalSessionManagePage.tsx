@@ -271,7 +271,7 @@ const IntervalSessionManagePage: React.FC = () => {
   };
 
   const topBar = (
-    <div className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background px-6 py-3">
+    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 sm:gap-4 border-b border-border bg-background px-3 sm:px-6 py-3">
       <div className="min-w-0">
         <h1 className="text-lg font-semibold truncate">{session?.title ?? 'Interval Session'}</h1>
         {session && (
@@ -281,20 +281,24 @@ const IntervalSessionManagePage: React.FC = () => {
           </p>
         )}
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
+      {/* Icon-only below sm: on a narrow phone, "Archive · Save · Close" as
+          full text buttons left almost no room for the title (it was
+          truncating to "5x…" / "Aug 1…") — the icons alone are still
+          unambiguous for three single-purpose actions. */}
+      <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
         {session && (
-          <Button variant="outline" size="sm" onClick={handleArchiveToggle} disabled={setArchived.isPending}>
-            <Archive className="h-4 w-4 mr-1" />
-            {session.archived ? 'Restore' : 'Archive'}
+          <Button variant="outline" size="sm" onClick={handleArchiveToggle} disabled={setArchived.isPending} title={session.archived ? 'Restore' : 'Archive'}>
+            <Archive className="h-4 w-4 sm:mr-1" />
+            <span className="hidden sm:inline">{session.archived ? 'Restore' : 'Archive'}</span>
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={handleSave}>
-          <Check className="h-4 w-4 mr-1" />
-          Save
+        <Button variant="outline" size="sm" onClick={handleSave} title="Save">
+          <Check className="h-4 w-4 sm:mr-1" />
+          <span className="hidden sm:inline">Save</span>
         </Button>
-        <Button variant="ghost" size="sm" onClick={handleClose}>
-          <X className="h-4 w-4 mr-1" />
-          Close
+        <Button variant="ghost" size="sm" onClick={handleClose} title="Close">
+          <X className="h-4 w-4 sm:mr-1" />
+          <span className="hidden sm:inline">Close</span>
         </Button>
       </div>
     </div>
