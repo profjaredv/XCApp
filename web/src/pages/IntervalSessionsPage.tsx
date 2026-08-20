@@ -1,38 +1,33 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Trash2, UserPlus, Loader2, X, Check } from 'lucide-react';
+import { Plus, Trash2, Archive, Loader2, X, Check, ClipboardList } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
-import { useGroups, useGroupMembers, useRosterWithRaces } from '@/hooks/useGroups';
+import { useGroups, useGroupMembers } from '@/hooks/useGroups';
 import {
   useIntervalSessions,
   useCreateIntervalSession,
   useDeleteIntervalSession,
-  useAddIntervalEntry,
-  useUpdateIntervalEntry,
-  useRemoveIntervalEntry,
+  useSetIntervalSessionArchived,
 } from '@/hooks/useIntervalSessions';
-import { bestPaceSecPerMile, type RosterAthleteWithRaces } from '@/api/groupService';
-import type { IntervalSession, IntervalSessionEntry, IntervalZone, RepUpdateInput } from '@/api/intervalSessionService';
-import { trainingPacesFromRace, splitTimeSec } from '@/lib/vdotPaces';
-import { formatTime, formatDateShort, parseTimeToSeconds } from '@/lib/formatUtils';
+import type { IntervalSession, IntervalZone } from '@/api/intervalSessionService';
+import { formatDateShort } from '@/lib/formatUtils';
 
 // Coach-adoption pass item 6: replaces the printed sheet a coach fills in
-// by hand at the track — a grid of athletes x up to 6 rep times, saved
-// straight to each athlete's training log (see routes/intervalSessions.js's
-// syncEntryToTrainingLog). Suggested per-rep splits reuse the same VDOT
-// engine as TrainingPacesCard, computed here from each athlete's own most
-// recent race rather than duplicating that logic server-side.
+// by hand at the track. This page is the session LIST only — three states
+// per session: create (the dialog below), manage entries (its own
+// full-screen route, interval-sessions/:sessionId, so filling one session
+// in on a phone isn't competing with every other session on the same
+// screen), and archive (soft-hide once a session is done, same pattern as
+// Group.archived — never deleted, just out of the way).
 
 const ZONE_LABEL: Record<IntervalZone, string> = {
   threshold: 'Threshold',
@@ -41,7 +36,6 @@ const ZONE_LABEL: Record<IntervalZone, string> = {
 };
 
 const AD_HOC = '__ad_hoc__';
-const REP_COUNT = 6;
 
 interface NewSessionForm {
   groupId: string; // AD_HOC or a group id
@@ -59,232 +53,40 @@ const EMPTY_NEW_SESSION: NewSessionForm = {
   zone: 'interval',
 };
 
-function suggestedSplitSeconds(
-  athlete: RosterAthleteWithRaces | undefined,
-  zone: IntervalZone,
-  repDistanceM: number
-): number | null {
-  if (!athlete) return null;
-  const validRaces = athlete.races.filter(
-    (r): r is { time: number; race: { date: string; distanceMeters: number } } =>
-      r.time != null && r.race.distanceMeters != null
-  );
-  if (validRaces.length === 0) return null;
-  const mostRecent = [...validRaces].sort(
-    (a, b) => new Date(b.race.date).getTime() - new Date(a.race.date).getTime()
-  )[0];
-  const result = trainingPacesFromRace(mostRecent.race.distanceMeters / 1609.34, mostRecent.time);
-  if (!result) return null;
-  const paceZone = result.paces.find((p) => p.key === zone);
-  if (!paceZone) return null;
-  return splitTimeSec(paceZone.paceSecPerMile, repDistanceM);
-}
-
-const EntryRow: React.FC<{
-  entry: IntervalSessionEntry;
-  suggestedSec: number | null;
-  activeRep: number;
-  onSave: (reps: RepUpdateInput) => void;
-  onRemove: () => void;
-  removing: boolean;
-}> = ({ entry, suggestedSec, activeRep, onSave, onRemove, removing }) => {
-  const [reps, setReps] = useState<string[]>(
-    [entry.rep1, entry.rep2, entry.rep3, entry.rep4, entry.rep5, entry.rep6].map((v) =>
-      v != null ? formatTime(v) : ''
-    )
-  );
-
-  const handleBlur = () => {
-    const parsed = reps.map((r) => {
-      const trimmed = r.trim();
-      if (!trimmed) return null;
-      const sec = parseTimeToSeconds(trimmed);
-      return Number.isFinite(sec) ? sec : null;
-    });
-    onSave({ rep1: parsed[0], rep2: parsed[1], rep3: parsed[2], rep4: parsed[3], rep5: parsed[4], rep6: parsed[5] });
-  };
-
-  return (
-    <TableRow>
-      <TableCell className="whitespace-nowrap">
-        {entry.athleteName}
-        {entry.addedManually && (
-          <Badge variant="outline" className="ml-2 text-[10px] align-middle">
-            not in group
-          </Badge>
-        )}
-      </TableCell>
-      <TableCell className="text-center text-xs text-muted-foreground whitespace-nowrap">
-        {suggestedSec ? formatTime(suggestedSec) : '—'}
-      </TableCell>
-      {reps.map((val, i) => (
-        <TableCell key={i} className={`p-1 ${i === activeRep ? '' : 'hidden md:table-cell'}`}>
-          <Input
-            className="h-8 w-20 text-xs text-center"
-            placeholder={suggestedSec ? formatTime(suggestedSec) : '—'}
-            value={val}
-            onChange={(e) => setReps((prev) => prev.map((p, idx) => (idx === i ? e.target.value : p)))}
-            onBlur={handleBlur}
-          />
-        </TableCell>
-      ))}
-      <TableCell className="p-1">
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onRemove} disabled={removing}>
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </TableCell>
-    </TableRow>
-  );
-};
-
-const SessionCard: React.FC<{
+const SessionSummaryCard: React.FC<{
   session: IntervalSession;
-  roster: RosterAthleteWithRaces[];
-  seasonId: string | null;
-}> = ({ session, roster, seasonId }) => {
-  const updateEntry = useUpdateIntervalEntry(seasonId);
-  const removeEntry = useRemoveIntervalEntry(seasonId);
-  const addEntry = useAddIntervalEntry(seasonId);
-  const deleteSession = useDeleteIntervalSession(seasonId);
-  const [addAthleteId, setAddAthleteId] = useState('');
-  const [activeRep, setActiveRep] = useState(0);
-
-  const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
-  const enteredIds = useMemo(() => new Set(session.entries.map((e) => e.athleteId)), [session.entries]);
-  const available = roster.filter((a) => !enteredIds.has(a.id)).sort((a, b) => a.name.localeCompare(b.name));
-
-  // Fastest-to-slowest by each athlete's best distance-normalized pace this
-  // season, so the group runs in the order they'll actually line up on the
-  // track. Athletes with no race data yet sort to the end, ties by name.
-  const sortedEntries = useMemo(() => {
-    const withPace = session.entries.map((entry) => {
-      const athlete = rosterById.get(entry.athleteId);
-      return { entry, pace: athlete ? bestPaceSecPerMile(athlete) : null };
-    });
-    withPace.sort((a, b) => {
-      if (a.pace == null && b.pace == null) return a.entry.athleteName.localeCompare(b.entry.athleteName);
-      if (a.pace == null) return 1;
-      if (b.pace == null) return -1;
-      return a.pace - b.pace;
-    });
-    return withPace.map((w) => w.entry);
-  }, [session.entries, rosterById]);
-
-  const handleAdd = async () => {
-    if (!addAthleteId) return;
-    try {
-      await addEntry.mutateAsync({ sessionId: session.id, athleteId: addAthleteId });
-      setAddAthleteId('');
-    } catch {
-      toast.error('Could not add that athlete.');
-    }
-  };
-
-  const handleDeleteSession = async () => {
-    try {
-      await deleteSession.mutateAsync(session.id);
-      toast.success('Session deleted.');
-    } catch {
-      toast.error('Could not delete that session.');
-    }
-  };
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-2 py-4">
-        <div>
-          <CardTitle className="text-base">{session.title}</CardTitle>
-          <p className="text-xs text-muted-foreground mt-1">
-            {formatDateShort(session.date)} · {session.groupName ?? 'Ad hoc'} · {session.repDistanceM}m ·{' '}
-            {ZONE_LABEL[session.zone]} pace
-          </p>
-        </div>
-        <Button variant="ghost" size="icon" onClick={handleDeleteSession} disabled={deleteSession.isPending}>
+  onManage: () => void;
+  onArchiveToggle: () => void;
+  onDelete: () => void;
+  archiving: boolean;
+  deleting: boolean;
+}> = ({ session, onManage, onArchiveToggle, onDelete, archiving, deleting }) => (
+  <Card>
+    <CardHeader className="flex flex-row items-start justify-between gap-2 py-4">
+      <div>
+        <CardTitle className="text-base">{session.title}</CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          {formatDateShort(session.date)} · {session.groupName ?? 'Ad hoc'} · {session.repDistanceM}m ·{' '}
+          {ZONE_LABEL[session.zone]} pace · {session.entries.length} athlete{session.entries.length === 1 ? '' : 's'}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <Button variant="ghost" size="icon" onClick={onArchiveToggle} disabled={archiving} title="Archive">
+          <Archive className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="icon" onClick={onDelete} disabled={deleting} title="Delete">
           <Trash2 className="h-4 w-4" />
         </Button>
-      </CardHeader>
-      <CardContent>
-        {session.entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-2">No athletes yet — add one below.</p>
-        ) : (
-          <>
-            <div className="flex md:hidden items-center gap-1.5 pb-3">
-              <span className="text-xs text-muted-foreground mr-1">Active rep:</span>
-              {Array.from({ length: REP_COUNT }, (_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setActiveRep(i)}
-                  className={`h-7 w-7 rounded-full text-xs font-medium border transition-colors ${
-                    i === activeRep
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background text-muted-foreground border-border'
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              ))}
-            </div>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Athlete</TableHead>
-                    <TableHead className="text-center whitespace-nowrap">Target</TableHead>
-                    {Array.from({ length: REP_COUNT }, (_, i) => (
-                      <TableHead
-                        key={i}
-                        className={`text-center ${i === activeRep ? '' : 'hidden md:table-cell'}`}
-                      >
-                        Rep {i + 1}
-                      </TableHead>
-                    ))}
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedEntries.map((entry) => (
-                    <EntryRow
-                      key={entry.id}
-                      entry={entry}
-                      suggestedSec={suggestedSplitSeconds(rosterById.get(entry.athleteId), session.zone, session.repDistanceM)}
-                      activeRep={activeRep}
-                      removing={removeEntry.isPending}
-                      onSave={(reps) => updateEntry.mutate({ entryId: entry.id, input: reps })}
-                      onRemove={() => removeEntry.mutate(entry.id)}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </>
-        )}
-        <div className="flex items-center gap-2 pt-3">
-          <Select value={addAthleteId} onValueChange={setAddAthleteId}>
-            <SelectTrigger className="w-[240px]">
-              <SelectValue placeholder="Add an athlete not in this group…" />
-            </SelectTrigger>
-            <SelectContent>
-              {available.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button size="sm" variant="outline" onClick={handleAdd} disabled={!addAthleteId || addEntry.isPending}>
-            {addEntry.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-            ) : (
-              <UserPlus className="h-3.5 w-3.5 mr-1" />
-            )}
-            Add
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
+      </div>
+    </CardHeader>
+    <CardContent>
+      <Button onClick={onManage} size="sm">
+        <ClipboardList className="h-4 w-4 mr-2" />
+        Manage entries
+      </Button>
+    </CardContent>
+  </Card>
+);
 
 const IntervalSessionsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -300,25 +102,22 @@ const IntervalSessionsPage: React.FC = () => {
   const { data: groups = [] } = useGroups(seasonId);
   const trainingGroups = groups.filter((g) => g.type === 'TRAINING' && !g.archived);
   const { data: sessions = [], isLoading } = useIntervalSessions(seasonId);
-  const { data: roster = [] } = useRosterWithRaces(activeYear ?? undefined);
+
+  const activeSessions = sessions.filter((s) => !s.archived);
+  const archivedSessions = sessions.filter((s) => s.archived);
 
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [form, setForm] = useState<NewSessionForm>(EMPTY_NEW_SESSION);
   const { data: groupMembers = [] } = useGroupMembers(form.groupId !== AD_HOC ? form.groupId : null);
 
   const createSession = useCreateIntervalSession(seasonId);
+  const deleteSession = useDeleteIntervalSession(seasonId);
+  const setArchived = useSetIntervalSessionArchived(seasonId);
 
   // Opened full screen from Coaches Tools (see router/index.tsx — this
-  // route is deliberately outside <Layout>, no sidebar/header). Close just
-  // navigates back; Save has nothing to batch (every field here already
-  // persists on its own blur — see EntryRow/CheckoutCell-style handlers
-  // below), so it just flushes whichever input is currently focused and
-  // confirms.
+  // route is deliberately outside <Layout>, no sidebar/header).
   const handleClose = () => navigate(teamPath('/coaches-tools'));
   const handleSave = () => {
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
     toast.success('All changes saved.');
   };
 
@@ -341,7 +140,7 @@ const IntervalSessionsPage: React.FC = () => {
   const handleCreate = async () => {
     if (!seasonId || !form.title.trim() || !form.repDistanceM) return;
     try {
-      await createSession.mutateAsync({
+      const created = await createSession.mutateAsync({
         seasonId,
         groupId: form.groupId === AD_HOC ? null : form.groupId,
         date: form.date,
@@ -353,8 +152,27 @@ const IntervalSessionsPage: React.FC = () => {
       toast.success('Session created.');
       setNewDialogOpen(false);
       setForm(EMPTY_NEW_SESSION);
+      navigate(teamPath(`/interval-sessions/${created.id}`));
     } catch {
       toast.error('Could not create that session.');
+    }
+  };
+
+  const handleArchiveToggle = async (session: IntervalSession) => {
+    try {
+      await setArchived.mutateAsync({ id: session.id, archived: !session.archived });
+      toast.success(session.archived ? 'Session restored.' : 'Session archived.');
+    } catch {
+      toast.error('Could not update that session.');
+    }
+  };
+
+  const handleDelete = async (session: IntervalSession) => {
+    try {
+      await deleteSession.mutateAsync(session.id);
+      toast.success('Session deleted.');
+    } catch {
+      toast.error('Could not delete that session.');
     }
   };
 
@@ -404,11 +222,46 @@ const IntervalSessionsPage: React.FC = () => {
       ) : sessions.length === 0 ? (
         <p className="text-muted-foreground">No interval sessions yet this season.</p>
       ) : (
-        <div className="space-y-4">
-          {sessions.map((session) => (
-            <SessionCard key={session.id} session={session} roster={roster} seasonId={seasonId} />
-          ))}
-        </div>
+        <>
+          {activeSessions.length === 0 ? (
+            <p className="text-muted-foreground">No active sessions — everything's archived below.</p>
+          ) : (
+            <div className="space-y-4">
+              {activeSessions.map((session) => (
+                <SessionSummaryCard
+                  key={session.id}
+                  session={session}
+                  onManage={() => navigate(teamPath(`/interval-sessions/${session.id}`))}
+                  onArchiveToggle={() => handleArchiveToggle(session)}
+                  onDelete={() => handleDelete(session)}
+                  archiving={setArchived.isPending}
+                  deleting={deleteSession.isPending}
+                />
+              ))}
+            </div>
+          )}
+
+          {archivedSessions.length > 0 && (
+            <div className="pt-2">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Archived</p>
+              <div className="space-y-1">
+                {archivedSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
+                  >
+                    <span className="text-muted-foreground truncate">
+                      {session.title} — {formatDateShort(session.date)}
+                    </span>
+                    <Button variant="ghost" size="sm" className="h-6 text-xs flex-shrink-0" onClick={() => handleArchiveToggle(session)}>
+                      Restore
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <Dialog

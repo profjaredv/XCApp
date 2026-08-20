@@ -42,6 +42,7 @@ function serializeSession(session) {
     title: session.title,
     repDistanceM: session.repDistanceM,
     zone: session.zone,
+    archived: session.archived,
     entries: (session.entries ?? []).map(serializeEntry),
   };
 }
@@ -201,7 +202,7 @@ router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req
 // PUT /api/interval-sessions/:id — session-level fields only; date/group
 // are part of its identity, so change those by deleting and recreating.
 router.put('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
-  const { title, repDistanceM, zone } = req.body;
+  const { title, repDistanceM, zone, archived } = req.body;
   if (zone !== undefined && !VALID_ZONES.includes(zone)) {
     return res.status(400).json({ msg: `zone must be one of: ${VALID_ZONES.join(', ')}` });
   }
@@ -216,6 +217,7 @@ router.put('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (r
     if (title !== undefined) updates.title = title;
     if (repDistanceM !== undefined) updates.repDistanceM = Math.round(Number(repDistanceM));
     if (zone !== undefined) updates.zone = zone;
+    if (archived !== undefined) updates.archived = Boolean(archived);
 
     const updated = await prisma.intervalSession.update({
       where: { id: session.id },

@@ -1018,6 +1018,11 @@ model IntervalSession {
   repDistanceM Int    @map("rep_distance_m")
   zone         String
 
+  // Soft-hide once a session is done being managed — same pattern as
+  // Group.archived. Never filtered out server-side; the list page splits
+  // active/archived client-side and lets a coach restore one.
+  archived Boolean @default(false)
+
   createdById String?  @map("created_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

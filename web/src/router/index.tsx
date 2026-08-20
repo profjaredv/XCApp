@@ -15,6 +15,7 @@ import PracticePlansPage from '../pages/PracticePlansPage';
 import MeetOpsPage from '../pages/MeetOpsPage';
 import EquipmentPage from '../pages/EquipmentPage';
 import IntervalSessionsPage from '../pages/IntervalSessionsPage';
+import IntervalSessionManagePage from '../pages/IntervalSessionManagePage';
 import FeedbackPage from '../pages/FeedbackPage';
 import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
@@ -149,6 +150,14 @@ export const router = createBrowserRouter([
               {
                 path: 'interval-sessions',
                 element: <IntervalSessionsPage />,
+              },
+              // Manage entries for one interval session — its own
+              // full-screen route so it doesn't compete with the list of
+              // every other session on the same screen (especially on
+              // mobile). Close navigates back to the list above.
+              {
+                path: 'interval-sessions/:sessionId',
+                element: <IntervalSessionManagePage />,
               },
               // Splits entry grid (C6) - standalone without Layout too,
               // opened full screen from a race's context menu. Its own

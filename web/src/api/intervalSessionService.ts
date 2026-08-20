@@ -25,6 +25,7 @@ export interface IntervalSession {
   title: string;
   repDistanceM: number;
   zone: IntervalZone;
+  archived: boolean;
   entries: IntervalSessionEntry[];
 }
 
@@ -66,6 +67,11 @@ export const intervalSessionService = {
 
   async remove(id: string) {
     const response = await api.delete(`/interval-sessions/${id}`);
+    return response.data;
+  },
+
+  async setArchived(id: string, archived: boolean): Promise<IntervalSession> {
+    const response = await api.put<IntervalSession>(`/interval-sessions/${id}`, { archived });
     return response.data;
   },
 

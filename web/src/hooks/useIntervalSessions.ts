@@ -13,6 +13,17 @@ export function useIntervalSessions(seasonId: string | null, from?: string, to?:
   });
 }
 
+// The Manage page fetches by id directly rather than pulling the whole
+// season's list and finding it — works from a bookmarked/shared link
+// without needing the season context to load first.
+export function useIntervalSession(id: string | null) {
+  return useQuery({
+    queryKey: ['intervalSession', id],
+    queryFn: () => intervalSessionService.get(id as string),
+    enabled: !!id,
+  });
+}
+
 function useInvalidateSessions(seasonId: string | null) {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: ['intervalSessions', seasonId] });
@@ -31,6 +42,19 @@ export function useDeleteIntervalSession(seasonId: string | null) {
   return useMutation({
     mutationFn: (id: string) => intervalSessionService.remove(id),
     onSuccess: invalidate,
+  });
+}
+
+export function useSetIntervalSessionArchived(seasonId: string | null) {
+  const invalidate = useInvalidateSessions(seasonId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
+      intervalSessionService.setArchived(id, archived),
+    onSuccess: (_data, { id }) => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['intervalSession', id] });
+    },
   });
 }
 
