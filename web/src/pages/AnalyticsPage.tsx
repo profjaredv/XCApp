@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useContext } from 'react';
+import { useState, useMemo, useEffect, useCallback, useContext, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
@@ -138,22 +138,39 @@ const AnalyticsPage = () => {
   // historical mode (AnalyticsHeader's own copy was removed as a literal
   // duplicate). This page's mode-aware (current/historical) logic above
   // stays the source of truth for itself and is otherwise untouched:
-  // - Out: whenever selectedSeason changes (including this page's own
-  //   auto-detected preseason fallback), mirror it to the shared picker so
-  //   it never shows a stale year.
+  // - Out: whenever selectedSeason changes, mirror it to the shared picker.
   // - In: picking a year in the shared picker while sitting on this page
-  //   should actually change what the page shows, not just update a badge
-  //   nobody's looking at — switches into historical mode if needed.
-  // Both directions are idempotent once the two values match, so this
-  // can't ping-pong.
+  //   should actually change what the page shows — switches into
+  //   historical mode if needed.
+  //
+  // Each direction reacts ONLY to its own source value changing (not to
+  // the other side's current value, via the dependency array) and tracks
+  // "the last value I already handled" in a ref. Comparing live against
+  // `selectedSeason`/`sharedSelectedYear` from the OTHER side inside each
+  // effect looks reasonable but isn't: because the two live in different
+  // state systems (URL vs. context) that update on independent render
+  // passes, each effect's read of "the other side's current value" is one
+  // render behind that side's own latest write within the same effects
+  // flush — so each side's "fix" bounces off the other's stale echo and
+  // they chase each other by exactly one step, forever (this is exactly
+  // what shipped and produced a real season=2025 <-> season=2021 URL
+  // oscillation, hammering the API on every step). Reacting only to your
+  // own dependency changing, with no reactive read of the other side at
+  // all, can't create that feedback loop — a write that happens to already
+  // match is a harmless no-op (React bails on an unchanged useState value;
+  // an unchanged URL param produces the same selectedSeason next render,
+  // so nothing downstream re-fires).
   const { selectedYear: sharedSelectedYear, setSelectedYear: setSharedSelectedYear } = useSeasonSelection();
   useEffect(() => {
     if (selectedSeason != null) setSharedSelectedYear(selectedSeason);
   }, [selectedSeason, setSharedSelectedYear]);
+  const lastHandledSharedYear = useRef(sharedSelectedYear);
   useEffect(() => {
-    if (sharedSelectedYear == null || sharedSelectedYear === selectedSeason) return;
+    const changed = sharedSelectedYear !== lastHandledSharedYear.current;
+    lastHandledSharedYear.current = sharedSelectedYear;
+    if (!changed || sharedSelectedYear == null) return;
     setQueryParams({ seasonMode: 'historical', season: sharedSelectedYear });
-  }, [sharedSelectedYear, selectedSeason, setQueryParams]);
+  }, [sharedSelectedYear, setQueryParams]);
   const viewedSeasonMeta = availableSeasons.find((s) => s.year === viewedSeason);
   // The Groups tab's roster always comes from the team's actively-managed
   // season, not whichever year is being viewed — a coach setting up 2026

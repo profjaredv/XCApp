@@ -58,6 +58,7 @@ export const useUploadFieldResults = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fieldResultRaces'] });
       queryClient.invalidateQueries({ queryKey: ['bandAnalytics'] });
+      queryClient.invalidateQueries({ queryKey: ['programAnalytics'] });
     },
   });
 };
@@ -80,6 +81,7 @@ export const useCopyFieldResultsFromMeet = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fieldResultRaces'] });
       queryClient.invalidateQueries({ queryKey: ['bandAnalytics'] });
+      queryClient.invalidateQueries({ queryKey: ['programAnalytics'] });
     },
   });
 };
@@ -94,6 +96,7 @@ export const useClearFieldResults = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fieldResultRaces'] });
       queryClient.invalidateQueries({ queryKey: ['bandAnalytics'] });
+      queryClient.invalidateQueries({ queryKey: ['programAnalytics'] });
     },
   });
 };

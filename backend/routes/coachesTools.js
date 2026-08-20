@@ -205,11 +205,13 @@ Return JSON only, with every insight tagged by which of the three focus areas it
   "summary": "2-3 sentence overview focused on consistency, growth, and who to watch"
 }`;
 
-    // gemini-2.0-flash-exp (the preview model this used to call) has been
-    // shut down, along with GA gemini-2.0-flash itself — a request against
-    // either now fails, which is what was surfacing as a bare 500 here.
-    // gemini-2.5-flash is the current stable, cost-effective replacement.
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // Pinned model IDs go stale (gemini-2.0-flash-exp, this route's
+    // original choice, has since been shut down along with GA
+    // gemini-2.0-flash itself — that's what was surfacing as a bare 500
+    // here). "-latest" is a Google-maintained alias that always resolves
+    // to whatever the current flash model actually is, so this never
+    // needs a manual bump again when a model gets retired.
+    const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
     const result = await model.generateContent(prompt);
     const text = result.response.text();
 

@@ -1,9 +1,28 @@
-import { useMutation, UseMutationResult } from '@tanstack/react-query';
+import { useMutation, useQueryClient, UseMutationResult } from '@tanstack/react-query';
 import dataManagementService, {
   ClearDataResponse,
   ImportDataResponse,
   CalculateMetricsResponse
 } from '../api/dataManagementService';
+
+// Every screen downstream of "this team's race/season data changed" —
+// import, clear, and (re)calculate all land here. Without this, importing
+// a season (or recalculating metrics for one) left every cached query
+// showing whatever it had before: the season picker missing the new year,
+// and the Program tab in particular showing stale or pre-import numbers
+// until either a hard refresh or its own 5-minute staleTime happened to
+// lapse.
+const invalidateAfterDataChange = (queryClient: ReturnType<typeof useQueryClient>) => {
+  queryClient.invalidateQueries({ queryKey: ['availableSeasons'] });
+  queryClient.invalidateQueries({ queryKey: ['seasons'] });
+  queryClient.invalidateQueries({ queryKey: ['currentSeason'] });
+  queryClient.invalidateQueries({ queryKey: ['teamContext'] });
+  queryClient.invalidateQueries({ queryKey: ['programAnalytics'] });
+  queryClient.invalidateQueries({ queryKey: ['bandAnalytics'] });
+  queryClient.invalidateQueries({ queryKey: ['bandAnalyticsCourses'] });
+  queryClient.invalidateQueries({ queryKey: ['performance'] });
+  queryClient.invalidateQueries({ queryKey: ['teamPerformance'] });
+};
 
 interface ClearDataParams {
   teamId: string;
@@ -29,8 +48,10 @@ export const useClearData = (): UseMutationResult<
   Error,
   ClearDataParams
 > => {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, season }: ClearDataParams) => dataManagementService.clearData(teamId, season)
+    mutationFn: ({ teamId, season }: ClearDataParams) => dataManagementService.clearData(teamId, season),
+    onSuccess: () => invalidateAfterDataChange(queryClient),
   });
 };
 
@@ -42,9 +63,11 @@ export const useImportData = (): UseMutationResult<
   Error,
   ImportDataParams
 > => {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, season, athleticNetTeamId }: ImportDataParams) => 
-      dataManagementService.importData(teamId, season, athleticNetTeamId)
+    mutationFn: ({ teamId, season, athleticNetTeamId }: ImportDataParams) =>
+      dataManagementService.importData(teamId, season, athleticNetTeamId),
+    onSuccess: () => invalidateAfterDataChange(queryClient),
   });
 };
 
@@ -56,9 +79,11 @@ export const useCalculateMetrics = (): UseMutationResult<
   Error,
   CalculateMetricsParams
 > => {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, season }: CalculateMetricsParams) => 
-      dataManagementService.calculateMetrics(teamId, season)
+    mutationFn: ({ teamId, season }: CalculateMetricsParams) =>
+      dataManagementService.calculateMetrics(teamId, season),
+    onSuccess: () => invalidateAfterDataChange(queryClient),
   });
 };
 
@@ -70,8 +95,10 @@ export const useCalculateEnhancedMetrics = (): UseMutationResult<
   Error,
   CalculateMetricsParams
 > => {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, season }: CalculateMetricsParams) => 
-      dataManagementService.calculateEnhancedMetrics(teamId, season)
+    mutationFn: ({ teamId, season }: CalculateMetricsParams) =>
+      dataManagementService.calculateEnhancedMetrics(teamId, season),
+    onSuccess: () => invalidateAfterDataChange(queryClient),
   });
 };

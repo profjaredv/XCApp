@@ -92,6 +92,9 @@ const RosterPage: React.FC = () => {
     queryClient.invalidateQueries({ queryKey: ['roster'] });
     queryClient.invalidateQueries({ queryKey: ['teamContext'] });
     queryClient.invalidateQueries({ queryKey: ['availableSeasons'] });
+    // Participants/attrition on the Program tab are computed straight from
+    // the roster — a sync or add/remove here changes those numbers too.
+    queryClient.invalidateQueries({ queryKey: ['programAnalytics'] });
   };
 
   const addAthlete = useMutation({
