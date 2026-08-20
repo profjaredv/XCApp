@@ -114,6 +114,12 @@ export const router = createBrowserRouter([
           { path: '/data-management', element: <LegacyRedirect toSubpath="/data-management" /> },
           { path: '/settings', element: <LegacyRedirect toSubpath="/settings" /> },
           { path: '/feedback', element: <LegacyRedirect toSubpath="/feedback" /> },
+          // F4: the Stripe Payment Link's static "after payment" redirect
+          // target — it can't know which team's /checkout to land on ahead
+          // of time (the link is shared across every team), so it always
+          // points here and this bounces to the signed-in coach's own team,
+          // carrying the ?session_id= query param through via location.search.
+          { path: '/checkout-complete', element: <LegacyRedirect toSubpath="/checkout" /> },
           { path: '/race-visualization', element: <LegacyRedirect toSubpath="/race-visualization" /> },
           {
             path: '/athlete/:athleteId',

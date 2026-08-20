@@ -37,9 +37,13 @@ async function handleStripeWebhook(req, res) {
       // The only event that unlocks a team (F4) — a $0 promo-code session
       // and a $199 one complete identically and unlock identically.
       // Regardless of resulting charge amount, this is what flips plan.
+      // teamId comes from client_reference_id, not metadata — checkout runs
+      // off a static Stripe Payment Link (see CheckoutPage.tsx), which can't
+      // set metadata per-visit the way a dynamically-created session can,
+      // but does carry through whatever client_reference_id was on the URL.
       case 'checkout.session.completed': {
         const session = event.data.object;
-        const teamId = session.metadata?.teamId;
+        const teamId = session.client_reference_id;
         if (teamId) {
           await prisma.team.update({
             where: { id: teamId },
@@ -52,7 +56,7 @@ async function handleStripeWebhook(req, res) {
             },
           });
         } else {
-          console.error('checkout.session.completed with no teamId in metadata:', session.id);
+          console.error('checkout.session.completed with no client_reference_id:', session.id);
         }
         break;
       }

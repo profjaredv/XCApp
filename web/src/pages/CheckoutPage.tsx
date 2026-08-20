@@ -1,14 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTeamPath } from '@/hooks/useTeamRoute';
+import { useTeamContext } from '@/hooks/useTeamContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { billingService, type BillingStatus } from '@/api/billingService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 
 const POLL_ATTEMPTS = 6;
 const POLL_INTERVAL_MS = 2500;
+
+// Static Stripe Payment Link — $199/yr, configured directly in the Stripe
+// dashboard (price, and the "allow promotion code" toggle for the
+// owner-issued 100%-off CWAC code). client_reference_id is how the team
+// gets attached: it carries through to the Checkout Session Stripe creates
+// behind the link, and from there to the webhook (lib/stripeWebhook.js).
+const PAYMENT_LINK = 'https://buy.stripe.com/4gM6oG0H6eiJfwW4Gk9AA04';
 
 // F4 (LeadPack Master Build Handoff): the required-every-time checkout
 // step, even at $0. Not gated by requireActivePlan itself — a
@@ -18,13 +26,13 @@ const POLL_INTERVAL_MS = 2500;
 const CheckoutPage: React.FC = () => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
+  const { currentUser } = useAuth();
+  const { data: teamContext } = useTeamContext();
   const [searchParams] = useSearchParams();
   const returnedFromStripe = searchParams.has('session_id');
 
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
-  const [startingCheckout, setStartingCheckout] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [polling, setPolling] = useState(returnedFromStripe);
 
   useEffect(() => {
@@ -61,16 +69,13 @@ const CheckoutPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleStartCheckout = async () => {
-    setStartingCheckout(true);
-    setError(null);
-    try {
-      const { url } = await billingService.createCheckoutSession();
-      window.location.href = url;
-    } catch {
-      setError('Could not start checkout. Try again, or contact LeadPack.');
-      setStartingCheckout(false);
-    }
+  const handleStartCheckout = () => {
+    if (!teamContext?.team) return;
+    const params = new URLSearchParams({
+      client_reference_id: teamContext.team.id,
+      ...(currentUser?.email ? { prefilled_email: currentUser.email } : {}),
+    });
+    window.location.href = `${PAYMENT_LINK}?${params.toString()}`;
   };
 
   if (loadingStatus || polling) {
@@ -125,13 +130,7 @@ const CheckoutPage: React.FC = () => {
           <p className="text-xs text-muted-foreground text-center">
             Full refund available on request within 30 days of your first charge.
           </p>
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <Button onClick={handleStartCheckout} disabled={startingCheckout} className="w-full">
-            {startingCheckout && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          <Button onClick={handleStartCheckout} disabled={!teamContext?.team} className="w-full">
             Continue to Checkout
           </Button>
           <p className="text-xs text-center text-muted-foreground">
