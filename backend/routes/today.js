@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
-const { resolveTodaySeasonState } = require('../lib/season');
+const { resolveTodaySeasonState, resolveActiveSeason } = require('../lib/season');
 const { mergeStaffRoster } = require('../lib/teamStaff');
 const { getGroupOn } = require('../lib/groups');
 const { decideCanViewReflection } = require('../lib/raceReflections');
@@ -213,18 +213,29 @@ router.get('/recent-result', authenticate, requireTeam, requireRole(COACH_ROLES)
 // GET /api/today/staff — coaching staff roster + athlete count. See
 // lib/teamStaff.js for why the owner and the TeamMember table both have
 // to be consulted and merged rather than just counting TeamMember rows.
+//
+// athleteCount is this SEASON's roster, not `athlete.count` — Athlete
+// rows are never deleted (a graduated senior's history has to survive),
+// so a bare count across the whole table is every athlete this team has
+// ever had on file, across every imported year. That inflated the number
+// the moment a team imported more than one season.
 router.get('/staff', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
   try {
     const teamId = req.user.teamId;
-    const [team, members, athleteCount] = await Promise.all([
+    const [team, members, activeSeason] = await Promise.all([
       prisma.team.findUnique({ where: { id: teamId }, select: { coach: { select: { id: true, name: true, email: true } } } }),
       prisma.teamMember.findMany({
         where: { teamId, active: true, role: { in: COACH_ROLES } },
         select: { userId: true, role: true, joinedAt: true, user: { select: { name: true, email: true } } },
         orderBy: { joinedAt: 'asc' },
       }),
-      prisma.athlete.count({ where: { teamId } }),
+      resolveActiveSeason(teamId),
     ]);
+
+    const activeRosterSeason = await prisma.season.findFirst({ where: { teamId, year: activeSeason }, select: { id: true } });
+    const athleteCount = activeRosterSeason
+      ? await prisma.seasonRoster.count({ where: { seasonId: activeRosterSeason.id, isActive: true } })
+      : 0;
 
     const staff = mergeStaffRoster(
       team?.coach ?? null,
