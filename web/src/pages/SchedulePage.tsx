@@ -4,10 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ChevronLeft, ChevronRight, Download, Loader2, Plus, Upload } from 'lucide-react';
+import { Archive, ChevronLeft, ChevronRight, Download, Loader2, Pencil, Plus, Timer, Upload } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
@@ -21,11 +22,12 @@ import {
   useImportPracticePlans,
 } from '@/hooks/usePracticePlans';
 import { usePracticeLocations, useCreatePracticeLocation } from '@/hooks/usePracticeLocations';
-import { useWorkoutTemplates } from '@/hooks/useWorkoutTemplates';
+import { useWorkoutTemplates, useCreateWorkoutTemplate, useUpdateWorkoutTemplate } from '@/hooks/useWorkoutTemplates';
 import { useIntervalSessions } from '@/hooks/useIntervalSessions';
 import { useMeets } from '@/hooks/useMeetOps';
 import type { PracticePlan } from '@/api/practicePlanService';
 import type { MeetSummary } from '@/api/meetOpsService';
+import type { WorkoutTemplate, WorkoutTemplateInput } from '@/api/workoutTemplateService';
 import { formatDateShort } from '@/lib/formatUtils';
 import { toCsv } from '@/lib/csvParse';
 
@@ -36,9 +38,16 @@ import { toCsv } from '@/lib/csvParse';
 // day was what. Clicking a day opens the simplified plan editor (Location,
 // Announcements, Pre Run/Run/Post Run, plus an attached workout template or
 // interval sheet); clicking a meet navigates to that meet's detail page.
+//
+// Interval Sessions' entry point (a capture tool at its own full-screen
+// route — see router/index.tsx) and Workout Templates management both live
+// here, in the header, since Schedule is the only place either gets
+// attached to a day.
 
 const NONE = '__none__';
 const NEW_LOCATION = '__new__';
+const NEW_TEMPLATE = '__new_template__';
+const GOTO_INTERVAL_SESSIONS = '__goto_interval_sessions__';
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 type ViewMode = 'month' | 'week' | 'agenda';
@@ -138,6 +147,7 @@ const SchedulePage: React.FC = () => {
 
   const [editorDate, setEditorDate] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
   const today = new Date();
 
   const handleModeChange = (mode: ViewMode) => {
@@ -177,9 +187,17 @@ const SchedulePage: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Schedule</h1>
-          <p className="text-sm text-muted-foreground">Practices and meets for the season.</p>
+          <p className="text-sm text-muted-foreground">Click any day to add or edit its practice plan.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" onClick={() => setTemplateManagerOpen(true)}>
+            <Pencil className="h-4 w-4 mr-2" />
+            Workout Templates
+          </Button>
+          <Button variant="outline" onClick={() => navigate(teamPath('/interval-sessions'))}>
+            <Timer className="h-4 w-4 mr-2" />
+            Interval Sessions
+          </Button>
           <Select value={String(activeYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
             <SelectTrigger className="w-[120px]">
               <SelectValue />
@@ -371,6 +389,8 @@ const SchedulePage: React.FC = () => {
       )}
 
       <ImportPracticesDialog open={importOpen} onClose={() => setImportOpen(false)} seasonId={seasonId} />
+
+      <WorkoutTemplateManagerDialog open={templateManagerOpen} onClose={() => setTemplateManagerOpen(false)} />
     </div>
   );
 };
@@ -387,11 +407,14 @@ const DayCell: React.FC<{
 }> = ({ day, faded, isToday, plan, dayMeets, onSelectDay, onSelectMeet, roomy }) => {
   const planLabel = plan ? plan.locationName ?? plan.run ?? plan.workoutTemplate?.name ?? plan.intervalSession?.title : null;
 
+  const empty = !plan && dayMeets.length === 0;
+
   return (
     <button
       type="button"
       onClick={onSelectDay}
-      className={`bg-background p-1.5 text-left flex flex-col gap-1 hover:bg-accent/50 transition-colors ${
+      title="Add or edit this day's practice plan"
+      className={`group relative bg-background p-1.5 text-left flex flex-col gap-1 hover:bg-accent/50 transition-colors ${
         roomy ? 'min-h-[180px]' : 'min-h-[84px]'
       } ${faded ? 'opacity-40' : ''}`}
     >
@@ -413,6 +436,16 @@ const DayCell: React.FC<{
       )}
       {roomy && plan?.run && plan.run !== planLabel && (
         <span className="text-[11px] text-muted-foreground truncate">{plan.run}</span>
+      )}
+      {/* Empty-day affordance: "click to add" isn't obvious from a bare
+          number in a grid cell, especially on touch where hover never
+          fires — so this stays faintly visible always, not hover-only,
+          and only brightens on hover for a little extra feedback. */}
+      {empty && (
+        <span className="flex-1 flex items-center justify-center gap-1 text-muted-foreground/40 group-hover:text-muted-foreground/80 transition-colors">
+          <Plus className={roomy ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+          {roomy && <span className="text-[11px]">Add practice</span>}
+        </span>
       )}
       {dayMeets.map((m) => (
         <span
@@ -525,12 +558,229 @@ const ImportPracticesDialog: React.FC<{
   );
 };
 
+type TemplateFormState = {
+  name: string;
+  volumeTier: string;
+  focus: string;
+  durationMinutes: string;
+  distanceMi: string;
+  strength: boolean;
+  details: string;
+};
+
+const EMPTY_TEMPLATE_FORM: TemplateFormState = {
+  name: '',
+  volumeTier: '',
+  focus: '',
+  durationMinutes: '',
+  distanceMi: '',
+  strength: false,
+  details: '',
+};
+
+const TemplateForm: React.FC<{
+  form: TemplateFormState;
+  setForm: (f: TemplateFormState) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+}> = ({ form, setForm, onSave, onCancel, saving }) => (
+  <div className="rounded-md border p-3 space-y-2">
+    <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+    <div className="grid grid-cols-2 gap-2">
+      <Input placeholder="Focus (e.g. Tempo)" value={form.focus} onChange={(e) => setForm({ ...form, focus: e.target.value })} />
+      <Input
+        placeholder="Volume tier (e.g. High)"
+        value={form.volumeTier}
+        onChange={(e) => setForm({ ...form, volumeTier: e.target.value })}
+      />
+      <Input
+        type="number"
+        placeholder="Duration (min)"
+        value={form.durationMinutes}
+        onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })}
+      />
+      <Input
+        type="number"
+        step="0.1"
+        placeholder="Distance (mi)"
+        value={form.distanceMi}
+        onChange={(e) => setForm({ ...form, distanceMi: e.target.value })}
+      />
+    </div>
+    <label className="flex items-center gap-2 text-sm">
+      <Checkbox checked={form.strength} onCheckedChange={(v) => setForm({ ...form, strength: Boolean(v) })} />
+      Strength work
+    </label>
+    <Textarea
+      rows={2}
+      placeholder="Details (optional)"
+      value={form.details}
+      onChange={(e) => setForm({ ...form, details: e.target.value })}
+    />
+    <div className="flex justify-end gap-2">
+      <Button size="sm" variant="outline" onClick={onCancel}>
+        Cancel
+      </Button>
+      <Button size="sm" onClick={onSave} disabled={!form.name.trim() || saving}>
+        {saving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+        Save
+      </Button>
+    </div>
+  </div>
+);
+
+// Reusable from two places: the Schedule header's "Workout Templates"
+// button (manage only, no onSelect) and the day editor's Workout Template
+// select's "Create new template" entry (onSelect attaches the new one to
+// that day's plan immediately, same as picking it from the dropdown would).
+const WorkoutTemplateManagerDialog: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  onSelect?: (id: string) => void;
+}> = ({ open, onClose, onSelect }) => {
+  const { data: templates = [], isLoading } = useWorkoutTemplates();
+  const createTemplate = useCreateWorkoutTemplate();
+  const updateTemplate = useUpdateWorkoutTemplate();
+
+  const [editingId, setEditingId] = useState<string | 'new' | null>(null);
+  const [form, setForm] = useState<TemplateFormState>(EMPTY_TEMPLATE_FORM);
+
+  const startEdit = (t: WorkoutTemplate) => {
+    setForm({
+      name: t.name,
+      volumeTier: t.volumeTier ?? '',
+      focus: t.focus ?? '',
+      durationMinutes: t.durationMinutes != null ? String(t.durationMinutes) : '',
+      distanceMi: t.distanceMi != null ? String(t.distanceMi) : '',
+      strength: t.strength,
+      details: t.details ?? '',
+    });
+    setEditingId(t.id);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    const input: WorkoutTemplateInput = {
+      name: form.name.trim(),
+      volumeTier: form.volumeTier.trim() || null,
+      focus: form.focus.trim() || null,
+      durationMinutes: form.durationMinutes.trim() ? Number(form.durationMinutes) : null,
+      distanceMi: form.distanceMi.trim() ? Number(form.distanceMi) : null,
+      strength: form.strength,
+      details: form.details.trim() || null,
+    };
+    try {
+      if (editingId === 'new') {
+        const created = await createTemplate.mutateAsync(input);
+        toast.success('Template created.');
+        setEditingId(null);
+        onSelect?.(created.id);
+      } else if (editingId) {
+        await updateTemplate.mutateAsync({ id: editingId, input });
+        toast.success('Template updated.');
+        setEditingId(null);
+      }
+    } catch (err) {
+      const message = (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ?? 'Could not save that template.';
+      toast.error(message);
+    }
+  };
+
+  const handleArchive = async (t: WorkoutTemplate) => {
+    try {
+      await updateTemplate.mutateAsync({ id: t.id, input: { archived: true } });
+      toast.success('Template archived.');
+    } catch {
+      toast.error('Could not archive that template.');
+    }
+  };
+
+  const saving = createTemplate.isPending || updateTemplate.isPending;
+
+  const handleClose = () => {
+    onClose();
+    setEditingId(null);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Workout templates</DialogTitle>
+          <DialogDescription>
+            Attach one to a practice day from the Schedule editor — editing a template here updates every day that
+            already references it.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2">
+          {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {!isLoading && templates.length === 0 && editingId !== 'new' && (
+            <p className="text-sm text-muted-foreground">No templates yet.</p>
+          )}
+          {templates.map((t) =>
+            editingId === t.id ? (
+              <TemplateForm key={t.id} form={form} setForm={setForm} onSave={handleSave} onCancel={() => setEditingId(null)} saving={saving} />
+            ) : (
+              <div key={t.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{t.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {[t.focus, t.volumeTier, t.strength ? 'Strength' : null].filter(Boolean).join(' · ') || 'No details set'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {onSelect && (
+                    <Button size="sm" variant="ghost" onClick={() => onSelect(t.id)}>
+                      Use
+                    </Button>
+                  )}
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(t)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleArchive(t)}>
+                    <Archive className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )
+          )}
+
+          {editingId === 'new' ? (
+            <TemplateForm form={form} setForm={setForm} onSave={handleSave} onCancel={() => setEditingId(null)} saving={saving} />
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setForm(EMPTY_TEMPLATE_FORM);
+                setEditingId('new');
+              }}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              New template
+            </Button>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 const DayEditorDialog: React.FC<{
   date: string;
   seasonId: string;
   plan: PracticePlan | null;
   onClose: () => void;
 }> = ({ date, seasonId, plan, onClose }) => {
+  const teamPath = useTeamPath();
   const { data: locations = [] } = usePracticeLocations();
   const { data: templates = [] } = useWorkoutTemplates();
   const { data: sessions = [] } = useIntervalSessions(seasonId);
@@ -551,6 +801,7 @@ const DayEditorDialog: React.FC<{
   const [postRun, setPostRun] = useState(plan?.postRun ?? '');
   const [workoutTemplateId, setWorkoutTemplateId] = useState(plan?.workoutTemplateId ?? NONE);
   const [intervalSessionId, setIntervalSessionId] = useState(plan?.intervalSessionId ?? NONE);
+  const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
 
   const handleSave = async () => {
     try {
@@ -615,6 +866,7 @@ const DayEditorDialog: React.FC<{
   };
 
   return (
+    <>
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -680,7 +932,16 @@ const DayEditorDialog: React.FC<{
 
           <div>
             <Label>Workout template</Label>
-            <Select value={workoutTemplateId} onValueChange={setWorkoutTemplateId}>
+            <Select
+              value={workoutTemplateId}
+              onValueChange={(v) => {
+                if (v === NEW_TEMPLATE) {
+                  setTemplateManagerOpen(true);
+                  return;
+                }
+                setWorkoutTemplateId(v);
+              }}
+            >
               <SelectTrigger className="mt-1">
                 <SelectValue />
               </SelectTrigger>
@@ -691,13 +952,27 @@ const DayEditorDialog: React.FC<{
                     {t.name}
                   </SelectItem>
                 ))}
+                <SelectItem value={NEW_TEMPLATE}>
+                  <span className="flex items-center gap-1">
+                    <Plus className="h-3.5 w-3.5" /> Create new template
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div>
             <Label>Interval sheet</Label>
-            <Select value={intervalSessionId} onValueChange={setIntervalSessionId}>
+            <Select
+              value={intervalSessionId}
+              onValueChange={(v) => {
+                if (v === GOTO_INTERVAL_SESSIONS) {
+                  window.open(teamPath('/interval-sessions'), '_blank');
+                  return;
+                }
+                setIntervalSessionId(v);
+              }}
+            >
               <SelectTrigger className="mt-1">
                 <SelectValue />
               </SelectTrigger>
@@ -708,10 +983,15 @@ const DayEditorDialog: React.FC<{
                     {s.title} {s.groupName ? `(${s.groupName})` : ''}
                   </SelectItem>
                 ))}
+                <SelectItem value={GOTO_INTERVAL_SESSIONS}>
+                  <span className="flex items-center gap-1">
+                    <Plus className="h-3.5 w-3.5" /> Create new (opens in a new tab)
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground mt-1">
-              Create or duplicate one for a specific group from Interval Sessions first, then attach it here.
+              Create or duplicate one for a specific group from Interval Sessions, then come back and attach it here.
             </p>
           </div>
 
@@ -741,6 +1021,16 @@ const DayEditorDialog: React.FC<{
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <WorkoutTemplateManagerDialog
+      open={templateManagerOpen}
+      onClose={() => setTemplateManagerOpen(false)}
+      onSelect={(id) => {
+        setWorkoutTemplateId(id);
+        setTemplateManagerOpen(false);
+      }}
+    />
+    </>
   );
 };
 

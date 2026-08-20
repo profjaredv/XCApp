@@ -124,9 +124,11 @@ const IntervalSessionsPage: React.FC = () => {
   const setArchived = useSetIntervalSessionArchived(seasonId);
   const duplicateSession = useDuplicateIntervalSession(seasonId);
 
-  // Opened full screen from Coaches Tools (see router/index.tsx — this
-  // route is deliberately outside <Layout>, no sidebar/header).
-  const handleClose = () => navigate(teamPath('/coaches-tools'));
+  // Opened full screen from Schedule's "Interval Sessions" header button,
+  // or from the day editor's Interval Sheet select via a new tab (see
+  // router/index.tsx — this route is deliberately outside <Layout>, no
+  // sidebar/header).
+  const handleClose = () => navigate(teamPath('/schedule'));
   const handleSave = () => {
     toast.success('All changes saved.');
   };
