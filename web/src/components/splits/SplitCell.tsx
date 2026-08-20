@@ -20,6 +20,10 @@ interface SplitCellProps {
   onComplete: (key: string, elapsedSec: number) => void;
   onClear: (key: string) => void;
   onNavigate: (key: string, direction: CellNavigate) => void;
+  /** Extra classes merged onto the input — e.g. a larger size for a
+   * context that only ever shows one cell at a time (IntervalSessionManagePage's
+   * mobile active-rep view) without affecting the dense splits grid. */
+  className?: string;
 }
 
 function digitsFromElapsedSec(sec: number | null | undefined): string {
@@ -55,6 +59,7 @@ export const SplitCell: React.FC<SplitCellProps> = ({
   onComplete,
   onClear,
   onNavigate,
+  className = 'text-sm',
 }) => {
   const [digits, setDigits] = useState(() => digitsFromElapsedSec(value ?? null));
   const [invalid, setInvalid] = useState(false);
@@ -148,13 +153,13 @@ export const SplitCell: React.FC<SplitCellProps> = ({
       onChange={() => {
         /* all mutation happens in onKeyDown — this just satisfies React's controlled-input requirement */
       }}
-      className={`w-full text-center font-mono text-sm rounded-md border px-2 py-1.5 outline-none focus:ring-2 focus:ring-primary ${
+      className={`w-full text-center font-mono rounded-md border px-2 py-1.5 outline-none focus:ring-2 focus:ring-primary ${
         invalid
           ? 'border-destructive bg-destructive/10 text-destructive'
           : saveState === 'error'
             ? 'border-destructive'
             : 'border-input bg-background'
-      } ${saveState === 'saving' || saveState === 'queued' ? 'opacity-70' : ''}`}
+      } ${saveState === 'saving' || saveState === 'queued' ? 'opacity-70' : ''} ${className}`}
       aria-invalid={invalid}
       aria-label={cellKey}
     />

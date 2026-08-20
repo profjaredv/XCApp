@@ -24,6 +24,16 @@ export const formatDateShort = (date: string | Date | undefined | null): string 
   return `${mm} ${dd} ${yyyy}`;
 };
 
+// "Jared Vallejo" -> "Jared V." — for dense rosters (interval session
+// grids, mobile) where a full first+last name crowds out the actual data.
+// A single-word name (no last name on file) passes through unchanged.
+export const compactName = (fullName: string): string => {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length < 2) return fullName;
+  const last = parts[parts.length - 1];
+  return `${parts[0]} ${last[0]}.`;
+};
+
 /**
  * Parse a MM:SS or H:MM:SS string into seconds. Returns NaN if unparseable.
  */

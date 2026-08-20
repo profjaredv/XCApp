@@ -1,8 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,10 +18,11 @@ import {
   useRemoveIntervalEntry,
   useSetIntervalSessionArchived,
 } from '@/hooks/useIntervalSessions';
-import { bestPaceSecPerMile, type RosterAthleteWithRaces } from '@/api/groupService';
+import { bestPaceSecPerMile, formatTime, type RosterAthleteWithRaces } from '@/api/groupService';
 import type { IntervalSessionEntry, IntervalZone, RepUpdateInput } from '@/api/intervalSessionService';
 import { trainingPacesFromRace, splitTimeSec } from '@/lib/vdotPaces';
-import { formatTime, formatDateShort, parseTimeToSeconds } from '@/lib/formatUtils';
+import { formatDateShort, compactName } from '@/lib/formatUtils';
+import { SplitCell, type CellNavigate } from '@/components/splits/SplitCell';
 
 // The "manage entries" state of an interval session — its own full-screen
 // route (not one card among many on the list page), so filling this in on
@@ -37,6 +37,31 @@ const ZONE_LABEL: Record<IntervalZone, string> = {
 };
 
 const REP_COUNT = 6;
+const REPS: number[] = Array.from({ length: REP_COUNT }, (_, i) => i + 1);
+
+function cellKey(entryId: string, rep: number) {
+  return `${entryId}:${rep}`;
+}
+
+function repField(rep: number): 'rep1' | 'rep2' | 'rep3' | 'rep4' | 'rep5' | 'rep6' {
+  return `rep${rep}` as 'rep1' | 'rep2' | 'rep3' | 'rep4' | 'rep5' | 'rep6';
+}
+
+// Explicit per-rep construction rather than a computed { [repField(rep)]: value }
+// object literal — a computed key typed as a union of string literals makes
+// TS infer an index signature, which doesn't structurally satisfy
+// RepUpdateInput's named optional properties.
+function repInput(rep: number, value: number | null): RepUpdateInput {
+  switch (rep) {
+    case 1: return { rep1: value };
+    case 2: return { rep2: value };
+    case 3: return { rep3: value };
+    case 4: return { rep4: value };
+    case 5: return { rep5: value };
+    case 6: return { rep6: value };
+    default: return {};
+  }
+}
 
 function suggestedSplitSeconds(
   athlete: RosterAthleteWithRaces | undefined,
@@ -63,47 +88,38 @@ const EntryRow: React.FC<{
   entry: IntervalSessionEntry;
   suggestedSec: number | null;
   activeRep: number;
-  onSave: (reps: RepUpdateInput) => void;
+  registerRef: (key: string, el: HTMLInputElement | null) => void;
+  onComplete: (key: string, elapsedSec: number) => void;
+  onClear: (key: string) => void;
+  onNavigate: (key: string, direction: CellNavigate) => void;
   onRemove: () => void;
   removing: boolean;
-}> = ({ entry, suggestedSec, activeRep, onSave, onRemove, removing }) => {
-  const [reps, setReps] = useState<string[]>(
-    [entry.rep1, entry.rep2, entry.rep3, entry.rep4, entry.rep5, entry.rep6].map((v) =>
-      v != null ? formatTime(v) : ''
-    )
-  );
-
-  const handleBlur = () => {
-    const parsed = reps.map((r) => {
-      const trimmed = r.trim();
-      if (!trimmed) return null;
-      const sec = parseTimeToSeconds(trimmed);
-      return Number.isFinite(sec) ? sec : null;
-    });
-    onSave({ rep1: parsed[0], rep2: parsed[1], rep3: parsed[2], rep4: parsed[3], rep5: parsed[4], rep6: parsed[5] });
-  };
+}> = ({ entry, suggestedSec, activeRep, registerRef, onComplete, onClear, onNavigate, onRemove, removing }) => {
+  const repValue = (rep: number): number | null => entry[repField(rep)];
 
   return (
     <TableRow>
       <TableCell className="whitespace-nowrap">
-        {entry.athleteName}
+        {compactName(entry.athleteName)}
         {entry.addedManually && (
           <Badge variant="outline" className="ml-2 text-[10px] align-middle">
             not in group
           </Badge>
         )}
       </TableCell>
-      <TableCell className="text-center text-xs text-muted-foreground whitespace-nowrap">
+      <TableCell className="text-center text-sm md:text-xs text-muted-foreground whitespace-nowrap font-mono">
         {suggestedSec ? formatTime(suggestedSec) : '—'}
       </TableCell>
-      {reps.map((val, i) => (
-        <TableCell key={i} className={`p-1 ${i === activeRep ? '' : 'hidden md:table-cell'}`}>
-          <Input
-            className="h-8 w-20 text-xs text-center"
-            placeholder={suggestedSec ? formatTime(suggestedSec) : '—'}
-            value={val}
-            onChange={(e) => setReps((prev) => prev.map((p, idx) => (idx === i ? e.target.value : p)))}
-            onBlur={handleBlur}
+      {REPS.map((rep) => (
+        <TableCell key={rep} className={`p-1 ${rep - 1 === activeRep ? '' : 'hidden md:table-cell'}`}>
+          <SplitCell
+            cellKey={cellKey(entry.id, rep)}
+            value={repValue(rep)}
+            registerRef={registerRef}
+            onComplete={onComplete}
+            onClear={onClear}
+            onNavigate={onNavigate}
+            className="text-base md:text-sm h-10 md:h-9"
           />
         </TableCell>
       ))}
@@ -135,6 +151,10 @@ const IntervalSessionManagePage: React.FC = () => {
 
   const [addAthleteId, setAddAthleteId] = useState('');
   const [activeRep, setActiveRep] = useState(0);
+  const cellRefs = useRef<Map<string, HTMLInputElement | null>>(new Map());
+  const registerRef = useCallback((key: string, el: HTMLInputElement | null) => {
+    cellRefs.current.set(key, el);
+  }, []);
 
   const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
   const enteredIds = useMemo(() => new Set((session?.entries ?? []).map((e) => e.athleteId)), [session?.entries]);
@@ -142,7 +162,9 @@ const IntervalSessionManagePage: React.FC = () => {
 
   // Fastest-to-slowest by each athlete's best distance-normalized pace this
   // season, so the group runs in the order they'll actually line up on the
-  // track. Athletes with no race data yet sort to the end, ties by name.
+  // track — and so column-major Enter/arrow navigation below moves down
+  // the roster in that same order. Athletes with no race data sort to the
+  // end, ties by name.
   const sortedEntries = useMemo(() => {
     const entries = session?.entries ?? [];
     const withPace = entries.map((entry) => {
@@ -157,6 +179,67 @@ const IntervalSessionManagePage: React.FC = () => {
     });
     return withPace.map((w) => w.entry);
   }, [session?.entries, rosterById]);
+
+  const entryById = useMemo(() => new Map(sortedEntries.map((e) => [e.id, e])), [sortedEntries]);
+
+  const handleComplete = useCallback(
+    (key: string, elapsedSec: number) => {
+      const [entryId, repStr] = key.split(':');
+      updateEntry.mutate({ entryId, input: repInput(Number(repStr), elapsedSec) });
+    },
+    [updateEntry]
+  );
+
+  const handleClear = useCallback(
+    (key: string) => {
+      const [entryId, repStr] = key.split(':');
+      const rep = Number(repStr);
+      const entry = entryById.get(entryId);
+      if (!entry || entry[repField(rep)] == null) return;
+      updateEntry.mutate({ entryId, input: repInput(rep, null) });
+    },
+    [entryById, updateEntry]
+  );
+
+  // Column-major: for a fixed rep (column), "down" moves to the next
+  // athlete row in the fastest-to-slowest order above; running off the
+  // bottom moves to the top of the next rep column. That's the natural
+  // order for calling out times off a stopwatch — one rep at a time,
+  // straight down the roster — same convention as the splits grid.
+  const handleNavigate = useCallback(
+    (key: string, direction: CellNavigate) => {
+      const [entryId, repStr] = key.split(':');
+      const rep = Number(repStr);
+      const rowIdx = sortedEntries.findIndex((e) => e.id === entryId);
+      const colIdx = REPS.indexOf(rep);
+      if (rowIdx === -1 || colIdx === -1) return;
+
+      let targetRow = rowIdx;
+      let targetCol = colIdx;
+
+      if (direction === 'left') {
+        targetCol = colIdx - 1;
+      } else if (direction === 'right') {
+        targetCol = colIdx + 1;
+      } else {
+        const flat = colIdx * sortedEntries.length + rowIdx + (direction === 'down' ? 1 : -1);
+        if (flat < 0 || flat >= sortedEntries.length * REPS.length) return;
+        targetCol = Math.floor(flat / sortedEntries.length);
+        targetRow = flat % sortedEntries.length;
+      }
+
+      if (targetCol < 0 || targetCol >= REPS.length || targetRow < 0 || targetRow >= sortedEntries.length) return;
+
+      setActiveRep(targetCol);
+      const targetKey = cellKey(sortedEntries[targetRow].id, REPS[targetCol]);
+      const el = cellRefs.current.get(targetKey);
+      if (el) {
+        el.focus();
+        el.select();
+      }
+    },
+    [sortedEntries]
+  );
 
   const handleClose = () => navigate(teamPath('/interval-sessions'));
   const handleSave = () => {
@@ -245,20 +328,24 @@ const IntervalSessionManagePage: React.FC = () => {
               <p className="text-sm text-muted-foreground py-2">No athletes yet — add one below.</p>
             ) : (
               <>
+                <p className="text-xs text-muted-foreground pb-2">
+                  Type 3 or 4 digits for minutes:seconds — e.g. <span className="font-mono">530</span> becomes{' '}
+                  <span className="font-mono">5:30</span>. Nothing else is accepted.
+                </p>
                 <div className="flex md:hidden items-center gap-1.5 pb-3">
                   <span className="text-xs text-muted-foreground mr-1">Active rep:</span>
-                  {Array.from({ length: REP_COUNT }, (_, i) => (
+                  {REPS.map((rep) => (
                     <button
-                      key={i}
+                      key={rep}
                       type="button"
-                      onClick={() => setActiveRep(i)}
+                      onClick={() => setActiveRep(rep - 1)}
                       className={`h-7 w-7 rounded-full text-xs font-medium border transition-colors ${
-                        i === activeRep
+                        rep - 1 === activeRep
                           ? 'bg-primary text-primary-foreground border-primary'
                           : 'bg-background text-muted-foreground border-border'
                       }`}
                     >
-                      {i + 1}
+                      {rep}
                     </button>
                   ))}
                 </div>
@@ -268,12 +355,12 @@ const IntervalSessionManagePage: React.FC = () => {
                       <TableRow>
                         <TableHead>Athlete</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Target</TableHead>
-                        {Array.from({ length: REP_COUNT }, (_, i) => (
+                        {REPS.map((rep) => (
                           <TableHead
-                            key={i}
-                            className={`text-center ${i === activeRep ? '' : 'hidden md:table-cell'}`}
+                            key={rep}
+                            className={`text-center ${rep - 1 === activeRep ? '' : 'hidden md:table-cell'}`}
                           >
-                            Rep {i + 1}
+                            Rep {rep}
                           </TableHead>
                         ))}
                         <TableHead />
@@ -286,8 +373,11 @@ const IntervalSessionManagePage: React.FC = () => {
                           entry={entry}
                           suggestedSec={suggestedSplitSeconds(rosterById.get(entry.athleteId), session.zone, session.repDistanceM)}
                           activeRep={activeRep}
+                          registerRef={registerRef}
+                          onComplete={handleComplete}
+                          onClear={handleClear}
+                          onNavigate={handleNavigate}
                           removing={removeEntry.isPending}
-                          onSave={(reps) => updateEntry.mutate({ entryId: entry.id, input: reps })}
                           onRemove={() => removeEntry.mutate(entry.id)}
                         />
                       ))}
