@@ -15,8 +15,7 @@ import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { Loader2, Package } from 'lucide-react';
-import { useTeamContext } from '@/hooks/useTeamContext';
-import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useRosterWithRaces, useGroups, useGroupMembers } from '@/hooks/useGroups';
 import {
   useEquipmentList,
@@ -51,11 +50,7 @@ const TYPE_LABEL: Record<EquipmentType, string> = {
 const SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
 
 const EquipmentPage: React.FC = () => {
-  const { data: context } = useTeamContext();
-  const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
-
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const activeYear = selectedYear ?? context?.activeSeason ?? seasons[0]?.year ?? null;
+  const { seasons, activeYear } = useSeasonSelection();
   const selectedSeason = seasons.find((s) => s.year === activeYear) ?? null;
   const seasonId = selectedSeason?.id ?? null;
   const [equipmentTab, setEquipmentTab] = useState('checkout');
@@ -73,14 +68,6 @@ const EquipmentPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-3xl font-bold">Equipment</h1>
-        <Select value={String(activeYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-          <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {seasons.map((s) => (
-              <SelectItem key={s.year} value={String(s.year)}>{s.year}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       <Tabs value={equipmentTab} onValueChange={setEquipmentTab}>

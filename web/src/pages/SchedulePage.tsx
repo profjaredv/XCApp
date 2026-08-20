@@ -9,9 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Archive, ChevronLeft, ChevronRight, Download, Loader2, Pencil, Plus, Timer, Upload } from 'lucide-react';
-import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
-import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import {
   usePracticePlanRange,
   usePracticePlanSeason,
@@ -103,15 +102,12 @@ function downloadCsv(filename: string, csvText: string) {
 const SchedulePage: React.FC = () => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
-  const { data: context } = useTeamContext();
-  const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
+  const { seasons, activeYear } = useSeasonSelection();
 
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
   const [viewWeekStart, setViewWeekStart] = useState(() => startOfWeek(new Date()));
   const [agendaStart, setAgendaStart] = useState(() => new Date());
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const activeYear = selectedYear ?? context?.activeSeason ?? seasons[0]?.year ?? null;
   const selectedSeason = seasons.find((s) => s.year === activeYear) ?? null;
   const seasonId = selectedSeason?.id ?? null;
 
@@ -211,18 +207,6 @@ const SchedulePage: React.FC = () => {
             <Timer className="h-4 w-4 mr-2" />
             Interval Sessions
           </Button>
-          <Select value={String(activeYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-            <SelectTrigger className="w-[120px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {seasons.map((s) => (
-                <SelectItem key={s.year} value={String(s.year)}>
-                  {s.year}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <Button variant="outline" onClick={handleExport} disabled={exportPlans.isPending}>
             {exportPlans.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
             Export

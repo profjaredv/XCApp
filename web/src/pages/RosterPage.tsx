@@ -29,9 +29,8 @@ import { rosterService, type RosterAthlete } from '@/api/rosterService';
 import { athleteService } from '@/api/athleteService';
 import { teamService } from '@/api/teamService';
 import { useTeamContext } from '@/hooks/useTeamContext';
-import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { gradeLabel } from '@/lib/seasonUtils';
-import { useQueryParamNumber } from '@/hooks/useQueryState';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { PendingClaimsCard } from '@/components/PendingClaimsCard';
@@ -57,10 +56,8 @@ const RosterPage: React.FC = () => {
 
   const queryClient = useQueryClient();
   const { data: context } = useTeamContext();
-  const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
-
-  const [seasonOverride, setSeasonOverride] = useQueryParamNumber('season');
-  const season = seasonOverride ?? context?.activeSeason;
+  const { seasons, activeYear, setSelectedYear } = useSeasonSelection();
+  const season = activeYear ?? undefined;
 
   const [showGraduated, setShowGraduated] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -131,7 +128,7 @@ const RosterPage: React.FC = () => {
     onSuccess: (result) => {
       toast.success(result.message);
       setStartSeasonOpen(false);
-      setSeasonOverride(result.season);
+      setSelectedYear(result.season);
       invalidate();
     },
     onError: () => toast.error('Could not start the new season'),
@@ -312,7 +309,7 @@ const RosterPage: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <Select
             value={season?.toString() ?? ''}
-            onValueChange={(v) => setSeasonOverride(parseInt(v, 10))}
+            onValueChange={(v) => setSelectedYear(parseInt(v, 10))}
           >
             <SelectTrigger className="w-[190px]">
               <SelectValue placeholder="Season" />

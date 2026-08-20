@@ -22,9 +22,8 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Plus, Loader2, CalendarDays, Download } from 'lucide-react';
-import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
-import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatDateShort } from '@/lib/formatUtils';
 import {
@@ -47,13 +46,10 @@ import { entryStatusLabel, type ProposedMeet, type ProposedCalendarMeet } from '
 
 const MeetsPage: React.FC = () => {
   const { currentUser } = useAuth();
-  const { data: context } = useTeamContext();
-  const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
+  const { seasons, activeYear } = useSeasonSelection();
   const navigate = useNavigate();
   const teamPath = useTeamPath();
 
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const activeYear = selectedYear ?? context?.activeSeason ?? seasons[0]?.year ?? null;
   const selectedSeason = seasons.find((s) => s.year === activeYear) ?? null;
   const seasonId = selectedSeason?.id ?? null;
 
@@ -152,14 +148,6 @@ const MeetsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-3xl font-bold">Meets</h1>
         <div className="flex items-center gap-2">
-          <Select value={String(activeYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-            <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {seasons.map((s) => (
-                <SelectItem key={s.year} value={String(s.year)}>{s.year}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <Button variant="outline" onClick={() => setCalendarImportOpen(true)}>
             <CalendarDays className="h-4 w-4 mr-2" />
             Import from Athletic.net

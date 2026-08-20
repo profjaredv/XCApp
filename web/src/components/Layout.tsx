@@ -3,11 +3,14 @@ import { Outlet, Link, NavLink, useLocation } from 'react-router-dom';
 import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, ClipboardList, Gauge, Users, CalendarDays, Flag, TrendingUp, Database, Package, Upload, MessageSquare } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
+import { useTeamContext } from '../hooks/useTeamContext';
 import { FeedbackWidget } from './FeedbackWidget';
 import { useTeamPath } from '../hooks/useTeamRoute';
 import { AdminTeamSwitcher } from './AdminTeamSwitcher';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { CheckoutReminderBanner } from './CheckoutReminderBanner';
+import { useOptionalSeasonSelection } from '../contexts/SeasonContext';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface SidebarProps {
   isMobileOpen: boolean;
@@ -262,6 +265,49 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   );
 }
 
+// The team/season indicator that used to only exist as a big, page-specific
+// header on the Analytics screen (name + full season picker) and nowhere
+// else — a coach on Today, Schedule, or any other screen had no on-screen
+// confirmation of which team or season they were even looking at. Lives in
+// Layout's header now so every screen gets it, collapsed to fit a mobile
+// top bar: team name next to the menu button, season as an icon-sized
+// dropdown. Reads/writes the one shared SeasonContext selection — the
+// optional variant, since Layout also renders /profile, deliberately
+// outside /t/:athleticTeamId (no SeasonProvider there — see
+// TeamRouteGuard.tsx, where the provider actually lives).
+const TeamSeasonHeader: React.FC = () => {
+  const { data: context } = useTeamContext();
+  const seasonSelection = useOptionalSeasonSelection();
+
+  return (
+    <>
+      <span className="font-semibold text-sm md:text-base truncate min-w-0 flex-shrink">{context?.team?.name}</span>
+      {seasonSelection && seasonSelection.seasons.length > 0 && (
+        <Select
+          value={seasonSelection.activeYear != null ? String(seasonSelection.activeYear) : undefined}
+          onValueChange={(v) => seasonSelection.setSelectedYear(Number(v))}
+        >
+          <SelectTrigger
+            size="sm"
+            className="ml-auto w-auto gap-1 border-none bg-transparent shadow-none px-2 h-8 hover:bg-accent"
+          >
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            {seasonSelection.seasons.map((s) => (
+              <SelectItem key={s.year} value={String(s.year)}>
+                {s.year}
+                {s.year === seasonSelection.activeSeason ? ' (Current)' : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </>
+  );
+};
+
 const Layout: React.FC = () => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   return (
@@ -271,10 +317,11 @@ const Layout: React.FC = () => {
       <div className="flex flex-1 bg-background overflow-hidden md:overflow-auto">
         <Sidebar isMobileOpen={isMobileOpen} setIsMobileOpen={setIsMobileOpen} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <header className="bg-background/80 backdrop-blur-xl border-b border-border p-3 md:p-4 flex items-center">
-            <button onClick={() => setIsMobileOpen(true)} className="md:hidden mr-2 p-2 text-muted-foreground hover:bg-accent rounded-lg transition-colors">
+          <header className="bg-background/80 backdrop-blur-xl border-b border-border px-3 md:px-4 py-3 md:py-4 flex items-center gap-2">
+            <button onClick={() => setIsMobileOpen(true)} className="md:hidden -ml-1 p-2 text-muted-foreground hover:bg-accent rounded-lg transition-colors">
               <Menu className="h-6 w-6" />
             </button>
+            <TeamSeasonHeader />
           </header>
           <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 md:p-6">
             <Outlet />

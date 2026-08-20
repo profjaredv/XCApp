@@ -23,8 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X } from 'lucide-react';
-import { useTeamContext } from '@/hooks/useTeamContext';
-import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { seasonService } from '@/api/seasonService';
 import {
   useGroups,
@@ -143,11 +142,7 @@ const AthleteGroupsView: React.FC = () => {
 
 const CoachGroupsView: React.FC = () => {
   const queryClient = useQueryClient();
-  const { data: context } = useTeamContext();
-  const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
-
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const activeYear = selectedYear ?? context?.activeSeason ?? seasons[0]?.year ?? null;
+  const { seasons, activeYear } = useSeasonSelection();
   const selectedSeason = seasons.find((s) => s.year === activeYear) ?? null;
   const seasonId = selectedSeason?.id ?? null;
 
@@ -397,14 +392,6 @@ const CoachGroupsView: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-3xl font-bold">Groups</h1>
         <div className="flex items-center gap-2">
-          <Select value={String(activeYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-            <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {seasons.map((s) => (
-                <SelectItem key={s.year} value={String(s.year)}>{s.year}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           {trainingGroups.length === 0 && previousSeason?.id && (
             <Button variant="outline" onClick={handleCopyFromPreviousSeason} disabled={copyFromSeason.isPending}>
               <Copy className="h-4 w-4 mr-2" />

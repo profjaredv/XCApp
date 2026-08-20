@@ -9,8 +9,8 @@ import { useToast } from "../components/ui/use-toast";
 import { useTeam } from '../hooks/useTeam';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamPath } from '../hooks/useTeamRoute';
-import { useCurrentSeason } from '../hooks/useCurrentSeason';
-import { useQueryParam } from '../hooks/useQueryState';
+import { useSeasonSelection } from '../contexts/SeasonContext';
+import { currentCalendarSeason } from '../lib/seasonUtils';
 import { ClearDataPanel } from '../components/data-management/ClearDataPanel';
 import { ImportDataPanel } from '../components/data-management/ImportDataPanel';
 import { EnhancedCalculateMetricsPanel } from '../components/data-management/EnhancedCalculateMetricsPanel';
@@ -29,17 +29,20 @@ export function DataManagementPage() {
   const { currentTeam } = useTeam();
   const { currentUser } = useAuth();
   const [activeStep, setActiveStep] = useState<DataManagementStep>(DataManagementStep.CLEAR);
-  // Defaults to the team's actual active season (accounts for imported data),
-  // not the calendar year, and persists across refresh/back via the URL
-  // instead of resetting every time this page mounts.
-  const defaultSeason = useCurrentSeason();
-  const [seasonParam, setSeasonParam] = useQueryParam('season');
-  const selectedSeason = seasonParam ?? String(defaultSeason);
-  const setSelectedSeason = setSeasonParam;
+  // Shared with every other season-scoped screen (SeasonContext) — defaults
+  // to the team's actual active season (accounts for imported data), not
+  // the calendar year. The list below stays this page's own, though: a
+  // coach importing a season's data for the first time needs to be able to
+  // pick a year that doesn't exist in the system yet, which the shared
+  // seasons list (seasons the team already "has") deliberately excludes.
+  const { activeYear, setSelectedYear } = useSeasonSelection();
+  const selectedSeason = activeYear != null ? String(activeYear) : String(currentCalendarSeason());
+  const setSelectedSeason = (value: string) => setSelectedYear(Number(value));
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [completedSteps, setCompletedSteps] = useState<Set<DataManagementStep>>(new Set());
 
-  // Available seasons (current year and past 5 years)
+  // Available seasons (current year and past 5 years) — deliberately not
+  // the shared SeasonContext list, see comment above.
   const currentYear = new Date().getFullYear();
   const availableSeasons = Array.from({ length: 6 }, (_, i) => (currentYear - i).toString());
 

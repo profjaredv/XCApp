@@ -8,8 +8,7 @@ import { Sparkles, TrendingUp, Loader2, Lightbulb, AlertCircle, Download, Play, 
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrentSeasonWithData } from '@/hooks/useCurrentSeasonWithData';
-import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
-import { useQueryParamNumber } from '@/hooks/useQueryState';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatPace } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
@@ -165,11 +164,11 @@ export default function CoachesToolsPage() {
   // Default past an empty active/preseason to the most recent season that
   // actually has races, so a team that just rolled into a new season isn't
   // greeted with "no data" on every tool here — but a coach can still pick
-  // any past season explicitly via the dropdown below.
+  // any past season explicitly via the dropdown below (or the shared
+  // header season picker), which then wins over this page-specific default.
   const defaultSeason = useCurrentSeasonWithData(teamId);
-  const { data: availableSeasons = [] } = useAvailableSeasons(teamId);
-  const [seasonParam, setSeasonParam] = useQueryParamNumber('season');
-  const currentSeason = seasonParam ?? defaultSeason;
+  const { seasons: availableSeasons, selectedYear, setSelectedYear } = useSeasonSelection();
+  const currentSeason = selectedYear ?? defaultSeason;
   const [improvements, setImprovements] = useState<ImprovementData[]>([]);
   const [aiInsights, setAiInsights] = useState<AiInsightsData | null>(null);
   const [coachUp, setCoachUp] = useState<CoachUpData | null>(null);
@@ -418,7 +417,7 @@ export default function CoachesToolsPage() {
           </p>
         </div>
         {availableSeasons.length > 0 && (
-          <Select value={currentSeason.toString()} onValueChange={(v) => setSeasonParam(Number(v))}>
+          <Select value={currentSeason.toString()} onValueChange={(v) => setSelectedYear(Number(v))}>
             <SelectTrigger className="w-[180px]"><SelectValue placeholder="Select season" /></SelectTrigger>
             <SelectContent>
               {availableSeasons.map((s) => (

@@ -17,8 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Upload, CheckCircle2, AlertCircle, Trash2, Users, Bookmark, Copy, ExternalLink } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDateShort } from '@/lib/formatUtils';
-import { useCurrentSeason } from '@/hooks/useCurrentSeason';
-import { useQueryParam } from '@/hooks/useQueryState';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { buildBookmarkletHref } from '@/lib/fieldResultsBookmarklet';
 import { parseCsv, toCsv } from '@/lib/csvParse';
 import {
@@ -99,9 +98,8 @@ function openInNewWindow(url: string) {
 
 const FieldResultsPage = () => {
   const { toast } = useToast();
-  const defaultSeason = useCurrentSeason();
-  const [seasonParam, setSeasonParam] = useQueryParam('season');
-  const season = seasonParam ? parseInt(seasonParam, 10) : defaultSeason;
+  const { activeYear } = useSeasonSelection();
+  const season = activeYear ?? undefined;
 
   const { data: races = [], isLoading } = useFieldResultRaces(season);
   const uploadMutation = useUploadFieldResults();
@@ -130,7 +128,6 @@ const FieldResultsPage = () => {
   const [bookmarkletCopied, setBookmarkletCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const availableSeasons = Array.from({ length: 6 }, (_, i) => defaultSeason - i);
   const uploadMeetGroup = uploadMeetId ? meetGroups.get(uploadMeetId) ?? null : null;
 
   const parsedCsv = useMemo(() => parseCsv(csvText), [csvText]);
@@ -268,14 +265,6 @@ const FieldResultsPage = () => {
             Band Analytics.
           </CardDescription>
         </div>
-        <Select value={String(season)} onValueChange={(v) => setSeasonParam(v)}>
-          <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {availableSeasons.map((y) => (
-              <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       <Card>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate, Outlet, useLocation, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { SeasonProvider } from '../contexts/SeasonProvider';
 
 // Sits inside ProtectedRoute, wrapping every /t/:athleticTeamId/* route.
 //
@@ -10,6 +11,11 @@ import { useAuth } from '../contexts/AuthContext';
 // bookmark, an old link, or someone hand-editing the URL lands on the
 // coach's OWN team's data (by redirecting to the correct athleticTeamId)
 // instead of silently rendering whatever happened to load.
+//
+// Also where SeasonProvider lives — every route under here shares one
+// season selection now, including the standalone full-screen routes
+// (Interval Sessions, Splits Entry, Race Visualization) that render
+// outside <Layout> and so can't get it from there.
 const TeamRouteGuard: React.FC = () => {
   const { athleticTeamId } = useParams<{ athleticTeamId: string }>();
   const { currentUser, loading } = useAuth();
@@ -33,7 +39,11 @@ const TeamRouteGuard: React.FC = () => {
     return <Navigate to={`${correctedPath}${location.search}`} replace />;
   }
 
-  return <Outlet />;
+  return (
+    <SeasonProvider>
+      <Outlet />
+    </SeasonProvider>
+  );
 };
 
 export default TeamRouteGuard;

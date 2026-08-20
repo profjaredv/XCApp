@@ -17,6 +17,7 @@ import { api } from '@/api/axios';
 import { useTeamSeasonSeries } from '@/hooks/useTeamSeasonSeries';
 import { useInvalidatePerformanceCache } from '@/hooks/useInvalidatePerformanceCache';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import RaceVisualization from '@/components/analytics/RaceVisualization';
 import { AnalyticsHeader } from '@/components/analytics/AnalyticsHeader';
 import { DashboardTab } from '@/components/analytics/DashboardTab';
@@ -131,6 +132,17 @@ const AnalyticsPage = () => {
   const { data: teamContext } = useTeamContext();
   const activeSeason = teamContext?.activeSeason;
   const viewedSeason = selectedSeason ?? activeSeason;
+
+  // One-way sync out to the shared header's season badge (SeasonContext) —
+  // this page's own mode-aware (current/historical) season logic above is
+  // deliberately untouched and stays the source of truth for itself; this
+  // just keeps the global indicator from showing a stale year while a coach
+  // is deep in a past season here, and seeds that year as the default the
+  // next screen they navigate to opens on.
+  const { setSelectedYear: setSharedSelectedYear } = useSeasonSelection();
+  useEffect(() => {
+    if (selectedSeason != null) setSharedSelectedYear(selectedSeason);
+  }, [selectedSeason, setSharedSelectedYear]);
   const viewedSeasonMeta = availableSeasons.find((s) => s.year === viewedSeason);
   // The Groups tab's roster always comes from the team's actively-managed
   // season, not whichever year is being viewed — a coach setting up 2026

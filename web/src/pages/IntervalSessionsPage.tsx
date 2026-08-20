@@ -8,9 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Plus, Trash2, Archive, Loader2, X, Check, ClipboardList, Copy } from 'lucide-react';
-import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
-import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useGroups, useGroupMembers } from '@/hooks/useGroups';
 import {
   useIntervalSessions,
@@ -96,11 +95,7 @@ const SessionSummaryCard: React.FC<{
 const IntervalSessionsPage: React.FC = () => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
-  const { data: context } = useTeamContext();
-  const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
-
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const activeYear = selectedYear ?? context?.activeSeason ?? seasons[0]?.year ?? null;
+  const { seasons, activeYear, setSelectedYear } = useSeasonSelection();
   const selectedSeason = seasons.find((s) => s.year === activeYear) ?? null;
   const seasonId = selectedSeason?.id ?? null;
 

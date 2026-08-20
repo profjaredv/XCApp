@@ -6,8 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
-import { teamService } from '@/api/teamService';
-import { useQueryParamNumber } from '@/hooks/useQueryState';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
 
 interface GridData {
@@ -37,37 +36,15 @@ const ResultsGridPage: React.FC = () => {
   const [gridData, setGridData] = useState<GridData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [seasons, setSeasons] = useState<number[]>([]);
-  const [selectedSeason, setSelectedSeason] = useQueryParamNumber('season');
+  const { seasons: seasonList, activeYear, setSelectedYear } = useSeasonSelection();
+  const seasons = useMemo(() => seasonList.map((s) => s.year), [seasonList]);
+  const selectedSeason = activeYear;
+  const setSelectedSeason = setSelectedYear;
   const [selectedGrades, setSelectedGrades] = useState<Set<number>>(new Set());
   const [selectedGenders, setSelectedGenders] = useState<Set<string>>(new Set(['M', 'F']));
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [sortRaceIndex, setSortRaceIndex] = useState<RaceIndex>(null);
-
-  // Fetch available seasons
-  useEffect(() => {
-    // @ts-expect-error - team.id exists in runtime but not in type definition
-    const teamId = currentUser?.team?.id || currentUser?.team_id;
-    if (teamId) {
-      // /teams/seasons returns season objects (year + roster/race counts), not
-      // plain numbers — teamService.getAvailableSeasons() projects out the
-      // years. Calling the raw endpoint here previously set selectedSeason to
-      // an object, which stringified to "[object Object]" in the results-grid
-      // request URL and always 400'd.
-      teamService.getAvailableSeasons()
-        .then((years) => {
-          setSeasons(years);
-          if (years.length > 0) {
-            setSelectedSeason(years[0]); // Select the most recent season by default
-          }
-        })
-        .catch((err: unknown) => {
-          console.error('Failed to fetch seasons', err);
-          setError('Failed to load available seasons.');
-        });
-    }
-  }, [currentUser]);
 
   // Extract unique grades from the grid data
   const availableGrades = useMemo(() => {
