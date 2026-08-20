@@ -205,7 +205,11 @@ Return JSON only, with every insight tagged by which of the three focus areas it
   "summary": "2-3 sentence overview focused on consistency, growth, and who to watch"
 }`;
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    // gemini-2.0-flash-exp (the preview model this used to call) has been
+    // shut down, along with GA gemini-2.0-flash itself — a request against
+    // either now fails, which is what was surfacing as a bare 500 here.
+    // gemini-2.5-flash is the current stable, cost-effective replacement.
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent(prompt);
     const text = result.response.text();
 
