@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList } from 'lucide-react';
+import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Timer as TimerIcon } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults } from '@/hooks/useMeetOps';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
@@ -195,6 +195,12 @@ const MeetDetailPage: React.FC = () => {
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
+                  {selectedRaceId && (
+                    <Button variant="outline" onClick={() => navigate(teamPath(`/race/${selectedRaceId}/timer`))}>
+                      <TimerIcon className="h-4 w-4 mr-2" />
+                      Live Timer
+                    </Button>
+                  )}
                   {selectedRaceId && (
                     <Button variant="outline" onClick={() => setEnterResultsOpen(true)}>
                       <ClipboardList className="h-4 w-4 mr-2" />

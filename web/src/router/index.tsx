@@ -21,6 +21,7 @@ import FeedbackPage from '../pages/FeedbackPage';
 import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
 import SplitsEntryPage from '../pages/SplitsEntryPage';
+import RaceLiveTimerPage from '../pages/RaceLiveTimerPage';
 import LandingPage from '../pages/LandingPage';
 // Enhanced analytics now integrated into main analytics page
 import ProtectedRoute from './ProtectedRoute';
@@ -166,6 +167,13 @@ export const router = createBrowserRouter([
               {
                 path: 'race/:raceId/splits',
                 element: <SplitsEntryPage />,
+              },
+              // Live finish-order capture — standalone without Layout,
+              // opened full screen from a race's "Live Timer" button on
+              // MeetDetailPage. Its own Close button navigates back there.
+              {
+                path: 'race/:raceId/timer',
+                element: <RaceLiveTimerPage />,
               },
               // All other routes with Layout (sidebar)
               {
