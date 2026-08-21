@@ -64,11 +64,15 @@ router.post('/scrape', authenticate, requireRole(['HEAD_COACH', 'COACH']), async
     const team = req.user.team;
     const yearNum = parseInt(year, 10) || currentCalendarSeason();
 
-    // Re-importing a season that was already imported: wipe it first.
+    // Re-importing a season that was already imported: wipe it first —
+    // but never a manual (non-scraped) race, e.g. a hand-entered time
+    // trial (Race.isManual). There's nothing to re-scrape it from, unlike
+    // every other race here, so silently deleting it on a routine
+    // re-import would be unrecoverable.
     const importedSeasons = team.importedSeasons || [];
     if (importedSeasons.includes(yearNum)) {
       const racesToDelete = await prisma.race.findMany({
-        where: { teamId: team.id, season: yearNum },
+        where: { teamId: team.id, season: yearNum, isManual: false },
         select: { id: true },
       });
       if (racesToDelete.length > 0) {
@@ -1061,8 +1065,10 @@ router.delete('/:athleticTeamId/results', authenticate, requireRole(['HEAD_COACH
       ? { season: parseInt(season, 10) }
       : {};
 
+    // Never a manual (non-scraped) race — see Race.isManual's schema
+    // comment. This clears imported data, not hand-entered time trials.
     const races = await prisma.race.findMany({
-      where: { teamId, ...seasonFilter },
+      where: { teamId, isManual: false, ...seasonFilter },
       select: { id: true, season: true },
     });
     const raceIds = races.map((r) => r.id);

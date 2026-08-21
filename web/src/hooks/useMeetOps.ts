@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { meetOpsService } from '../api/meetOpsService';
+import { meetOpsService, type RaceResultEntry } from '../api/meetOpsService';
+import { invalidateAfterDataChange } from './useDataManagement';
 
 export function useMeets(seasonId: string | null) {
   return useQuery({
@@ -36,6 +37,54 @@ export function useUpdateMeet(meetId: string | null) {
     // (['meetOps', seasonId]) in one call — a rename/date change can move a
     // meet's chronological position in the list too.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps'] }),
+  });
+}
+
+// A race that never touched the Athletic.net scraper (e.g. an in-house
+// track time trial) — see Race.isManual's schema comment. Invalidation is
+// the same broad set the data-import flow uses: adding a race or results
+// is exactly the kind of "team's race data changed" event that must
+// refresh the season picker, Program tab, and band charts, not just this
+// meet's own detail view.
+export function useCreateRace(meetId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; date?: string; distanceMeters: number; distance?: string }) =>
+      meetOpsService.createRace(meetId as string, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetOps'] });
+      invalidateAfterDataChange(queryClient);
+    },
+  });
+}
+
+export function useDeleteRace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (raceId: string) => meetOpsService.deleteRace(raceId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetOps'] });
+      invalidateAfterDataChange(queryClient);
+    },
+  });
+}
+
+export function useRaceResults(raceId: string | null) {
+  return useQuery({
+    queryKey: ['meetOps', 'raceResults', raceId],
+    queryFn: () => meetOpsService.getRaceResults(raceId as string),
+    enabled: !!raceId,
+  });
+}
+
+export function useSubmitRaceResults(raceId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (results: RaceResultEntry[]) => meetOpsService.submitRaceResults(raceId as string, results),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetOps', 'raceResults', raceId] });
+      invalidateAfterDataChange(queryClient);
+    },
   });
 }
 

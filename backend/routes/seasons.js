@@ -213,7 +213,9 @@ router.delete('/:id/results', authenticate, requireTeam, requireRole(['HEAD_COAC
       return res.status(404).json({ msg: 'Season not found.' });
     }
 
-    const races = await prisma.race.findMany({ where: { teamId, season: season.year }, select: { id: true } });
+    // Never a manual (non-scraped) race — see Race.isManual's schema
+    // comment. This clears imported results, not hand-entered time trials.
+    const races = await prisma.race.findMany({ where: { teamId, season: season.year, isManual: false }, select: { id: true } });
     if (races.length > 0) {
       await prisma.result.deleteMany({ where: { raceId: { in: races.map((r) => r.id) } } });
     }

@@ -12,7 +12,7 @@ import dataManagementService, {
 // and the Program tab in particular showing stale or pre-import numbers
 // until either a hard refresh or its own 5-minute staleTime happened to
 // lapse.
-const invalidateAfterDataChange = (queryClient: ReturnType<typeof useQueryClient>) => {
+export const invalidateAfterDataChange = (queryClient: ReturnType<typeof useQueryClient>) => {
   queryClient.invalidateQueries({ queryKey: ['availableSeasons'] });
   queryClient.invalidateQueries({ queryKey: ['seasons'] });
   queryClient.invalidateQueries({ queryKey: ['currentSeason'] });

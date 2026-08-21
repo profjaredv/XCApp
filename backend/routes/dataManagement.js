@@ -17,8 +17,10 @@ router.post('/clear/:season', authenticate, requireRole(['HEAD_COACH']), async (
       return res.status(400).json({ message: 'Invalid season.' });
     }
 
+    // Never a manual (non-scraped) race — see Race.isManual's schema
+    // comment. This clears imported data, not hand-entered time trials.
     const races = await prisma.race.findMany({
-      where: { teamId, season },
+      where: { teamId, season, isManual: false },
       select: { id: true },
     });
     const raceIds = races.map((r) => r.id);

@@ -5,6 +5,8 @@ const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require
 const { buildMeetMappingProposal } = require('../lib/meetMapping');
 const { parseTeamCalendar } = require('../lib/icalMeets');
 
+const RESULT_STATUSES = ['FINISHED', 'DNF', 'DNS', 'DQ'];
+
 // T4 (Team Management handoff), simplified per the Schedule rework: meet
 // operations — the Meet parent entity (name/date/location/home-or-away)
 // and its scraped-race import flows. Mounted at /api/meet-ops,
@@ -415,18 +417,201 @@ router.get('/mine', authenticate, requireLinkedAthlete, async (req, res) => {
   }
 });
 
-// GET /api/meet-ops/:meetId — detail (races only). Placed after the more
-// specific /:meetId/* routes above so it doesn't shadow them.
+// POST /api/meet-ops/:meetId/races — a race that never touched the
+// Athletic.net scraper, e.g. an in-house track time trial. Once it has
+// results, it's indistinguishable from a scraped race to every
+// downstream reader (pace calcs, PRs, band analytics, the Program tab,
+// AI insights) — see Race.isManual's schema comment. distanceMeters is
+// required (not silently defaulted, unlike the scraper's own fallback in
+// calculationService.js) because a pace-based analysis silently drops a
+// race with no distance rather than showing a wrong number.
+router.post('/:meetId/races', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { name, date, distanceMeters, distance } = req.body;
+  const distanceMetersNum = Number(distanceMeters);
+
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ msg: 'name is required.' });
+  }
+  if (!Number.isFinite(distanceMetersNum) || distanceMetersNum <= 0) {
+    return res.status(400).json({ msg: 'distanceMeters is required and must be a positive number.' });
+  }
+
+  try {
+    const meet = await prisma.meet.findFirst({ where: { id: req.params.meetId, teamId: req.user.teamId } });
+    if (!meet) {
+      return res.status(404).json({ msg: 'Meet not found.' });
+    }
+    const season = await prisma.season.findUnique({ where: { id: meet.seasonId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'This meet has no season on record.' });
+    }
+
+    const race = await prisma.race.create({
+      data: {
+        teamId: req.user.teamId,
+        meetId: meet.id,
+        name: String(name).trim(),
+        date: date ? new Date(date) : meet.date,
+        season: season.year,
+        distance: distance ? String(distance).trim() : null,
+        distanceMeters: distanceMetersNum,
+        isManual: true,
+      },
+    });
+    res.status(201).json(race);
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(409).json({ msg: 'A race with this name, date, and distance already exists on this team.' });
+    }
+    console.error('Error creating manual race:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// DELETE /api/meet-ops/races/:raceId — only ever a manual race (see
+// Race.isManual's schema comment). A scraped race is only ever removed
+// by a bulk wipe/re-scrape, never through a single-race delete, so a
+// coach can't accidentally erase real Athletic.net history this way.
+router.delete('/races/:raceId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  try {
+    const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
+    if (!race) {
+      return res.status(404).json({ msg: 'Race not found.' });
+    }
+    if (!race.isManual) {
+      return res.status(400).json({ msg: 'Only a manually-created race can be deleted this way.' });
+    }
+    await prisma.race.delete({ where: { id: race.id } }); // cascades to its Results
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting manual race:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/meet-ops/races/:raceId/results — existing results for a race,
+// to pre-fill the results-entry grid.
+router.get('/races/:raceId/results', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  try {
+    const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
+    if (!race) {
+      return res.status(404).json({ msg: 'Race not found.' });
+    }
+    const results = await prisma.result.findMany({
+      where: { raceId: race.id, teamId: req.user.teamId },
+      select: { athleteId: true, time: true, status: true },
+    });
+    res.json({
+      race: {
+        id: race.id,
+        name: race.name,
+        date: race.date,
+        distance: race.distance,
+        distanceMeters: race.distanceMeters,
+        isManual: race.isManual,
+        season: race.season,
+      },
+      results,
+    });
+  } catch (error) {
+    console.error('Error fetching race results:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/meet-ops/races/:raceId/results — batch enter/update finish
+// results for a race (e.g. a coach recording every athlete's time trial
+// result at once). Not restricted to manual races — this is also the
+// place to fix a missing or wrong result on a scraped race. An entry
+// with no time and no status clears any existing result for that
+// athlete (someone who didn't run, or was entered by mistake).
+router.post('/races/:raceId/results', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const teamId = req.user.teamId;
+  const { results } = req.body;
+  if (!Array.isArray(results) || results.length === 0) {
+    return res.status(400).json({ msg: 'A non-empty results array is required.' });
+  }
+
+  try {
+    const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId } });
+    if (!race) {
+      return res.status(404).json({ msg: 'Race not found.' });
+    }
+
+    const athleteIds = [...new Set(results.map((r) => r.athleteId).filter(Boolean))];
+    const [validAthletes, season] = await Promise.all([
+      prisma.athlete.findMany({ where: { id: { in: athleteIds }, teamId }, select: { id: true } }),
+      prisma.season.findFirst({ where: { teamId, year: race.season } }),
+    ]);
+    const validAthleteIds = new Set(validAthletes.map((a) => a.id));
+
+    // Grade at the time of THIS race — read from that season's own roster
+    // (season-specific, set during roster sync/import), same source the
+    // scraper derives it from. Left null if the athlete has no roster row
+    // for this season rather than guessing.
+    let gradeByAthleteId = new Map();
+    if (season) {
+      const rosterRows = await prisma.seasonRoster.findMany({
+        where: { seasonId: season.id, athleteId: { in: [...validAthleteIds] } },
+        select: { athleteId: true, grade: true },
+      });
+      gradeByAthleteId = new Map(rosterRows.map((r) => [r.athleteId, r.grade]));
+    }
+
+    let saved = 0;
+    let cleared = 0;
+
+    await prisma.$transaction(async (tx) => {
+      for (const entry of results) {
+        const { athleteId, time, status } = entry;
+        if (!athleteId || !validAthleteIds.has(athleteId)) continue;
+
+        const timeNum = time == null || time === '' ? null : Number(time);
+        const statusValue = status && RESULT_STATUSES.includes(status) ? status : null;
+
+        if (timeNum == null && !statusValue) {
+          const deleted = await tx.result.deleteMany({ where: { raceId: race.id, athleteId, teamId } });
+          cleared += deleted.count;
+          continue;
+        }
+        if (timeNum != null && (!Number.isFinite(timeNum) || timeNum <= 0)) continue;
+
+        await tx.result.upsert({
+          where: { athleteId_raceId: { athleteId, raceId: race.id } },
+          update: { time: timeNum, status: statusValue || 'FINISHED', grade: gradeByAthleteId.get(athleteId) ?? null },
+          create: {
+            raceId: race.id,
+            athleteId,
+            teamId,
+            time: timeNum,
+            status: statusValue || 'FINISHED',
+            grade: gradeByAthleteId.get(athleteId) ?? null,
+          },
+        });
+        saved++;
+      }
+    });
+
+    res.json({ success: true, saved, cleared });
+  } catch (error) {
+    console.error('Error saving race results:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/meet-ops/:meetId — detail (races + season year). Placed after
+// the more specific /:meetId/* and /races/* routes above so it doesn't
+// shadow them.
 router.get('/:meetId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
   try {
     const meet = await prisma.meet.findFirst({
       where: { id: req.params.meetId, teamId: req.user.teamId },
-      include: { races: true },
+      include: { races: true, season: { select: { year: true } } },
     });
     if (!meet) {
       return res.status(404).json({ msg: 'Meet not found.' });
     }
-    res.json(meet);
+    res.json({ ...meet, seasonYear: meet.season?.year ?? null });
   } catch (error) {
     console.error('Error fetching meet:', error.message);
     res.status(500).json({ msg: 'Server error' });

@@ -23,13 +23,45 @@ export interface MeetSummary {
   races: Array<{ id: string; name: string; distance: string | null; myEntryStatus?: EntryStatus }>;
 }
 
+export interface MeetRace {
+  id: string;
+  name: string;
+  distance: string | null;
+  distanceMeters?: number | null;
+  isManual?: boolean;
+}
+
 export interface MeetDetail {
   id: string;
   name: string;
   date: string;
   location: string | null;
   isHome: boolean | null;
-  races: Array<{ id: string; name: string; distance: string | null }>;
+  races: MeetRace[];
+  /** The season year this meet belongs to — needed to fetch the roster for results entry. */
+  seasonYear: number | null;
+}
+
+export type ResultStatus = 'FINISHED' | 'DNF' | 'DNS' | 'DQ';
+
+export interface RaceResultsDetail {
+  race: {
+    id: string;
+    name: string;
+    date: string;
+    distance: string | null;
+    distanceMeters: number | null;
+    isManual: boolean;
+    season: number;
+  };
+  results: Array<{ athleteId: string; time: number | null; status: ResultStatus }>;
+}
+
+export interface RaceResultEntry {
+  athleteId: string;
+  /** Seconds. Null (with no status) clears any existing result for this athlete. */
+  time: number | null;
+  status?: ResultStatus;
 }
 
 export interface MyMeetCard {
@@ -99,6 +131,27 @@ export const meetOpsService = {
 
   async createMeet(input: { seasonId: string; name: string; date: string; location?: string; isHome?: boolean | null }): Promise<MeetDetail> {
     const response = await api.post<MeetDetail>('/meet-ops', input);
+    return response.data;
+  },
+
+  /** A race that never touched the Athletic.net scraper — e.g. an in-house track time trial. */
+  async createRace(meetId: string, input: { name: string; date?: string; distanceMeters: number; distance?: string }): Promise<MeetRace> {
+    const response = await api.post<MeetRace>(`/meet-ops/${meetId}/races`, input);
+    return response.data;
+  },
+
+  /** Only ever a manually-created race — see MeetRace.isManual. */
+  async deleteRace(raceId: string): Promise<void> {
+    await api.delete(`/meet-ops/races/${raceId}`);
+  },
+
+  async getRaceResults(raceId: string): Promise<RaceResultsDetail> {
+    const response = await api.get<RaceResultsDetail>(`/meet-ops/races/${raceId}/results`);
+    return response.data;
+  },
+
+  async submitRaceResults(raceId: string, results: RaceResultEntry[]): Promise<{ success: boolean; saved: number; cleared: number }> {
+    const response = await api.post(`/meet-ops/races/${raceId}/results`, { results });
     return response.data;
   },
 

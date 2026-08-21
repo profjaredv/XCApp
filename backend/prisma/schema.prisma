@@ -577,6 +577,20 @@ model Race {
   // only matters when scheme = 'CUSTOM' (e.g. a course marked at 2K/4K only).
   splitMarkerScheme  String?  @map("split_marker_scheme")
   splitMarkersMeters Float[]  @map("split_markers_meters")
+  // A coach-entered race that never touched the Athletic.net scraper (e.g.
+  // an in-house track time trial) — see POST /:meetId/races in
+  // routes/meetOps.js. Everything downstream (pace calcs, PRs, band
+  // analytics, the Program tab, AI insights) reads Race/Result generically
+  // by teamId/season with no provenance check, so a manual race is treated
+  // identically everywhere by default. This flag exists for exactly one
+  // reason: the scraper's re-import wipes every Race for a team+season
+  // before re-creating them from the CSV (see teams.js), which would
+  // otherwise silently delete hand-entered data with no way to recover
+  // it (unlike a scraped race, there's nothing to re-scrape). Every bulk
+  // wipe site (scrape re-import, clear-team-data, season results delete)
+  // excludes isManual races; deleting one is only ever a direct,
+  // deliberate action (DELETE /races/:raceId, manual-only).
+  isManual           Boolean  @default(false) @map("is_manual")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
