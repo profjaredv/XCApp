@@ -27,6 +27,9 @@ const TIER_BOTTOM_SIZE = 30;
 // app asserts is universal. Just the ranked-list size for the Top
 // Performers section below.
 const TOP_STARTERS_COUNT = 11;
+// "Your likely next set of 10" — the depth chart right behind the top
+// group, same framing as TOP_STARTERS_COUNT above.
+const NEXT_TIER_COUNT = 10;
 
 // Bumped whenever the analysis logic itself changes materially (a new
 // focus area, a different data window, an eligibility fix) — folded into
@@ -34,7 +37,7 @@ const TOP_STARTERS_COUNT = 11;
 // Without this, a logic fix ships but stays invisible behind an old
 // snapshot until real new race data happens to arrive, which in
 // preseason can be months away.
-const INSIGHTS_LOGIC_VERSION = 2;
+const INSIGHTS_LOGIC_VERSION = 3;
 
 function formatPaceForPrompt(secPerMile) {
   // Round the total first, then split — rounding minutes and seconds
@@ -199,7 +202,10 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
     // silently dropped just because eligibility can't be computed.
     let athletes = candidateAthletes;
     if (isPreseasonFallback) {
-      const requestedSeasonRow = await prisma.season.findFirst({ where: { teamId, year: requestedSeason }, select: { id: true } });
+      const [requestedSeasonRow, usingSeasonRow] = await Promise.all([
+        prisma.season.findFirst({ where: { teamId, year: requestedSeason }, select: { id: true } }),
+        prisma.season.findFirst({ where: { teamId, year: usingSeason }, select: { id: true } }),
+      ]);
       const requestedRosterRows = requestedSeasonRow
         ? await prisma.seasonRoster.findMany({ where: { seasonId: requestedSeasonRow.id, isActive: true }, select: { athleteId: true } })
         : [];
@@ -209,6 +215,23 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
         requestedRosterAthleteIds.size > 0
           ? candidateAthletes.filter((a) => requestedRosterAthleteIds.has(a.id))
           : candidateAthletes.filter((a) => a.graduationYear == null || isEnrolled(a.graduationYear, requestedSeason));
+
+      // Second, independent signal, applied either way: whatever grade was
+      // actually recorded for this athlete in usingSeason's OWN roster.
+      // SeasonRoster.grade is season-specific and set during roster
+      // sync/import — often populated even when Athlete.graduationYear
+      // never was. A senior (grade 12) in usingSeason has graduated by
+      // requestedSeason regardless of what the checks above concluded —
+      // this is exactly the case a null graduationYear falls through:
+      // a real senior whose graduation year was simply never captured.
+      const usingSeasonGradeRows = usingSeasonRow
+        ? await prisma.seasonRoster.findMany({
+            where: { seasonId: usingSeasonRow.id, athleteId: { in: athletes.map((a) => a.id) } },
+            select: { athleteId: true, grade: true },
+          })
+        : [];
+      const seniorInUsingSeason = new Set(usingSeasonGradeRows.filter((r) => r.grade === 12).map((r) => r.athleteId));
+      athletes = athletes.filter((a) => !seniorInUsingSeason.has(a.id));
     }
 
     const athleteData = await Promise.all(
@@ -297,22 +320,26 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
     // Real names never reach the prompt below — see lib/kippwitAnonymize.js.
     const { anonymized, deanonymize } = anonymizeAthletesForAnalysis(validAthletes);
 
-    // "Your likely top N per gender to start the season" — a deterministic
+    // "Your likely top N, your likely next M" per gender — a deterministic
     // ranked slice, not left for the model to (re)figure out from the
     // tier data. This is exact, bounded arithmetic an LLM has no reason to
     // eyeball; the model's job below is framing it, not computing it.
     const topStartersByGender = { M: [], F: [] };
+    const nextTierByGender = { M: [], F: [] };
     for (const gender of ['M', 'F']) {
-      topStartersByGender[gender] = anonymized
+      const ranked = anonymized
         .filter((a) => a.gender === gender)
-        .sort((a, b) => a.avgPaceSecPerMile - b.avgPaceSecPerMile)
-        .slice(0, TOP_STARTERS_COUNT)
-        .map((a) => a.name);
+        .sort((a, b) => a.avgPaceSecPerMile - b.avgPaceSecPerMile);
+      topStartersByGender[gender] = ranked.slice(0, TOP_STARTERS_COUNT).map((a) => a.name);
+      nextTierByGender[gender] = ranked.slice(TOP_STARTERS_COUNT, TOP_STARTERS_COUNT + NEXT_TIER_COUNT).map((a) => a.name);
     }
-    const startersList = ['M', 'F']
-      .filter((g) => topStartersByGender[g].length > 0)
-      .map((g) => `${g === 'F' ? 'Girls' : 'Boys'}: ${topStartersByGender[g].join(', ')}`)
-      .join('\n');
+    const rankedListText = (byGender) =>
+      ['M', 'F']
+        .filter((g) => byGender[g].length > 0)
+        .map((g) => `${g === 'F' ? 'Girls' : 'Boys'}: ${byGender[g].join(', ')}`)
+        .join('\n');
+    const startersList = rankedListText(topStartersByGender);
+    const nextTierList = rankedListText(nextTierByGender);
 
     const preseasonNote = isPreseasonFallback
       ? `This team has no races yet in the ${requestedSeason} season. This analysis uses their ${usingSeason} season instead — specifically just each athlete's LAST UP TO 3 RACES of that season (current form heading into the offseason, not a season-long average), and excludes anyone who has since graduated. Frame everything as "heading into ${requestedSeason}," not as a recap of ${usingSeason}.\n\n`
@@ -327,20 +354,23 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
 Data notes — read these before analyzing, they prevent the most common mistakes:
 - Pace (min:sec per mile) is already normalized for distance, so it's directly comparable across every race in the data below even though the races were different distances. Do not discount or second-guess a pace comparison because you don't know the distance — that's already been handled.
 - "tier" (top / middle / bottom) is each athlete's rank against their OWN gender only, by average pace over the window described below — never compare a tier or a pace between genders, and don't recompute rank yourself from avgPlace (that's one race's field position, a noisier and different signal from tier).
-- The "Projected top ${TOP_STARTERS_COUNT}" list below is already computed and ranked (fastest first, within gender) — use it exactly as given for the TOP PERFORMERS focus area. Do not add, drop, or reorder anyone in it, and do not build your own version from the tier data instead.
+- The "Projected top ${TOP_STARTERS_COUNT}" and "Projected next ${NEXT_TIER_COUNT}" lists below are already computed and ranked (fastest first, within gender) — use them exactly as given for the TOP PERFORMERS focus area. Do not add, drop, or reorder anyone in either list, and do not build your own version from the tier data instead.
 - Treat a 2-race athlete's trend as tentative and say so if you lean on it ("early, but..."); a 4+ race trend can be stated with more confidence.
 - Grade matters for framing, not for scoring: a freshman or sophomore improving fast is normal development, not necessarily a "breakout" — reserve that word for someone actually closing the gap to the top tier, at any grade.
 
 Write like scouting notes, not a stats printout: connect the numbers into what's actually happening with each athlete or group of athletes, don't just restate the figures back with words like "avg pace of X" stitched around them.
 
 Focus on exactly four things:
-1. TOP PERFORMERS — the team's projected top ${TOP_STARTERS_COUNT} per gender, using the "Projected top ${TOP_STARTERS_COUNT}" list below verbatim (every name in it, grouped by gender). Add brief scouting context where the data supports it — someone new to this group, someone near the bottom of it with a thin margin, an underclassman already inside it — but never invent or omit a name from the given list.
+1. TOP PERFORMERS — the team's depth chart: the projected top ${TOP_STARTERS_COUNT} per gender (likely varsity-caliber to start the season) AND the next ${NEXT_TIER_COUNT} right behind them, using the "Projected top ${TOP_STARTERS_COUNT}" and "Projected next ${NEXT_TIER_COUNT}" lists below verbatim (every name in both, grouped by gender, clearly distinguishing the two groups). Add brief scouting context where the data supports it — someone new to the top group, a thin margin near either group's edge, an underclassman already inside the top group — but never invent, omit, or move anyone between the given lists.
 2. BREAKOUT WATCH — the team's real point of leverage: middle-tier athletes whose pace is trending toward the top tier's range, not the team's fastest runners (already covered above) and not athletes with no real trend yet. Say specifically how close the gap is and how fast it's closing. If nobody in the middle tier is trending up, say so plainly instead of forcing a candidate.
 3. CONSISTENCY — who races reliably close to their own average vs. who is erratic meet to meet, and (when the data suggests why) what that pattern looks like — e.g. strong on the same course twice but volatile elsewhere, or steady early and erratic late.
 4. NEEDS ATTENTION — athletes, at any tier, who are regressing, plateauing after being on an upward trend, or newly erratic in a way that's worth a coaching conversation. Not a catch-all "watch list" — every entry here should name a specific concern, not just "keep an eye on this athlete."
 
 ${preseasonNote}Projected top ${TOP_STARTERS_COUNT} (ranked, fastest first — see TOP PERFORMERS above):
 ${startersList || 'Not enough athletes with data to project a starting group.'}
+
+Projected next ${NEXT_TIER_COUNT} (ranked, fastest first, right behind the group above):
+${nextTierList || 'Not enough remaining athletes with data.'}
 
 Team Data (pace already normalized to min:sec/mile; pace change is % change in pace over the window described above, positive = faster; pace variance is standard deviation as a % of average pace — lower is more consistent):
 ${anonymized.slice(0, 30).map((a) => `${a.name}: ${a.tier ?? 'unranked'} tier (${a.gender === 'F' ? 'girls' : a.gender === 'M' ? 'boys' : 'gender unknown'}), grade ${a.grade ?? 'n/a'}, ${a.raceCount} races, avg pace ${formatPaceForPrompt(a.avgPaceSecPerMile)}, ${a.improvement > 0 ? '+' : ''}${a.improvement}% pace change, ${a.consistency}% pace variance, avg finish place ${a.avgPlace ?? 'n/a'}`).join('\n')}
