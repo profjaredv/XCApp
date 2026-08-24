@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { parse } = require('csv-parse/sync');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
 const {
@@ -14,6 +15,9 @@ const { decideCanAcceptAthleteInvite } = require('../lib/athleteInvites');
 const { sendEmail } = require('../lib/email');
 const { requireActivePlan } = require('../lib/entitlements');
 const calculationService = require('../services/performance/calculationService');
+const { parseRosterCsv } = require('../lib/rosterCsv');
+const { matchAthlete, normalizeAthleteName } = require('../lib/athleteMatching');
+const { planDedup } = require('../lib/athleteMerge');
 
 // www, not the apex — the apex leadpack.cc has no DNS record pointed at
 // the app, so bare-domain invite links 404 at the DNS level before ever
@@ -277,6 +281,121 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
   }
 });
 
+// POST /api/athletes/import-roster
+//
+// For the athletes an Athletic.net scrape can't see: freshmen with no
+// race history yet, or anyone the team hasn't gotten around to adding to
+// Athletic.net at all — common in preseason, since a roster more often
+// comes from FinalForms or a plain sheet before Athletic.net has
+// anything on it. Reconciles against every athlete already on this team
+// (from a prior Athletic.net import OR a prior roster-CSV import) using
+// the exact same name/athleticAthleteId matching the scraper uses
+// (lib/athleteMatching.js) — a matched row only ever backfills a field
+// that's currently null, same "never overwrite what the scraper already
+// verified" rule /scrape-roster follows for athleticAthleteId. Never
+// writes athleticAthleteId itself (this source has no such id) or the
+// deprecated Athlete.grade column — grade is per-season, on SeasonRoster.
+router.post('/import-roster', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+  const { season, csvData } = req.body;
+  const teamId = req.user.teamId;
+  const seasonYear = parseInt(season, 10);
+
+  if (!Number.isFinite(seasonYear)) {
+    return res.status(400).json({ msg: 'A valid season is required.' });
+  }
+  if (!csvData || typeof csvData !== 'string') {
+    return res.status(400).json({ msg: 'csvData is required.' });
+  }
+
+  let rows;
+  try {
+    rows = parse(csvData, { columns: true, skip_empty_lines: true, trim: true });
+  } catch (err) {
+    return res.status(400).json({ msg: `Could not parse CSV: ${err.message}` });
+  }
+
+  const { athletes: parsedRows, errors: parseErrors, skipped: parseSkipped } = parseRosterCsv(rows);
+
+  if (parsedRows.length === 0) {
+    return res.status(400).json({
+      msg: 'No valid rows to import.',
+      imported: 0,
+      matched: 0,
+      skipped: parseSkipped,
+      warnings: parseErrors,
+    });
+  }
+
+  try {
+    const seasonRow = await prisma.season.upsert({
+      where: { teamId_year_sport: { teamId, year: seasonYear, sport: 'XC' } },
+      update: {},
+      create: { teamId, year: seasonYear, sport: 'XC' },
+    });
+
+    const existingAthletes = await prisma.athlete.findMany({ where: { teamId } });
+    const athleteByAthleticId = new Map(existingAthletes.filter((a) => a.athleticAthleteId).map((a) => [a.athleticAthleteId, a]));
+    const athleteByName = new Map(existingAthletes.map((a) => [normalizeAthleteName(a.name), a]));
+
+    let imported = 0;
+    let matched = 0;
+    const warnings = [...parseErrors];
+
+    await prisma.$transaction(async (tx) => {
+      for (const row of parsedRows) {
+        const genderValue = row.genderRaw ? normalizeGender(row.genderRaw) : null;
+        // Whichever the row gave (Grade or Graduation Year), derive the
+        // other side of the same relationship — same round-trip
+        // /scrape-roster uses (teams.js).
+        const graduationYear = row.graduationYear ?? (row.grade != null ? deriveGraduationYear(row.grade, seasonYear) : null);
+        const seasonGrade = row.grade ?? (row.graduationYear != null ? deriveGrade(row.graduationYear, seasonYear) : null);
+
+        // No athleticAthleteId on a CSV row — matching falls through to
+        // name only, exactly as it does for any athlete without one.
+        const existing = matchAthlete({ athleticAthleteId: null, name: row.name }, { byAthleticId: athleteByAthleticId, byName: athleteByName });
+
+        let athlete;
+        if (existing) {
+          const updates = {};
+          if (genderValue && !existing.gender) updates.gender = genderValue;
+          if (graduationYear != null && existing.graduationYear == null) updates.graduationYear = graduationYear;
+          athlete = Object.keys(updates).length > 0 ? await tx.athlete.update({ where: { id: existing.id }, data: updates }) : existing;
+          matched++;
+        } else {
+          athlete = await tx.athlete.create({ data: { teamId, name: row.name, gender: genderValue, graduationYear } });
+          imported++;
+        }
+
+        // Seed the maps so later rows in the same file match this athlete
+        // instead of creating a duplicate — same as the scraper's own loop.
+        athleteByName.set(normalizeAthleteName(athlete.name), athlete);
+        if (athlete.athleticAthleteId) athleteByAthleticId.set(athlete.athleticAthleteId, athlete);
+
+        await tx.seasonRoster.upsert({
+          where: { seasonId_athleteId: { seasonId: seasonRow.id, athleteId: athlete.id } },
+          update: { grade: seasonGrade, isActive: true },
+          create: { seasonId: seasonRow.id, athleteId: athlete.id, grade: seasonGrade, isActive: true },
+        });
+      }
+    });
+
+    calculationService
+      .calculateAllMetrics(teamId, seasonYear)
+      .catch((calcError) => console.error(`Error recalculating metrics after roster import for season ${seasonYear}:`, calcError.message));
+
+    res.status(201).json({
+      msg: `Imported ${imported} new athlete${imported === 1 ? '' : 's'}, matched ${matched} already on the team.`,
+      imported,
+      matched,
+      skipped: parseSkipped,
+      warnings,
+    });
+  } catch (error) {
+    console.error('Error importing roster:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 router.put('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { firstName, lastName, name, graduationYear, grade, season, gender } = req.body;
   const teamId = req.user.teamId;
@@ -356,6 +475,214 @@ router.delete('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH
   } catch (error) {
     console.error('Error in DELETE /athletes/:athleteId:', error.message);
     res.status(500).json({ msg: 'Error deleting athlete' });
+  }
+});
+
+// POST /api/athletes/merge
+//
+// Consolidates two Athlete rows that turned out to be the same real
+// person — nothing in the schema prevents this from happening (no unique
+// constraint on (teamId, name), see the Athlete model's own comment), so
+// recovering from it has to actually work, not just avoid crashing.
+// `keeperId` survives; every row across the schema that references
+// `loserId` is either re-pointed to keeperId, or — where the keeper
+// already has a row for the same key (same race, same season, same
+// interval session, ...) — deliberately left on the loser to be swept
+// away by the final cascade delete, never silently duplicated and never
+// silently overwriting the keeper's own row. See lib/athleteMerge.js's
+// header comment for why every table needs this explicit treatment:
+// every one of them uses onDelete: Cascade, so anything not re-pointed
+// is destroyed the instant the loser Athlete row is deleted — not
+// blocked by a constraint, just gone.
+//
+// Head-coach-only — comparable in blast radius to Clear Team Data
+// (routes/teams.js), not a routine roster edit.
+router.post('/merge', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+  const { keeperId, loserId } = req.body;
+  const teamId = req.user.teamId;
+
+  if (!keeperId || !loserId) {
+    return res.status(400).json({ msg: 'keeperId and loserId are required.' });
+  }
+  if (keeperId === loserId) {
+    return res.status(400).json({ msg: 'Cannot merge an athlete with themselves.' });
+  }
+
+  try {
+    const [keeper, loser] = await Promise.all([
+      prisma.athlete.findFirst({ where: { id: keeperId, teamId } }),
+      prisma.athlete.findFirst({ where: { id: loserId, teamId } }),
+    ]);
+    if (!keeper || !loser) {
+      return res.status(404).json({ msg: 'One or both athletes were not found on this team.' });
+    }
+    // Athlete.userId is unique — if both are linked to DIFFERENT accounts,
+    // that's a real conflict (two logins each claiming to be this
+    // person) this endpoint refuses to silently resolve one way.
+    if (keeper.userId && loser.userId && keeper.userId !== loser.userId) {
+      return res.status(409).json({
+        msg: 'Both athletes have a different linked account. Unlink one first before merging.',
+      });
+    }
+
+    // TeamSeasonMetrics has no Athlete FK at all — it never auto-
+    // recomputes, so read which seasons either athlete actually raced in
+    // before anything moves (same pattern DELETE /:athleteId already
+    // uses just above).
+    const [keeperResultRaces, loserResultRaces] = await Promise.all([
+      prisma.result.findMany({ where: { athleteId: keeperId }, select: { race: { select: { season: true } } } }),
+      prisma.result.findMany({ where: { athleteId: loserId }, select: { race: { select: { season: true } } } }),
+    ]);
+    const affectedSeasons = [...new Set([...keeperResultRaces, ...loserResultRaces].map((r) => r.race.season))];
+
+    await prisma.$transaction(async (tx) => {
+      // GuardianLink — @@unique([userId, athleteId]); dedupe key: userId.
+      const [keeperGuardianLinks, loserGuardianLinks] = await Promise.all([
+        tx.guardianLink.findMany({ where: { athleteId: keeperId } }),
+        tx.guardianLink.findMany({ where: { athleteId: loserId } }),
+      ]);
+      const guardianPlan = planDedup(keeperGuardianLinks, loserGuardianLinks, (r) => r.userId);
+      if (guardianPlan.repoint.length > 0) {
+        await tx.guardianLink.updateMany({ where: { id: { in: guardianPlan.repoint.map((r) => r.id) } }, data: { athleteId: keeperId } });
+      }
+
+      // AthleteInvite — athleteId itself is unique (at most one per athlete).
+      const [keeperInvite, loserInvite] = await Promise.all([
+        tx.athleteInvite.findUnique({ where: { athleteId: keeperId } }),
+        tx.athleteInvite.findUnique({ where: { athleteId: loserId } }),
+      ]);
+      if (loserInvite && !keeperInvite) {
+        await tx.athleteInvite.update({ where: { id: loserInvite.id }, data: { athleteId: keeperId } });
+      }
+
+      // AthleteClaim — @@unique([athleteId, userId]); dedupe key: userId.
+      const [keeperClaims, loserClaims] = await Promise.all([
+        tx.athleteClaim.findMany({ where: { athleteId: keeperId } }),
+        tx.athleteClaim.findMany({ where: { athleteId: loserId } }),
+      ]);
+      const claimPlan = planDedup(keeperClaims, loserClaims, (r) => r.userId);
+      if (claimPlan.repoint.length > 0) {
+        await tx.athleteClaim.updateMany({ where: { id: { in: claimPlan.repoint.map((r) => r.id) } }, data: { athleteId: keeperId } });
+      }
+
+      // TrainingLog — no unique constraint on athleteId; plain repoint.
+      await tx.trainingLog.updateMany({ where: { athleteId: loserId }, data: { athleteId: keeperId } });
+
+      // RaceReflection — @@unique([athleteId, raceId]); dedupe key: raceId.
+      const [keeperReflections, loserReflections] = await Promise.all([
+        tx.raceReflection.findMany({ where: { athleteId: keeperId } }),
+        tx.raceReflection.findMany({ where: { athleteId: loserId } }),
+      ]);
+      const reflectionPlan = planDedup(keeperReflections, loserReflections, (r) => r.raceId);
+      if (reflectionPlan.repoint.length > 0) {
+        await tx.raceReflection.updateMany({ where: { id: { in: reflectionPlan.repoint.map((r) => r.id) } }, data: { athleteId: keeperId } });
+      }
+
+      // MeetEntry — @@unique([raceId, athleteId]); dedupe key: raceId.
+      const [keeperEntries, loserEntries] = await Promise.all([
+        tx.meetEntry.findMany({ where: { athleteId: keeperId } }),
+        tx.meetEntry.findMany({ where: { athleteId: loserId } }),
+      ]);
+      const entryPlan = planDedup(keeperEntries, loserEntries, (r) => r.raceId);
+      if (entryPlan.repoint.length > 0) {
+        await tx.meetEntry.updateMany({ where: { id: { in: entryPlan.repoint.map((r) => r.id) } }, data: { athleteId: keeperId } });
+      }
+
+      // Result — @@unique([athleteId, raceId]); dedupe key: raceId. The
+      // table that matters most (race history) — its repointed ids feed
+      // the RaceSplit step right after.
+      const [keeperResultRows, loserResultRows] = await Promise.all([
+        tx.result.findMany({ where: { athleteId: keeperId }, select: { id: true, raceId: true } }),
+        tx.result.findMany({ where: { athleteId: loserId }, select: { id: true, raceId: true } }),
+      ]);
+      const resultPlan = planDedup(keeperResultRows, loserResultRows, (r) => r.raceId);
+      const repointedResultIds = resultPlan.repoint.map((r) => r.id);
+      if (repointedResultIds.length > 0) {
+        await tx.result.updateMany({ where: { id: { in: repointedResultIds } }, data: { athleteId: keeperId } });
+      }
+
+      // RaceSplit — carries its own athleteId alongside a unique
+      // resultId; follows wherever its Result ended up. A split on a
+      // DROPPED loser Result cascades away naturally once that Result is
+      // (via the loser Athlete's final cascade delete below) — nothing
+      // to do for those here.
+      if (repointedResultIds.length > 0) {
+        await tx.raceSplit.updateMany({ where: { resultId: { in: repointedResultIds } }, data: { athleteId: keeperId } });
+      }
+
+      // SeasonRoster — @@unique([seasonId, athleteId]); dedupe key: seasonId.
+      const [keeperRoster, loserRoster] = await Promise.all([
+        tx.seasonRoster.findMany({ where: { athleteId: keeperId } }),
+        tx.seasonRoster.findMany({ where: { athleteId: loserId } }),
+      ]);
+      const rosterPlan = planDedup(keeperRoster, loserRoster, (r) => r.seasonId);
+      if (rosterPlan.repoint.length > 0) {
+        await tx.seasonRoster.updateMany({ where: { id: { in: rosterPlan.repoint.map((r) => r.id) } }, data: { athleteId: keeperId } });
+      }
+
+      // GroupMembership — no unique constraint; plain repoint. (If both
+      // athletes had an open, same-group membership, the keeper ends up
+      // with two open rows for that group — a pre-existing app-level
+      // invariant lib/groups.js assumes, not something the database
+      // enforces; harmless duplication a coach can clean up in Groups.)
+      await tx.groupMembership.updateMany({ where: { athleteId: loserId }, data: { athleteId: keeperId } });
+
+      // IntervalSessionEntry — @@unique([intervalSessionId, athleteId]).
+      const [keeperIntervalEntries, loserIntervalEntries] = await Promise.all([
+        tx.intervalSessionEntry.findMany({ where: { athleteId: keeperId } }),
+        tx.intervalSessionEntry.findMany({ where: { athleteId: loserId } }),
+      ]);
+      const intervalPlan = planDedup(keeperIntervalEntries, loserIntervalEntries, (r) => r.intervalSessionId);
+      if (intervalPlan.repoint.length > 0) {
+        await tx.intervalSessionEntry.updateMany({ where: { id: { in: intervalPlan.repoint.map((r) => r.id) } }, data: { athleteId: keeperId } });
+      }
+
+      // CoachUpAcknowledgement — @@unique([teamId, athleteId, category, season]).
+      const [keeperAcks, loserAcks] = await Promise.all([
+        tx.coachUpAcknowledgement.findMany({ where: { athleteId: keeperId } }),
+        tx.coachUpAcknowledgement.findMany({ where: { athleteId: loserId } }),
+      ]);
+      const ackPlan = planDedup(keeperAcks, loserAcks, (r) => `${r.category}::${r.season}`);
+      if (ackPlan.repoint.length > 0) {
+        await tx.coachUpAcknowledgement.updateMany({ where: { id: { in: ackPlan.repoint.map((r) => r.id) } }, data: { athleteId: keeperId } });
+      }
+
+      // AthleteSeasonMetrics — pre-calculated aggregates, not source
+      // data. Deleting both and recomputing below (affectedSeasons) is
+      // simpler and more correct than trying to average two averages.
+      await tx.athleteSeasonMetrics.deleteMany({ where: { athleteId: { in: [keeperId, loserId] } } });
+
+      // MeetPerformanceMetrics.bestAthleteId — nullable, no athlete-
+      // inclusive unique constraint; plain repoint.
+      await tx.meetPerformanceMetrics.updateMany({ where: { bestAthleteId: loserId }, data: { bestAthleteId: keeperId } });
+
+      // EquipmentAssignment — no unique constraint; plain repoint.
+      await tx.equipmentAssignment.updateMany({ where: { athleteId: loserId }, data: { athleteId: keeperId } });
+
+      // Athlete.userId is itself unique (checked before the transaction
+      // started — see the 409 above). Null the loser's first so the two
+      // updates never collide mid-transaction.
+      if (loser.userId && !keeper.userId) {
+        await tx.athlete.update({ where: { id: loserId }, data: { userId: null } });
+        await tx.athlete.update({ where: { id: keeperId }, data: { userId: loser.userId } });
+      }
+
+      // Everything still pointing at loserId at this point is exactly
+      // what was deliberately left behind above (dropped duplicates) —
+      // this cascades all of it away, RaceSplit/Split included.
+      await tx.athlete.delete({ where: { id: loserId } });
+    });
+
+    for (const season of affectedSeasons) {
+      calculationService
+        .calculateAllMetrics(teamId, season)
+        .catch((calcError) => console.error(`Error recalculating metrics after merging athletes for season ${season}:`, calcError.message));
+    }
+
+    res.json({ msg: `Merged into ${keeper.name}.`, keeperId, deletedId: loserId });
+  } catch (error) {
+    console.error('Error merging athletes:', error.message);
+    res.status(500).json({ msg: 'Server error' });
   }
 });
 

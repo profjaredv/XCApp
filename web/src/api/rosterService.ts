@@ -40,6 +40,14 @@ export interface RosterSyncResult {
   message: string;
 }
 
+export interface RosterImportResult {
+  msg: string;
+  imported: number;
+  matched: number;
+  skipped: number;
+  warnings: Array<{ row: number; message: string }>;
+}
+
 export interface StartSeasonResult {
   success: boolean;
   season: number;
@@ -80,6 +88,23 @@ export const rosterService = {
     input: { name?: string; grade?: number; graduationYear?: number; gender?: string; season?: number }
   ): Promise<RosterAthlete> {
     const response = await api.put<RosterAthlete>(`/athletes/${athleteId}`, input);
+    return response.data;
+  },
+
+  /**
+   * For athletes an Athletic.net scrape can't see yet (freshmen with no
+   * race history, or anyone not on Athletic.net at all) — reconciles
+   * against every athlete already on the team by name before creating
+   * anyone new, so re-running this doesn't create duplicates.
+   */
+  async importRoster(season: number, csvData: string): Promise<RosterImportResult> {
+    const response = await api.post<RosterImportResult>('/athletes/import-roster', { season, csvData });
+    return response.data;
+  },
+
+  /** Consolidates two Athlete rows that turned out to be the same person — keeperId survives, loserId's history moves onto it and the row is deleted. Head-coach only. */
+  async mergeAthletes(keeperId: string, loserId: string): Promise<{ msg: string; keeperId: string; deletedId: string }> {
+    const response = await api.post('/athletes/merge', { keeperId, loserId });
     return response.data;
   },
 
