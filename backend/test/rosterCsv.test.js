@@ -33,6 +33,33 @@ test('a Preferred Name or Nickname column is captured, either header works', () 
   assert.equal(blank.athletes[0].preferredName, null);
 });
 
+test('First Name / Last Name columns combine into the full name when there is no Name column', () => {
+  const result = parseRosterCsv([{ 'First Name': 'Jane', 'Last Name': 'Doe', Grade: '9' }]);
+  assert.equal(result.athletes.length, 1);
+  assert.equal(result.athletes[0].name, 'Jane Doe');
+});
+
+test('Preferred First Name is paired with Last Name so the surname survives', () => {
+  const result = parseRosterCsv([
+    { 'First Name': 'Alexandria', 'Preferred First Name': 'Alex', 'Last Name': 'Doe', Grade: '9', Gender: 'F' },
+  ]);
+  assert.equal(result.athletes.length, 1);
+  assert.equal(result.athletes[0].name, 'Alexandria Doe');
+  assert.equal(result.athletes[0].preferredName, 'Alex Doe');
+});
+
+test('a blank Preferred First Name is treated as no nickname, not "undefined Doe"', () => {
+  const result = parseRosterCsv([{ 'First Name': 'Jane', 'Last Name': 'Doe', Grade: '9' }]);
+  assert.equal(result.athletes[0].preferredName, null);
+});
+
+test('an explicit Preferred Name column wins over Preferred First Name when both are present', () => {
+  const result = parseRosterCsv([
+    { Name: 'Jane Doe', Grade: '9', 'Preferred Name': 'Janie D', 'Preferred First Name': 'Jane-ish' },
+  ]);
+  assert.equal(result.athletes[0].preferredName, 'Janie D');
+});
+
 test('a valid row with Graduation Year instead of Grade parses correctly', () => {
   const result = parseRosterCsv([{ Name: 'Jane Doe', 'Graduation Year': '2029' }]);
   assert.equal(result.athletes.length, 1);

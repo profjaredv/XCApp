@@ -898,9 +898,11 @@ const ImportRosterDialog: React.FC<{ open: boolean; onOpenChange: (open: boolean
         <DialogHeader>
           <DialogTitle>Import roster for {season}</DialogTitle>
           <DialogDescription>
-            Columns: Name (required), Grade or Graduation Year (one required), Gender (optional), Preferred Name or
-            Nickname (optional). An athlete already on the team (matched by name) is never duplicated — only a
-            missing gender, graduation year, or nickname gets filled in; anything already verified is left alone.
+            Columns: Name, or First Name / Last Name (one or the other required), Grade or Graduation Year (one
+            required), Gender (optional), and Preferred Name, Nickname, or Preferred First Name (optional — a
+            preferred first name is paired with the last name automatically). An athlete already on the team
+            (matched by name) is never duplicated — only a missing gender, graduation year, or nickname gets filled
+            in; anything already verified is left alone.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

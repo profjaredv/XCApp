@@ -6,8 +6,6 @@
 // lib/practicePlanCsv.js — name/DB matching happens in the route, this
 // just turns raw CSV rows into validated plain objects.
 
-const REQUIRED_COLUMNS = ['Name'];
-
 function parseIntOrNull(raw) {
   if (raw == null || String(raw).trim() === '') return null;
   const n = parseInt(String(raw).trim(), 10);
@@ -27,11 +25,16 @@ function parseRosterCsv(rows) {
   }
 
   const headers = Object.keys(rows[0] || {});
-  const missingRequired = REQUIRED_COLUMNS.filter((c) => !headers.includes(c));
-  if (missingRequired.length > 0) {
+  // A single 'Name' column, or a split 'First Name'/'Last Name' pair —
+  // FinalForms-style exports use the latter — either is enough to place
+  // someone on the roster.
+  const hasName = headers.includes('Name');
+  const hasFirstName = headers.includes('First Name');
+  const hasLastName = headers.includes('Last Name');
+  if (!hasName && !hasFirstName && !hasLastName) {
     return {
       athletes: [],
-      errors: [{ row: 0, message: `Missing required column(s): ${missingRequired.join(', ')}` }],
+      errors: [{ row: 0, message: "Missing required column(s): Name (or First Name / Last Name)" }],
       skipped: 0,
     };
   }
@@ -51,7 +54,13 @@ function parseRosterCsv(rows) {
 
   rows.forEach((row, idx) => {
     const rowNum = idx + 1; // 1-based data row, matching practicePlanCsv's convention
-    const name = (row['Name'] || '').trim();
+    const lastName = hasLastName ? String(row['Last Name'] || '').trim() : '';
+    const name = hasName
+      ? (row['Name'] || '').trim()
+      : [row['First Name'], row['Last Name']]
+          .map((part) => (part == null ? '' : String(part).trim()))
+          .filter(Boolean)
+          .join(' ');
     if (!name) {
       skipped++;
       return;
@@ -70,9 +79,14 @@ function parseRosterCsv(rows) {
     }
 
     const genderRaw = row['Gender'] ? String(row['Gender']).trim() : null;
-    // Either header works — teams' preseason sheets use both terms.
-    const preferredNameRaw = row['Preferred Name'] || row['Nickname'] || '';
-    const preferredName = preferredNameRaw.trim() || null;
+    // 'Preferred Name'/'Nickname' is a ready-made full display name — used
+    // as-is. 'Preferred First Name' (FinalForms) is just the first name, so
+    // it's paired with the row's own last name to keep the surname a coach
+    // relies on to tell two same-first-name athletes apart.
+    const preferredFullRaw = String(row['Preferred Name'] || row['Nickname'] || '').trim();
+    const preferredFirstRaw = String(row['Preferred First Name'] || '').trim();
+    const preferredName =
+      preferredFullRaw || (preferredFirstRaw ? [preferredFirstRaw, lastName].filter(Boolean).join(' ') : null) || null;
 
     athletes.push({ name, grade, graduationYear, genderRaw, preferredName });
   });
