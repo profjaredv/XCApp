@@ -64,6 +64,20 @@ export interface RaceResultEntry {
   status?: ResultStatus;
 }
 
+// An unfinished Live Timer session — captured finish times not yet
+// assigned to athletes and saved as real Results. See the backend's
+// TimerSession schema comment for why this is persisted at all.
+export interface TimerSessionDraft {
+  id: string;
+  raceId: string;
+  /** Elapsed seconds since the session's own start, in capture order. */
+  captures: number[];
+  /** Capture index (as a string key) -> athleteId. */
+  assignments: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MyMeetCard {
   meet: { id: string; name: string; date: string; location: string | null; isHome: boolean | null } | null;
   race: { id: string; name: string; distance: string | null } | null;
@@ -153,6 +167,26 @@ export const meetOpsService = {
   async submitRaceResults(raceId: string, results: RaceResultEntry[]): Promise<{ success: boolean; saved: number; cleared: number }> {
     const response = await api.post(`/meet-ops/races/${raceId}/results`, { results });
     return response.data;
+  },
+
+  /** Unfinished Live Timer drafts for a race — newest first. Multiple concurrent drafts are normal, not an error state. */
+  async listTimerSessions(raceId: string): Promise<TimerSessionDraft[]> {
+    const response = await api.get<TimerSessionDraft[]>(`/meet-ops/races/${raceId}/timer-sessions`);
+    return response.data;
+  },
+
+  async createTimerSession(raceId: string, input: { captures: number[]; assignments: Record<string, string> }): Promise<TimerSessionDraft> {
+    const response = await api.post<TimerSessionDraft>(`/meet-ops/races/${raceId}/timer-sessions`, input);
+    return response.data;
+  },
+
+  async updateTimerSession(sessionId: string, input: { captures: number[]; assignments: Record<string, string> }): Promise<TimerSessionDraft> {
+    const response = await api.patch<TimerSessionDraft>(`/meet-ops/timer-sessions/${sessionId}`, input);
+    return response.data;
+  },
+
+  async deleteTimerSession(sessionId: string): Promise<void> {
+    await api.delete(`/meet-ops/timer-sessions/${sessionId}`);
   },
 
   async updateMeet(meetId: string, input: Partial<{ name: string; date: string; location: string; isHome: boolean | null }>): Promise<MeetDetail> {

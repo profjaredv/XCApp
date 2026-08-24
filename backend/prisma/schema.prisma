@@ -68,6 +68,7 @@ model User {
   createdIntervalSessions IntervalSession[]        @relation("IntervalSessionCreator")
   createdTrainingLogs     TrainingLog[]            @relation("TrainingLogCreator")
   coachUpAcknowledgements CoachUpAcknowledgement[] @relation("CoachUpAcknowledgementBy")
+  createdTimerSessions    TimerSession[]           @relation("TimerSessionCreator")
 
   @@index([teamId])
   @@map("users")
@@ -112,6 +113,7 @@ model Team {
   athleteSeasonMetrics    AthleteSeasonMetrics[]
   meetPerformanceMetrics  MeetPerformanceMetrics[]
   aiInsightSnapshots      AiInsightSnapshot[]
+  timerSessions           TimerSession[]
   athleteInvites          AthleteInvite[]
   athleteClaims           AthleteClaim[]
   staffInvites            StaffInvite[]
@@ -606,6 +608,7 @@ model Race {
   raceReflections        RaceReflection[]
   bestPaceForAthletes    AthleteSeasonMetrics[]   @relation("BestPaceRace")
   bestTime5kForAthletes  AthleteSeasonMetrics[]   @relation("BestTime5kRace")
+  timerSessions          TimerSession[]
 
   @@unique([teamId, name, date, distance])
   @@index([teamId])
@@ -1294,6 +1297,43 @@ model AiInsightSnapshot {
   @@unique([teamId, season])
   @@index([teamId])
   @@map("ai_insight_snapshots")
+}
+
+// A Live Timer session (RaceLiveTimerPage) that hasn't been finalized into
+// real Results yet — persisted (not just in-memory component state) so a
+// coach who captured finish times but got pulled away before assigning
+// athletes to them doesn't lose that data by closing the tab, a dead
+// battery, or a crash. Multiple concurrent drafts per race are allowed on
+// purpose — two coaches timing two heats of the same race at once is a
+// real scenario, not an edge case. Deleted once its captures are either
+// assigned and saved as real Results (routes/meetOps.js) or explicitly
+// discarded — this table is a working draft, never a second copy of race
+// history.
+model TimerSession {
+  id          String   @id @default(uuid()) @db.Uuid
+  raceId      String   @map("race_id") @db.Uuid
+  teamId      String   @map("team_id") @db.Uuid
+  createdById String?  @map("created_by") @db.Uuid
+  // Elapsed seconds since this session's own start, in capture order —
+  // frozen the instant each one is captured, never re-derived. A resumed
+  // session always lands on the review/assign screen with these, never
+  // back in a "still running" state — there's no meaningful way to resume
+  // a live clock across a browser session once real time has passed.
+  captures    Float[]  @map("captures")
+  // Capture index (JSON only allows string keys) -> athleteId. Whatever
+  // hasn't been assigned yet stays absent, not null — same convention the
+  // frontend's in-memory assignments map already uses.
+  assignments Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  race      Race  @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  team      Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("TimerSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([raceId])
+  @@index([teamId])
+  @@map("timer_sessions")
 }
 
 // ---------------------------------------------------------------------------

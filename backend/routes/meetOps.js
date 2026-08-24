@@ -599,6 +599,98 @@ router.post('/races/:raceId/results', authenticate, requireTeam, requireRole(COA
   }
 });
 
+// POST /api/meet-ops/races/:raceId/timer-sessions — start a Live Timer
+// draft. The frontend creates this on the FIRST capture, not on "Start
+// Timer" itself, so an aborted/never-captured session doesn't leave
+// clutter behind — see TimerSession's schema comment for why this exists
+// at all (resuming after a coach gets pulled away mid-assignment).
+router.post('/races/:raceId/timer-sessions', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { captures, assignments } = req.body;
+  try {
+    const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
+    if (!race) {
+      return res.status(404).json({ msg: 'Race not found.' });
+    }
+    const session = await prisma.timerSession.create({
+      data: {
+        raceId: race.id,
+        teamId: req.user.teamId,
+        createdById: req.user.id,
+        captures: Array.isArray(captures) ? captures.map(Number).filter(Number.isFinite) : [],
+        assignments: assignments && typeof assignments === 'object' ? assignments : {},
+      },
+    });
+    res.status(201).json(session);
+  } catch (error) {
+    console.error('Error creating timer session:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/meet-ops/races/:raceId/timer-sessions — unfinished drafts for
+// this race, newest first. Multiple concurrent drafts are normal (two
+// coaches timing two heats of the same race), not an error state.
+router.get('/races/:raceId/timer-sessions', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  try {
+    const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
+    if (!race) {
+      return res.status(404).json({ msg: 'Race not found.' });
+    }
+    const sessions = await prisma.timerSession.findMany({
+      where: { raceId: race.id, teamId: req.user.teamId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    res.json(sessions);
+  } catch (error) {
+    console.error('Error listing timer sessions:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// PATCH /api/meet-ops/timer-sessions/:sessionId — whole-replace captures/
+// assignments. Called after every discrete capture/assign/clear/remove
+// action, never on a timer tick — only the discrete actions are worth
+// persisting, not the running clock itself (see the schema comment on
+// why a resumed session never lands back in a "still running" state).
+router.patch('/timer-sessions/:sessionId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { captures, assignments } = req.body;
+  try {
+    const session = await prisma.timerSession.findFirst({ where: { id: req.params.sessionId, teamId: req.user.teamId } });
+    if (!session) {
+      return res.status(404).json({ msg: 'Timer session not found.' });
+    }
+    const updated = await prisma.timerSession.update({
+      where: { id: session.id },
+      data: {
+        ...(Array.isArray(captures) ? { captures: captures.map(Number).filter(Number.isFinite) } : {}),
+        ...(assignments && typeof assignments === 'object' ? { assignments } : {}),
+      },
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating timer session:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// DELETE /api/meet-ops/timer-sessions/:sessionId — discard a draft, or
+// clean it up once its captures have been assigned and saved as real
+// Results elsewhere (the frontend calls this right after a successful
+// save, same as it does when a coach explicitly discards a session).
+router.delete('/timer-sessions/:sessionId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  try {
+    const session = await prisma.timerSession.findFirst({ where: { id: req.params.sessionId, teamId: req.user.teamId } });
+    if (!session) {
+      return res.status(404).json({ msg: 'Timer session not found.' });
+    }
+    await prisma.timerSession.delete({ where: { id: session.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting timer session:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // GET /api/meet-ops/:meetId — detail (races + season year). Placed after
 // the more specific /:meetId/* and /races/* routes above so it doesn't
 // shadow them.

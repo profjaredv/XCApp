@@ -69,11 +69,34 @@ export function useDeleteRace() {
   });
 }
 
+// Unfinished Live Timer drafts for a race — RaceLiveTimerPage offers to
+// resume one instead of silently starting fresh over lost captures.
+export function useTimerSessions(raceId: string | null) {
+  return useQuery({
+    queryKey: ['meetOps', 'timerSessions', raceId],
+    queryFn: () => meetOpsService.listTimerSessions(raceId as string),
+    enabled: !!raceId,
+  });
+}
+
 export function useRaceResults(raceId: string | null) {
   return useQuery({
     queryKey: ['meetOps', 'raceResults', raceId],
     queryFn: () => meetOpsService.getRaceResults(raceId as string),
     enabled: !!raceId,
+  });
+}
+
+// Only wraps the user-facing "Resume" screen's Discard action in a proper
+// mutation (for its pending state) — the actual autosave-as-you-go
+// create/update calls happen as plain best-effort service calls straight
+// from RaceLiveTimerPage, not react-query mutations, since nothing in the
+// UI needs to show them as pending.
+export function useDeleteTimerSession(raceId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) => meetOpsService.deleteTimerSession(sessionId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', 'timerSessions', raceId] }),
   });
 }
 
