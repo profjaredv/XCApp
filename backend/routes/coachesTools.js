@@ -59,7 +59,7 @@ router.get('/athlete-performance/:season', authenticate, requireTeam, requireRol
 
     const athletes = await prisma.athlete.findMany({
       where: { teamId },
-      select: { id: true, name: true, grade: true, gender: true },
+      select: { id: true, name: true, preferredName: true, grade: true, gender: true },
     });
 
     const athletePerformance = await Promise.all(
@@ -83,7 +83,7 @@ router.get('/athlete-performance/:season', authenticate, requireTeam, requireRol
         }
 
         return {
-          athlete: { id: athlete.id, name: athlete.name, grade: athlete.grade, gender: athlete.gender },
+          athlete: { id: athlete.id, name: athlete.preferredName || athlete.name, grade: athlete.grade, gender: athlete.gender },
           races: races.map((r) => ({ id: r.id, time: r.time, place: r.place, raceName: r.race.name, raceDate: r.race.date })),
           metrics: {
             meetOverMeetImprovement,
@@ -188,7 +188,7 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
 
     const candidateAthletes = await prisma.athlete.findMany({
       where: { id: { in: athleteIds } },
-      select: { id: true, name: true, grade: true, gender: true, graduationYear: true },
+      select: { id: true, name: true, preferredName: true, grade: true, gender: true, graduationYear: true },
     });
 
     // Preseason fallback pulls a PRIOR season's races, but the coach is
@@ -279,7 +279,11 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEA
         const consistencyPct = Math.round((stdDev / avgPace) * 1000) / 10;
 
         return {
-          name: athlete.name,
+          // What the model sees (pre-anonymization) and, via
+          // kippwitAnonymize's deanonymize step, what ends up in the final
+          // prose — so the story reads with the nickname a coach actually
+          // uses, not the legal roster name.
+          name: athlete.preferredName || athlete.name,
           gender: athlete.gender,
           grade: athlete.grade,
           raceCount: paces.length,
@@ -475,7 +479,7 @@ router.get('/coach-up/:season', authenticate, requireTeam, requireRole(['HEAD_CO
 
     const athletes = await prisma.athlete.findMany({
       where: { teamId },
-      select: { id: true, name: true, grade: true, gender: true },
+      select: { id: true, name: true, preferredName: true, grade: true, gender: true },
     });
 
     const athletesWithRaces = await Promise.all(
@@ -486,7 +490,7 @@ router.get('/coach-up/:season', authenticate, requireTeam, requireRole(['HEAD_CO
         });
         return {
           id: athlete.id,
-          name: athlete.name,
+          name: athlete.preferredName || athlete.name,
           grade: athlete.grade,
           gender: athlete.gender,
           races: results.map((r) => ({ timeSec: r.time, distanceMeters: r.race.distanceMeters, date: r.race.date })),
@@ -599,7 +603,7 @@ router.get('/improvement-tracking/:season', authenticate, requireTeam, requireRo
 
     const athletes = await prisma.athlete.findMany({
       where: { teamId },
-      select: { id: true, name: true, grade: true, gender: true },
+      select: { id: true, name: true, preferredName: true, grade: true, gender: true },
     });
 
     const improvements = await Promise.all(
@@ -636,7 +640,7 @@ router.get('/improvement-tracking/:season', authenticate, requireTeam, requireRo
         const toRaceView = (r) => ({ name: r.race.name, date: r.race.date, time: r.time, place: r.place, distance: r.race.distance });
 
         return {
-          athlete: { id: athlete.id, name: athlete.name, grade: athlete.grade, gender: athlete.gender },
+          athlete: { id: athlete.id, name: athlete.preferredName || athlete.name, grade: athlete.grade, gender: athlete.gender },
           firstRace: toRaceView(firstRace),
           bestRace: toRaceView(bestRace),
           mostRecentRace: toRaceView(mostRecentRace),

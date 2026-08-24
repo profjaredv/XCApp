@@ -178,7 +178,7 @@ router.get('/race/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH'
 
     const reflections = await prisma.raceReflection.findMany({
       where: { raceId: race.id },
-      include: { athlete: { select: { id: true, name: true } } },
+      include: { athlete: { select: { id: true, name: true, preferredName: true } } },
     });
 
     const visible = [];
@@ -203,7 +203,7 @@ router.get('/race/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH'
     res.json(
       visible.map((r) => ({
         athleteId: r.athleteId,
-        athleteName: r.athlete.name,
+        athleteName: r.athlete.preferredName || r.athlete.name,
         processGoal: r.processGoal,
         outcomeGoal: r.outcomeGoal,
         targetTimeSec: r.targetTimeSec,

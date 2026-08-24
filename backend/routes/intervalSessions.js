@@ -20,7 +20,7 @@ function serializeEntry(entry) {
   return {
     id: entry.id,
     athleteId: entry.athleteId,
-    athleteName: entry.athlete.name,
+    athleteName: entry.athlete.preferredName || entry.athlete.name,
     addedManually: entry.addedManually,
     rep1: entry.rep1,
     rep2: entry.rep2,
@@ -104,7 +104,7 @@ router.get('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req,
       },
       include: {
         group: { select: { name: true } },
-        entries: { include: { athlete: { select: { name: true } } } },
+        entries: { include: { athlete: { select: { name: true, preferredName: true } } } },
       },
       orderBy: { date: 'desc' },
     });
@@ -123,7 +123,7 @@ router.get('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (r
       where: { id: req.params.id, teamId: req.user.teamId },
       include: {
         group: { select: { name: true } },
-        entries: { include: { athlete: { select: { name: true } } } },
+        entries: { include: { athlete: { select: { name: true, preferredName: true } } } },
       },
     });
     if (!session) {
@@ -188,7 +188,7 @@ router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req
       },
       include: {
         group: { select: { name: true } },
-        entries: { include: { athlete: { select: { name: true } } } },
+        entries: { include: { athlete: { select: { name: true, preferredName: true } } } },
       },
     });
 
@@ -239,7 +239,7 @@ router.post('/:id/duplicate', authenticate, requireTeam, requireRole(COACH_ROLES
       },
       include: {
         group: { select: { name: true } },
-        entries: { include: { athlete: { select: { name: true } } } },
+        entries: { include: { athlete: { select: { name: true, preferredName: true } } } },
       },
     });
 
@@ -275,7 +275,7 @@ router.put('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (r
       data: updates,
       include: {
         group: { select: { name: true } },
-        entries: { include: { athlete: { select: { name: true } } } },
+        entries: { include: { athlete: { select: { name: true, preferredName: true } } } },
       },
     });
     res.json(serializeSession(updated));
@@ -339,7 +339,7 @@ router.post('/:id/entries', authenticate, requireTeam, requireRole(COACH_ROLES),
 
     const entry = await prisma.intervalSessionEntry.create({
       data: { intervalSessionId: session.id, athleteId, addedManually },
-      include: { athlete: { select: { name: true } } },
+      include: { athlete: { select: { name: true, preferredName: true } } },
     });
     res.status(201).json(serializeEntry(entry));
   } catch (error) {
@@ -382,7 +382,7 @@ router.put('/entries/:entryId', authenticate, requireTeam, requireRole(COACH_ROL
       const saved = await tx.intervalSessionEntry.update({
         where: { id: entry.id },
         data: updates,
-        include: { athlete: { select: { name: true } } },
+        include: { athlete: { select: { name: true, preferredName: true } } },
       });
       await syncEntryToTrainingLog(tx, saved, entry.intervalSession, req.user.id);
       return saved;

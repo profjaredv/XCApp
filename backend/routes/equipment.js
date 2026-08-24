@@ -20,7 +20,7 @@ router.get('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req,
       include: {
         assignments: {
           where: { returnedAt: null },
-          include: { athlete: { select: { id: true, name: true } } },
+          include: { athlete: { select: { id: true, name: true, preferredName: true } } },
         },
       },
       orderBy: [{ type: 'asc' }, { identifier: 'asc' }],
@@ -36,7 +36,7 @@ router.get('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req,
         retired: item.retired,
         notes: item.notes,
         checkedOutTo: item.assignments[0]
-          ? { assignmentId: item.assignments[0].id, athleteId: item.assignments[0].athleteId, athleteName: item.assignments[0].athlete.name }
+          ? { assignmentId: item.assignments[0].id, athleteId: item.assignments[0].athleteId, athleteName: item.assignments[0].athlete.preferredName || item.assignments[0].athlete.name }
           : null,
       }))
     );
@@ -148,10 +148,10 @@ router.post('/checkout', authenticate, requireTeam, requireRole(COACH_ROLES), as
 
     const activeAssignment = await prisma.equipmentAssignment.findFirst({
       where: { equipmentId: item.id, returnedAt: null },
-      include: { athlete: { select: { name: true } } },
+      include: { athlete: { select: { name: true, preferredName: true } } },
     });
     if (activeAssignment) {
-      return res.status(409).json({ msg: `${item.identifier} is already checked out to ${activeAssignment.athlete.name}.` });
+      return res.status(409).json({ msg: `${item.identifier} is already checked out to ${activeAssignment.athlete.preferredName || activeAssignment.athlete.name}.` });
     }
 
     const assignment = await prisma.equipmentAssignment.create({
@@ -165,7 +165,7 @@ router.post('/checkout', authenticate, requireTeam, requireRole(COACH_ROLES), as
         conditionOut: conditionOut && VALID_CONDITIONS.includes(conditionOut) ? conditionOut : item.condition,
         notes: notes || null,
       },
-      include: { equipment: true, athlete: { select: { id: true, name: true } } },
+      include: { equipment: true, athlete: { select: { id: true, name: true, preferredName: true } } },
     });
 
     res.status(201).json(assignment);
@@ -229,14 +229,14 @@ router.get('/outstanding', authenticate, requireTeam, requireRole(COACH_ROLES), 
 
     const outstanding = await prisma.equipmentAssignment.findMany({
       where: { seasonId, returnedAt: null },
-      include: { equipment: true, athlete: { select: { id: true, name: true } } },
+      include: { equipment: true, athlete: { select: { id: true, name: true, preferredName: true } } },
       orderBy: { checkedOutAt: 'asc' },
     });
 
     const byAthlete = new Map();
     for (const a of outstanding) {
       if (!byAthlete.has(a.athleteId)) {
-        byAthlete.set(a.athleteId, { athleteId: a.athleteId, athleteName: a.athlete.name, items: [] });
+        byAthlete.set(a.athleteId, { athleteId: a.athleteId, athleteName: a.athlete.preferredName || a.athlete.name, items: [] });
       }
       byAthlete.get(a.athleteId).items.push({
         assignmentId: a.id,

@@ -68,6 +68,7 @@ interface AthleteData {
 interface Athlete {
   id: string;
   name: string;
+  preferredName?: string | null;
   grade: string;
   gender: string;
 }
@@ -265,7 +266,8 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
     return (value: number) => formatTime(value);
   };
 
-  const selectedAthleteName = eligibleAthletes.find(a => a.id === selectedAthlete)?.name || '';
+  const selectedAthleteEntry = eligibleAthletes.find(a => a.id === selectedAthlete);
+  const selectedAthleteName = selectedAthleteEntry ? (selectedAthleteEntry.preferredName || selectedAthleteEntry.name) : '';
 
   return (
     <div className="space-y-6">
@@ -396,7 +398,7 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
                       <SelectContent>
                         {eligibleAthletes.map((athlete) => (
                           <SelectItem key={athlete.id} value={athlete.id}>
-                            {athlete.name} ({gradeLabel(Number(athlete.grade))})
+                            {athlete.preferredName || athlete.name} ({gradeLabel(Number(athlete.grade))})
                           </SelectItem>
                         ))}
                       </SelectContent>

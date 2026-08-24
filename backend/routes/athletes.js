@@ -220,7 +220,7 @@ router.get('/:athleteId/races', authenticate, requireTeam, async (req, res) => {
 // from — coaches think in grades ("she's a sophomore"), the data model thinks
 // in graduation years, so translate at the edge rather than storing the grade.
 router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
-  const { firstName, lastName, name, graduationYear, grade, season, gender } = req.body;
+  const { firstName, lastName, name, preferredName, graduationYear, grade, season, gender } = req.body;
   const teamId = req.user.teamId;
 
   const fullName = (name || [firstName, lastName].filter(Boolean).join(' ')).trim();
@@ -242,6 +242,7 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
       data: {
         teamId,
         name: fullName,
+        preferredName: preferredName?.trim() || null,
         graduationYear: gradYear,
         gender: normalizeGender(gender),
       },
@@ -359,10 +360,11 @@ router.post('/import-roster', authenticate, requireTeam, requireRole(['HEAD_COAC
           const updates = {};
           if (genderValue && !existing.gender) updates.gender = genderValue;
           if (graduationYear != null && existing.graduationYear == null) updates.graduationYear = graduationYear;
+          if (row.preferredName && !existing.preferredName) updates.preferredName = row.preferredName;
           athlete = Object.keys(updates).length > 0 ? await tx.athlete.update({ where: { id: existing.id }, data: updates }) : existing;
           matched++;
         } else {
-          athlete = await tx.athlete.create({ data: { teamId, name: row.name, gender: genderValue, graduationYear } });
+          athlete = await tx.athlete.create({ data: { teamId, name: row.name, preferredName: row.preferredName || null, gender: genderValue, graduationYear } });
           imported++;
         }
 
@@ -397,7 +399,7 @@ router.post('/import-roster', authenticate, requireTeam, requireRole(['HEAD_COAC
 });
 
 router.put('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
-  const { firstName, lastName, name, graduationYear, grade, season, gender } = req.body;
+  const { firstName, lastName, name, preferredName, graduationYear, grade, season, gender } = req.body;
   const teamId = req.user.teamId;
 
   try {
@@ -414,6 +416,9 @@ router.put('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 
     const updates = {};
     const fullName = (name || [firstName, lastName].filter(Boolean).join(' ')).trim();
     if (fullName) updates.name = fullName;
+    // Present-but-empty clears it back to "no nickname" — same explicit-
+    // presence convention as graduationYear just below.
+    if (preferredName !== undefined) updates.preferredName = preferredName?.trim() || null;
     if (gender) updates.gender = normalizeGender(gender) ?? undefined;
 
     // Correcting a grade means correcting the graduation year it implies —
@@ -665,6 +670,13 @@ router.post('/merge', authenticate, requireTeam, requireRole(['HEAD_COACH']), as
       if (loser.userId && !keeper.userId) {
         await tx.athlete.update({ where: { id: loserId }, data: { userId: null } });
         await tx.athlete.update({ where: { id: keeperId }, data: { userId: loser.userId } });
+      }
+
+      // Backfill-only, same rule as everywhere else a duplicate source
+      // might know something the keeper doesn't — never overwrites a
+      // nickname the keeper already has.
+      if (loser.preferredName && !keeper.preferredName) {
+        await tx.athlete.update({ where: { id: keeperId }, data: { preferredName: loser.preferredName } });
       }
 
       // Everything still pointing at loserId at this point is exactly

@@ -29,7 +29,7 @@ function buildRaceView(race, results, previousByAthleteId) {
     return {
       resultId: r.id,
       athleteId: r.athlete.id,
-      athleteName: r.athlete.name,
+      athleteName: r.athlete.preferredName || r.athlete.name,
       gender: r.athlete.gender,
       place: r.place,
       finishSec: r.time,
@@ -102,7 +102,7 @@ router.get('/race/:raceId', authenticate, requireTeam, async (req, res) => {
     const results = await prisma.result.findMany({
       where: { raceId: race.id, teamId: req.user.teamId },
       include: {
-        athlete: { select: { id: true, name: true, gender: true } },
+        athlete: { select: { id: true, name: true, preferredName: true, gender: true } },
         splits: true,
       },
     });

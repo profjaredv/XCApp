@@ -70,8 +70,11 @@ function parseRosterCsv(rows) {
     }
 
     const genderRaw = row['Gender'] ? String(row['Gender']).trim() : null;
+    // Either header works — teams' preseason sheets use both terms.
+    const preferredNameRaw = row['Preferred Name'] || row['Nickname'] || '';
+    const preferredName = preferredNameRaw.trim() || null;
 
-    athletes.push({ name, grade, graduationYear, genderRaw });
+    athletes.push({ name, grade, graduationYear, genderRaw, preferredName });
   });
 
   return { athletes, errors, skipped };

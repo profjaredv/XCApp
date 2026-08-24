@@ -66,6 +66,7 @@ const RosterPage: React.FC = () => {
   const [mergeOpen, setMergeOpen] = useState(false);
 
   const [newName, setNewName] = useState('');
+  const [newPreferredName, setNewPreferredName] = useState('');
   const [newGrade, setNewGrade] = useState<string>('9');
   const [newGender, setNewGender] = useState<string>('M');
 
@@ -103,6 +104,7 @@ const RosterPage: React.FC = () => {
     mutationFn: () =>
       rosterService.addAthlete({
         name: newName.trim(),
+        ...(newPreferredName.trim() ? { preferredName: newPreferredName.trim() } : {}),
         grade: parseInt(newGrade, 10),
         gender: newGender,
         season,
@@ -110,6 +112,7 @@ const RosterPage: React.FC = () => {
     onSuccess: () => {
       toast.success(`${newName.trim()} added to the ${season} roster`);
       setNewName('');
+      setNewPreferredName('');
       setAddOpen(false);
       invalidate();
     },
@@ -178,7 +181,8 @@ const RosterPage: React.FC = () => {
     mutationFn: ({ athlete, isCaptain }: { athlete: RosterAthlete; isCaptain: boolean }) =>
       rosterService.setCaptain(athlete.seasonId!, athlete.id, isCaptain),
     onSuccess: (_data, { athlete, isCaptain }) => {
-      toast.success(isCaptain ? `${athlete.name} is now a captain` : `${athlete.name} is no longer a captain`);
+      const displayName = athlete.preferredName || athlete.name;
+      toast.success(isCaptain ? `${displayName} is now a captain` : `${displayName} is no longer a captain`);
       invalidate();
     },
     onError: () => toast.error('Could not update captain status'),
@@ -195,6 +199,21 @@ const RosterPage: React.FC = () => {
       invalidate();
     },
     onError: () => toast.error('Could not save captain notes'),
+  });
+
+  // What the athlete actually goes by — shown throughout the app instead of
+  // their legal name wherever set. Its own small dialog, same shape as
+  // captain notes above, since it's an occasional edit, not the common case.
+  const [nicknameTarget, setNicknameTarget] = useState<RosterAthlete | null>(null);
+  const [nicknameDraft, setNicknameDraft] = useState('');
+  const saveNickname = useMutation({
+    mutationFn: () => rosterService.updateAthlete(nicknameTarget!.id, { preferredName: nicknameDraft.trim() }),
+    onSuccess: () => {
+      toast.success('Preferred name saved');
+      setNicknameTarget(null);
+      invalidate();
+    },
+    onError: () => toast.error('Could not save preferred name'),
   });
 
   const byGrade = useMemo(() => {
@@ -512,7 +531,10 @@ const RosterPage: React.FC = () => {
                 >
                   <div className="min-w-0">
                     <p className="truncate font-medium flex items-center gap-2">
-                      <span>{athlete.name}</span>
+                      <span>{athlete.preferredName || athlete.name}</span>
+                      {athlete.preferredName && (
+                        <span className="text-xs font-normal text-muted-foreground">({athlete.name})</span>
+                      )}
                       {athlete.isCaptain && (
                         <Badge variant="default" className="flex items-center gap-1">
                           <Star className="h-3 w-3" />
@@ -562,6 +584,18 @@ const RosterPage: React.FC = () => {
                         Notes
                       </Button>
                     )}
+                    {isCoach && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setNicknameTarget(athlete);
+                          setNicknameDraft(athlete.preferredName ?? '');
+                        }}
+                      >
+                        {athlete.preferredName ? 'Edit Nickname' : 'Add Nickname'}
+                      </Button>
+                    )}
                     {isCoach && !athlete.user && (
                       <Button variant="outline" size="sm" onClick={() => openInviteDialog(athlete)}>
                         <Mail className="mr-2 h-4 w-4" />
@@ -580,7 +614,7 @@ const RosterPage: React.FC = () => {
                         variant="outline"
                         size="sm"
                         title="See the app as this athlete would — their own profile, log-a-run, race reflections, etc."
-                        onClick={() => setPreviewAthlete(athlete.id, athlete.name, teamPath)}
+                        onClick={() => setPreviewAthlete(athlete.id, athlete.preferredName || athlete.name, teamPath)}
                       >
                         <Eye className="mr-2 h-4 w-4" />
                         Preview as athlete
@@ -630,6 +664,15 @@ const RosterPage: React.FC = () => {
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="First Last"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="athletePreferredName">Preferred name / nickname (optional)</Label>
+              <Input
+                id="athletePreferredName"
+                value={newPreferredName}
+                onChange={(e) => setNewPreferredName(e.target.value)}
+                placeholder="What they go by, if different"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -702,7 +745,7 @@ const RosterPage: React.FC = () => {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Invite {inviteTarget?.name}</DialogTitle>
+            <DialogTitle>Invite {inviteTarget?.preferredName || inviteTarget?.name}</DialogTitle>
             <DialogDescription>
               Send an invitation so this athlete can access analytics, results, and their profile.
             </DialogDescription>
@@ -738,7 +781,7 @@ const RosterPage: React.FC = () => {
       <Dialog open={!!captainNotesTarget} onOpenChange={(open) => !open && setCaptainNotesTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Captain notes — {captainNotesTarget?.name}</DialogTitle>
+            <DialogTitle>Captain notes — {captainNotesTarget?.preferredName || captainNotesTarget?.name}</DialogTitle>
             <DialogDescription>Private to coaching staff. Not visible to the athlete.</DialogDescription>
           </DialogHeader>
           <Textarea
@@ -753,6 +796,31 @@ const RosterPage: React.FC = () => {
             </Button>
             <Button onClick={() => saveCaptainNotes.mutate()} disabled={saveCaptainNotes.isPending}>
               {saveCaptainNotes.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!nicknameTarget} onOpenChange={(open) => !open && setNicknameTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Preferred name — {nicknameTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Shown everywhere in place of their full name — the roster, meet entries, AI insights,
+              and everywhere else. Leave blank to just use "{nicknameTarget?.name}".
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={nicknameDraft}
+            onChange={(e) => setNicknameDraft(e.target.value)}
+            placeholder="What they go by"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNicknameTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => saveNickname.mutate()} disabled={saveNickname.isPending}>
+              {saveNickname.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -830,9 +898,9 @@ const ImportRosterDialog: React.FC<{ open: boolean; onOpenChange: (open: boolean
         <DialogHeader>
           <DialogTitle>Import roster for {season}</DialogTitle>
           <DialogDescription>
-            Columns: Name (required), Grade or Graduation Year (one required), Gender (optional). An athlete already
-            on the team (matched by name) is never duplicated — only a missing gender or graduation year gets filled
-            in; anything the scraper already verified is left alone.
+            Columns: Name (required), Grade or Graduation Year (one required), Gender (optional), Preferred Name or
+            Nickname (optional). An athlete already on the team (matched by name) is never duplicated — only a
+            missing gender, graduation year, or nickname gets filled in; anything already verified is left alone.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -877,6 +945,13 @@ const ImportRosterDialog: React.FC<{ open: boolean; onOpenChange: (open: boolean
     </Dialog>
   );
 };
+
+// Legal name first here, not preferred name — a coach picking apart two
+// duplicate rows needs to see what actually distinguishes them, and the
+// nickname (if any) is shown alongside as a secondary cue, not swapped in.
+function mergeOptionLabel(a: RosterAthlete): string {
+  return a.preferredName ? `${a.name} ("${a.preferredName}")` : a.name;
+}
 
 // The "odd event" recovery tool: two Athlete rows that turned out to be
 // the same person (nothing in the schema stops this from happening — see
@@ -946,7 +1021,7 @@ const MergeAthletesDialog: React.FC<{ open: boolean; onOpenChange: (open: boolea
               <SelectContent>
                 {roster.map((a) => (
                   <SelectItem key={a.id} value={a.id} disabled={a.id === loserId}>
-                    {a.name} — {a.raceCount} race{a.raceCount === 1 ? '' : 's'}
+                    {mergeOptionLabel(a)} — {a.raceCount} race{a.raceCount === 1 ? '' : 's'}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -959,7 +1034,7 @@ const MergeAthletesDialog: React.FC<{ open: boolean; onOpenChange: (open: boolea
               <SelectContent>
                 {roster.map((a) => (
                   <SelectItem key={a.id} value={a.id} disabled={a.id === keeperId}>
-                    {a.name} — {a.raceCount} race{a.raceCount === 1 ? '' : 's'}
+                    {mergeOptionLabel(a)} — {a.raceCount} race{a.raceCount === 1 ? '' : 's'}
                   </SelectItem>
                 ))}
               </SelectContent>

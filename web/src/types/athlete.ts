@@ -3,6 +3,7 @@ import { RacePerformance } from './performance';
 export interface Athlete {
   id: string;
   name: string;
+  preferredName?: string | null;
   gender: 'M' | 'F' | 'O';
   graduationYear?: number;
   isActive: boolean;

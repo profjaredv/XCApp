@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 interface Athlete {
   id: string;
   name: string;
+  preferredName?: string | null;
   grade?: number;
   gender?: 'Men' | 'Women';
 }
@@ -364,7 +365,7 @@ const VDOTCalculator: React.FC = () => {
                   <SelectContent>
                     {athletes.map(athlete => (
                       <SelectItem key={athlete.id} value={athlete.id}>
-                        {athlete.name} {athlete.grade && `(${gradeLabel(athlete.grade)})`}
+                        {athlete.preferredName || athlete.name} {athlete.grade && `(${gradeLabel(athlete.grade)})`}
                       </SelectItem>
                     ))}
                   </SelectContent>

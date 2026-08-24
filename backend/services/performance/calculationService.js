@@ -733,7 +733,7 @@ class CalculationService {
         select: {
           time: true,
           athleteId: true,
-          athlete: { select: { name: true } },
+          athlete: { select: { name: true, preferredName: true } },
           race: { select: { distanceMeters: true } },
         },
       });
@@ -741,7 +741,7 @@ class CalculationService {
       const byAthlete = new Map();
       for (const r of results) {
         if (!byAthlete.has(r.athleteId)) {
-          byAthlete.set(r.athleteId, { athleteId: r.athleteId, athleteName: r.athlete?.name || 'Unknown', results: [] });
+          byAthlete.set(r.athleteId, { athleteId: r.athleteId, athleteName: r.athlete?.preferredName || r.athlete?.name || 'Unknown', results: [] });
         }
         byAthlete.get(r.athleteId).results.push(r);
       }

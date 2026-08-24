@@ -173,7 +173,7 @@ const MyProgressPage: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold">My Progress</h1>
           <p className="text-muted-foreground">
-            {linkedAthlete.name}
+            {linkedAthlete.preferredName || linkedAthlete.name}
             {linkedAthlete.graduationYear ? ` • Class of ${linkedAthlete.graduationYear}` : ''}
           </p>
         </div>

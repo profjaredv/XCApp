@@ -25,6 +25,7 @@ export interface Team {
 export interface LinkedAthlete {
     id: string;
     name: string;
+    preferredName?: string | null;
     graduationYear?: number | null;
 }
 

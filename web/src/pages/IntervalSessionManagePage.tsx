@@ -147,7 +147,9 @@ const IntervalSessionManagePage: React.FC = () => {
 
   const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
   const enteredIds = useMemo(() => new Set((session?.entries ?? []).map((e) => e.athleteId)), [session?.entries]);
-  const available = roster.filter((a) => !enteredIds.has(a.id)).sort((a, b) => a.name.localeCompare(b.name));
+  const available = roster
+    .filter((a) => !enteredIds.has(a.id))
+    .sort((a, b) => (a.preferredName || a.name).localeCompare(b.preferredName || b.name));
 
   const entryAthleteIds = useMemo(() => (session?.entries ?? []).map((e) => e.athleteId), [session?.entries]);
   const { data: recentRaceByAthlete } = useAthleteRecentRace(entryAthleteIds);
@@ -390,7 +392,7 @@ const IntervalSessionManagePage: React.FC = () => {
                 <SelectContent>
                   {available.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
-                      {a.name}
+                      {a.preferredName || a.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

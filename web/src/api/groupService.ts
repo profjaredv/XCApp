@@ -42,6 +42,7 @@ export interface MyGroup {
 export interface RosterAthleteWithRaces {
   id: string;
   name: string;
+  preferredName?: string | null;
   gender: string | null;
   grade: number | null;
   races: Array<{ time: number | null; race: { date: string; distanceMeters: number | null } }>;

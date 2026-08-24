@@ -501,7 +501,7 @@ router.post('/scrape-roster', authenticate, requireRole(['HEAD_COACH', 'COACH'])
               where: { id: entry.id },
               data: { flaggedForRemoval: true, flaggedForRemovalAt: new Date() },
             });
-            flaggedForRemoval.push(entry.athlete.name);
+            flaggedForRemoval.push(entry.athlete.preferredName || entry.athlete.name);
           }
         }
 
@@ -773,7 +773,7 @@ router.post('/seasons/:year/start', authenticate, requireRole(['HEAD_COACH']), a
 
     const candidates = await prisma.athlete.findMany({
       where: { id: { in: candidateIds }, teamId },
-      select: { id: true, name: true, graduationYear: true },
+      select: { id: true, name: true, preferredName: true, graduationYear: true },
     });
 
     const carried = [];
@@ -781,10 +781,11 @@ router.post('/seasons/:year/start', authenticate, requireRole(['HEAD_COACH']), a
     const unknownGradYear = [];
 
     for (const athlete of candidates) {
+      const displayName = athlete.preferredName || athlete.name;
       if (!Number.isFinite(athlete.graduationYear)) {
         // No graduation year means we can't know if they aged out. Surface
         // them rather than silently guessing in either direction.
-        unknownGradYear.push({ id: athlete.id, name: athlete.name });
+        unknownGradYear.push({ id: athlete.id, name: displayName });
         continue;
       }
       if (isEnrolled(athlete.graduationYear, targetYear)) {
@@ -794,11 +795,11 @@ router.post('/seasons/:year/start', authenticate, requireRole(['HEAD_COACH']), a
           update: { grade, isActive: true },
           create: { seasonId: targetSeason.id, athleteId: athlete.id, grade, isActive: true },
         });
-        carried.push({ id: athlete.id, name: athlete.name, grade });
+        carried.push({ id: athlete.id, name: displayName, grade });
       } else {
         graduated.push({
           id: athlete.id,
-          name: athlete.name,
+          name: displayName,
           graduationYear: athlete.graduationYear,
         });
       }
@@ -881,7 +882,7 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
         time: true,
         grade: true,
         raceId: true,
-        athlete: { select: { id: true, name: true, gender: true } },
+        athlete: { select: { id: true, name: true, preferredName: true, gender: true } },
       },
     });
 
@@ -892,7 +893,7 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
       if (!athleteMap.has(athleteId)) {
         athleteMap.set(athleteId, {
           athleteId,
-          name: result.athlete.name,
+          name: result.athlete.preferredName || result.athlete.name,
           grade: result.grade,
           gender: result.athlete.gender || '',
           resultsByRace: new Map(),

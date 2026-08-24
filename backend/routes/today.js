@@ -139,7 +139,7 @@ router.get('/attention', authenticate, requireTeam, requireRole(COACH_ROLES), as
       }),
       prisma.equipmentAssignment.findMany({
         where: { equipment: { teamId }, returnedAt: null, dueDate: { lt: today } },
-        select: { id: true, dueDate: true, athlete: { select: { name: true } }, equipment: { select: { type: true, identifier: true } } },
+        select: { id: true, dueDate: true, athlete: { select: { name: true, preferredName: true } }, equipment: { select: { type: true, identifier: true } } },
         orderBy: { dueDate: 'asc' },
         take: 5,
       }),
@@ -155,7 +155,7 @@ router.get('/attention', authenticate, requireTeam, requireRole(COACH_ROLES), as
     for (const assignment of overdueEquipment) {
       items.push({
         type: 'overdue-equipment',
-        label: `${assignment.athlete.name}: ${assignment.equipment.type} #${assignment.equipment.identifier} was due back`,
+        label: `${assignment.athlete.preferredName || assignment.athlete.name}: ${assignment.equipment.type} #${assignment.equipment.identifier} was due back`,
         date: assignment.dueDate,
         link: { equipmentAssignmentId: assignment.id },
       });
@@ -265,7 +265,7 @@ router.get('/activity', authenticate, requireTeam, requireRole(COACH_ROLES), asy
     const [logs, reflections] = await Promise.all([
       prisma.trainingLog.findMany({
         where: { athlete: { teamId }, sharedWithCoach: true, createdAt: { gte: windowStart } },
-        include: { athlete: { select: { id: true, name: true } } },
+        include: { athlete: { select: { id: true, name: true, preferredName: true } } },
         orderBy: { createdAt: 'desc' },
         take: 20,
       }),
@@ -275,7 +275,7 @@ router.get('/activity', authenticate, requireTeam, requireRole(COACH_ROLES), asy
           sharedWithCoach: true,
           OR: [{ preSubmittedAt: { gte: windowStart } }, { postSubmittedAt: { gte: windowStart } }],
         },
-        include: { athlete: { select: { id: true, name: true } }, race: { select: { id: true, name: true, date: true } } },
+        include: { athlete: { select: { id: true, name: true, preferredName: true } }, race: { select: { id: true, name: true, date: true } } },
         take: 20,
       }),
     ]);
@@ -300,12 +300,13 @@ router.get('/activity', authenticate, requireTeam, requireRole(COACH_ROLES), asy
         viewerLeadsAthleteGroup,
       });
       if (!canView) continue;
+      const logAthleteName = log.athlete.preferredName || log.athlete.name;
       items.push({
         type: 'training-log',
         athleteId: log.athleteId,
-        athleteName: log.athlete.name,
+        athleteName: logAthleteName,
         date: log.createdAt,
-        summary: `${log.athlete.name} logged a ${log.type} run${log.distanceMi ? ` (${log.distanceMi}mi)` : ''}`,
+        summary: `${logAthleteName} logged a ${log.type} run${log.distanceMi ? ` (${log.distanceMi}mi)` : ''}`,
       });
     }
 
@@ -319,13 +320,14 @@ router.get('/activity', authenticate, requireTeam, requireRole(COACH_ROLES), asy
       });
       if (!canView) continue;
 
+      const reflectionAthleteName = r.athlete.preferredName || r.athlete.name;
       if (r.preSubmittedAt && r.preSubmittedAt >= windowStart) {
         items.push({
           type: 'race-plan',
           athleteId: r.athleteId,
-          athleteName: r.athlete.name,
+          athleteName: reflectionAthleteName,
           date: r.preSubmittedAt,
-          summary: `${r.athlete.name} set a race plan for ${r.race.name}`,
+          summary: `${reflectionAthleteName} set a race plan for ${r.race.name}`,
           link: { raceId: r.raceId },
         });
       }
@@ -333,9 +335,9 @@ router.get('/activity', authenticate, requireTeam, requireRole(COACH_ROLES), asy
         items.push({
           type: 'race-reflection',
           athleteId: r.athleteId,
-          athleteName: r.athlete.name,
+          athleteName: reflectionAthleteName,
           date: r.postSubmittedAt,
-          summary: `${r.athlete.name} reflected on ${r.race.name}`,
+          summary: `${reflectionAthleteName} reflected on ${r.race.name}`,
           link: { raceId: r.raceId },
         });
       }

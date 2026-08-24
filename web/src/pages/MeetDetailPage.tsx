@@ -457,7 +457,7 @@ const EnterRaceResultsDialog: React.FC<{
               const d = draft[a.id] ?? { time: '', status: 'FINISHED' as ResultStatus };
               return (
                 <div key={a.id} className="flex items-center gap-2 py-1 border-b last:border-0">
-                  <span className="flex-1 text-sm truncate">{a.name}</span>
+                  <span className="flex-1 text-sm truncate">{a.preferredName || a.name}</span>
                   <Input
                     className="w-24 font-mono"
                     placeholder="mm:ss"

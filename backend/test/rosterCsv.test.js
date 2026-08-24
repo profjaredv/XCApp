@@ -18,8 +18,19 @@ test('missing both Grade and Graduation Year columns fails the whole import', ()
 test('a valid row with Grade parses correctly', () => {
   const result = parseRosterCsv([{ Name: 'Jane Doe', Grade: '9', Gender: 'F' }]);
   assert.equal(result.athletes.length, 1);
-  assert.deepEqual(result.athletes[0], { name: 'Jane Doe', grade: 9, graduationYear: null, genderRaw: 'F' });
+  assert.deepEqual(result.athletes[0], { name: 'Jane Doe', grade: 9, graduationYear: null, genderRaw: 'F', preferredName: null });
   assert.equal(result.errors.length, 0);
+});
+
+test('a Preferred Name or Nickname column is captured, either header works', () => {
+  const byPreferredName = parseRosterCsv([{ Name: 'Jane Doe', Grade: '9', 'Preferred Name': 'Janie' }]);
+  assert.equal(byPreferredName.athletes[0].preferredName, 'Janie');
+
+  const byNickname = parseRosterCsv([{ Name: 'Jane Doe', Grade: '9', Nickname: 'Janie' }]);
+  assert.equal(byNickname.athletes[0].preferredName, 'Janie');
+
+  const blank = parseRosterCsv([{ Name: 'Jane Doe', Grade: '9', 'Preferred Name': '  ' }]);
+  assert.equal(blank.athletes[0].preferredName, null);
 });
 
 test('a valid row with Graduation Year instead of Grade parses correctly', () => {

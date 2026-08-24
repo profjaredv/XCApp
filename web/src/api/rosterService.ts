@@ -5,6 +5,8 @@ export type InviteStatus = 'not_invited' | 'pending' | 'accepted' | 'expired' | 
 export interface RosterAthlete {
   id: string;
   name: string;
+  /** What the athlete actually goes by — show this instead of `name` wherever set. `name` stays the legal name (Athletic.net matching, claim verification). */
+  preferredName?: string | null;
   gender?: string | null;
   /** Derived for the requested season, not stored on the athlete. */
   grade: number | null;
@@ -74,6 +76,7 @@ export const rosterService = {
 
   async addAthlete(input: {
     name: string;
+    preferredName?: string;
     grade?: number;
     graduationYear?: number;
     gender?: string;
@@ -85,7 +88,7 @@ export const rosterService = {
 
   async updateAthlete(
     athleteId: string,
-    input: { name?: string; grade?: number; graduationYear?: number; gender?: string; season?: number }
+    input: { name?: string; preferredName?: string; grade?: number; graduationYear?: number; gender?: string; season?: number }
   ): Promise<RosterAthlete> {
     const response = await api.put<RosterAthlete>(`/athletes/${athleteId}`, input);
     return response.data;

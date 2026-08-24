@@ -107,7 +107,7 @@ router.get('/me', authenticate, requireTeam, requireLinkedAthlete, async (req, r
       myMemberships.map(async (m) => {
         const members = await prisma.groupMembership.findMany({
           where: { groupId: m.groupId, endDate: null },
-          include: { athlete: { select: { id: true, name: true, gender: true, grade: true } } },
+          include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true, grade: true } } },
         });
         return {
           id: m.group.id,
@@ -118,7 +118,7 @@ router.get('/me', authenticate, requireTeam, requireLinkedAthlete, async (req, r
           members: members
             .map((mem) => ({
               athleteId: mem.athleteId,
-              name: mem.athlete.name,
+              name: mem.athlete.preferredName || mem.athlete.name,
               gender: normalizeGender(mem.athlete.gender),
               grade: mem.athlete.grade,
             }))
@@ -195,7 +195,7 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
       include: {
         memberships: {
           where: { endDate: null },
-          include: { athlete: { select: { id: true, name: true, graduationYear: true } } },
+          include: { athlete: { select: { id: true, name: true, preferredName: true, graduationYear: true } } },
         },
       },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -258,7 +258,7 @@ router.get('/analytics', authenticate, requireTeam, async (req, res) => {
           const summary = summaryByAthlete.get(m.athleteId);
           return {
             athleteId: m.athleteId,
-            name: m.athlete.name,
+            name: m.athlete.preferredName || m.athlete.name,
             grade: deriveGrade(m.athlete.graduationYear, dataYear),
             season: summary?.season ?? null,
             isFallback: summary?.isFallback ?? null,
@@ -307,7 +307,7 @@ router.get('/captains', authenticate, requireTeam, async (req, res) => {
     const [captainRosterRows, captainMemberships] = await Promise.all([
       prisma.seasonRoster.findMany({
         where: { seasonId, isCaptain: true },
-        include: { athlete: { select: { id: true, name: true, gender: true, grade: true } } },
+        include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true, grade: true } } },
       }),
       prisma.groupMembership.findMany({
         where: { endDate: null, group: { seasonId, type: 'CAPTAIN' } },
@@ -319,7 +319,7 @@ router.get('/captains', authenticate, requireTeam, async (req, res) => {
 
     const captains = captainRosterRows.map((row) => ({
       athleteId: row.athlete.id,
-      name: row.athlete.name,
+      name: row.athlete.preferredName || row.athlete.name,
       gender: normalizeGender(row.athlete.gender),
       grade: row.athlete.grade,
       existingGroup: existingGroupByAthleteId.get(row.athlete.id) || null,
@@ -419,14 +419,14 @@ router.get('/:id/members', authenticate, requireTeam, async (req, res) => {
 
     const memberships = await prisma.groupMembership.findMany({
       where: { groupId: group.id, endDate: null },
-      include: { athlete: { select: { id: true, name: true, gender: true, grade: true, graduationYear: true } } },
+      include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true, grade: true, graduationYear: true } } },
     });
 
     res.json(
       memberships.map((m) => ({
         membershipId: m.id,
         athleteId: m.athleteId,
-        name: m.athlete.name,
+        name: m.athlete.preferredName || m.athlete.name,
         gender: normalizeGender(m.athlete.gender),
         grade: m.athlete.grade,
         startDate: m.startDate,

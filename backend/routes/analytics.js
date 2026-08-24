@@ -48,7 +48,7 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
 
     const athleteMetrics = await prisma.athleteSeasonMetrics.findMany({
       where: { teamId, season },
-      include: { athlete: { select: { id: true, name: true, gender: true, grade: true } } },
+      include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true, grade: true } } },
       orderBy: { bestTime5k: { sort: 'asc', nulls: 'last' } },
     });
 
@@ -91,7 +91,7 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
 
       return {
         id: athlete.id || am.athleteId,
-        name: athlete.name || 'Unknown',
+        name: athlete.preferredName || athlete.name || 'Unknown',
         gender,
         currentGrade: athlete.grade || am.grade || 9,
         totalRaces: am.totalRaces || 0,
@@ -266,7 +266,7 @@ router.get('/athlete/:athleteId/journey', authenticate, async (req, res) => {
   try {
     const athlete = await prisma.athlete.findUnique({
       where: { id: athleteId },
-      select: { id: true, name: true, gender: true, teamId: true, graduationYear: true },
+      select: { id: true, name: true, preferredName: true, gender: true, teamId: true, graduationYear: true },
     });
     if (!athlete) {
       return res.status(404).json({ msg: 'Athlete not found' });
@@ -378,7 +378,7 @@ router.get('/athlete/:athleteId/journey', authenticate, async (req, res) => {
     }));
 
     res.json({
-      athlete: { id: athlete.id, name: athlete.name, gender: athlete.gender, graduationYear: athlete.graduationYear },
+      athlete: { id: athlete.id, name: athlete.preferredName || athlete.name, gender: athlete.gender, graduationYear: athlete.graduationYear },
       seasons,
       courseBests: computeCourseBests(allOwnResultsFlat),
       prs: computePRs(allOwnResultsFlat),

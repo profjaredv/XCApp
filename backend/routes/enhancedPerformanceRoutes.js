@@ -220,7 +220,7 @@ router.get('/eligible-athletes', authenticate, requireTeam, async (req, res) => 
   try {
     const athletes = await prisma.athlete.findMany({
       where: { teamId: req.user.teamId, grade: { not: 9 } },
-      select: { id: true, name: true, grade: true, gender: true },
+      select: { id: true, name: true, preferredName: true, grade: true, gender: true },
       orderBy: { name: 'asc' },
     });
 
@@ -363,7 +363,7 @@ router.get('/athlete-progression/:athleteId', authenticate, requireTeam, async (
     if (metrics.length === 0) {
       return res.json({
         success: true,
-        data: { athleteId: athlete.id, athleteName: athlete.name, gender: athlete.gender, currentGrade: athlete.grade, seasons: [] },
+        data: { athleteId: athlete.id, athleteName: athlete.preferredName || athlete.name, gender: athlete.gender, currentGrade: athlete.grade, seasons: [] },
       });
     }
 
@@ -379,7 +379,7 @@ router.get('/athlete-progression/:athleteId', authenticate, requireTeam, async (
       };
     });
 
-    res.json({ success: true, data: { athleteId: athlete.id, athleteName: athlete.name, gender: athlete.gender, currentGrade: athlete.grade, seasons } });
+    res.json({ success: true, data: { athleteId: athlete.id, athleteName: athlete.preferredName || athlete.name, gender: athlete.gender, currentGrade: athlete.grade, seasons } });
   } catch (error) {
     logger.error(`Error fetching athlete progression: ${error.message}`);
     res.status(500).json({ success: false, message: 'Failed to fetch athlete progression' });

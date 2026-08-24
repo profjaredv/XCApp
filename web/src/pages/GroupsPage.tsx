@@ -73,6 +73,8 @@ interface AthleteRow {
   bestTime: number | null;
 }
 
+const displayName = (a: { name: string; preferredName?: string | null }) => a.preferredName || a.name;
+
 // Same 'coach' convention Layout.tsx's sidebar gating already uses. An
 // athlete (or captain with no coach role) gets a read-only "what group am
 // I in, who else is in it" view instead of the full management screen —
@@ -207,7 +209,7 @@ const CoachGroupsView: React.FC = () => {
     () =>
       roster.map((a) => ({
         id: a.id,
-        name: a.name,
+        name: displayName(a),
         gender: a.gender,
         grade: a.grade,
         bestTime: seasonBestTime(a),

@@ -200,6 +200,11 @@ model Athlete {
   id                String   @id @default(uuid()) @db.Uuid
   teamId            String   @map("team_id") @db.Uuid
   name              String
+  // What the athlete actually goes by — shown throughout the app instead of
+  // `name` wherever set. `name` stays the legal/full name used for
+  // Athletic.net matching (scraper, CSV roster reconciliation) and is never
+  // replaced by this.
+  preferredName     String?  @map("preferred_name")
   gender            String? // 'M' | 'F'
   grade             Int? // 9-12
   graduationYear    Int?     @map("graduation_year")

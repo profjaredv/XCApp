@@ -51,7 +51,7 @@ router.get('/:id', authenticate, requireTeam, async (req, res) => {
     const [results, fieldResults] = await Promise.all([
       prisma.result.findMany({
         where: { raceId: meet.id },
-        include: { athlete: { select: { id: true, name: true, gender: true } } },
+        include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true } } },
         orderBy: { time: 'asc' },
       }),
       prisma.fieldResult.findMany({ where: { raceId: meet.id } }),

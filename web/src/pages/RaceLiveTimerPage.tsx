@@ -435,7 +435,7 @@ const RaceLiveTimerPage: React.FC = () => {
                       disabled={assignedCount >= captures.length}
                       className="px-3 py-2 rounded-full border text-sm bg-background hover:bg-accent disabled:opacity-40 disabled:pointer-events-none"
                     >
-                      {a.name}
+                      {a.preferredName || a.name}
                     </button>
                   ))
                 )}
@@ -451,7 +451,7 @@ const RaceLiveTimerPage: React.FC = () => {
                     <span className="text-sm text-muted-foreground w-8 shrink-0">#{idx + 1}</span>
                     <span className="font-mono text-sm w-20 shrink-0">{formatElapsed(sec * 1000)}</span>
                     <span className="flex-1 text-sm truncate">
-                      {athlete ? athlete.name : <span className="text-muted-foreground italic">Unassigned</span>}
+                      {athlete ? (athlete.preferredName || athlete.name) : <span className="text-muted-foreground italic">Unassigned</span>}
                     </span>
                     {athlete && (
                       <Button variant="ghost" size="sm" onClick={() => clearAssignment(idx)}>

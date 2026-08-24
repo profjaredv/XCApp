@@ -8,7 +8,7 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
     const results = await prisma.result.findMany({
       where: { teamId: req.user.teamId },
       include: {
-        athlete: { select: { id: true, name: true, graduationYear: true, gender: true, grade: true } },
+        athlete: { select: { id: true, name: true, preferredName: true, graduationYear: true, gender: true, grade: true } },
         race: { select: { id: true, name: true, date: true, distance: true, season: true } },
       },
     });

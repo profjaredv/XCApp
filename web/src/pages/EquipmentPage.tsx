@@ -169,13 +169,13 @@ const CheckoutGrid: React.FC<{ seasonId: string; year: number }> = ({ seasonId, 
               <TableBody>
                 {visibleRoster.map((athlete) => (
                   <TableRow key={athlete.id}>
-                    <TableCell className="font-medium whitespace-nowrap">{athlete.name}</TableCell>
+                    <TableCell className="font-medium whitespace-nowrap">{athlete.preferredName || athlete.name}</TableCell>
                     {EQUIPMENT_TYPES.map((type) => (
                       <TableCell key={type} className="p-1.5">
                         <CheckoutCell
                           seasonId={seasonId}
                           athleteId={athlete.id}
-                          athleteName={athlete.name}
+                          athleteName={athlete.preferredName || athlete.name}
                           type={type}
                           item={byAthleteAndType.get(athlete.id)?.get(type) ?? null}
                         />

@@ -206,7 +206,7 @@ const PaceCalculator: React.FC = () => {
               // ids, silently breaking selection for every search result.
               const mappedAthletes = response.data.map(athlete => ({
                 id: athlete.id,
-                name: athlete.name,
+                name: athlete.preferredName || athlete.name,
                 grade: athlete.grade,
                 gender: athlete.gender,
                 graduationYear: athlete.graduationYear
@@ -270,7 +270,7 @@ const PaceCalculator: React.FC = () => {
   // own linked athlete as soon as it's known.
   useEffect(() => {
     if (isAthleteViewer && currentUser?.linkedAthlete && selectedAthlete !== currentUser.linkedAthlete.id) {
-      setAthletes([{ id: currentUser.linkedAthlete.id, name: currentUser.linkedAthlete.name }]);
+      setAthletes([{ id: currentUser.linkedAthlete.id, name: currentUser.linkedAthlete.preferredName || currentUser.linkedAthlete.name }]);
       setSelectedAthlete(currentUser.linkedAthlete.id);
       fetchPaceData(currentUser.linkedAthlete.id);
     }
@@ -420,7 +420,7 @@ const PaceCalculator: React.FC = () => {
                   <div>
                     <label className="block text-sm font-medium mb-1">Calculating for:</label>
                     <div className="rounded-md border px-3 py-2 text-sm">
-                      {currentUser?.linkedAthlete?.name}
+                      {currentUser?.linkedAthlete?.preferredName || currentUser?.linkedAthlete?.name}
                     </div>
                   </div>
                 ) : (
