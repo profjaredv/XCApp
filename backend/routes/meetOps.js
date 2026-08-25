@@ -4,8 +4,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
 const { buildMeetMappingProposal } = require('../lib/meetMapping');
 const { parseTeamCalendar } = require('../lib/icalMeets');
-
-const RESULT_STATUSES = ['FINISHED', 'DNF', 'DNS', 'DQ'];
+const { decideResultWrite } = require('../lib/raceResults');
 
 // T4 (Team Management handoff), simplified per the Schedule rework: meet
 // operations — the Meet parent entity (name/date/location/home-or-away)
@@ -563,28 +562,32 @@ router.post('/races/:raceId/results', authenticate, requireTeam, requireRole(COA
 
     await prisma.$transaction(async (tx) => {
       for (const entry of results) {
-        const { athleteId, time, status } = entry;
+        const { athleteId } = entry;
         if (!athleteId || !validAthleteIds.has(athleteId)) continue;
 
-        const timeNum = time == null || time === '' ? null : Number(time);
-        const statusValue = status && RESULT_STATUSES.includes(status) ? status : null;
+        const plan = decideResultWrite(entry);
+        if (plan.action === 'skip') continue;
 
-        if (timeNum == null && !statusValue) {
+        if (plan.action === 'delete') {
           const deleted = await tx.result.deleteMany({ where: { raceId: race.id, athleteId, teamId } });
           cleared += deleted.count;
           continue;
         }
-        if (timeNum != null && (!Number.isFinite(timeNum) || timeNum <= 0)) continue;
 
+        // plan.action === 'upsert' — plan.data only has the field(s) this
+        // entry actually touched (see decideResultWrite); untouched fields
+        // are simply absent from `update`, leaving whatever's already
+        // saved there untouched too. grade is server-derived, never
+        // client input, so it's always safe to (re)stamp on every write.
         await tx.result.upsert({
           where: { athleteId_raceId: { athleteId, raceId: race.id } },
-          update: { time: timeNum, status: statusValue || 'FINISHED', grade: gradeByAthleteId.get(athleteId) ?? null },
+          update: { ...plan.data, grade: gradeByAthleteId.get(athleteId) ?? null },
           create: {
             raceId: race.id,
             athleteId,
             teamId,
-            time: timeNum,
-            status: statusValue || 'FINISHED',
+            time: plan.data.time ?? null,
+            status: plan.data.status ?? 'FINISHED',
             grade: gradeByAthleteId.get(athleteId) ?? null,
           },
         });

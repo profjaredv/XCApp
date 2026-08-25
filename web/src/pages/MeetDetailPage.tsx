@@ -384,10 +384,19 @@ interface ResultDraft {
 // "Enter splits" above, which only records intermediate mile markers for
 // a Result that already exists. Pre-fills from whatever's already saved
 // (works for correcting a scraped race's result too, not just manual
-// ones) and saves the whole roster in one batch; an entry with a blank
-// time and the default FINISHED status just clears any existing result
-// for that athlete, so un-filling a row removes it rather than saving a
-// zero.
+// ones); clearing a touched time field with no status override clears any
+// existing result for that athlete, so un-filling a row removes it rather
+// than saving a zero.
+//
+// Only the athlete/field combinations a coach actually edits in THIS
+// dialog session are sent on save — not every roster row rebuilt from
+// this dialog's own load-time snapshot. Two coaches with this dialog open
+// on the same race at once, each entering different athletes (or even
+// different fields for the same athlete), must not have one's save wipe
+// the other's already-saved result back to blank just because it wasn't
+// in whichever coach's snapshot loaded first — see backend POST
+// /races/:raceId/results, which only writes keys actually present in
+// each entry.
 const EnterRaceResultsDialog: React.FC<{
   raceId: string;
   raceName: string;
@@ -404,6 +413,9 @@ const EnterRaceResultsDialog: React.FC<{
   const submitResults = useSubmitRaceResults(raceId);
 
   const [draft, setDraft] = useState<Record<string, ResultDraft>>({});
+  // Which (athleteId, field) pairs this dialog session has actually
+  // edited — the only things handleSave includes in its payload.
+  const [touched, setTouched] = useState<Record<string, { time?: boolean; status?: boolean }>>({});
 
   useEffect(() => {
     if (!open || !raceResults) return;
@@ -412,6 +424,7 @@ const EnterRaceResultsDialog: React.FC<{
       initial[r.athleteId] = { time: r.time != null ? formatTime(r.time) : '', status: r.status };
     }
     setDraft(initial);
+    setTouched({});
   }, [open, raceResults]);
 
   const setEntry = (athleteId: string, patch: Partial<ResultDraft>) => {
@@ -419,17 +432,32 @@ const EnterRaceResultsDialog: React.FC<{
       ...prev,
       [athleteId]: { time: prev[athleteId]?.time ?? '', status: prev[athleteId]?.status ?? 'FINISHED', ...patch },
     }));
+    setTouched((prev) => ({
+      ...prev,
+      [athleteId]: { ...prev[athleteId], ...('time' in patch ? { time: true } : {}), ...('status' in patch ? { status: true } : {}) },
+    }));
   };
 
   const handleSave = async () => {
-    const entries: RaceResultEntry[] = roster.map((a) => {
-      const d = draft[a.id];
-      const timeStr = d?.time?.trim();
-      const parsed = timeStr ? parseTimeToSeconds(timeStr) : NaN;
-      const time = timeStr && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-      const status = d?.status && d.status !== 'FINISHED' ? d.status : undefined;
-      return { athleteId: a.id, time, status };
-    });
+    const entries: RaceResultEntry[] = roster
+      .filter((a) => touched[a.id]?.time || touched[a.id]?.status)
+      .map((a) => {
+        const d = draft[a.id];
+        const entry: RaceResultEntry = { athleteId: a.id };
+        if (touched[a.id]?.time) {
+          const timeStr = d?.time?.trim();
+          const parsed = timeStr ? parseTimeToSeconds(timeStr) : NaN;
+          entry.time = timeStr && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+        }
+        if (touched[a.id]?.status) {
+          entry.status = d?.status ?? 'FINISHED';
+        }
+        return entry;
+      });
+    if (entries.length === 0) {
+      onOpenChange(false);
+      return;
+    }
     try {
       const result = await submitResults.mutateAsync(entries);
       toast.success(`Saved ${result.saved} result${result.saved === 1 ? '' : 's'}${result.cleared ? `, cleared ${result.cleared}` : ''}.`);

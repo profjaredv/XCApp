@@ -151,9 +151,16 @@ export const rosterService = {
    * roster. Coach-only, entirely server-side — the athlete never needs to
    * sign in or accept anything for this to take effect.
    */
-  async setCaptain(seasonId: string, athleteId: string, isCaptain: boolean, captainNotes?: string) {
+  /**
+   * isCaptain omitted (not just falsy) leaves captain status exactly as it
+   * is server-side — the notes dialog relies on this to save a note
+   * without re-asserting captaincy, so a concurrent "Remove Captain"
+   * click from another coach can't get silently undone by an unrelated
+   * notes save that still has the athlete's stale pre-removal state.
+   */
+  async setCaptain(seasonId: string, athleteId: string, isCaptain?: boolean, captainNotes?: string) {
     const response = await api.patch(`/seasons/${seasonId}/roster/${athleteId}`, {
-      isCaptain,
+      ...(isCaptain !== undefined ? { isCaptain } : {}),
       ...(captainNotes !== undefined ? { captainNotes } : {}),
     });
     return response.data;

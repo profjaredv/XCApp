@@ -192,7 +192,10 @@ const RosterPage: React.FC = () => {
   const [captainNotesDraft, setCaptainNotesDraft] = useState('');
   const saveCaptainNotes = useMutation({
     mutationFn: () =>
-      rosterService.setCaptain(captainNotesTarget!.seasonId!, captainNotesTarget!.id, true, captainNotesDraft.trim()),
+      // isCaptain omitted deliberately — this dialog only ever opens for an
+      // athlete who's already a captain, and saving a note shouldn't also
+      // re-assert captaincy (see rosterService.setCaptain's doc comment).
+      rosterService.setCaptain(captainNotesTarget!.seasonId!, captainNotesTarget!.id, undefined, captainNotesDraft.trim()),
     onSuccess: () => {
       toast.success('Captain notes saved');
       setCaptainNotesTarget(null);

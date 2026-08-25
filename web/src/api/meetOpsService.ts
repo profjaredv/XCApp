@@ -59,8 +59,15 @@ export interface RaceResultsDetail {
 
 export interface RaceResultEntry {
   athleteId: string;
-  /** Seconds. Null (with no status) clears any existing result for this athlete. */
-  time: number | null;
+  /**
+   * Seconds, or null to clear. Omit the key entirely (not just `undefined`
+   * — that still serializes as absent, which is what matters) for an
+   * athlete whose time isn't being touched by this save; the backend only
+   * writes fields actually present here, so a save covering some of a
+   * race's athletes never touches anyone else's already-saved result.
+   * Same for status below. Null with no status touched clears the result.
+   */
+  time?: number | null;
   status?: ResultStatus;
 }
 
