@@ -118,6 +118,66 @@ test('getGroupOn / moveAthleteToGroup', async (t) => {
     const afterMove = await getGroupOn(athleteId, '2024-11-01');
     assert.equal(afterMove.groupId, 'gB');
   });
+
+  await t.test('a TRAINING membership and a CAPTAIN membership for the same athlete run concurrently — moving into one never touches the other', async (t) => {
+    const groupTraining = { id: 'gTrain', type: 'TRAINING', name: 'Boys Blue' };
+    const groupCaptain = { id: 'gCaptain', type: 'CAPTAIN', name: "Jack's Group" };
+
+    const rows = [];
+    let nextId = 1;
+
+    const originalGroupFindUniqueOrThrow = prisma.group.findUniqueOrThrow;
+    const originalMembershipFindMany = prisma.groupMembership.findMany;
+    const originalMembershipUpdate = prisma.groupMembership.update;
+    const originalMembershipCreate = prisma.groupMembership.create;
+    const originalTransaction = prisma.$transaction;
+
+    const groupById = { gTrain: groupTraining, gCaptain: groupCaptain };
+    prisma.group.findUniqueOrThrow = async ({ where }) => {
+      if (groupById[where.id]) return groupById[where.id];
+      throw new Error('unknown group');
+    };
+    prisma.groupMembership.findMany = async ({ where }) =>
+      rows
+        .filter((r) => {
+          if (where.athleteId && r.athleteId !== where.athleteId) return false;
+          if (where.endDate === null && r.endDate !== null) return false;
+          if (where.group?.type && groupById[r.groupId].type !== where.group.type) return false;
+          return true;
+        })
+        .map((r) => ({ ...r, group: groupById[r.groupId] }));
+    prisma.groupMembership.update = async ({ where, data }) => {
+      const row = rows.find((r) => r.id === where.id);
+      Object.assign(row, data);
+      return row;
+    };
+    prisma.groupMembership.create = async ({ data }) => {
+      const row = { id: `m${nextId++}`, endDate: null, movedById: null, reason: null, ...data };
+      rows.push(row);
+      return row;
+    };
+    prisma.$transaction = async (fn) => fn(prisma);
+
+    t.after(() => {
+      prisma.group.findUniqueOrThrow = originalGroupFindUniqueOrThrow;
+      prisma.groupMembership.findMany = originalMembershipFindMany;
+      prisma.groupMembership.update = originalMembershipUpdate;
+      prisma.groupMembership.create = originalMembershipCreate;
+      prisma.$transaction = originalTransaction;
+    });
+
+    const athleteId = 'jack';
+    await moveAthleteToGroup({ athleteId, groupId: 'gTrain', effectiveDate: '2024-09-01' });
+    await moveAthleteToGroup({ athleteId, groupId: 'gCaptain', effectiveDate: '2024-09-05', reason: 'named team captain' });
+
+    const openRows = rows.filter((r) => r.endDate === null);
+    assert.equal(openRows.length, 2, 'both memberships stay open — a CAPTAIN move must not close the TRAINING row');
+
+    const training = await getGroupOn(athleteId, '2024-09-10', 'TRAINING');
+    assert.equal(training.groupId, 'gTrain');
+    const captain = await getGroupOn(athleteId, '2024-09-10', 'CAPTAIN');
+    assert.equal(captain.groupId, 'gCaptain');
+  });
 });
 
 test('removeAthleteFromGroup', async (t) => {

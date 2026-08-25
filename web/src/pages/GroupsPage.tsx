@@ -196,14 +196,29 @@ const CoachGroupsView: React.FC = () => {
   const [leadersTarget, setLeadersTarget] = useState<Group | null>(null);
   const [membersTarget, setMembersTarget] = useState<Group | null>(null);
 
-  // Current group id for each athlete, before any local pending edits.
+  // Current TRAINING group id for each athlete, before any local pending
+  // edits — scoped to TRAINING only. The board below (and pendingChanges/
+  // bulk-assign) only ever deals in TRAINING groups; an athlete can also
+  // independently belong to a CAPTAIN group and a CUSTOM group at the same
+  // time (see lib/groups.js's moveAthleteToGroup — "active" is scoped per
+  // GroupType). Without this filter, membersByGroup's non-TRAINING entries
+  // would win the last-write race in this map (object key order is
+  // unspecified) and an athlete added to e.g. a Custom "Cross Training"
+  // group could silently vanish from every TRAINING board column, since
+  // their tracked groupId would then match no TRAINING column and not
+  // UNASSIGNED either.
+  const trainingGroupIds = useMemo(
+    () => new Set(groups.filter((g) => g.type === 'TRAINING').map((g) => g.id)),
+    [groups]
+  );
   const currentGroupByAthlete = useMemo(() => {
     const map = new Map<string, string>();
     for (const [groupId, members] of Object.entries(membersByGroup)) {
+      if (!trainingGroupIds.has(groupId)) continue;
       for (const m of members) map.set(m.athleteId, groupId);
     }
     return map;
-  }, [membersByGroup]);
+  }, [membersByGroup, trainingGroupIds]);
 
   const athletes: AthleteRow[] = useMemo(
     () =>
