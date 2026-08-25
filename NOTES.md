@@ -2846,3 +2846,100 @@ Verification: `tsc -b`, `eslint src/pages/RosterPage.tsx`, and `npm run
 build` (web) all clean. Frontend-only, no backend touched. Not verified in
 a browser — the button is inside `<Layout>` and needs live roster data, so
 the harness approach used above didn't apply here.
+
+## Group Analytics: a group picker that scales, and a diagnostic for missing athlete data
+
+Two unrelated requests on the same screen.
+
+### 1. The group selector
+
+User: "we should change the ui so the group list is better organized, maybe
+checkboxes, maybe multi select. once we add the 5 coaches groups it will get
+too large."
+
+Worth recording that it was **already** multi-select checkboxes — the old
+flat wrap of `<Checkbox>` pills reads like a row of radio buttons at a
+glance (shadcn's checkbox is a small rounded square, and only one was
+ticked in the screenshot), which is presumably why it didn't look like one.
+So the fix needed was organization and scale, not the selection model.
+
+New `web/src/components/analytics/GroupPicker.tsx`:
+- **Sections.** Training vs Captain/Custom. `GroupAnalyticsTab` already
+  computed `trainingGroups` and `otherGroups` separately and then rendered
+  them into one undifferentiated row; the backend draws the same line
+  (`GET /groups/analytics` defaults to `type: 'TRAINING'` when nothing is
+  explicitly selected, because captain/custom groups are leadership
+  designations rather than performance cohorts).
+- **Per-section All/None toggle.** "Just my training squads" and "just the
+  coaches' groups" are the two selections a coach actually makes, and both
+  were N individual clicks before.
+- **Search**, and **collapse to a one-line summary** ("Groups · 2 of 19
+  selected"), both appearing past `CROWDED_AT = 8`. Collapsed default is
+  derived (`openState ?? total <= CROWDED_AT`) rather than a `useState`
+  initializer, which would otherwise freeze the default at whatever the
+  count was on first render — zero, before the groups query resolves.
+
+Verified in a browser with a 19-group mock (2 training + 17 custom, i.e.
+past the "5 coaches' groups" the user is anticipating), same temporary
+harness technique as the mobile pass — **deleted again afterward**.
+Screenshots at 375px and 1280px caught two things: the section All/None
+buttons were `justify-between`'d to the far edge of a 1280px container, a
+full screen-width from the heading they act on (now sit beside it), and the
+expanded list on a phone was a ~2000px column that buried the analytics
+(now `max-h-[50vh]` scrolled, with the search box left outside the scroll
+area). No horizontal overflow at either width, no console errors.
+
+### 2. "Callum Woods-Vallejo has 2025 data that should be shown"
+
+Investigated; **could not be reproduced or fixed from here** — it needs the
+live DB, which this sandbox has no access to. What the investigation did
+establish:
+
+- **It is not caching.** The user's guess ("caching, something") is ruled
+  out by construction: `GET /api/groups/analytics` computes live from
+  Result/Race rows with no metrics-cache table behind it (that's the whole
+  point of the module — see `lib/groupAnalytics.js`'s header), and
+  `useGroupAnalytics` sets no `staleTime`, so react-query's default of 0
+  refetches on mount. There is nothing in this path that can serve stale
+  data.
+- **`Race.season` NULL is impossible** — it's `Int`, not nullable, so the
+  "race filed under no season" theory is out.
+- The remaining candidates, in rough order of likelihood on this team's
+  history: a **duplicate Athlete row** (the group membership hanging off
+  one row and the results off the other — exactly the shape of the Gigi
+  Anderson duplicate discussed earlier this file, and this roster has been
+  CSV-imported); **an unparseable/missing race distance**; a **non-FINISHED
+  `status`**; a **closed membership** (`end_date` set); or a
+  **season/date mismatch** on the race row.
+
+One genuine code-level defect found while reading, worth knowing whichever
+cause it turns out to be: `summarizeRaces()` returns `null` when a season's
+races exist but none is pace-computable (no distance), so
+`buildAthleteSeasonSummary` falls straight through and the athlete renders
+**identically to someone who has never raced** — no badge, `raceCount: 0`,
+em-dashes. That failure mode is invisible in the UI by construction.
+Deliberately NOT changed here: the behavior is covered by an existing test
+(`summarizeRaces: empty or all-unparseable input returns null, not zeros`),
+changing it alters `summarizeGroup`'s aggregate arithmetic (a null
+`avgPaceSecPerMile` summed into the group average is a NaN waiting to
+happen), and this file's own rule 5 says write the test before the fix for
+anything arithmetic. Fixing it on a guess about an athlete whose data I
+can't see would be exactly the rushed arithmetic change that rule exists to
+prevent. If the diagnostic below says NO-DISTANCE, that's the fix to make,
+with tests.
+
+Added `backend/scripts/diagnoseMissingGroupAnalytics.sql` — run in the Neon
+console like `backfillDistanceMeters.sql`. Five sections, each ruling out
+one cause, with a flags column (`NOT-FINISHED` / `NO-TIME` / `NO-DISTANCE` /
+`SEASON-MISMATCH`) and a final section that reproduces the analytics
+query's own filters verbatim for one athlete: rows in section 2 but nothing
+in section 5 means the filters are what's dropping them, and the flags say
+which. Section 4 answers whether it's athlete-specific or team-wide (if
+`no_distance_at_all` is large, the fix is `backfillDistanceMeters.sql`, not
+anything to do with Callum).
+
+Verification: `tsc -b`, `eslint` on both changed frontend files, and
+`npm run build` (web) all clean; backend `node --test` 340/341 — the usual
+unrelated scraper-fixture failure. The SQL script is **not** executed
+anywhere and has no test; it's a read-only diagnostic (five SELECTs, no
+writes) meant to be pasted into a console by a human.

@@ -3,12 +3,12 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LineChart as LineChartIcon } from 'lucide-react';
 import { formatPace, formatDateShort } from '@/lib/formatUtils';
 import { useGroups, useGroupAnalytics, useGroupTrend } from '@/hooks/useGroups';
+import { GroupPicker } from './GroupPicker';
 
 const GENDER_LABEL: Record<string, string> = { M: 'Boys', F: 'Girls' };
 
@@ -60,13 +60,6 @@ export const GroupAnalyticsTab = ({ groupSeasonId, dataYear }: GroupAnalyticsTab
   const { data: groups = [], isLoading } = useGroupAnalytics(groupSeasonId, selectedIds ?? [], dataYear);
   const [exploreGroup, setExploreGroup] = useState<{ id: string; name: string } | null>(null);
 
-  const toggleGroup = (groupId: string) => {
-    setSelectedIds((prev) => {
-      const current = prev ?? [];
-      return current.includes(groupId) ? current.filter((id) => id !== groupId) : [...current, groupId];
-    });
-  };
-
   // A season can have real race data with no Season DB row behind it yet
   // (GET /teams/seasons deliberately allows id: null for that — usually an
   // older season imported before Season rows were created for every year).
@@ -97,15 +90,12 @@ export const GroupAnalyticsTab = ({ groupSeasonId, dataYear }: GroupAnalyticsTab
               Showing <span className="font-medium text-foreground">{viewedYear}</span> results for your current groups.
             </p>
           )}
-          <div className="flex flex-wrap gap-3 rounded-md border p-3">
-            {allSelectableGroups.map((g) => (
-              <label key={g.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                <Checkbox checked={(selectedIds ?? []).includes(g.id)} onCheckedChange={() => toggleGroup(g.id)} />
-                {g.name}
-                {g.gender && <span className="text-xs text-muted-foreground">({GENDER_LABEL[g.gender] ?? g.gender})</span>}
-              </label>
-            ))}
-          </div>
+          <GroupPicker
+            trainingGroups={trainingGroups}
+            otherGroups={otherGroups}
+            selectedIds={selectedIds ?? []}
+            onChange={setSelectedIds}
+          />
         </>
       )}
 
