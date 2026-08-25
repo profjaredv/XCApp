@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { Plus, Trash2, Archive, Loader2, X, Check, ClipboardList, Copy } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
-import { useGroups, useGroupMembers } from '@/hooks/useGroups';
+import { useGroups } from '@/hooks/useGroups';
 import {
   useIntervalSessions,
   useCreateIntervalSession,
@@ -108,7 +108,6 @@ const IntervalSessionsPage: React.FC = () => {
 
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [form, setForm] = useState<NewSessionForm>(EMPTY_NEW_SESSION);
-  const { data: groupMembers = [] } = useGroupMembers(form.groupId !== AD_HOC ? form.groupId : null);
 
   const [duplicateSource, setDuplicateSource] = useState<IntervalSession | null>(null);
   const [duplicateGroupId, setDuplicateGroupId] = useState(AD_HOC);
@@ -147,6 +146,9 @@ const IntervalSessionsPage: React.FC = () => {
   const handleCreate = async () => {
     if (!seasonId || !form.title.trim() || !form.repDistanceM) return;
     try {
+      // No athleteIds here when a group is picked — the backend derives the
+      // entry list from the group's own current membership, so it can't go
+      // stale relative to whatever's actually on the roster right now.
       const created = await createSession.mutateAsync({
         seasonId,
         groupId: form.groupId === AD_HOC ? null : form.groupId,
@@ -154,7 +156,6 @@ const IntervalSessionsPage: React.FC = () => {
         title: form.title.trim(),
         repDistanceM: Number(form.repDistanceM),
         zone: form.zone,
-        athleteIds: form.groupId !== AD_HOC ? groupMembers.map((m) => m.athleteId) : [],
       });
       toast.success('Session created.');
       setNewDialogOpen(false);

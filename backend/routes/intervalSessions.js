@@ -137,10 +137,19 @@ router.get('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (r
 });
 
 // POST /api/interval-sessions — one-shot create: the session shell plus an
-// entry (all reps blank) for every athlete named in athleteIds, so the grid
-// is ready to fill in immediately. The frontend passes the calling
-// group's current members here; athletes added later (the "wasn't in
-// their group" case) go through POST /:id/entries instead.
+// entry (all reps blank) for every athlete on the group's current roster
+// (or, with no group, whoever's named in athleteIds), so the grid is ready
+// to fill in immediately. Athletes added later (the "wasn't in their
+// group" case) go through POST /:id/entries instead.
+//
+// groupId's membership is looked up here, server-side, rather than trusting
+// the client-sent athleteIds for it — the frontend used to fetch the
+// group's members itself and pass that list in, which raced against its
+// own membership query (select a group, hit Create before that fetch
+// resolves) and could silently create a session with zero entries even
+// though a group was picked. Same fix POST /:id/duplicate already needed
+// for the same reason. athleteIds is still honored for the no-group (ad
+// hoc) case, where there's no roster to derive from.
 router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
   const { seasonId, groupId, date, title, repDistanceM, zone, athleteIds } = req.body;
 
@@ -159,14 +168,17 @@ router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req
     if (!season) {
       return res.status(404).json({ msg: 'Season not found.' });
     }
+    let ids;
     if (groupId) {
       const group = await prisma.group.findFirst({ where: { id: groupId, teamId: req.user.teamId } });
       if (!group) {
         return res.status(404).json({ msg: 'Group not found.' });
       }
+      const members = await prisma.groupMembership.findMany({ where: { groupId, endDate: null }, select: { athleteId: true } });
+      ids = members.map((m) => m.athleteId);
+    } else {
+      ids = Array.isArray(athleteIds) ? [...new Set(athleteIds)] : [];
     }
-
-    const ids = Array.isArray(athleteIds) ? [...new Set(athleteIds)] : [];
     if (ids.length > 0) {
       const validCount = await prisma.athlete.count({ where: { id: { in: ids }, teamId: req.user.teamId } });
       if (validCount !== ids.length) {

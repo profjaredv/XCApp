@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X } from 'lucide-react';
+import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye } from 'lucide-react';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { seasonService } from '@/api/seasonService';
 import {
@@ -166,6 +166,7 @@ const CoachGroupsView: React.FC = () => {
 
   const [selectedAthletes, setSelectedAthletes] = useState<Set<string>>(new Set());
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>({}); // athleteId -> groupId | UNASSIGNED
+  const [showUnassigned, setShowUnassigned] = useState(true);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupType, setNewGroupType] = useState<GroupType>('TRAINING');
@@ -415,6 +416,10 @@ const CoachGroupsView: React.FC = () => {
               Copy from {previousSeason.year}
             </Button>
           )}
+          <Button variant="outline" onClick={() => setShowUnassigned((v) => !v)}>
+            {showUnassigned ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
+            {showUnassigned ? 'Hide' : 'Show'} Unassigned
+          </Button>
           <Button variant="outline" onClick={() => setNewGroupOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
             New Group
@@ -428,7 +433,7 @@ const CoachGroupsView: React.FC = () => {
       </div>
 
       {selectedAthletes.size > 0 && (
-        <div className="sticky top-0 z-10 flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-lg px-4 py-2.5">
+        <div className="sticky top-0 z-10 flex items-center gap-3 bg-background border border-border rounded-lg px-4 py-2.5 shadow-md">
           <span className="text-sm font-medium">{selectedAthletes.size} selected</span>
           <Select onValueChange={handleAssignSelectedTo}>
             <SelectTrigger className="w-[220px] h-8"><SelectValue placeholder="Assign to group…" /></SelectTrigger>
@@ -440,6 +445,27 @@ const CoachGroupsView: React.FC = () => {
             </SelectContent>
           </Select>
           <Button variant="ghost" size="sm" onClick={() => setSelectedAthletes(new Set())}>Clear</Button>
+        </div>
+      )}
+
+      {/* Assigning athletes above only stages the change locally — this bar
+          is the one thing guaranteed to still be on screen (fixed, not
+          sticky-in-flow) no matter how far the coach has scrolled down the
+          board, so "I assigned them but it didn't save" can't happen from
+          losing track of the Save button up in the page header. */}
+      {changeCount > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-background border border-border rounded-lg px-4 py-2.5 shadow-lg">
+          <span className="text-sm font-medium">
+            {changeCount} unsaved change{changeCount === 1 ? '' : 's'}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => setPendingChanges({})} disabled={bulkAssign.isPending || removeMember.isPending}>
+            Discard
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={bulkAssign.isPending || removeMember.isPending}>
+            {(bulkAssign.isPending || removeMember.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            <Save className="h-4 w-4 mr-2" />
+            Save
+          </Button>
         </div>
       )}
 
@@ -457,6 +483,7 @@ const CoachGroupsView: React.FC = () => {
               displayedGroupFor={displayedGroupFor}
               selectedAthletes={selectedAthletes}
               setSelectedAthletes={setSelectedAthletes}
+              showUnassigned={showUnassigned}
               onEdit={openEdit}
               onArchive={handleArchiveToggle}
               onDelete={handleDeleteGroup}
@@ -614,11 +641,12 @@ const GenderColumn: React.FC<{
   displayedGroupFor: (athleteId: string) => string;
   selectedAthletes: Set<string>;
   setSelectedAthletes: React.Dispatch<React.SetStateAction<Set<string>>>;
+  showUnassigned: boolean;
   onEdit: (group: Group) => void;
   onArchive: (group: Group) => void;
   onDelete: (group: Group) => void;
   onManageLeaders: (group: Group) => void;
-}> = ({ gender, athletes, groups, archivedGroups, displayedGroupFor, selectedAthletes, setSelectedAthletes, onEdit, onArchive, onDelete, onManageLeaders }) => {
+}> = ({ gender, athletes, groups, archivedGroups, displayedGroupFor, selectedAthletes, setSelectedAthletes, showUnassigned, onEdit, onArchive, onDelete, onManageLeaders }) => {
   const toggle = (athleteId: string) => {
     setSelectedAthletes((prev) => {
       const next = new Set(prev);
@@ -628,8 +656,22 @@ const GenderColumn: React.FC<{
     });
   };
 
+  // Per-card collapse — a coach with a big roster wants to fold away a
+  // group they aren't actively working with, without losing the member
+  // count. Collapsed by column id, not persisted — a fresh page load
+  // always starts everything expanded.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const toggleCollapsed = (id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const columns = [
-    { id: UNASSIGNED, name: 'Unassigned', group: null as Group | null },
+    ...(showUnassigned ? [{ id: UNASSIGNED, name: 'Unassigned', group: null as Group | null }] : []),
     ...[...groups].sort((a, b) => a.sortOrder - b.sortOrder).map((g) => ({ id: g.id, name: g.name, group: g })),
   ];
 
@@ -638,11 +680,19 @@ const GenderColumn: React.FC<{
       <h2 className="text-lg font-semibold">{GENDER_LABEL[gender]}</h2>
       {columns.map((col) => {
         const members = athletes.filter((a) => displayedGroupFor(a.id) === col.id);
+        const isCollapsed = collapsedIds.has(col.id);
         return (
           <Card key={col.id}>
             <CardHeader className="py-3">
               <CardTitle className="text-sm flex items-center justify-between">
-                <span>{col.name}</span>
+                <button
+                  type="button"
+                  onClick={() => toggleCollapsed(col.id)}
+                  className="flex items-center gap-1.5 hover:text-foreground/80"
+                >
+                  {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                  <span>{col.name}</span>
+                </button>
                 <div className="flex items-center gap-1">
                   <Badge variant="secondary">{members.length}</Badge>
                   {col.group && (
@@ -660,26 +710,28 @@ const GenderColumn: React.FC<{
                   )}
                 </div>
               </CardTitle>
-              {col.group?.leaders && col.group.leaders.length > 0 && (
+              {!isCollapsed && col.group?.leaders && col.group.leaders.length > 0 && (
                 <p className="text-xs text-muted-foreground">
                   Led by {col.group.leaders.map((l) => l.name || l.email).join(', ')}
                 </p>
               )}
             </CardHeader>
-            <CardContent className="py-2 space-y-1">
-              {members.length === 0 && <p className="text-xs text-muted-foreground py-2">No athletes</p>}
-              {members.map((a) => (
-                <label
-                  key={a.id}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer text-sm"
-                >
-                  <Checkbox checked={selectedAthletes.has(a.id)} onCheckedChange={() => toggle(a.id)} />
-                  <span className="flex-1">{a.name}</span>
-                  {a.grade && <span className="text-xs text-muted-foreground">{a.grade}</span>}
-                  <span className="text-xs text-muted-foreground w-12 text-right">{formatTime(a.bestTime)}</span>
-                </label>
-              ))}
-            </CardContent>
+            {!isCollapsed && (
+              <CardContent className="py-2 space-y-1">
+                {members.length === 0 && <p className="text-xs text-muted-foreground py-2">No athletes</p>}
+                {members.map((a) => (
+                  <label
+                    key={a.id}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer text-sm"
+                  >
+                    <Checkbox checked={selectedAthletes.has(a.id)} onCheckedChange={() => toggle(a.id)} />
+                    <span className="flex-1">{a.name}</span>
+                    {a.grade && <span className="text-xs text-muted-foreground">{a.grade}</span>}
+                    <span className="text-xs text-muted-foreground w-12 text-right">{formatTime(a.bestTime)}</span>
+                  </label>
+                ))}
+              </CardContent>
+            )}
           </Card>
         );
       })}
