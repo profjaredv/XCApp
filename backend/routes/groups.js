@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete, hasTeamRole } = require('../middleware/auth');
-const { getGroupOn, moveAthleteToGroup, removeAthleteFromGroup } = require('../lib/groups');
+const { getGroupOn, getActiveMembersOf, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn } = require('../lib/groups');
 const { decideCanManageGroup } = require('../lib/groupPermissions');
 const { normalizeGender } = require('../lib/gender');
 const { deriveGrade } = require('../lib/season');
@@ -98,17 +98,24 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
 // instead of the full team roster/group-management screen.
 router.get('/me', authenticate, requireTeam, requireLinkedAthlete, async (req, res) => {
   try {
-    const myMemberships = await prisma.groupMembership.findMany({
-      where: { athleteId: req.user.linkedAthlete.id, endDate: null },
+    const today = new Date();
+    // A plain endDate: null list would miss an active-but-bounded
+    // X_TRAINING stint (see GroupType's schema comment) — same reasoning
+    // as getActiveMembersOf below, applied to "my own" side of this query.
+    const allMemberships = await prisma.groupMembership.findMany({
+      where: { athleteId: req.user.linkedAthlete.id },
       include: { group: true },
     });
+    const myMemberships = allMemberships.filter((m) => isMembershipActiveOn(m, today));
 
     const groups = await Promise.all(
       myMemberships.map(async (m) => {
-        const members = await prisma.groupMembership.findMany({
-          where: { groupId: m.groupId, endDate: null },
-          include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true, grade: true } } },
+        const members = await getActiveMembersOf(m.groupId, today);
+        const athletes = await prisma.athlete.findMany({
+          where: { id: { in: members.map((mem) => mem.athleteId) } },
+          select: { id: true, name: true, preferredName: true, gender: true, grade: true },
         });
+        const athleteById = new Map(athletes.map((a) => [a.id, a]));
         return {
           id: m.group.id,
           name: m.group.name,
@@ -116,12 +123,17 @@ router.get('/me', authenticate, requireTeam, requireLinkedAthlete, async (req, r
           gender: normalizeGender(m.group.gender),
           color: m.group.color,
           members: members
-            .map((mem) => ({
-              athleteId: mem.athleteId,
-              name: mem.athlete.preferredName || mem.athlete.name,
-              gender: normalizeGender(mem.athlete.gender),
-              grade: mem.athlete.grade,
-            }))
+            .map((mem) => {
+              const athlete = athleteById.get(mem.athleteId);
+              if (!athlete) return null;
+              return {
+                athleteId: mem.athleteId,
+                name: athlete.preferredName || athlete.name,
+                gender: normalizeGender(athlete.gender),
+                grade: athlete.grade,
+              };
+            })
+            .filter(Boolean)
             .sort((a, b) => a.name.localeCompare(b.name)),
         };
       })
@@ -681,6 +693,146 @@ router.delete('/:id/members/:athleteId', authenticate, requireTeam, async (req, 
     res.json(removed);
   } catch (error) {
     console.error('Error removing athlete from group:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+const X_TRAINING_GROUP_NAME = 'Cross Training';
+const X_TRAINING_MAX_DAYS = 30;
+
+// The team's one cross-training roster for a season (GroupType.X_TRAINING —
+// see its schema comment) — created the first time anyone is sent there,
+// never through the regular "New Group" flow (GROUP_TYPES, above, doesn't
+// include it), so there's exactly one, not one a coach could accidentally
+// duplicate or rename into something else.
+async function getOrCreateXTrainingGroup(teamId, seasonId) {
+  const existing = await prisma.group.findFirst({ where: { seasonId, type: 'X_TRAINING' } });
+  if (existing) return existing;
+  return prisma.group.create({
+    data: { teamId, seasonId, name: X_TRAINING_GROUP_NAME, type: 'X_TRAINING', sortOrder: 0 },
+  });
+}
+
+// GET /api/groups/x-training/:seasonId
+// "Whatever coach is taking cross-training that day just clicks the box" —
+// any coach-tier role, not just whoever sent someone there, since covering
+// X-training is often a different coach than the one who assigned it.
+// Returns null group (never created yet — nobody's ever been sent) or the
+// group plus everyone active TODAY (getActiveMembersOf, not a plain
+// endDate: null list — a bounded stint that hasn't arrived yet or already
+// expired must not show up here), each with why they're there and which
+// training group they'll return to.
+router.get('/x-training/:seasonId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
+  try {
+    const season = await prisma.season.findFirst({ where: { id: req.params.seasonId, teamId: req.user.teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    const group = await prisma.group.findFirst({ where: { seasonId: season.id, type: 'X_TRAINING' } });
+    if (!group) {
+      return res.json({ group: null, members: [] });
+    }
+
+    const today = new Date();
+    const active = await getActiveMembersOf(group.id, today);
+    const athleteIds = active.map((m) => m.athleteId);
+    const [athletes, trainingMemberships] = await Promise.all([
+      prisma.athlete.findMany({ where: { id: { in: athleteIds } }, select: { id: true, name: true, preferredName: true } }),
+      Promise.all(athleteIds.map((athleteId) => getGroupOn(athleteId, today, 'TRAINING'))),
+    ]);
+    const athleteById = new Map(athletes.map((a) => [a.id, a]));
+    const trainingGroupByAthleteId = new Map(athleteIds.map((id, idx) => [id, trainingMemberships[idx]]));
+
+    const members = active
+      .map((m) => {
+        const athlete = athleteById.get(m.athleteId);
+        if (!athlete) return null;
+        const trainingMembership = trainingGroupByAthleteId.get(m.athleteId);
+        return {
+          athleteId: m.athleteId,
+          name: athlete.preferredName || athlete.name,
+          reason: m.reason,
+          since: m.startDate,
+          until: m.endDate,
+          trainingGroup: trainingMembership ? { id: trainingMembership.group.id, name: trainingMembership.group.name } : null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({ group: { id: group.id, name: group.name }, members });
+  } catch (error) {
+    console.error('Error fetching cross-training roster:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/groups/x-training
+// Sends one athlete to cross-training for today, or for the next N days —
+// a bounded GroupMembership (see moveAthleteToGroup's endDate param), so
+// it expires on its own; no separate "send them back" step needed unless
+// a coach wants to end it early (DELETE /:id/members/:athleteId, same as
+// any other group — removeAthleteFromGroup already finds a bounded-but-
+// not-yet-expired row, not just an open-ended one).
+//
+// Authorized like moving into any other group a volunteer coach might
+// lead — but the group being checked is the athlete's CURRENT TRAINING
+// group, not X-Training itself (nobody "leads" cross-training in the
+// GroupLeader sense; the coach doing the sending is whoever's actually
+// leading that athlete's regular squad today). No training group on
+// record at all falls back to head/paid-coach only, since there's no
+// leader relationship to check.
+router.post('/x-training', authenticate, requireTeam, async (req, res) => {
+  const { athleteId, seasonId, days, reason } = req.body;
+  if (!athleteId || !seasonId) {
+    return res.status(400).json({ msg: 'athleteId and seasonId are required.' });
+  }
+  const dayCount = Number(days);
+  if (!Number.isInteger(dayCount) || dayCount < 1 || dayCount > X_TRAINING_MAX_DAYS) {
+    return res.status(400).json({ msg: `days must be a whole number from 1 to ${X_TRAINING_MAX_DAYS}.` });
+  }
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ msg: 'A reason is required.' });
+  }
+
+  try {
+    const [season, athlete] = await Promise.all([
+      prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } }),
+      prisma.athlete.findFirst({ where: { id: athleteId, teamId: req.user.teamId } }),
+    ]);
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+    if (!athlete) {
+      return res.status(404).json({ msg: 'Athlete not found.' });
+    }
+
+    const today = new Date();
+    const trainingMembership = await getGroupOn(athleteId, today, 'TRAINING');
+    if (trainingMembership) {
+      if (!(await canManageGroup(req, trainingMembership.group.id))) {
+        return res.status(403).json({ msg: 'You do not lead this athlete\'s training group.' });
+      }
+    } else if (!(await hasTeamRole(req.user, ['HEAD_COACH', 'COACH']))) {
+      return res.status(403).json({ msg: 'This athlete has no current training group — only a head/paid coach can send them to cross-training.' });
+    }
+
+    const group = await getOrCreateXTrainingGroup(req.user.teamId, season.id);
+    const endDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + dayCount));
+
+    const membership = await moveAthleteToGroup({
+      athleteId,
+      groupId: group.id,
+      effectiveDate: today,
+      endDate,
+      movedById: req.user.id,
+      reason: String(reason).trim(),
+    });
+
+    res.status(201).json({ ...membership, group: { id: group.id, name: group.name } });
+  } catch (error) {
+    console.error('Error sending athlete to cross-training:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

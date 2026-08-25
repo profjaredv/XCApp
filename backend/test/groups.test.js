@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const prisma = require('../lib/db');
-const { getGroupOn, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn, normalizeDate } = require('../lib/groups');
+const { getGroupOn, getActiveMembersOf, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn, normalizeDate } = require('../lib/groups');
 
 test('normalizeDate collapses to a UTC midnight Date regardless of input time-of-day', () => {
   const a = normalizeDate('2024-09-15T18:30:00Z');
@@ -184,13 +184,13 @@ test('removeAthleteFromGroup', async (t) => {
   await t.test('closes the active membership with no replacement row, and no-ops if none is active', async (t) => {
     const rows = [{ id: 'm1', athleteId: 'ath1', groupId: 'gA', startDate: normalizeDate('2024-09-01'), endDate: null, movedById: null, reason: null }];
 
-    const originalFindFirst = prisma.groupMembership.findFirst;
+    const originalFindMany = prisma.groupMembership.findMany;
     const originalUpdate = prisma.groupMembership.update;
     const originalCreate = prisma.groupMembership.create;
     let createCalls = 0;
 
-    prisma.groupMembership.findFirst = async ({ where }) =>
-      rows.find((r) => r.athleteId === where.athleteId && r.groupId === where.groupId && r.endDate === null) ?? null;
+    prisma.groupMembership.findMany = async ({ where }) =>
+      rows.filter((r) => r.athleteId === where.athleteId && r.groupId === where.groupId);
     prisma.groupMembership.update = async ({ where, data }) => {
       const row = rows.find((r) => r.id === where.id);
       Object.assign(row, data);
@@ -202,7 +202,7 @@ test('removeAthleteFromGroup', async (t) => {
     };
 
     t.after(() => {
-      prisma.groupMembership.findFirst = originalFindFirst;
+      prisma.groupMembership.findMany = originalFindMany;
       prisma.groupMembership.update = originalUpdate;
       prisma.groupMembership.create = originalCreate;
     });
@@ -218,5 +218,53 @@ test('removeAthleteFromGroup', async (t) => {
     // Calling it again (already removed) is a no-op, not an error.
     const noOp = await removeAthleteFromGroup({ athleteId: 'ath1', groupId: 'gA', effectiveDate: '2024-10-20' });
     assert.equal(noOp, null);
+  });
+
+  await t.test('ends a bounded stint (a future endDate already set) early — not just an already-open row', async (t) => {
+    // e.g. an X_TRAINING membership scheduled through 2024-10-20, sent back
+    // to their training group on 2024-10-16 instead.
+    const rows = [{ id: 'm1', athleteId: 'ath1', groupId: 'gX', startDate: normalizeDate('2024-10-14'), endDate: normalizeDate('2024-10-20'), movedById: null, reason: 'shin splints' }];
+
+    const originalFindMany = prisma.groupMembership.findMany;
+    const originalUpdate = prisma.groupMembership.update;
+    prisma.groupMembership.findMany = async ({ where }) =>
+      rows.filter((r) => r.athleteId === where.athleteId && r.groupId === where.groupId);
+    prisma.groupMembership.update = async ({ where, data }) => {
+      const row = rows.find((r) => r.id === where.id);
+      Object.assign(row, data);
+      return row;
+    };
+    t.after(() => {
+      prisma.groupMembership.findMany = originalFindMany;
+      prisma.groupMembership.update = originalUpdate;
+    });
+
+    const removed = await removeAthleteFromGroup({ athleteId: 'ath1', groupId: 'gX', effectiveDate: '2024-10-16' });
+    assert.equal(removed.id, 'm1');
+    assert.equal(removed.endDate.getTime(), normalizeDate('2024-10-16').getTime(), 'the scheduled end date is pulled in, not left at 10-20');
+  });
+});
+
+test('getActiveMembersOf', async (t) => {
+  await t.test('includes a bounded stint still within its window and excludes one that already expired, without touching endDate: null in the query', async (t) => {
+    const rows = [
+      { id: 'm1', athleteId: 'still-in', groupId: 'gX', startDate: normalizeDate('2024-10-10'), endDate: normalizeDate('2024-10-20') },
+      { id: 'm2', athleteId: 'already-back', groupId: 'gX', startDate: normalizeDate('2024-09-01'), endDate: normalizeDate('2024-09-10') },
+      { id: 'm3', athleteId: 'open-ended', groupId: 'gX', startDate: normalizeDate('2024-10-01'), endDate: null },
+    ];
+
+    const originalFindMany = prisma.groupMembership.findMany;
+    let queriedWhere = null;
+    prisma.groupMembership.findMany = async ({ where }) => {
+      queriedWhere = where;
+      return rows.filter((r) => r.groupId === where.groupId);
+    };
+    t.after(() => {
+      prisma.groupMembership.findMany = originalFindMany;
+    });
+
+    const active = await getActiveMembersOf('gX', '2024-10-15');
+    assert.deepEqual(active.map((m) => m.athleteId).sort(), ['open-ended', 'still-in']);
+    assert.equal('endDate' in queriedWhere, false, 'must not filter on endDate in the query — that would miss bounded-but-not-yet-expired rows');
   });
 });

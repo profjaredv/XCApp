@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -22,7 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye } from 'lucide-react';
+import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell } from 'lucide-react';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { seasonService } from '@/api/seasonService';
 import {
@@ -42,9 +43,12 @@ import {
   useRemoveLeader,
   useAddMember,
   useRemoveMember,
+  useXTrainingRoster,
+  useSendToXTraining,
 } from '@/hooks/useGroups';
 import { seasonBestTime, formatTime, type Group, type GroupType } from '@/api/groupService';
 import { gradeLabel } from '@/lib/seasonUtils';
+import { formatDateShort } from '@/lib/formatUtils';
 import { useQueryClient } from '@tanstack/react-query';
 
 // Bulk assignment screen (T2, Team Management handoff): "Assigning 130
@@ -92,6 +96,7 @@ const GROUP_TYPE_LABEL: Record<GroupType, string> = {
   TRAINING: 'Training group',
   CAPTAIN: 'Captain group',
   CUSTOM: 'Group',
+  X_TRAINING: 'Cross Training',
 };
 
 const AthleteGroupsView: React.FC = () => {
@@ -163,6 +168,7 @@ const CoachGroupsView: React.FC = () => {
   const removeMember = useRemoveMember(seasonId);
   const copyFromSeason = useCopyGroupsFromSeason(seasonId);
   const { data: captains = [] } = useSeasonCaptains(seasonId);
+  const { data: xTrainingRoster } = useXTrainingRoster(seasonId);
 
   const [selectedAthletes, setSelectedAthletes] = useState<Set<string>>(new Set());
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>({}); // athleteId -> groupId | UNASSIGNED
@@ -173,6 +179,8 @@ const CoachGroupsView: React.FC = () => {
   const [newGroupGender, setNewGroupGender] = useState<'M' | 'F' | typeof MIXED_GENDER>('M');
   const [selectedCaptainId, setSelectedCaptainId] = useState(NO_CAPTAIN);
   const [creatingForSeason, setCreatingForSeason] = useState(false);
+  const [xTrainingRosterOpen, setXTrainingRosterOpen] = useState(false);
+  const [xTrainingSendTarget, setXTrainingSendTarget] = useState<AthleteRow | null>(null);
 
   // Captains who don't already lead a CAPTAIN-type group this season — the
   // whole point of this picker is to skip retyping a name AND skip a
@@ -236,7 +244,12 @@ const CoachGroupsView: React.FC = () => {
   const displayedGroupFor = (athleteId: string) => pendingChanges[athleteId] ?? currentGroupByAthlete.get(athleteId) ?? UNASSIGNED;
 
   const trainingGroups = groups.filter((g) => g.type === 'TRAINING' && !g.archived);
-  const otherGroups = groups.filter((g) => g.type !== 'TRAINING' && !g.archived);
+  // X_TRAINING gets its own dedicated "Cross Training today" box above
+  // (auto-provisioned, bounded memberships, date-aware "active today"
+  // logic) rather than the generic Captain/Custom "Manage members" card,
+  // which reads current members via a plain endDate: null list — that
+  // would miss anyone whose stint hasn't expired yet but is bounded.
+  const otherGroups = groups.filter((g) => g.type !== 'TRAINING' && g.type !== 'X_TRAINING' && !g.archived);
   const changeCount = Object.keys(pendingChanges).length;
 
   const handleInitializeSeason = async () => {
@@ -432,6 +445,20 @@ const CoachGroupsView: React.FC = () => {
         </div>
       </div>
 
+      <button
+        type="button"
+        onClick={() => setXTrainingRosterOpen(true)}
+        className="w-full flex items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 text-left hover:bg-accent/50 transition-colors"
+      >
+        <span className="flex items-center gap-2 font-medium text-sm">
+          <Dumbbell className="h-4 w-4 text-muted-foreground" />
+          Cross Training today
+        </span>
+        <Badge variant={xTrainingRoster && xTrainingRoster.members.length > 0 ? 'default' : 'secondary'}>
+          {xTrainingRoster?.members.length ?? 0}
+        </Badge>
+      </button>
+
       {selectedAthletes.size > 0 && (
         <div className="sticky top-0 z-10 flex items-center gap-3 bg-background border border-border rounded-lg px-4 py-2.5 shadow-md">
           <span className="text-sm font-medium">{selectedAthletes.size} selected</span>
@@ -484,6 +511,7 @@ const CoachGroupsView: React.FC = () => {
               selectedAthletes={selectedAthletes}
               setSelectedAthletes={setSelectedAthletes}
               showUnassigned={showUnassigned}
+              onSendToXTraining={setXTrainingSendTarget}
               onEdit={openEdit}
               onArchive={handleArchiveToggle}
               onDelete={handleDeleteGroup}
@@ -627,6 +655,16 @@ const CoachGroupsView: React.FC = () => {
         roster={athletes}
         otherGroups={otherGroups}
       />
+      <XTrainingSendDialog
+        athlete={xTrainingSendTarget}
+        seasonId={seasonId}
+        onClose={() => setXTrainingSendTarget(null)}
+      />
+      <XTrainingRosterDialog
+        open={xTrainingRosterOpen}
+        onClose={() => setXTrainingRosterOpen(false)}
+        seasonId={seasonId}
+      />
     </div>
   );
 };
@@ -642,11 +680,12 @@ const GenderColumn: React.FC<{
   selectedAthletes: Set<string>;
   setSelectedAthletes: React.Dispatch<React.SetStateAction<Set<string>>>;
   showUnassigned: boolean;
+  onSendToXTraining: (athlete: AthleteRow) => void;
   onEdit: (group: Group) => void;
   onArchive: (group: Group) => void;
   onDelete: (group: Group) => void;
   onManageLeaders: (group: Group) => void;
-}> = ({ gender, athletes, groups, archivedGroups, displayedGroupFor, selectedAthletes, setSelectedAthletes, showUnassigned, onEdit, onArchive, onDelete, onManageLeaders }) => {
+}> = ({ gender, athletes, groups, archivedGroups, displayedGroupFor, selectedAthletes, setSelectedAthletes, showUnassigned, onSendToXTraining, onEdit, onArchive, onDelete, onManageLeaders }) => {
   const toggle = (athleteId: string) => {
     setSelectedAthletes((prev) => {
       const next = new Set(prev);
@@ -728,6 +767,19 @@ const GenderColumn: React.FC<{
                     <span className="flex-1">{a.name}</span>
                     {a.grade && <span className="text-xs text-muted-foreground">{a.grade}</span>}
                     <span className="text-xs text-muted-foreground w-12 text-right">{formatTime(a.bestTime)}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      title="Send to Cross Training"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onSendToXTraining(a);
+                      }}
+                    >
+                      <Dumbbell className="h-3.5 w-3.5" />
+                    </Button>
                   </label>
                 ))}
               </CardContent>
@@ -943,6 +995,166 @@ const ManageMembersDialog: React.FC<{
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+const X_TRAINING_DAY_OPTIONS = [
+  { value: '1', label: 'Today only' },
+  { value: '2', label: 'Next 2 days' },
+  { value: '3', label: 'Next 3 days' },
+  { value: '5', label: 'Next 5 days' },
+  { value: '7', label: 'Next 7 days (1 week)' },
+  { value: '14', label: 'Next 14 days (2 weeks)' },
+];
+
+// The "click XTraining" flow: the coach leading this athlete's training
+// group sends them to cross-training, today or for the next N days, with
+// a reason — a bounded GroupMembership that expires on its own (see
+// backend POST /groups/x-training). Authorization is enforced server-side
+// against the athlete's current training group, not checked here — a
+// volunteer coach who isn't its leader just gets a 403 toast back.
+const XTrainingSendDialog: React.FC<{
+  athlete: AthleteRow | null;
+  seasonId: string | null;
+  onClose: () => void;
+}> = ({ athlete, seasonId, onClose }) => {
+  const [days, setDays] = useState('1');
+  const [reason, setReason] = useState('');
+  const sendToXTraining = useSendToXTraining(seasonId);
+
+  if (!athlete) return null;
+
+  const handleClose = () => {
+    onClose();
+    setDays('1');
+    setReason('');
+  };
+
+  const handleSend = async () => {
+    if (!reason.trim()) return;
+    try {
+      await sendToXTraining.mutateAsync({ athleteId: athlete.id, days: Number(days), reason: reason.trim() });
+      toast.success(`${athlete.name} sent to Cross Training.`);
+      handleClose();
+    } catch (err) {
+      const message = (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ?? 'Could not send to Cross Training.';
+      toast.error(message);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && handleClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Send {athlete.name} to Cross Training</DialogTitle>
+          <DialogDescription>
+            Their training group membership is untouched — this runs alongside it and reverts on its own when the
+            window above ends.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label>Duration</Label>
+            <Select value={days} onValueChange={setDays}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {X_TRAINING_DAY_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Reason</Label>
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              placeholder="e.g. shin splints, coach's call to cross-train ahead of Saturday's meet"
+              className="mt-1"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>Cancel</Button>
+          <Button onClick={handleSend} disabled={!reason.trim() || sendToXTraining.isPending}>
+            {sendToXTraining.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Send
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// The "official box": any coach can open this to see who's supposed to be
+// in cross-training today and why, regardless of who sent them there or
+// who's covering it. Members are already scoped to "active today" by the
+// backend (GET /groups/x-training/:seasonId uses getActiveMembersOf, not
+// a plain endDate: null list), so nothing here needs its own date math.
+const XTrainingRosterDialog: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  seasonId: string | null;
+}> = ({ open, onClose, seasonId }) => {
+  const { data, isLoading } = useXTrainingRoster(seasonId);
+  const removeMember = useRemoveMember(seasonId);
+
+  const handleReturn = async (athleteId: string, name: string) => {
+    if (!data?.group) return;
+    try {
+      await removeMember.mutateAsync({ groupId: data.group.id, athleteId });
+      toast.success(`${name} returned to training.`);
+    } catch {
+      toast.error('Could not return that athlete to training.');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Dumbbell className="h-4 w-4" />
+            Cross Training today
+          </DialogTitle>
+          <DialogDescription>Who's cross-training right now, why, and when they're expected back.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : !data || data.members.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nobody is in cross-training right now.</p>
+          ) : (
+            data.members.map((m) => (
+              <div key={m.athleteId} className="rounded-md border px-3 py-2 text-sm space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{m.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => handleReturn(m.athleteId, m.name)}
+                    disabled={removeMember.isPending}
+                  >
+                    Return to training
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {m.trainingGroup ? `Normally in ${m.trainingGroup.name}` : 'No current training group on record'}
+                  {' · back '}
+                  {formatDateShort(m.until)}
+                </p>
+                {m.reason && <p className="text-xs text-muted-foreground italic">"{m.reason}"</p>}
+              </div>
+            ))
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

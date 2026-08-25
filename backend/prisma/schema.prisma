@@ -868,6 +868,16 @@ enum GroupType {
   TRAINING // coach-led, ability-based, gender-split
   CAPTAIN // captain-led
   CUSTOM
+  // The team's one cross-training roster for a season — auto-provisioned
+  // (see routes/groups.js POST /x-training), never created via the regular
+  // "New Group" flow, so there's exactly one per season, not one a coach
+  // could accidentally duplicate. Unlike every other GroupMembership,
+  // rows here are commonly created with endDate already set (a bounded
+  // "today, or the next N days" stint, not an open-ended assignment) —
+  // see lib/groups.js's moveAthleteToGroup endDate param and
+  // getActiveMembersOf, the one place list queries actually account for
+  // that instead of shortcutting "active" to endDate IS NULL.
+  X_TRAINING
 }
 
 model Group {

@@ -1,6 +1,6 @@
 import api from './api';
 
-export type GroupType = 'TRAINING' | 'CAPTAIN' | 'CUSTOM';
+export type GroupType = 'TRAINING' | 'CAPTAIN' | 'CUSTOM' | 'X_TRAINING';
 
 export interface Group {
   id: string;
@@ -107,6 +107,23 @@ export interface SeasonCaptain {
   grade: number | null;
   /** Set when this captain already has an active membership in a CAPTAIN-type group this season. */
   existingGroup: { id: string; name: string } | null;
+}
+
+export interface XTrainingMember {
+  athleteId: string;
+  name: string;
+  reason: string | null;
+  since: string;
+  /** When this stint expires on its own — always set (a bounded assignment), never null. */
+  until: string;
+  /** The training group they'll return to — null if they somehow have none right now. */
+  trainingGroup: { id: string; name: string } | null;
+}
+
+export interface XTrainingRoster {
+  /** Null until the first athlete is ever sent to cross-training this season — the group is auto-created on first use. */
+  group: { id: string; name: string } | null;
+  members: XTrainingMember[];
 }
 
 export const groupService = {
@@ -230,6 +247,17 @@ export const groupService = {
   async listCaptains(seasonId: string): Promise<SeasonCaptain[]> {
     const response = await api.get<SeasonCaptain[]>('/groups/captains', { params: { seasonId } });
     return response.data;
+  },
+
+  /** Who's actually in cross-training today, and why — not the group's full history. */
+  async getXTrainingRoster(seasonId: string): Promise<XTrainingRoster> {
+    const response = await api.get<XTrainingRoster>(`/groups/x-training/${seasonId}`);
+    return response.data;
+  },
+
+  /** Sends one athlete to cross-training for `days` (1 = today only), starting today. Authorized like leading their current training group. */
+  async sendToXTraining(input: { athleteId: string; seasonId: string; days: number; reason: string }): Promise<void> {
+    await api.post('/groups/x-training', input);
   },
 };
 

@@ -156,6 +156,9 @@ export function useRemoveMember(seasonId: string | null) {
       queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
       queryClient.invalidateQueries({ queryKey: ['groupMembers'] });
       queryClient.invalidateQueries({ queryKey: ['seasonCaptains', seasonId] });
+      // Covers "return from cross-training early," which also goes through
+      // this same generic remove-member action.
+      queryClient.invalidateQueries({ queryKey: ['xTrainingRoster', seasonId] });
     },
   });
 }
@@ -167,6 +170,29 @@ export function useBulkAssignGroups(seasonId: string | null) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
       queryClient.invalidateQueries({ queryKey: ['groupMembers'] });
+    },
+  });
+}
+
+/** Who's actually in cross-training today, and why. */
+export function useXTrainingRoster(seasonId: string | null) {
+  return useQuery({
+    queryKey: ['xTrainingRoster', seasonId],
+    queryFn: () => groupService.getXTrainingRoster(seasonId as string),
+    enabled: !!seasonId,
+  });
+}
+
+export function useSendToXTraining(seasonId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { athleteId: string; days: number; reason: string }) =>
+      groupService.sendToXTraining({ seasonId: seasonId as string, ...input }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['xTrainingRoster', seasonId] });
+      // Doesn't touch the athlete's TRAINING membership, but the board's
+      // member counts/leader badges live in the same groups list.
+      queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
     },
   });
 }
