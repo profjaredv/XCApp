@@ -34,6 +34,15 @@ export const compactName = (fullName: string): string => {
   return `${parts[0]} ${last[0]}.`;
 };
 
+// No dedicated lastName column exists anywhere in the schema — names are
+// stored as one combined field. Last whitespace-separated token, for
+// sorting a roster the way a physical sheet is alphabetized (Attendance
+// take-page). A single-word name sorts on that word.
+export const lastNameOf = (fullName: string): string => {
+  const parts = fullName.trim().split(/\s+/);
+  return parts[parts.length - 1] ?? '';
+};
+
 /**
  * Parse a MM:SS or H:MM:SS string into seconds. Returns NaN if unparseable.
  */

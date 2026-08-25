@@ -17,6 +17,8 @@ import MeetDetailPage from '../pages/MeetDetailPage';
 import EquipmentPage from '../pages/EquipmentPage';
 import IntervalSessionsPage from '../pages/IntervalSessionsPage';
 import IntervalSessionManagePage from '../pages/IntervalSessionManagePage';
+import AttendancePage from '../pages/AttendancePage';
+import AttendanceSessionPage from '../pages/AttendanceSessionPage';
 import FeedbackPage from '../pages/FeedbackPage';
 import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
@@ -160,6 +162,19 @@ export const router = createBrowserRouter([
               {
                 path: 'interval-sessions/:sessionId',
                 element: <IntervalSessionManagePage />,
+              },
+              // Attendance tracker — standalone without Layout too, opened
+              // full screen from Schedule's "Attendance" header button.
+              // Same list/detail split as interval sessions, for the same
+              // "one session shouldn't compete with every other session for
+              // phone screen space" reason.
+              {
+                path: 'attendance',
+                element: <AttendancePage />,
+              },
+              {
+                path: 'attendance/:sessionId',
+                element: <AttendanceSessionPage />,
               },
               // Splits entry grid (C6) - standalone without Layout too,
               // opened full screen from a race's context menu. Its own

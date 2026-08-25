@@ -69,6 +69,7 @@ model User {
   createdTrainingLogs     TrainingLog[]            @relation("TrainingLogCreator")
   coachUpAcknowledgements CoachUpAcknowledgement[] @relation("CoachUpAcknowledgementBy")
   createdTimerSessions    TimerSession[]           @relation("TimerSessionCreator")
+  createdAttendanceSessions AttendanceSession[]    @relation("AttendanceSessionCreator")
 
   @@index([teamId])
   @@map("users")
@@ -126,6 +127,7 @@ model Team {
   intervalSessions        IntervalSession[]
   coachUpAcknowledgements CoachUpAcknowledgement[]
   claim                   TeamClaim?
+  attendanceSessions      AttendanceSession[]
 
   @@index([coachUid])
   @@map("teams")
@@ -242,6 +244,7 @@ model Athlete {
   equipmentAssignments    EquipmentAssignment[]
   intervalSessionEntries  IntervalSessionEntry[]
   coachUpAcknowledgements CoachUpAcknowledgement[]
+  attendanceRecords       AttendanceRecord[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -818,6 +821,7 @@ model Season {
   meets                Meet[]
   equipmentAssignments EquipmentAssignment[]
   intervalSessions     IntervalSession[]
+  attendanceSessions   AttendanceSession[]
 
   @@unique([teamId, year, sport])
   @@index([teamId])
@@ -968,8 +972,9 @@ model PracticeLocation {
   name     String
   archived Boolean @default(false)
 
-  team          Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  practicePlans PracticePlan[]
+  team               Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  practicePlans      PracticePlan[]
+  attendanceSessions AttendanceSession[]
 
   @@unique([teamId, name])
   @@map("practice_locations")
@@ -1009,6 +1014,64 @@ model PracticePlan {
   @@unique([seasonId, date])
   @@index([seasonId, date])
   @@map("practice_plans")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  EXCUSED
+  LATE
+}
+
+// The physical clipboard, digitized: date/time/location plus one roster
+// snapshot. Deliberately NOT unique on (seasonId, date) — unlike
+// PracticePlan's "one shared plan per day," a team can genuinely run two
+// sessions the same day (AM/PM, or varsity/JV at different locations),
+// and time/location are exactly what tells those apart, not incidental
+// detail. Records are seeded once at creation from that day's active
+// roster (see routes/attendance.js) — never re-synced afterward, so a
+// session already taken stays a stable historical record even if the
+// roster changes later; an athlete who shows up unexpectedly is added
+// with its own POST rather than by re-deriving the whole roster.
+model AttendanceSession {
+  id          String   @id @default(uuid()) @db.Uuid
+  teamId      String   @map("team_id") @db.Uuid
+  seasonId    String   @map("season_id") @db.Uuid
+  date        DateTime @db.Date
+  time        String? // "15:30" — same free-text convention as PracticePlan.startTime
+  locationId  String?  @map("location_id") @db.Uuid
+  createdById String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  team      Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season    Season              @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  location  PracticeLocation?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdBy User?               @relation("AttendanceSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  records   AttendanceRecord[]
+
+  @@index([teamId, seasonId, date])
+  @@map("attendance_sessions")
+}
+
+model AttendanceRecord {
+  id                  String           @id @default(uuid()) @db.Uuid
+  attendanceSessionId String           @map("attendance_session_id") @db.Uuid
+  athleteId           String           @map("athlete_id") @db.Uuid
+  // Present by default — mirrors the paper-sheet workflow this replaces
+  // (a pre-printed roster where a coach marks exceptions, not checks off
+  // everyone who showed), and means seeding a session's roster is a single
+  // write per athlete rather than requiring one from the coach too.
+  status              AttendanceStatus @default(PRESENT)
+  notes               String?
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+
+  session AttendanceSession @relation(fields: [attendanceSessionId], references: [id], onDelete: Cascade)
+  athlete Athlete           @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@unique([attendanceSessionId, athleteId])
+  @@index([athleteId])
+  @@map("attendance_records")
 }
 
 // Reusable workouts survive across seasons and get named ("Tempo Tuesday").

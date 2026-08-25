@@ -642,6 +642,16 @@ router.post('/merge', authenticate, requireTeam, requireRole(['HEAD_COACH']), as
         await tx.intervalSessionEntry.updateMany({ where: { id: { in: intervalPlan.repoint.map((r) => r.id) } }, data: { athleteId: keeperId } });
       }
 
+      // AttendanceRecord — @@unique([attendanceSessionId, athleteId]); dedupe key: attendanceSessionId.
+      const [keeperAttendance, loserAttendance] = await Promise.all([
+        tx.attendanceRecord.findMany({ where: { athleteId: keeperId } }),
+        tx.attendanceRecord.findMany({ where: { athleteId: loserId } }),
+      ]);
+      const attendancePlan = planDedup(keeperAttendance, loserAttendance, (r) => r.attendanceSessionId);
+      if (attendancePlan.repoint.length > 0) {
+        await tx.attendanceRecord.updateMany({ where: { id: { in: attendancePlan.repoint.map((r) => r.id) } }, data: { athleteId: keeperId } });
+      }
+
       // CoachUpAcknowledgement — @@unique([teamId, athleteId, category, season]).
       const [keeperAcks, loserAcks] = await Promise.all([
         tx.coachUpAcknowledgement.findMany({ where: { athleteId: keeperId } }),

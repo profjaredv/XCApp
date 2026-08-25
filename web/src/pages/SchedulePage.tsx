@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Archive, ChevronLeft, ChevronRight, Download, Flag, Loader2, MoreVertical, Pencil, Plus, Timer, Upload } from 'lucide-react';
+import { Archive, ChevronLeft, ChevronRight, ClipboardCheck, Download, Flag, Loader2, MoreVertical, Pencil, Plus, Timer, Upload } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import {
@@ -211,6 +211,10 @@ const SchedulePage: React.FC = () => {
       <Button variant="outline" onClick={() => navigate(teamPath('/interval-sessions'))}>
         <Timer className="h-4 w-4 mr-2" />
         Interval Sessions
+      </Button>
+      <Button variant="outline" onClick={() => navigate(teamPath('/attendance'))}>
+        <ClipboardCheck className="h-4 w-4 mr-2" />
+        Attendance
       </Button>
       <Button variant="outline" onClick={handleExport} disabled={exportPlans.isPending}>
         {exportPlans.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
