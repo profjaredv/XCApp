@@ -2491,3 +2491,86 @@ instead of requiring a coach to hand-build a CSV from what they see on
 the page. The scraper itself is still genuinely stuck on network access
 or a saved fixture page, exactly as documented above — not attempting it
 without one of those two things.
+
+## Schedule/Meets nav consolidation + a concurrency-safety pass + attendance tracker
+
+Three separate user requests, done in sequence on `neon-migration`, pushed as
+of commit `24803ff`.
+
+**Nav**: Schedule stays the calendar; Workouts (Templates/Interval Sessions),
+Practices, and Meets all live under it now instead of Meets having its own
+sidebar item. `Layout.tsx`'s coach sidebar dropped the standalone "Meets"
+`NavItem` (athletes keep theirs — they have no Schedule view); `SchedulePage.tsx`
+gained a "Meets" button in `scheduleActionButtons`, first among the existing
+Workout Templates / Interval Sessions / Export / Import buttons.
+
+**Concurrency audit**: went looking for the same "reconstructed stale
+snapshot silently overwrites a concurrent edit" bug the splits fix caught
+earlier, across the other multi-coach screens. Found and fixed it in three
+more places, each via whichever retrofit was less invasive to the existing
+component:
+- **Meet results entry** (`EnterRaceResultsDialog`, `MeetDetailPage.tsx`): was
+  resending every roster row's time+status on every save. Now tracks
+  per-row-per-field `touched` state and only includes touched fields for
+  touched athletes; `decideResultWrite()` (new, `backend/lib/raceResults.js`,
+  unit-tested) decides skip/upsert/delete per entry based on which keys are
+  *present* in the body, never on falsy-ness — `POST /races/:raceId/results`
+  in `meetOps.js` now calls it per entry instead of a hardcoded
+  keep-if-time-present rule.
+- **Practice plans** (`DayEditorDialog`, `SchedulePage.tsx`): was resending
+  all 8 fields on every save. Retrofitted with an `initialFormRef` (captured
+  at mount, diffed at save) rather than rewiring every onChange — lower
+  blast radius than the touched-tracking approach for a single-form dialog.
+  `POST /practice-plans` now only writes fields present in the body.
+- **Captain notes** (`RosterPage.tsx`): `setCaptain()` was resending
+  `isCaptain` alongside notes on every notes-only save, risking clobbering a
+  concurrent captain-toggle. `isCaptain` param made optional; omitted
+  entirely from the notes-save call.
+
+**Print-ready interval sheets**: `IntervalSessionManagePage.tsx` got a Print
+button (`window.print()`) and a `hidden print:block` plain-table section —
+same Tailwind `print:` variant approach as the existing splits-entry print
+view (no global print CSS in this codebase). Cells show the actual value if
+entered, a blank ruled box otherwise, so it works as both a pre-session
+blank backup sheet and a post-session printed record.
+
+**Attendance tracker** (new feature, full stack): a digitized version of the
+physical clipboard. `AttendanceSession` (date/time/location/team/season) has
+many `AttendanceRecord` (one per athlete, `PRESENT|ABSENT|EXCUSED|LATE`,
+defaults `PRESENT` on creation — "pre-printed roster, mark exceptions", not a
+blank sheet). Records are seeded once from the active roster at session
+creation and never re-synced; a walk-on gets added via a separate ad-hoc
+endpoint, same idea as `IntervalSessionEntry.addedManually` (though
+`AttendanceRecord` doesn't carry that exact boolean — minor divergence, not
+load-bearing anywhere yet). `backend/routes/attendance.js`: list/create/get/
+patch/delete sessions, plus add/patch/delete per-record — the per-record PATCH
+is single-row by construction so there's nothing that could ever clobber a
+sibling athlete's row, the same lesson as the meet-results fix above, just
+designed in from the start instead of retrofitted. Merge tool
+(`athletes.js POST /merge`) got a dedupe/repoint block for
+`AttendanceRecord`, same `planDedup()` primitive as every other merged table
+— required, since every FK to `Athlete` cascades on delete.
+
+Frontend: `AttendancePage.tsx` (session list, mirrors `IntervalSessionsPage`)
+and `AttendanceSessionPage.tsx` (take-attendance detail, mirrors
+`IntervalSessionManagePage`) — both standalone full-screen routes outside
+`Layout`, reached via a new "Attendance" button on Schedule. Roster grouped
+by grade descending then alphabetical by last name within grade (matches
+`RosterPage`'s `byGrade` sort; new `lastNameOf()` util in `formatUtils.ts` —
+there's still no dedicated lastName column anywhere in the schema, this just
+splits on the last whitespace token same as the one precedent in
+`TeamAthleteProfilePage.tsx`). Status toggles autosave immediately per
+athlete (no batched save button for the grid itself). CSV export
+(locally-duplicated `downloadCsv`/`toCsv`, same convention as
+`SchedulePage`/`SplitsEntryPage` — not extracted to a shared lib, matching
+this codebase's existing per-page-duplication convention). Also got a print
+view, unprompted but consistent with the "this is how we do it on a physical
+sheet" framing and the interval-sheets print feature added immediately
+before it in the same session — worth confirming with the user it's wanted,
+not just assumed permanently correct.
+
+Verification: `node --test` 340/341 (`extractResults against fixture HTML`
+is the same pre-existing unrelated failure noted throughout this file);
+`tsc -b`, `eslint` on touched files, and `npm run build` (web) all clean.
+Not verified against a live DB or in an actual browser — same sandbox
+limitation as everything else in this file.
