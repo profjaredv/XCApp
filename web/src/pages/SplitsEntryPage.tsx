@@ -149,22 +149,31 @@ const SplitsEntryPage: React.FC = () => {
       const row = rowById.get(resultId);
       if (!row) return;
       const draft = draftRef.current.get(resultId);
+      if (!draft || draft.size === 0) return;
 
-      const bySequence = new Map<number, number>();
-      for (const s of row.splits) bySequence.set(s.sequence, s.elapsedSec);
-      if (draft) {
-        for (const [sequence, value] of draft.entries()) {
-          if (value == null) bySequence.delete(sequence);
-          else bySequence.set(sequence, value);
-        }
-      }
-      const splits = [...bySequence.entries()]
+      // Send only what's actually been touched since the last successful
+      // save — never row.splits merged in, which could be a stale cache
+      // snapshot. The backend leaves every sequence this entry doesn't
+      // mention untouched, so there's no need (and no safe way) to
+      // reconstruct "the whole row" here; doing so risks resending a
+      // stale value for a marker another coach just saved and silently
+      // reverting it. Snapshotted so a value typed into this same row
+      // while this request is in flight isn't swept up and marked done
+      // early — only what this specific save covers gets cleared below.
+      const snapshot = new Map(draft);
+      const splits = [...snapshot.entries()]
         .sort(([a], [b]) => a - b)
         .map(([sequence, elapsedSec]) => ({ sequence, elapsedSec }));
 
       setRowSaveState((prev) => ({ ...prev, [resultId]: 'saving' }));
       try {
         const result = await saveBatch.mutateAsync([{ resultId, splits }]);
+        const liveDraft = draftRef.current.get(resultId);
+        if (liveDraft) {
+          for (const [sequence, value] of snapshot.entries()) {
+            if (liveDraft.get(sequence) === value) liveDraft.delete(sequence);
+          }
+        }
         retryQueueRef.current.delete(resultId);
         setOffline(false);
         const flagged = result.flags.some((f) => f.resultId === resultId);

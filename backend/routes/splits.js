@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
-const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, validateSplitEntries } = require('../lib/splitMath');
+const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, planSplitBatchWrite } = require('../lib/splitMath');
 const { normalizeDistanceMeters, aggregateSplitsByDistance } = require('../lib/splitAggregates');
 
 // C5 (LeadPack Master Build Handoff): rewritten against the marker-based
@@ -194,9 +194,21 @@ router.get('/athlete/:athleteId/aggregate', authenticate, requireTeam, async (re
 
 // POST /api/splits/batch
 // { raceId, entries: [{ resultId, splits: [{ sequence, elapsedSec }] }] }
-// An empty splits array for a resultId deletes that athlete's splits —
-// that is how a coach clears a bad entry. Validation warns, it does not
+// elapsedSec: null clears that one sequence. Validation warns, it does not
 // block: an invalid row for one athlete never loses the other 39.
+//
+// Only the sequences an entry actually mentions are touched — everything
+// else for that resultId is left exactly as it already is in the
+// database, read fresh in this same request rather than trusted from
+// whatever the client's payload implies about the rest of the row. Two
+// coaches entering different markers for the same athlete around the same
+// time — one saving marker 1 a moment after the other started typing
+// marker 2 — must not have either save silently delete the other's,
+// which a blanket "replace this row's whole split set" would risk if the
+// two saves' client-side snapshots of "the current row" were built from
+// different points in time. (Same fix needed for a resave of an old CSV
+// export that's missing a marker column added since — see the frontend's
+// CSV import, which already only sends the columns actually present.)
 router.post('/batch', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   try {
     const { raceId, entries } = req.body;
@@ -228,65 +240,75 @@ router.post('/batch', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COA
     }
     const resultById = new Map(results.map((r) => [r.id, r]));
 
+    // Fresh, same-request read of what's already saved — the merge base
+    // for validation below. Deliberately not derived from anything the
+    // client sent; a stale client snapshot is exactly the case this guards
+    // against.
+    const existingSplitRows = await prisma.split.findMany({ where: { resultId: { in: resultIds } } });
+    const existingByResultId = new Map();
+    for (const row of existingSplitRows) {
+      if (!existingByResultId.has(row.resultId)) existingByResultId.set(row.resultId, new Map());
+      existingByResultId.get(row.resultId).set(row.sequence, row);
+    }
+
     const allFlags = [];
     const writes = [];
-    // Per resultId, the saved splits after this write — computed from
-    // validEntries directly (that's exactly what deleteMany/upsert leave in
-    // place), so the response can carry each row's derived segments/analysis
-    // without a second query. This is what lets the frontend patch just the
-    // edited row from the save response instead of duplicating splitMath.js
-    // in the browser or refetching the whole grid on every autosave (C4).
+    // Per resultId, the saved splits after this write — every existing
+    // sequence not touched by this request, plus each touched sequence
+    // that validated (untouched sequences are never re-validated against
+    // the new merged context; they were already valid when they were
+    // saved and this request isn't allowed to alter or drop them anyway).
+    // This is what lets the frontend patch just the edited row from the
+    // save response instead of duplicating splitMath.js in the browser or
+    // refetching the whole grid on every autosave (C4).
     const savedSplitsByResultId = new Map();
 
     for (const entry of entries) {
       const result = resultById.get(entry.resultId);
-      const rawSplits = Array.isArray(entry.splits) ? entry.splits : [];
-
-      const withMarkers = rawSplits
+      const existingMap = existingByResultId.get(entry.resultId) ?? new Map();
+      const existingEntries = [...existingMap.values()].map((row) => ({ sequence: row.sequence, markerMeters: row.markerMeters, elapsedSec: row.elapsedSec }));
+      const touchedEntries = (Array.isArray(entry.splits) ? entry.splits : [])
         .filter((s) => markerBySequence.has(s.sequence))
-        .map((s) => ({ sequence: s.sequence, markerMeters: markerBySequence.get(s.sequence), elapsedSec: s.elapsedSec }));
+        .map((s) => ({ sequence: s.sequence, markerMeters: markerBySequence.get(s.sequence), elapsedSec: s.elapsedSec ?? null }));
 
-      const { validEntries, flags } = validateSplitEntries(withMarkers, { finishSec: result.time, distanceMeters: race.distanceMeters });
+      const { upserts, deletes, finalEntries, flags } = planSplitBatchWrite(existingEntries, touchedEntries, {
+        finishSec: result.time,
+        distanceMeters: race.distanceMeters,
+      });
       for (const f of flags) allFlags.push({ resultId: entry.resultId, ...f });
 
-      const validSequences = validEntries.map((e) => e.sequence);
-      savedSplitsByResultId.set(entry.resultId, validEntries);
-
-      writes.push(
-        prisma.split.deleteMany({
-          where: {
-            resultId: entry.resultId,
-            ...(validSequences.length ? { sequence: { notIn: validSequences } } : {}),
-          },
-        })
-      );
-      for (const ve of validEntries) {
+      for (const valid of upserts) {
         writes.push(
           prisma.split.upsert({
-            where: { resultId_sequence: { resultId: entry.resultId, sequence: ve.sequence } },
-            update: { elapsedSec: ve.elapsedSec, markerMeters: ve.markerMeters },
+            where: { resultId_sequence: { resultId: entry.resultId, sequence: valid.sequence } },
+            update: { elapsedSec: valid.elapsedSec, markerMeters: valid.markerMeters },
             create: {
               resultId: entry.resultId,
-              sequence: ve.sequence,
-              markerMeters: ve.markerMeters,
-              elapsedSec: ve.elapsedSec,
+              sequence: valid.sequence,
+              markerMeters: valid.markerMeters,
+              elapsedSec: valid.elapsedSec,
               teamId,
               createdById: userId,
             },
           })
         );
       }
+      for (const sequence of deletes) {
+        writes.push(prisma.split.delete({ where: { resultId_sequence: { resultId: entry.resultId, sequence } } }));
+      }
+
+      savedSplitsByResultId.set(entry.resultId, finalEntries);
     }
 
     await prisma.$transaction(writes);
 
     const resultRows = entries.map((entry) => {
       const result = resultById.get(entry.resultId);
-      const validEntries = savedSplitsByResultId.get(entry.resultId) ?? [];
-      const segs = race.distanceMeters ? segments(validEntries, result.time, race.distanceMeters) : [];
+      const savedEntries = savedSplitsByResultId.get(entry.resultId) ?? [];
+      const segs = race.distanceMeters ? segments(savedEntries, result.time, race.distanceMeters) : [];
       return {
         resultId: entry.resultId,
-        splits: validEntries
+        splits: savedEntries
           .slice()
           .sort((a, b) => a.sequence - b.sequence)
           .map((e) => ({ sequence: e.sequence, elapsedSec: e.elapsedSec })),

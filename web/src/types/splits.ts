@@ -83,10 +83,14 @@ export interface AthleteSplitHistoryRow {
   overallPaceSecPerMile: number | null;
 }
 
-// What the entry grid sends per cell/row edit.
+// What the entry grid sends per cell/row edit. Only sequences actually
+// being changed belong here — anything else for that resultId is left
+// untouched server-side, never inferred as "should be deleted" (see
+// backend/routes/splits.js POST /batch's header comment). elapsedSec:
+// null clears that one sequence.
 export interface SplitEntryInput {
   sequence: number;
-  elapsedSec: number;
+  elapsedSec: number | null;
 }
 
 export interface BatchSplitEntry {

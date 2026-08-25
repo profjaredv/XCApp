@@ -211,6 +211,62 @@ function validateSplitEntries(entries, { finishSec, distanceMeters } = {}) {
   return { validEntries, flags };
 }
 
+// Decides what one athlete's split save should actually write, without
+// touching the database — pulled out of routes/splits.js's POST /batch so
+// the merge-and-validate decision (the part concurrent-edit safety
+// depends on) is directly testable, same as validateSplitEntries above.
+//
+// existingEntries: this resultId's currently-saved splits, read fresh in
+// the same request — [{ sequence, markerMeters, elapsedSec }].
+// touchedEntries: only the sequences THIS save is actually changing —
+// [{ sequence, markerMeters, elapsedSec }], elapsedSec null meaning
+// "clear this one." Anything not in touchedEntries is left alone: not
+// re-validated, not re-written, not deleted — a stale client snapshot of
+// the rest of the row (or another coach's concurrent edit to a different
+// marker) can never be clobbered by this save, because this save never
+// expresses an opinion about sequences it doesn't mention.
+//
+// Returns { upserts, deletes, finalEntries, flags }:
+//   upserts/deletes describe exactly what to write (or nothing, for a
+//   touched-but-invalid sequence — an invalid edit never overwrites a
+//   previously-valid saved value). finalEntries is the full row's state
+//   after this write, for the caller to derive segments/analysis/response
+//   from without a second read. flags covers only touched sequences.
+function planSplitBatchWrite(existingEntries, touchedEntries, { finishSec, distanceMeters } = {}) {
+  const existingBySequence = new Map((existingEntries || []).map((e) => [e.sequence, e]));
+  const touched = touchedEntries || [];
+  const touchedSequences = new Set(touched.map((e) => e.sequence));
+  const clearedSequences = new Set(touched.filter((e) => e.elapsedSec == null).map((e) => e.sequence));
+
+  // Merged view = existing rows with touched sequences overlaid — used
+  // only to run validateSplitEntries with full monotonicity context, never
+  // written back as-is.
+  const merged = new Map(existingBySequence);
+  for (const e of touched) {
+    if (clearedSequences.has(e.sequence)) merged.delete(e.sequence);
+    else merged.set(e.sequence, e);
+  }
+
+  const { validEntries, flags: allFlags } = validateSplitEntries([...merged.values()], { finishSec, distanceMeters });
+  const flags = allFlags.filter((f) => touchedSequences.has(f.sequence));
+  const validTouchedBySequence = new Map(validEntries.filter((e) => touchedSequences.has(e.sequence)).map((e) => [e.sequence, e]));
+
+  const upserts = [];
+  const deletes = [...clearedSequences].filter((sequence) => existingBySequence.has(sequence));
+
+  const finalBySequence = new Map(existingBySequence);
+  for (const sequence of clearedSequences) finalBySequence.delete(sequence);
+  for (const sequence of touchedSequences) {
+    if (clearedSequences.has(sequence)) continue;
+    const valid = validTouchedBySequence.get(sequence);
+    if (!valid) continue; // touched but invalid — existing value (if any) is left as-is
+    upserts.push(valid);
+    finalBySequence.set(sequence, valid);
+  }
+
+  return { upserts, deletes, finalEntries: [...finalBySequence.values()], flags };
+}
+
 module.exports = {
   MARKER_FINISH_GUARD_METERS,
   EVEN_SPLIT_THRESHOLD,
@@ -220,4 +276,5 @@ module.exports = {
   splitAnalysis,
   overallPaceSecPerMile,
   validateSplitEntries,
+  planSplitBatchWrite,
 };

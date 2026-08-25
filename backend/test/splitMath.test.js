@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, validateSplitEntries } = require('../lib/splitMath');
+const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, validateSplitEntries, planSplitBatchWrite } = require('../lib/splitMath');
 
 // --- markersForRace: every distance in the handoff doc's worked table ---
 
@@ -186,4 +186,87 @@ test('overallPaceSecPerMile: null finish or distance returns null, not NaN/Infin
   assert.equal(overallPaceSecPerMile(null, 5000), null);
   assert.equal(overallPaceSecPerMile(930, null), null);
   assert.equal(overallPaceSecPerMile(0, 5000), null);
+});
+
+// --- planSplitBatchWrite: the concurrent-edit safety this exists for ---
+// Two coaches entering different markers for the same athlete around the
+// same time must never have one save silently delete or revert the
+// other's — see routes/splits.js POST /batch's header comment.
+
+test('planSplitBatchWrite: touching one sequence leaves every other existing sequence completely alone', () => {
+  const existing = [
+    { sequence: 1, markerMeters: 1609.34, elapsedSec: 330 },
+    { sequence: 2, markerMeters: 3218.68, elapsedSec: 660 },
+  ];
+  // Coach B saves marker 3 — has no idea marker 1/2 even exist, doesn't mention them.
+  const touched = [{ sequence: 3, markerMeters: 4828.02, elapsedSec: 990 }];
+  const { upserts, deletes, finalEntries, flags } = planSplitBatchWrite(existing, touched, { finishSec: 1200, distanceMeters: 5000 });
+
+  assert.equal(deletes.length, 0, 'nothing this save didn\'t mention should ever be deleted');
+  assert.deepEqual(upserts.map((u) => u.sequence), [3]);
+  assert.equal(flags.length, 0);
+  assert.deepEqual(
+    finalEntries.map((e) => [e.sequence, e.elapsedSec]).sort(),
+    [[1, 330], [2, 660], [3, 990]]
+  );
+});
+
+test('planSplitBatchWrite: this is exactly the two-coaches-same-athlete case — sequential saves of different markers both survive', () => {
+  // Coach A saves marker 1 first.
+  const afterA = planSplitBatchWrite([], [{ sequence: 1, markerMeters: 1609.34, elapsedSec: 330 }], { finishSec: 1200, distanceMeters: 5000 });
+  assert.deepEqual(afterA.finalEntries.map((e) => e.sequence), [1]);
+
+  // Coach B, whose browser never saw Coach A's save (stale/no-refetch),
+  // then saves marker 2 — starting from what's ACTUALLY in the database
+  // now (afterA.finalEntries), which is exactly what the route reads
+  // fresh on every request rather than trusting either coach's client.
+  const afterB = planSplitBatchWrite(afterA.finalEntries, [{ sequence: 2, markerMeters: 3218.68, elapsedSec: 660 }], { finishSec: 1200, distanceMeters: 5000 });
+
+  assert.equal(afterB.deletes.length, 0, 'marker 1, which Coach B never mentioned, must not be deleted');
+  assert.deepEqual(
+    afterB.finalEntries.map((e) => [e.sequence, e.elapsedSec]).sort(),
+    [[1, 330], [2, 660]],
+    'both coaches\' markers survive'
+  );
+});
+
+test('planSplitBatchWrite: elapsedSec null clears exactly that sequence, nothing else', () => {
+  const existing = [
+    { sequence: 1, markerMeters: 1609.34, elapsedSec: 330 },
+    { sequence: 2, markerMeters: 3218.68, elapsedSec: 660 },
+  ];
+  const { deletes, finalEntries } = planSplitBatchWrite(existing, [{ sequence: 2, markerMeters: 3218.68, elapsedSec: null }], { finishSec: 1200, distanceMeters: 5000 });
+  assert.deepEqual(deletes, [2]);
+  assert.deepEqual(finalEntries.map((e) => e.sequence), [1]);
+});
+
+test('planSplitBatchWrite: a touched-but-invalid sequence is flagged and written nowhere — an existing valid value for it is preserved, not blanked', () => {
+  const existing = [{ sequence: 1, markerMeters: 1609.34, elapsedSec: 330 }];
+  // Re-entering marker 1 with a bogus (non-increasing relative to itself
+  // is moot here, but e.g. mistyped) value that lands at/after the finish.
+  const { upserts, deletes, finalEntries, flags } = planSplitBatchWrite(existing, [{ sequence: 1, markerMeters: 1609.34, elapsedSec: 1200 }], { finishSec: 1200, distanceMeters: 5000 });
+  assert.equal(upserts.length, 0);
+  assert.equal(deletes.length, 0);
+  assert.equal(flags.length, 1);
+  assert.equal(flags[0].sequence, 1);
+  assert.deepEqual(finalEntries, existing, 'the previously-saved value for the touched sequence is untouched by the rejected edit');
+});
+
+test('planSplitBatchWrite: a flag on an untouched existing sequence (made inconsistent by this save) is not surfaced and does not block the touched write', () => {
+  // Existing marker 2 at 660s. This save edits marker 1 to 700s — later
+  // than the existing marker 2, which the merged view would now flag —
+  // but marker 2 wasn't touched, so it's left exactly as it was, and the
+  // touched marker 1 edit itself still goes through since, taken alone
+  // against what came before it (nothing), it's valid.
+  const existing = [{ sequence: 2, markerMeters: 3218.68, elapsedSec: 660 }];
+  const { upserts, flags, finalEntries } = planSplitBatchWrite(existing, [{ sequence: 1, markerMeters: 1609.34, elapsedSec: 700 }], { finishSec: 1200, distanceMeters: 5000 });
+  assert.deepEqual(upserts.map((u) => u.sequence), [1]);
+  assert.equal(flags.length, 0, 'sequence 2 is untouched — its own new inconsistency is not this save\'s problem');
+  assert.deepEqual(finalEntries.map((e) => [e.sequence, e.elapsedSec]).sort(), [[1, 700], [2, 660]]);
+});
+
+test('planSplitBatchWrite: clearing a sequence that was never saved is a no-op, not an error', () => {
+  const { deletes, finalEntries } = planSplitBatchWrite([], [{ sequence: 1, markerMeters: 1609.34, elapsedSec: null }], { finishSec: 1200, distanceMeters: 5000 });
+  assert.deepEqual(deletes, []);
+  assert.deepEqual(finalEntries, []);
 });
