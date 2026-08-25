@@ -2709,3 +2709,104 @@ in an actual browser with a coach account that leads a group (no UI test
 runner or live data in this sandbox) — reasoned from `useGroups`'s
 existing response shape and the generic member-management routes, not
 observed directly.
+
+## Mobile UX pass on the field screens — and the first real browser verification in this repo
+
+User: "focus primarily on the UX for mobile, especially on screens where
+interaction is critical. Use the timer you built as an example of easy to
+read and use. Padding can tighten a little. Color can be used, but really
+focus on a strong UX."
+
+Scope taken as the **field screens** — the standalone full-screen routes a
+coach actually works from on a phone at practice or a meet: Attendance
+(week + day), Splits entry, Interval sessions. `RaceLiveTimerPage` was read
+first and treated as the reference: `max-w-lg` single column, `h-14`
+controls, one big `tabular-nums` readout, uppercase micro-labels, color
+used only where it means something.
+
+**Two shared primitives** (`web/src/components/field/`), each codifying a
+pattern one page had already discovered ad hoc and the others hadn't:
+- `FieldHeader` — the sticky top bar, actions collapsing to icon-only below
+  `sm`. IntervalSessionManagePage had invented this; SplitsEntryPage had
+  *five* full-text buttons (`Import CSV`/`Export CSV`/`Print`/`Save`/
+  `Close`) with `px-6` and no responsive handling at all, which on a phone
+  is simply broken. Now all four field screens share one bar.
+- `SegmentedPills` — the "which column am I on" selector. Also generalized
+  from IntervalSessionManagePage's active-rep row.
+
+**AttendancePage** is the substantial change: below `md` it no longer
+renders the week grid at all. Five weekday columns plus a name column
+cannot fit 375px without tiny text or sideways scrolling, and a coach
+marking attendance on a phone is looking at one day anyway — so mobile gets
+ONE DAY AT A TIME (weekday pills carrying a per-day "N marked" badge, then a
+single-column athlete list). Desktop keeps the real grid. Both are rendered
+and chosen by CSS breakpoint, matching `ResponsiveTabsList`'s existing
+convention — no JS media query, so no flash of the wrong layout.
+
+**Two controls for one status**, since the two surfaces have very different
+room: `AttendanceStatusCell` (tap-to-cycle circle) stays for the desktop
+grid; new `AttendanceStatusPicker` (explicit Present/Excused/Late buttons,
+tapping the active one clears to blank) for the mobile day list and the
+day-detail page — one tap for any status instead of up to three, which
+matters when the coach is standing on a field correcting a mis-tap.
+
+**SplitsEntryPage** got the same active-column treatment (one marker at a
+time below `md`, pills synced to the existing column-major keyboard
+navigation, reference columns — derived segments/pace/pattern — hidden on
+mobile with the active marker's own segment surfaced under its input).
+
+### Verified in a real browser — a first for this repo
+
+Every prior entry in this file ends "not verified in an actual browser (no
+UI test runner)". That was worth fixing at least once. Chromium and
+Playwright are both present in this sandbox (`/opt/pw-browsers`, and
+`playwright` under `backend/node_modules`), so: a **temporary** dev-only
+harness (`web/harness.html` + `web/src/devHarness.tsx`, a second Vite entry
+rendering the new primitives against mock data, needing no backend) was
+served with `vite`, screenshotted at 375px and 1280px, and every
+interactive element measured via `getBoundingClientRect`. **Both files were
+deleted afterward** — nothing references them and they are not in the
+commit; re-create them the same way if this is ever worth repeating.
+
+It caught four things that reading the CSS did not, all now fixed:
+1. **An unselected "✓" read as already-marked.** At full
+   `muted-foreground`, the inactive Present button looked like an athlete
+   who'd been checked in — the single worst thing this control could get
+   wrong. Inactive options are now `text-muted-foreground/45` on
+   `bg-muted/30` (`ATTENDANCE_STATUS_INACTIVE_CLASS`).
+2. **Excused (amber-500) and Late (orange-500) were nearly the same hue**
+   side by side on a phone — exactly the distinction a coach scans a column
+   for. Late is now `blue-600`.
+3. **The fifth pill was clipped** with no affordance — the day row's Friday
+   sat off the edge behind a hidden scrollbar, so a coach would simply
+   never find it. `SegmentedPills` now wraps instead of scrolling, plus an
+   `equal` option (mobile-only, `sm:flex-none` — stretched across a laptop
+   it made a "Sr 2" pill 350px wide) so all five weekdays fit one even
+   strip at 375px.
+4. **Touch targets measured 40px, not the intended 44.** `h-10` reads like
+   "big enough" and isn't; every field-screen control is now `h-11`/44px on
+   mobile, dropping back to `h-8`/`h-9` from `sm` up. The interval page's
+   rep pills had been 28px and its remove button 28px.
+
+Also confirmed: `document.scrollWidth === 375` at 375px and `=== 1280` at
+1280px, i.e. no horizontal overflow at either, and no console/page errors.
+
+Padding tightened throughout per the request: `p-6`/`p-3 md:p-6` bodies →
+`p-3 sm:p-4`, `CardContent pt-6` → `p-3 sm:p-4`, roster lists to `p-0` with
+full-bleed rows and tinted grade bands.
+
+Verification: `tsc -b`, `eslint` on every touched file, and `npm run build`
+(web) all clean; backend `node --test` 340/341 — the same pre-existing
+unrelated scraper-fixture failure, and untouched here since this is a
+frontend-only change (no routes or schema). Not verified: the real pages
+against live data — the harness renders the primitives, not
+AttendancePage's own data flow, so the day-focus view has been checked as
+layout/markup but never against an actual week of records.
+
+**Deliberately not done** (flagging rather than guessing, per rule 6): a
+"mark everyone else present" bulk action to close out a day. It's the
+obvious companion to blank-by-default and a coach will want it, but done
+honestly it needs a bulk endpoint — the current per-record PATCH would fire
+one request per athlete (~130 on a real roster). Backend scope, and beyond
+"mobile UX", so it's a decision for the user rather than something to
+smuggle into a layout pass.

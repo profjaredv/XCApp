@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Check, X, Loader2, WifiOff, Download, Upload, Printer, ArrowDown, ArrowUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRaceSplits, useSaveSplitsBatch } from '@/hooks/useSplits';
 import { SplitCell, type CellNavigate } from '@/components/splits/SplitCell';
+import { FieldHeader } from '@/components/field/FieldHeader';
+import { SegmentedPills } from '@/components/field/SegmentedPills';
 import { formatTime, parseTimeToSeconds, formatDateShort } from '@/lib/formatUtils';
 import { parseCsv, toCsv } from '@/lib/csvParse';
 import { SPLIT_PATTERN_LABEL, SPLIT_PATTERN_BADGE_CLASS, formatSplitMMSS } from '@/lib/splitPatternDisplay';
@@ -49,6 +50,11 @@ const MILE_METERS = 1609.34;
 const headerCellClass =
   'sticky top-0 z-10 bg-muted p-2 font-medium whitespace-nowrap border-b border-border';
 const derivedCellClass = 'p-2 text-center font-mono text-xs text-muted-foreground bg-muted/40 whitespace-nowrap';
+// Reference columns (computed segments, pace, pattern) — worth the width
+// on a laptop, but on a phone they'd crowd out the one column the coach is
+// actually typing into. The active marker's own segment is surfaced under
+// its input instead, so the sanity check a coach relies on stays visible.
+const hiddenOnMobile = 'hidden md:table-cell';
 
 function cellKey(resultId: string, sequence: number) {
   return `${resultId}:${sequence}`;
@@ -83,6 +89,12 @@ const SplitsEntryPage: React.FC = () => {
   const [genderFilter, setGenderFilter] = useState<'M' | 'F'>('M');
   const [rowSaveState, setRowSaveState] = useState<Record<string, SaveState>>({});
   const [offline, setOffline] = useState(false);
+  // Mobile only — which marker column the narrow layout is showing. Six
+  // marker columns plus derived/pace/pattern is a spreadsheet, not a phone
+  // screen; below `md` this page shows one marker at a time, same active-
+  // column idea as IntervalSessionManagePage's reps. Column-major
+  // navigation keeps it in sync as the coach runs down the roster.
+  const [activeMarkerIdx, setActiveMarkerIdx] = useState(0);
 
   // Per-row draft of what's currently entered, keyed sequence -> value or
   // null for "cleared". Only sequences a coach has actually touched appear
@@ -270,6 +282,10 @@ const SplitsEntryPage: React.FC = () => {
 
       if (targetCol < 0 || targetCol >= markers.length || targetRow < 0 || targetRow >= rows.length) return;
 
+      // Keeps the mobile one-column view following the same cursor the
+      // keyboard is moving, so running off the bottom of Mile 1 lands on
+      // Mile 2 rather than focusing a cell that's display:none.
+      setActiveMarkerIdx(targetCol);
       const targetKey = cellKey(rows[targetRow].resultId, markers[targetCol].sequence);
       const el = cellRefs.current.get(targetKey);
       if (el) {
@@ -431,46 +447,35 @@ const SplitsEntryPage: React.FC = () => {
   };
 
   const topBar = (
-    <div className="print:hidden sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background px-6 py-3">
-      <div>
-        <h1 className="text-lg font-semibold">{data?.raceName ?? 'Splits'}</h1>
-        {offline && (
-          <p className="flex items-center gap-1 text-xs text-destructive mt-0.5">
-            <WifiOff className="h-3 w-3" /> Offline — changes will save once you're back online.
-          </p>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} className="hidden" />
-        <Button variant="outline" size="sm" onClick={handleImportClick} disabled={markers.length === 0}>
-          <Upload className="h-4 w-4 mr-1" />
-          Import CSV
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={markers.length === 0}>
-          <Download className="h-4 w-4 mr-1" />
-          Export CSV
-        </Button>
-        <Button variant="outline" size="sm" onClick={handlePrint} disabled={markers.length === 0}>
-          <Printer className="h-4 w-4 mr-1" />
-          Print
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleSave}>
-          <Check className="h-4 w-4 mr-1" />
-          Save
-        </Button>
-        <Button variant="ghost" size="sm" onClick={handleClose}>
-          <X className="h-4 w-4 mr-1" />
-          Close
-        </Button>
-      </div>
-    </div>
+    <>
+      <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} className="hidden" />
+      <FieldHeader
+        title={data?.raceName ?? 'Splits'}
+        subtitle={
+          offline ? (
+            <span className="flex items-center gap-1 text-destructive">
+              <WifiOff className="h-3 w-3" /> Offline — changes save when you're back
+            </span>
+          ) : (
+            'Enter the clock time at each marker'
+          )
+        }
+        actions={[
+          { icon: Upload, label: 'Import', onClick: handleImportClick, disabled: markers.length === 0 },
+          { icon: Download, label: 'Export', onClick: handleExportCsv, disabled: markers.length === 0 },
+          { icon: Printer, label: 'Print', onClick: handlePrint, disabled: markers.length === 0 },
+          { icon: Check, label: 'Save', onClick: handleSave },
+          { icon: X, label: 'Close', onClick: handleClose, variant: 'ghost' },
+        ]}
+      />
+    </>
   );
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
         {topBar}
-        <div className="p-6 text-muted-foreground">Loading…</div>
+        <div className="p-4 text-muted-foreground">Loading…</div>
       </div>
     );
   }
@@ -479,7 +484,7 @@ const SplitsEntryPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-background">
         {topBar}
-        <div className="p-6 text-muted-foreground">
+        <div className="p-4 text-muted-foreground">
           This race doesn't have a distance set — fix that first, then come back to enter splits.
         </div>
       </div>
@@ -490,7 +495,7 @@ const SplitsEntryPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-background">
         {topBar}
-        <div className="p-6 text-muted-foreground">
+        <div className="p-4 text-muted-foreground">
           This race is too short for a marker split (finish is closer than {400}m past the last mile/km) — splits
           don't apply here.
         </div>
@@ -501,53 +506,63 @@ const SplitsEntryPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       {topBar}
-      <div className="print:hidden p-6 space-y-4">
-        <div className="flex items-center gap-4">
-          <p className="text-sm text-muted-foreground">
-            Enter the clock time at each marker — segment times and pace are calculated for you.
-          </p>
-          {availableGenders.size > 1 && (
-            <div className="flex items-center gap-1 ml-auto">
-              {(['F', 'M'] as const)
-                .filter((g) => availableGenders.has(g))
-                .map((g) => (
-                  <Button
-                    key={g}
-                    variant={genderFilter === g ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setGenderFilter(g)}
-                  >
-                    {g === 'F' ? 'Girls' : 'Boys'}
-                  </Button>
-                ))}
-            </div>
-          )}
-        </div>
+      <div className="print:hidden space-y-3 p-3 sm:p-4">
+        {availableGenders.size > 1 && (
+          <SegmentedPills
+            caption="Race"
+            segments={(['F', 'M'] as const)
+              .filter((g) => availableGenders.has(g))
+              .map((g) => ({
+                value: g,
+                label: g === 'F' ? 'Girls' : 'Boys',
+                badge: rowsAll.filter((r) => (r.gender ?? 'M') === g).length,
+              }))}
+            value={genderFilter}
+            onChange={(v) => setGenderFilter(v as 'M' | 'F')}
+          />
+        )}
 
-        <div className="overflow-auto rounded-md border border-border max-h-[calc(100vh-190px)]">
+        {/* Below `md` the grid shows one marker column at a time — these
+            pills are how you move between them (and they track the
+            keyboard cursor, see handleNavigate). Hidden from `md` up,
+            where every column is on screen anyway. */}
+        {markers.length > 1 && (
+          <SegmentedPills
+            className="md:hidden"
+            caption="Marker"
+            segments={markers.map((m, i) => ({ value: String(i), label: m.label }))}
+            value={String(activeMarkerIdx)}
+            onChange={(v) => setActiveMarkerIdx(Number(v))}
+          />
+        )}
+
+        <div className="max-h-[calc(100vh-210px)] overflow-auto rounded-md border border-border">
           <table className="w-full text-sm border-separate border-spacing-0">
             <thead>
               <tr>
                 <th className={`${headerCellClass} text-left`}>Athlete</th>
-                {markers.map((m) => (
-                  <th key={m.sequence} className={`${headerCellClass} text-center w-28`}>
+                {markers.map((m, i) => (
+                  <th
+                    key={m.sequence}
+                    className={`${headerCellClass} w-28 text-center ${i === activeMarkerIdx ? '' : 'hidden md:table-cell'}`}
+                  >
                     {m.label}
                   </th>
                 ))}
                 {derivedMarkers.map((m) => (
-                  <th key={`derived-${m.sequence}`} className={`${headerCellClass} text-center w-24`}>
+                  <th key={`derived-${m.sequence}`} className={`${headerCellClass} ${hiddenOnMobile} w-24 text-center`}>
                     {m.label} split
                   </th>
                 ))}
                 <th
-                  className={`${headerCellClass} text-center w-28`}
+                  className={`${headerCellClass} ${hiddenOnMobile} w-28 text-center`}
                   title={closingMiles != null ? `${closingMiles.toFixed(2)} miles from the last marker to the tape` : undefined}
                 >
                   {closingLabel}
                 </th>
-                <th className={`${headerCellClass} text-center w-24`}>Pace</th>
+                <th className={`${headerCellClass} ${hiddenOnMobile} w-24 text-center`}>Pace</th>
                 <th className={`${headerCellClass} text-right`}>Finish</th>
-                <th className={`${headerCellClass} text-left`}>Pattern</th>
+                <th className={`${headerCellClass} ${hiddenOnMobile} text-left`}>Pattern</th>
               </tr>
             </thead>
             <tbody>
@@ -564,10 +579,15 @@ const SplitsEntryPage: React.FC = () => {
                         {state === 'error' && <X className="h-3 w-3 text-destructive" />}
                       </div>
                     </td>
-                    {markers.map((m) => {
+                    {markers.map((m, i) => {
                       const existing = row.splits.find((s) => s.sequence === m.sequence);
+                      const active = i === activeMarkerIdx;
+                      // The segment this marker implies — shown under the
+                      // input on mobile only, where the standalone derived
+                      // column is hidden.
+                      const seg = row.segments.find((s) => s.sequence === m.sequence && !s.isClosing);
                       return (
-                        <td key={m.sequence} className="p-1 w-28">
+                        <td key={m.sequence} className={`w-28 p-1 ${active ? '' : 'hidden md:table-cell'}`}>
                           <SplitCell
                             cellKey={cellKey(row.resultId, m.sequence)}
                             value={existing?.elapsedSec ?? null}
@@ -576,29 +596,37 @@ const SplitsEntryPage: React.FC = () => {
                             onComplete={handleComplete}
                             onClear={handleClear}
                             onNavigate={handleNavigate}
+                            className="h-11 text-base md:h-9 md:text-sm"
                           />
+                          {seg && (
+                            <p className="mt-0.5 text-center font-mono text-[10px] text-muted-foreground md:hidden">
+                              +{formatSplitMMSS(seg.segmentSec)}
+                            </p>
+                          )}
                         </td>
                       );
                     })}
                     {derivedMarkers.map((m) => {
                       const seg = row.segments.find((s) => s.sequence === m.sequence && !s.isClosing);
                       return (
-                        <td key={`derived-${m.sequence}`} className={derivedCellClass}>
+                        <td key={`derived-${m.sequence}`} className={`${derivedCellClass} ${hiddenOnMobile}`}>
                           {seg ? formatSplitMMSS(seg.segmentSec) : '—'}
                         </td>
                       );
                     })}
-                    <td className={derivedCellClass}>{closingSeg ? formatSplitMMSS(closingSeg.segmentSec) : '—'}</td>
-                    <td className={derivedCellClass}>
+                    <td className={`${derivedCellClass} ${hiddenOnMobile}`}>
+                      {closingSeg ? formatSplitMMSS(closingSeg.segmentSec) : '—'}
+                    </td>
+                    <td className={`${derivedCellClass} ${hiddenOnMobile}`}>
                       {row.overallPaceSecPerMile != null ? `${formatSplitMMSS(row.overallPaceSecPerMile)}/mi` : '—'}
                     </td>
-                    <td className="p-2 text-right font-mono whitespace-nowrap align-middle">
+                    <td className="whitespace-nowrap p-2 text-right align-middle font-mono">
                       <span className="inline-flex items-center gap-1">
                         {row.finishSec != null ? formatTime(row.finishSec) : '—'}
                         <FinishComparisonIndicator previous={row.previousSameDistance} />
                       </span>
                     </td>
-                    <td className="p-2 whitespace-nowrap align-middle">
+                    <td className={`${hiddenOnMobile} whitespace-nowrap p-2 align-middle`}>
                       {row.analysis ? (
                         <Badge variant="outline" className={SPLIT_PATTERN_BADGE_CLASS[row.analysis.pattern]}>
                           {SPLIT_PATTERN_LABEL[row.analysis.pattern]}

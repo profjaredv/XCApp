@@ -23,8 +23,9 @@ import type { AttendanceRecord, AttendanceStatus } from '@/api/attendanceService
 import { formatDateShort, lastNameOf, mondayOf } from '@/lib/formatUtils';
 import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
 import { toCsv } from '@/lib/csvParse';
-import { AttendanceStatusCell } from '@/components/attendance/StatusCell';
+import { AttendanceStatusPicker } from '@/components/attendance/StatusCell';
 import { ATTENDANCE_STATUS_LABEL } from '@/lib/attendanceStatus';
+import { FieldHeader } from '@/components/field/FieldHeader';
 
 // The take-attendance state of one session — its own full-screen route
 // (not a card on the list page), same reasoning as Interval Sessions'
@@ -52,6 +53,11 @@ function downloadCsv(filename: string, csvText: string) {
   URL.revokeObjectURL(url);
 }
 
+// Name and status on the first line so the primary action (mark them) is
+// always reachable with a thumb without the notes field pushing it around;
+// notes and remove sit underneath on mobile, inline from `sm` up. The
+// three-button picker rather than the grid's cycling circle — this page
+// only ever shows one day, so there's room to make every status one tap.
 const AthleteRow: React.FC<{
   record: AttendanceRecord;
   onSetStatus: (status: AttendanceStatus) => void;
@@ -59,24 +65,36 @@ const AthleteRow: React.FC<{
   onRemove: () => void;
   removing: boolean;
 }> = ({ record, onSetStatus, onSaveNotes, onRemove, removing }) => (
-  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 py-2 border-b border-border last:border-b-0">
-    <div className="sm:w-40 min-w-0">
-      <p className="text-sm font-medium truncate">{record.name}</p>
+  <div className="border-b border-border px-3 py-2 last:border-b-0 sm:flex sm:items-center sm:gap-3">
+    <div className="flex items-center gap-3 sm:flex-1 sm:gap-3">
+      <p className="min-w-0 flex-1 truncate text-base font-medium leading-tight sm:w-40 sm:flex-none sm:text-sm">
+        {record.name}
+      </p>
+      <AttendanceStatusPicker status={record.status} onChange={onSetStatus} />
     </div>
-    <AttendanceStatusCell status={record.status} onChange={onSetStatus} />
-    <Input
-      key={record.id}
-      defaultValue={record.notes ?? ''}
-      onBlur={(e) => {
-        const value = e.target.value.trim();
-        if (value !== (record.notes ?? '')) onSaveNotes(value);
-      }}
-      placeholder="Notes…"
-      className="h-8 text-sm flex-1"
-    />
-    <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0" onClick={onRemove} disabled={removing} title="Remove">
-      <Trash2 className="h-3.5 w-3.5" />
-    </Button>
+    <div className="mt-2 flex items-center gap-2 sm:mt-0 sm:flex-1">
+      <Input
+        key={record.id}
+        defaultValue={record.notes ?? ''}
+        onBlur={(e) => {
+          const value = e.target.value.trim();
+          if (value !== (record.notes ?? '')) onSaveNotes(value);
+        }}
+        placeholder="Notes…"
+        className="h-11 flex-1 text-sm sm:h-8"
+      />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-11 w-11 shrink-0 sm:h-8 sm:w-8"
+        onClick={onRemove}
+        disabled={removing}
+        title="Remove from this session"
+        aria-label={`Remove ${record.name} from this session`}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </div>
   </div>
 );
 
@@ -193,37 +211,36 @@ const AttendanceSessionPage: React.FC = () => {
     downloadCsv(`attendance-${session.date.slice(0, 10)}.csv`, toCsv(headers, rows));
   };
 
+  const presentCount = (session?.records ?? []).filter((r) => r.status !== 'ABSENT').length;
+
   const topBar = (
-    <div className="print:hidden sticky top-0 z-10 flex items-center justify-between gap-2 sm:gap-4 border-b border-border bg-background px-3 sm:px-6 py-3">
-      <div className="min-w-0">
-        <h1 className="text-lg font-semibold truncate">Attendance{session ? ` — ${formatDateShort(session.date)}` : ''}</h1>
-      </div>
-      <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-        <Button variant="outline" size="sm" onClick={handleExport} disabled={!session} title="Export CSV">
-          <Download className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">Export</span>
-        </Button>
-        <Button variant="outline" size="sm" onClick={handlePrint} disabled={!session} title="Print">
-          <Printer className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">Print</span>
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleSave} title="Save">
-          <Check className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">Save</span>
-        </Button>
-        <Button variant="ghost" size="sm" onClick={handleClose} title="Close">
-          <X className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">Close</span>
-        </Button>
-      </div>
-    </div>
+    <FieldHeader
+      title={`Attendance${session ? ` — ${formatDateShort(session.date)}` : ''}`}
+      subtitle={
+        session ? (
+          <>
+            <span className="font-semibold tabular-nums text-foreground">{presentCount}</span>
+            {' of '}
+            <span className="tabular-nums">{session.records.length}</span> marked
+            {session.location ? ` · ${session.location.name}` : ''}
+            {session.time ? ` · ${session.time}` : ''}
+          </>
+        ) : undefined
+      }
+      actions={[
+        { icon: Download, label: 'Export', onClick: handleExport, disabled: !session },
+        { icon: Printer, label: 'Print', onClick: handlePrint, disabled: !session },
+        { icon: Check, label: 'Save', onClick: handleSave },
+        { icon: X, label: 'Close', onClick: handleClose, variant: 'ghost' },
+      ]}
+    />
   );
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
         {topBar}
-        <div className="p-6 text-muted-foreground">Loading session…</div>
+        <div className="p-4 text-muted-foreground">Loading session…</div>
       </div>
     );
   }
@@ -232,7 +249,7 @@ const AttendanceSessionPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-background">
         {topBar}
-        <div className="p-6 text-muted-foreground">Session not found.</div>
+        <div className="p-4 text-muted-foreground">Session not found.</div>
       </div>
     );
   }
@@ -240,19 +257,19 @@ const AttendanceSessionPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       {topBar}
-      <div className="print:hidden p-3 md:p-6 space-y-4">
+      <div className="print:hidden space-y-3 p-3 sm:p-4">
         <Card>
-          <CardContent className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <CardContent className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3 sm:p-4">
             <div>
-              <Label>Date</Label>
+              <Label className="text-xs">Date</Label>
               <Input type="date" className="mt-1" defaultValue={session.date.slice(0, 10)} onBlur={(e) => handleDateChange(e.target.value)} />
             </div>
             <div>
-              <Label>Time</Label>
+              <Label className="text-xs">Time</Label>
               <Input type="time" className="mt-1" defaultValue={session.time ?? ''} onBlur={(e) => handleTimeChange(e.target.value)} />
             </div>
-            <div>
-              <Label>Location</Label>
+            <div className="col-span-2 sm:col-span-1">
+              <Label className="text-xs">Location</Label>
               <Select value={session.location?.id ?? NONE} onValueChange={handleLocationChange}>
                 <SelectTrigger className="mt-1">
                   <SelectValue />
@@ -289,13 +306,18 @@ const AttendanceSessionPage: React.FC = () => {
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="p-0">
             {session.records.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">No athletes yet — add one below.</p>
+              <p className="p-4 text-sm text-muted-foreground">No athletes yet — add one below.</p>
             ) : (
               byGrade.map(([grade, records]) => (
-                <div key={grade ?? 'unknown'} className="mb-4 last:mb-0">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                <div key={grade ?? 'unknown'}>
+                  {/* Not sticky: the only correct offset is the FieldHeader's
+                      rendered height, which varies with the subtitle's
+                      wrapping — a hardcoded top-[Npx] would float or overlap
+                      on the phones it's wrong for. A tinted full-bleed band
+                      reads clearly enough scrolling past. */}
+                  <p className="border-b bg-muted/60 px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {gradeLabel(grade)} <span className="normal-case">({records.length})</span>
                   </p>
                   {records.map((record) => (
@@ -313,10 +335,10 @@ const AttendanceSessionPage: React.FC = () => {
                 </div>
               ))
             )}
-            <div className="flex items-center gap-2 pt-3">
+            <div className="flex items-center gap-2 border-t p-3">
               <Select value={addAthleteId} onValueChange={setAddAthleteId}>
-                <SelectTrigger className="w-[240px]">
-                  <SelectValue placeholder="Add an athlete not in this session…" />
+                <SelectTrigger className="h-11 flex-1 sm:h-9 sm:max-w-[280px]">
+                  <SelectValue placeholder="Add an athlete…" />
                 </SelectTrigger>
                 <SelectContent>
                   {available.map((a) => (
@@ -326,8 +348,13 @@ const AttendanceSessionPage: React.FC = () => {
                   ))}
                 </SelectContent>
               </Select>
-              <Button size="sm" variant="outline" onClick={handleAdd} disabled={!addAthleteId || addRecord.isPending}>
-                {addRecord.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <UserPlus className="h-3.5 w-3.5 mr-1" />}
+              <Button
+                variant="outline"
+                className="h-11 shrink-0 sm:h-9"
+                onClick={handleAdd}
+                disabled={!addAthleteId || addRecord.isPending}
+              >
+                {addRecord.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <UserPlus className="mr-1 h-4 w-4" />}
                 Add
               </Button>
             </div>

@@ -23,6 +23,8 @@ import type { IntervalSessionEntry, IntervalZone, RepUpdateInput } from '@/api/i
 import { trainingPacesFromRace, splitTimeSec } from '@/lib/vdotPaces';
 import { formatDateShort, compactName } from '@/lib/formatUtils';
 import { SplitCell, type CellNavigate } from '@/components/splits/SplitCell';
+import { FieldHeader, type FieldAction } from '@/components/field/FieldHeader';
+import { SegmentedPills } from '@/components/field/SegmentedPills';
 
 // The "manage entries" state of an interval session — its own full-screen
 // route (not one card among many on the list page), so filling this in on
@@ -108,12 +110,12 @@ const EntryRow: React.FC<{
             onComplete={onComplete}
             onClear={onClear}
             onNavigate={onNavigate}
-            className="text-base md:text-sm h-10 md:h-9"
+            className="text-base md:text-sm h-11 md:h-9"
           />
         </TableCell>
       ))}
       <TableCell className="p-1">
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onRemove} disabled={removing}>
+        <Button variant="ghost" size="icon" className="h-11 w-11 md:h-7 md:w-7" onClick={onRemove} disabled={removing} aria-label="Remove athlete">
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </TableCell>
@@ -271,49 +273,40 @@ const IntervalSessionManagePage: React.FC = () => {
     }
   };
 
+  // Icon-only below sm (FieldHeader's job now): on a narrow phone, "Archive ·
+  // Print · Save · Close" as full-text buttons left almost no room for the
+  // title — it was truncating to "5x…" / "Aug 1…".
   const topBar = (
-    <div className="print:hidden sticky top-0 z-10 flex items-center justify-between gap-2 sm:gap-4 border-b border-border bg-background px-3 sm:px-6 py-3">
-      <div className="min-w-0">
-        <h1 className="text-lg font-semibold truncate">{session?.title ?? 'Interval Session'}</h1>
-        {session && (
-          <p className="text-xs text-muted-foreground truncate">
-            {formatDateShort(session.date)} · {session.groupName ?? 'Ad hoc'} · {session.repDistanceM}m ·{' '}
-            {ZONE_LABEL[session.zone]} pace
-          </p>
-        )}
-      </div>
-      {/* Icon-only below sm: on a narrow phone, "Archive · Print · Save ·
-          Close" as full text buttons left almost no room for the title
-          (it was truncating to "5x…" / "Aug 1…") — the icons alone are
-          still unambiguous for single-purpose actions. */}
-      <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-        {session && (
-          <Button variant="outline" size="sm" onClick={handleArchiveToggle} disabled={setArchived.isPending} title={session.archived ? 'Restore' : 'Archive'}>
-            <Archive className="h-4 w-4 sm:mr-1" />
-            <span className="hidden sm:inline">{session.archived ? 'Restore' : 'Archive'}</span>
-          </Button>
-        )}
-        <Button variant="outline" size="sm" onClick={handlePrint} disabled={!session || session.entries.length === 0} title="Print">
-          <Printer className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">Print</span>
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleSave} title="Save">
-          <Check className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">Save</span>
-        </Button>
-        <Button variant="ghost" size="sm" onClick={handleClose} title="Close">
-          <X className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">Close</span>
-        </Button>
-      </div>
-    </div>
+    <FieldHeader
+      title={session?.title ?? 'Interval Session'}
+      subtitle={
+        session
+          ? `${formatDateShort(session.date)} · ${session.groupName ?? 'Ad hoc'} · ${session.repDistanceM}m · ${ZONE_LABEL[session.zone]} pace`
+          : undefined
+      }
+      actions={[
+        ...(session
+          ? [
+              {
+                icon: Archive,
+                label: session.archived ? 'Restore' : 'Archive',
+                onClick: handleArchiveToggle,
+                busy: setArchived.isPending,
+              } as FieldAction,
+            ]
+          : []),
+        { icon: Printer, label: 'Print', onClick: handlePrint, disabled: !session || session.entries.length === 0 },
+        { icon: Check, label: 'Save', onClick: handleSave },
+        { icon: X, label: 'Close', onClick: handleClose, variant: 'ghost' },
+      ]}
+    />
   );
 
   if (isLoadingSession) {
     return (
       <div className="min-h-screen bg-background">
         {topBar}
-        <div className="p-6 text-muted-foreground">Loading session…</div>
+        <div className="p-4 text-muted-foreground">Loading session…</div>
       </div>
     );
   }
@@ -322,7 +315,7 @@ const IntervalSessionManagePage: React.FC = () => {
     return (
       <div className="min-h-screen bg-background">
         {topBar}
-        <div className="p-6 text-muted-foreground">Session not found.</div>
+        <div className="p-4 text-muted-foreground">Session not found.</div>
       </div>
     );
   }
@@ -330,9 +323,9 @@ const IntervalSessionManagePage: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       {topBar}
-      <div className="print:hidden p-3 md:p-6">
+      <div className="print:hidden p-3 sm:p-4">
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="p-3 sm:p-4">
             {session.entries.length === 0 ? (
               <p className="text-sm text-muted-foreground py-2">No athletes yet — add one below.</p>
             ) : (
@@ -341,23 +334,13 @@ const IntervalSessionManagePage: React.FC = () => {
                   Type 3 or 4 digits for minutes:seconds — e.g. <span className="font-mono">530</span> becomes{' '}
                   <span className="font-mono">5:30</span>. Nothing else is accepted.
                 </p>
-                <div className="flex md:hidden items-center gap-1.5 pb-3">
-                  <span className="text-xs text-muted-foreground mr-1">Active rep:</span>
-                  {REPS.map((rep) => (
-                    <button
-                      key={rep}
-                      type="button"
-                      onClick={() => setActiveRep(rep - 1)}
-                      className={`h-7 w-7 rounded-full text-xs font-medium border transition-colors ${
-                        rep - 1 === activeRep
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-background text-muted-foreground border-border'
-                      }`}
-                    >
-                      {rep}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedPills
+                  className="pb-3 md:hidden"
+                  caption="Rep"
+                  segments={REPS.map((rep) => ({ value: String(rep - 1), label: String(rep) }))}
+                  value={String(activeRep)}
+                  onChange={(v) => setActiveRep(Number(v))}
+                />
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -397,7 +380,7 @@ const IntervalSessionManagePage: React.FC = () => {
             )}
             <div className="flex items-center gap-2 pt-3">
               <Select value={addAthleteId} onValueChange={setAddAthleteId}>
-                <SelectTrigger className="w-[240px]">
+                <SelectTrigger className="h-11 flex-1 sm:h-9 sm:max-w-[280px]">
                   <SelectValue placeholder="Add an athlete not in this group…" />
                 </SelectTrigger>
                 <SelectContent>
