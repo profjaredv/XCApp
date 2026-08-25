@@ -2574,3 +2574,81 @@ is the same pre-existing unrelated failure noted throughout this file);
 `tsc -b`, `eslint` on touched files, and `npm run build` (web) all clean.
 Not verified against a live DB or in an actual browser — same sandbox
 limitation as everything else in this file.
+
+## Attendance rework: weekly grid, grade tabs, blank-by-default, and a real duplicate-session fix
+
+User feedback on the tracker above, three requests plus a bug report:
+
+1. **"Gigi Anderson showing up twice."** Couldn't inspect this team's actual
+   data (no live DB access in this sandbox), but found a real, code-level
+   cause that fits the symptom exactly: `AttendanceSession` had no
+   uniqueness constraint on `(teamId, seasonId, date)`. Two coaches each
+   using the old "New session" dialog for the same date — or, after this
+   session's own week-view addition, two coaches opening the same
+   brand-new week at the same moment — could each seed a full duplicate
+   roster for that date, so every athlete (not just Gigi) would appear
+   twice the moment both sessions were visible together. Fixed with a real
+   `@@unique([teamId, seasonId, date])` constraint (migration
+   `20260826010000_attendance_week_view`), which first merges any existing
+   duplicate sessions for the same date (moving each duplicate's records
+   onto the earliest session, skipping an athlete already present there
+   rather than dropping their row) before the constraint goes on.
+   `POST /api/attendance` and the new find-or-create helper below both
+   handle losing a create race to a concurrent request on the same date by
+   re-reading the winner's row instead of erroring, so this can't
+   reappear. **If Gigi is still doubled after this migration runs**, that
+   means it's actually two separate `Athlete` rows (e.g. a CSV
+   double-import), not a duplicate session — worth checking the roster for
+   two "Gigi Anderson" entries and using the existing athlete merge tool
+   (Data Management) if so; not something this session could confirm
+   without live data.
+
+2. **Weekly view.** The single-day-session model (still there underneath)
+   is no longer the primary UI. New `GET /api/attendance/week?seasonId=&weekStart=`
+   finds-or-creates the five weekday sessions starting at `weekStart` in
+   one call (reusing the same roster-seeding logic as `POST /`, via new
+   `resolveRosterAthleteIds`/`findOrCreateSessionForDate` helpers) and
+   returns them together. `AttendancePage.tsx` is now a Monday-Friday grid
+   — one row per athlete, one column per day, prev/next week navigation,
+   CSV export and print both scoped to the visible week. Per-day specifics
+   that don't fit a dense grid (location, time, notes, adding a walk-on,
+   a single day's print/export) stay on `AttendanceSessionPage.tsx`,
+   reached via a small settings icon under each day's column header; a
+   `?week=` query param round-trips between the two so closing the detail
+   page returns to the same week instead of snapping to the current one.
+
+3. **Grade tabs.** `AttendancePage` derives the distinct grades present in
+   the current week's roster and renders them as tabs (plus "All"),
+   filtering the grid's rows client-side — lets several coaches split one
+   week by grade and each work their own tab. Purely a display filter, no
+   new backend scoping: every coach-tier role already sees the whole
+   team's roster, same as before.
+
+4. **Don't auto-select Present.** `AttendanceRecord.status` now defaults to
+   `ABSENT` instead of `PRESENT` (same migration as the uniqueness fix) —
+   this feature's first pass modeled the physical sheet as "pre-printed
+   roster, mark exceptions"; real use showed the opposite is wanted for a
+   weekly grid: blank by default, check off who showed. Blank now means
+   "unmarked / didn't show" everywhere in the UI, not a distinct fourth
+   status a coach has to consciously click — new
+   `AttendanceStatusCell` (`web/src/components/attendance/StatusCell.tsx`)
+   is a single click-to-cycle control (blank → ✓ Present → E → L → blank)
+   used by both the week grid's cells and the day-detail page's rows,
+   replacing the day-detail page's old four-separate-buttons row (which
+   would otherwise have shown "A" pre-highlighted by default, contradicting
+   the point of this change). Cycle order and labels live in one place,
+   `web/src/lib/attendanceStatus.ts`, so the grid, the day-detail page, and
+   CSV/print labeling can't drift from each other.
+
+Verification: `node --test` 340/341 (same pre-existing unrelated scraper
+fixture failure noted throughout this file — backend `node_modules` and
+Prisma client weren't installed at the start of this session either;
+installed fresh, then ran with dummy `DATABASE_URL`/`DIRECT_URL` +
+`NEON_AUTH_JWKS_URL` as usual); `tsc -b`, `eslint` on every touched
+frontend file, and `npm run build` (web) all clean; `npx prisma validate`
+clean against the updated schema. Not verified: the migration's dedupe
+logic against actual duplicate rows (no live DB access, and this session
+couldn't confirm duplicate sessions are even what caused the reported
+Gigi Anderson symptom rather than a duplicate Athlete row — see point 1),
+and the grid/tabs in an actual browser (no UI test runner in this repo,
+per earlier session notes).

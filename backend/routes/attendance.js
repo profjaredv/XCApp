@@ -28,6 +28,83 @@ function serializeSession(session) {
   };
 }
 
+// Same "explicit roster if one exists, else derive from graduation year"
+// resolution GET /athletes uses, narrowed to just the athlete ids a new
+// session needs. Shared by POST / and GET /week so both seed a day the
+// same way.
+async function resolveRosterAthleteIds(teamId, seasonId, season) {
+  const rosterRows = await prisma.seasonRoster.findMany({ where: { seasonId, isActive: true }, select: { athleteId: true } });
+  if (rosterRows.length > 0) {
+    return rosterRows.map((r) => r.athleteId);
+  }
+  const allAthletes = await prisma.athlete.findMany({ where: { teamId }, select: { id: true, graduationYear: true } });
+  return allAthletes.filter((a) => isEnrolled(a.graduationYear, season.year)).map((a) => a.id);
+}
+
+const SESSION_DETAIL_INCLUDE = {
+  location: true,
+  records: { include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true, graduationYear: true } } } },
+};
+
+// Shapes one session's records for a response, resolving grade the same
+// way GET /:sessionId always has: SeasonRoster.grade if the coach has
+// corrected it, else derived from graduationYear.
+function serializeRecords(session, gradeByAthleteId, seasonYear) {
+  return session.records.map((r) => ({
+    id: r.id,
+    athleteId: r.athleteId,
+    name: r.athlete.preferredName || r.athlete.name,
+    gender: r.athlete.gender,
+    grade: gradeByAthleteId.get(r.athleteId) ?? deriveGrade(r.athlete.graduationYear, seasonYear),
+    status: r.status,
+    notes: r.notes,
+    updatedAt: r.updatedAt,
+  }));
+}
+
+async function gradeByAthleteIdFor(seasonId, athleteIds) {
+  const rows = await prisma.seasonRoster.findMany({
+    where: { seasonId, athleteId: { in: athleteIds } },
+    select: { athleteId: true, grade: true },
+  });
+  return new Map(rows.map((r) => [r.athleteId, r.grade]));
+}
+
+// Finds the one session for (team, season, date) — the unique constraint
+// added alongside this route guarantees there's at most one — or creates
+// it seeded from the roster. If two coaches race to open the same
+// previously-empty date at once, the loser's create hits that constraint
+// (P2002); it just re-reads the winner's row instead of erroring, so
+// neither coach sees a failure and no duplicate is created.
+async function findOrCreateSessionForDate(teamId, seasonId, date, createdById, athleteIds) {
+  const existing = await prisma.attendanceSession.findUnique({
+    where: { teamId_seasonId_date: { teamId, seasonId, date } },
+    include: SESSION_DETAIL_INCLUDE,
+  });
+  if (existing) return existing;
+
+  try {
+    return await prisma.attendanceSession.create({
+      data: {
+        teamId,
+        seasonId,
+        date,
+        createdById,
+        records: { create: athleteIds.map((athleteId) => ({ athleteId })) },
+      },
+      include: SESSION_DETAIL_INCLUDE,
+    });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return prisma.attendanceSession.findUnique({
+        where: { teamId_seasonId_date: { teamId, seasonId, date } },
+        include: SESSION_DETAIL_INCLUDE,
+      });
+    }
+    throw error;
+  }
+}
+
 // GET /api/attendance?seasonId= — every session for a season, most
 // recent first, with per-status counts for the list view.
 router.get('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
@@ -56,11 +133,17 @@ router.get('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req,
 });
 
 // POST /api/attendance — creates a session and seeds one record per
-// athlete currently on that season's active roster, defaulted to
-// PRESENT (see AttendanceRecord's schema comment on why present-by-
-// default, not blank). Seeded once, never re-synced — an athlete added
-// to the team later doesn't retroactively appear on a past session;
-// someone unexpected at practice is added with POST .../records instead.
+// athlete currently on that season's active roster, defaulted to blank
+// (see AttendanceRecord's schema comment on why ABSENT-by-default now).
+// Seeded once, never re-synced — an athlete added to the team later
+// doesn't retroactively appear on a past session; someone unexpected at
+// practice is added with POST .../records instead.
+//
+// If a session for this exact (team, season, date) already exists — most
+// likely because the week view already created it — this returns that
+// existing session (200) instead of erroring or creating a duplicate; the
+// unique constraint on AttendanceSession makes a true duplicate
+// impossible even under a concurrent double-submit.
 router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
   const { seasonId, date, time, locationId } = req.body;
   if (!seasonId || !date) {
@@ -78,34 +161,99 @@ router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req
       if (!location) return res.status(404).json({ msg: 'Location not found.' });
     }
 
-    // Same "explicit roster if one exists, else derive from graduation
-    // year" resolution GET /athletes uses, narrowed to just the athlete
-    // ids this route actually needs.
-    const rosterRows = await prisma.seasonRoster.findMany({ where: { seasonId, isActive: true }, select: { athleteId: true } });
-    let athleteIds;
-    if (rosterRows.length > 0) {
-      athleteIds = rosterRows.map((r) => r.athleteId);
-    } else {
-      const allAthletes = await prisma.athlete.findMany({ where: { teamId }, select: { id: true, graduationYear: true } });
-      athleteIds = allAthletes.filter((a) => isEnrolled(a.graduationYear, season.year)).map((a) => a.id);
-    }
-
-    const session = await prisma.attendanceSession.create({
-      data: {
-        teamId,
-        seasonId,
-        date: new Date(date),
-        time: time || null,
-        locationId: locationId || null,
-        createdById: req.user.id,
-        records: { create: athleteIds.map((athleteId) => ({ athleteId })) },
-      },
+    const parsedDate = new Date(date);
+    const existing = await prisma.attendanceSession.findUnique({
+      where: { teamId_seasonId_date: { teamId, seasonId, date: parsedDate } },
       include: { location: true, records: { select: { status: true } } },
     });
+    if (existing) {
+      return res.status(200).json(serializeSession(existing));
+    }
+
+    const athleteIds = await resolveRosterAthleteIds(teamId, seasonId, season);
+
+    let session;
+    try {
+      session = await prisma.attendanceSession.create({
+        data: {
+          teamId,
+          seasonId,
+          date: parsedDate,
+          time: time || null,
+          locationId: locationId || null,
+          createdById: req.user.id,
+          records: { create: athleteIds.map((athleteId) => ({ athleteId })) },
+        },
+        include: { location: true, records: { select: { status: true } } },
+      });
+    } catch (error) {
+      if (error.code !== 'P2002') throw error;
+      // Lost the race to a concurrent create for the same date — use theirs.
+      session = await prisma.attendanceSession.findUnique({
+        where: { teamId_seasonId_date: { teamId, seasonId, date: parsedDate } },
+        include: { location: true, records: { select: { status: true } } },
+      });
+      return res.status(200).json(serializeSession(session));
+    }
 
     res.status(201).json(serializeSession(session));
   } catch (error) {
     console.error('Error creating attendance session:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/attendance/week?seasonId=&weekStart= — the primary take-attendance
+// view: five sessions (weekStart .. weekStart+4, meant to be a Monday..Friday
+// range, but this route doesn't enforce that so a coach starting the season
+// mid-week isn't blocked) found or created in one call via
+// findOrCreateSessionForDate, each with full grade-resolved records — so the
+// frontend never has to make five separate requests, or worry about two
+// coaches opening the same brand-new week at once creating duplicate days.
+router.get('/week', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { seasonId, weekStart } = req.query;
+  if (!seasonId || !weekStart) {
+    return res.status(400).json({ msg: 'seasonId and weekStart are required.' });
+  }
+
+  try {
+    const teamId = req.user.teamId;
+    const season = await prisma.season.findFirst({ where: { id: seasonId, teamId } });
+    if (!season) {
+      return res.status(404).json({ msg: 'Season not found.' });
+    }
+
+    const start = new Date(weekStart);
+    if (Number.isNaN(start.getTime())) {
+      return res.status(400).json({ msg: 'weekStart must be a valid date.' });
+    }
+    const dates = Array.from({ length: 5 }, (_, i) => {
+      const d = new Date(start);
+      d.setUTCDate(d.getUTCDate() + i);
+      return d;
+    });
+
+    const athleteIds = await resolveRosterAthleteIds(teamId, seasonId, season);
+    const sessions = await Promise.all(
+      dates.map((d) => findOrCreateSessionForDate(teamId, seasonId, d, req.user.id, athleteIds))
+    );
+
+    const allAthleteIds = [...new Set(sessions.flatMap((s) => s.records.map((r) => r.athleteId)))];
+    const gradeByAthleteId = await gradeByAthleteIdFor(seasonId, allAthleteIds);
+
+    res.json({
+      seasonId,
+      weekStart: dates[0].toISOString().slice(0, 10),
+      days: sessions.map((session, i) => ({
+        date: dates[i].toISOString().slice(0, 10),
+        sessionId: session.id,
+        time: session.time,
+        location: session.location ? { id: session.location.id, name: session.location.name } : null,
+        records: serializeRecords(session, gradeByAthleteId, season.year),
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching attendance week:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
@@ -118,36 +266,20 @@ router.get('/:sessionId', authenticate, requireTeam, requireRole(COACH_ROLES), a
   try {
     const session = await prisma.attendanceSession.findFirst({
       where: { id: req.params.sessionId, teamId: req.user.teamId },
-      include: {
-        location: true,
-        records: { include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true, graduationYear: true } } } },
-      },
+      include: SESSION_DETAIL_INCLUDE,
     });
     if (!session) {
       return res.status(404).json({ msg: 'Attendance session not found.' });
     }
 
     const season = await prisma.season.findFirst({ where: { id: session.seasonId }, select: { id: true, year: true } });
-    const seasonRosterRows = season
-      ? await prisma.seasonRoster.findMany({
-          where: { seasonId: season.id, athleteId: { in: session.records.map((r) => r.athleteId) } },
-          select: { athleteId: true, grade: true },
-        })
-      : [];
-    const gradeByAthleteId = new Map(seasonRosterRows.map((r) => [r.athleteId, r.grade]));
+    const gradeByAthleteId = season
+      ? await gradeByAthleteIdFor(season.id, session.records.map((r) => r.athleteId))
+      : new Map();
 
     res.json({
       ...serializeSession(session),
-      records: session.records.map((r) => ({
-        id: r.id,
-        athleteId: r.athleteId,
-        name: r.athlete.preferredName || r.athlete.name,
-        gender: r.athlete.gender,
-        grade: gradeByAthleteId.get(r.athleteId) ?? deriveGrade(r.athlete.graduationYear, season?.year),
-        status: r.status,
-        notes: r.notes,
-        updatedAt: r.updatedAt,
-      })),
+      records: serializeRecords(session, gradeByAthleteId, season?.year),
     });
   } catch (error) {
     console.error('Error fetching attendance session:', error.message);
@@ -206,8 +338,8 @@ router.delete('/:sessionId', authenticate, requireTeam, requireRole(COACH_ROLES)
 });
 
 // POST /api/attendance/:sessionId/records — adds one athlete not in the
-// original roster snapshot (e.g. a walk-on that day). Defaults to
-// PRESENT, same as every other record.
+// original roster snapshot (e.g. a walk-on that day). Defaults to blank
+// (ABSENT), same as every other record.
 router.post('/:sessionId/records', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
   const { athleteId } = req.body;
   if (!athleteId) {

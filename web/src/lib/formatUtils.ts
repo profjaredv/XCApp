@@ -43,6 +43,17 @@ export const lastNameOf = (fullName: string): string => {
   return parts[parts.length - 1] ?? '';
 };
 
+// The Monday on or before a "YYYY-MM-DD" date, as the same string shape —
+// used by AttendancePage's weekly grid to anchor a week, and by
+// AttendanceSessionPage to link back to the week a given day belongs to.
+export const mondayOf = (dateStr: string): string => {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const day = d.getUTCDay(); // 0 = Sunday .. 6 = Saturday
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0, 10);
+};
+
 /**
  * Parse a MM:SS or H:MM:SS string into seconds. Returns NaN if unparseable.
  */

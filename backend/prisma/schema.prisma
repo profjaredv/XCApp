@@ -1033,6 +1033,13 @@ enum AttendanceStatus {
 // session already taken stays a stable historical record even if the
 // roster changes later; an athlete who shows up unexpectedly is added
 // with its own POST rather than by re-deriving the whole roster.
+//
+// One session per (team, season, date) — enforced below, not just
+// convention. Without it, two coaches independently creating "today's"
+// session (the old single-day "New session" dialog, still available from
+// a day's detail page) could each seed a full duplicate roster for the
+// same date, which is exactly what the week view's find-or-create route
+// depends on not happening.
 model AttendanceSession {
   id          String   @id @default(uuid()) @db.Uuid
   teamId      String   @map("team_id") @db.Uuid
@@ -1050,7 +1057,7 @@ model AttendanceSession {
   createdBy User?               @relation("AttendanceSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
   records   AttendanceRecord[]
 
-  @@index([teamId, seasonId, date])
+  @@unique([teamId, seasonId, date])
   @@map("attendance_sessions")
 }
 
@@ -1058,11 +1065,13 @@ model AttendanceRecord {
   id                  String           @id @default(uuid()) @db.Uuid
   attendanceSessionId String           @map("attendance_session_id") @db.Uuid
   athleteId           String           @map("athlete_id") @db.Uuid
-  // Present by default — mirrors the paper-sheet workflow this replaces
-  // (a pre-printed roster where a coach marks exceptions, not checks off
-  // everyone who showed), and means seeding a session's roster is a single
-  // write per athlete rather than requiring one from the coach too.
-  status              AttendanceStatus @default(PRESENT)
+  // Blank (ABSENT) by default, not PRESENT — the weekly grid (AttendancePage)
+  // renders ABSENT as an empty cell, so a freshly seeded week starts
+  // entirely blank and a coach checks off who actually showed, rather than
+  // un-checking everyone who didn't. Was PRESENT-by-default in this
+  // feature's first pass; changed after real use showed the pre-checked
+  // roster was the wrong default for a coach working through a live week.
+  status              AttendanceStatus @default(ABSENT)
   notes               String?
   updatedAt           DateTime         @updatedAt @map("updated_at")
 

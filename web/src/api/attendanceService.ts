@@ -40,6 +40,20 @@ export interface AttendanceSessionDetail extends AttendanceSession {
   records: AttendanceRecord[];
 }
 
+export interface AttendanceWeekDay {
+  date: string;
+  sessionId: string;
+  time: string | null;
+  location: AttendanceLocation | null;
+  records: AttendanceRecord[];
+}
+
+export interface AttendanceWeek {
+  seasonId: string;
+  weekStart: string;
+  days: AttendanceWeekDay[];
+}
+
 export interface CreateAttendanceSessionInput {
   seasonId: string;
   date: string;
@@ -73,6 +87,14 @@ export const attendanceService = {
 
   async getSession(id: string): Promise<AttendanceSessionDetail> {
     const response = await api.get<AttendanceSessionDetail>(`/attendance/${id}`);
+    return response.data;
+  },
+
+  // The primary take-attendance view: finds-or-creates the five weekday
+  // sessions starting at weekStart (a "YYYY-MM-DD" date, meant to be a
+  // Monday) and returns them together in one call.
+  async getWeek(seasonId: string, weekStart: string): Promise<AttendanceWeek> {
+    const response = await api.get<AttendanceWeek>('/attendance/week', { params: { seasonId, weekStart } });
     return response.data;
   },
 

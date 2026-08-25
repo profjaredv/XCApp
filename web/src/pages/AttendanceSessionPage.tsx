@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -20,27 +20,25 @@ import {
   useRemoveAttendanceRecord,
 } from '@/hooks/useAttendance';
 import type { AttendanceRecord, AttendanceStatus } from '@/api/attendanceService';
-import { formatDateShort, lastNameOf } from '@/lib/formatUtils';
+import { formatDateShort, lastNameOf, mondayOf } from '@/lib/formatUtils';
 import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
 import { toCsv } from '@/lib/csvParse';
+import { AttendanceStatusCell } from '@/components/attendance/StatusCell';
+import { ATTENDANCE_STATUS_LABEL } from '@/lib/attendanceStatus';
 
 // The take-attendance state of one session — its own full-screen route
 // (not a card on the list page), same reasoning as Interval Sessions'
 // manage page: marking a roster on a phone at practice shouldn't compete
-// with every other session for screen space.
+// with every other session for screen space. Reached from the weekly grid
+// (AttendancePage) via a day's settings icon, for the things a dense
+// week-wide grid has no room for: location/time, notes, adding a walk-on,
+// and a single day's print/export.
 
 const NONE = '__none__';
 const NEW_LOCATION = '__new__';
 
 const STATUS_ORDER: AttendanceStatus[] = ['PRESENT', 'ABSENT', 'EXCUSED', 'LATE'];
-const STATUS_LABEL: Record<AttendanceStatus, string> = { PRESENT: 'Present', ABSENT: 'Absent', EXCUSED: 'Excused', LATE: 'Late' };
-const STATUS_SHORT: Record<AttendanceStatus, string> = { PRESENT: 'P', ABSENT: 'A', EXCUSED: 'E', LATE: 'L' };
-const STATUS_ACTIVE_CLASS: Record<AttendanceStatus, string> = {
-  PRESENT: 'bg-emerald-600 text-white border-emerald-600',
-  ABSENT: 'bg-red-600 text-white border-red-600',
-  EXCUSED: 'bg-amber-500 text-white border-amber-500',
-  LATE: 'bg-orange-500 text-white border-orange-500',
-};
+const STATUS_LABEL = ATTENDANCE_STATUS_LABEL;
 
 function downloadCsv(filename: string, csvText: string) {
   const blob = new Blob([csvText], { type: 'text/csv' });
@@ -65,21 +63,7 @@ const AthleteRow: React.FC<{
     <div className="sm:w-40 min-w-0">
       <p className="text-sm font-medium truncate">{record.name}</p>
     </div>
-    <div className="flex items-center gap-1">
-      {STATUS_ORDER.map((status) => (
-        <button
-          key={status}
-          type="button"
-          title={STATUS_LABEL[status]}
-          onClick={() => onSetStatus(status)}
-          className={`h-8 w-8 rounded-full text-xs font-semibold border transition-colors ${
-            record.status === status ? STATUS_ACTIVE_CLASS[status] : 'bg-background text-muted-foreground border-border'
-          }`}
-        >
-          {STATUS_SHORT[status]}
-        </button>
-      ))}
-    </div>
+    <AttendanceStatusCell status={record.status} onChange={onSetStatus} />
     <Input
       key={record.id}
       defaultValue={record.notes ?? ''}
@@ -100,6 +84,8 @@ const AttendanceSessionPage: React.FC = () => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
   const { sessionId } = useParams<{ sessionId: string }>();
+  const [searchParams] = useSearchParams();
+  const weekParam = searchParams.get('week');
   const { data: context } = useTeamContext();
   const { data: seasons = [] } = useAvailableSeasons(context?.team?.id);
 
@@ -141,7 +127,10 @@ const AttendanceSessionPage: React.FC = () => {
     .filter((a) => !enteredIds.has(a.id))
     .sort((a, b) => lastNameOf(a.preferredName || a.name).localeCompare(lastNameOf(b.preferredName || b.name)));
 
-  const handleClose = () => navigate(teamPath('/attendance'));
+  const handleClose = () => {
+    const week = weekParam ?? (session ? mondayOf(session.date.slice(0, 10)) : null);
+    navigate(teamPath(week ? `/attendance?week=${week}` : '/attendance'));
+  };
   const handleSave = () => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     toast.success('All changes saved.');

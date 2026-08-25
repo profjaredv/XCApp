@@ -25,6 +25,15 @@ export function useAttendanceSession(id: string | null) {
   });
 }
 
+// The weekly grid (AttendancePage). weekStart is a "YYYY-MM-DD" Monday.
+export function useAttendanceWeek(seasonId: string | null, weekStart: string | null) {
+  return useQuery({
+    queryKey: ['attendanceWeek', seasonId, weekStart],
+    queryFn: () => attendanceService.getWeek(seasonId as string, weekStart as string),
+    enabled: !!seasonId && !!weekStart,
+  });
+}
+
 function useInvalidateSessions(seasonId: string | null) {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: ['attendanceSessions', seasonId] });
@@ -33,6 +42,15 @@ function useInvalidateSessions(seasonId: string | null) {
 function useInvalidateSingleSession() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: ['attendanceSession'] });
+}
+
+// Broad on purpose (no seasonId/weekStart key) — a record edit made from
+// either the week grid or a single day's detail page should invalidate
+// every cached week, since either surface can touch a day the other has
+// cached.
+function useInvalidateWeeks() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: ['attendanceWeek'] });
 }
 
 export function useCreateAttendanceSession(seasonId: string | null) {
@@ -70,12 +88,14 @@ export function useDeleteAttendanceSession(seasonId: string | null) {
 export function useAddAttendanceRecord(seasonId: string | null) {
   const invalidate = useInvalidateSessions(seasonId);
   const invalidateSession = useInvalidateSingleSession();
+  const invalidateWeeks = useInvalidateWeeks();
   return useMutation({
     mutationFn: ({ sessionId, athleteId }: { sessionId: string; athleteId: string }) =>
       attendanceService.addRecord(sessionId, athleteId),
     onSuccess: () => {
       invalidate();
       invalidateSession();
+      invalidateWeeks();
     },
   });
 }
@@ -83,6 +103,7 @@ export function useAddAttendanceRecord(seasonId: string | null) {
 export function useUpdateAttendanceRecord(seasonId: string | null) {
   const invalidate = useInvalidateSessions(seasonId);
   const invalidateSession = useInvalidateSingleSession();
+  const invalidateWeeks = useInvalidateWeeks();
   return useMutation({
     mutationFn: ({
       sessionId,
@@ -96,6 +117,7 @@ export function useUpdateAttendanceRecord(seasonId: string | null) {
     onSuccess: () => {
       invalidate();
       invalidateSession();
+      invalidateWeeks();
     },
   });
 }
@@ -103,12 +125,14 @@ export function useUpdateAttendanceRecord(seasonId: string | null) {
 export function useRemoveAttendanceRecord(seasonId: string | null) {
   const invalidate = useInvalidateSessions(seasonId);
   const invalidateSession = useInvalidateSingleSession();
+  const invalidateWeeks = useInvalidateWeeks();
   return useMutation({
     mutationFn: ({ sessionId, athleteId }: { sessionId: string; athleteId: string }) =>
       attendanceService.removeRecord(sessionId, athleteId),
     onSuccess: () => {
       invalidate();
       invalidateSession();
+      invalidateWeeks();
     },
   });
 }
