@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Trash2, UserPlus, Archive, Loader2, X, Check } from 'lucide-react';
+import { Trash2, UserPlus, Archive, Loader2, X, Check, Printer } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
@@ -243,6 +243,13 @@ const IntervalSessionManagePage: React.FC = () => {
     toast.success('All changes saved.');
   };
 
+  // A paper backup, same idea as Splits' Print button: coaches want
+  // something at the track that still works when a phone dies or there's
+  // no signal. Printed before any reps are in, the sheet is just blank
+  // ruled boxes to fill in by hand and enter here later; printed after,
+  // it doubles as a clean record of what's already saved.
+  const handlePrint = () => window.print();
+
   const handleAdd = async () => {
     if (!addAthleteId || !session) return;
     try {
@@ -265,7 +272,7 @@ const IntervalSessionManagePage: React.FC = () => {
   };
 
   const topBar = (
-    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 sm:gap-4 border-b border-border bg-background px-3 sm:px-6 py-3">
+    <div className="print:hidden sticky top-0 z-10 flex items-center justify-between gap-2 sm:gap-4 border-b border-border bg-background px-3 sm:px-6 py-3">
       <div className="min-w-0">
         <h1 className="text-lg font-semibold truncate">{session?.title ?? 'Interval Session'}</h1>
         {session && (
@@ -275,10 +282,10 @@ const IntervalSessionManagePage: React.FC = () => {
           </p>
         )}
       </div>
-      {/* Icon-only below sm: on a narrow phone, "Archive · Save · Close" as
-          full text buttons left almost no room for the title (it was
-          truncating to "5x…" / "Aug 1…") — the icons alone are still
-          unambiguous for three single-purpose actions. */}
+      {/* Icon-only below sm: on a narrow phone, "Archive · Print · Save ·
+          Close" as full text buttons left almost no room for the title
+          (it was truncating to "5x…" / "Aug 1…") — the icons alone are
+          still unambiguous for single-purpose actions. */}
       <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
         {session && (
           <Button variant="outline" size="sm" onClick={handleArchiveToggle} disabled={setArchived.isPending} title={session.archived ? 'Restore' : 'Archive'}>
@@ -286,6 +293,10 @@ const IntervalSessionManagePage: React.FC = () => {
             <span className="hidden sm:inline">{session.archived ? 'Restore' : 'Archive'}</span>
           </Button>
         )}
+        <Button variant="outline" size="sm" onClick={handlePrint} disabled={!session || session.entries.length === 0} title="Print">
+          <Printer className="h-4 w-4 sm:mr-1" />
+          <span className="hidden sm:inline">Print</span>
+        </Button>
         <Button variant="outline" size="sm" onClick={handleSave} title="Save">
           <Check className="h-4 w-4 sm:mr-1" />
           <span className="hidden sm:inline">Save</span>
@@ -319,7 +330,7 @@ const IntervalSessionManagePage: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       {topBar}
-      <div className="p-3 md:p-6">
+      <div className="print:hidden p-3 md:p-6">
         <Card>
           <CardContent className="pt-6">
             {session.entries.length === 0 ? (
@@ -408,6 +419,55 @@ const IntervalSessionManagePage: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Print view: a paper backup sheet, not a screenshot of the input
+          grid — plain ruled boxes a coach can fill in by hand with a
+          stopwatch, whether printed blank before the session or with
+          whatever's already been typed in showing (both are real uses:
+          "carry this in case the tablet dies" and "here's today's sheet
+          for the file"). Same table shape and athlete order as the
+          digital grid so the two never disagree. */}
+      <div className="hidden print:block p-4">
+        <h1 className="text-lg font-semibold">{session.title}</h1>
+        <p className="text-sm text-muted-foreground mb-3">
+          {formatDateShort(session.date)} · {session.groupName ?? 'Ad hoc'} · {session.repDistanceM}m ·{' '}
+          {ZONE_LABEL[session.zone]} pace
+        </p>
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left p-1 border border-border">Athlete</th>
+              <th className="text-center p-1 border border-border">Target</th>
+              {REPS.map((rep) => (
+                <th key={rep} className="text-center p-1 border border-border">
+                  Rep {rep}
+                </th>
+              ))}
+              <th className="text-left p-1 border border-border">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedEntries.map((entry) => {
+              const suggestedSec = suggestedSplitSeconds(recentRaceByAthlete?.get(entry.athleteId), session.zone, session.repDistanceM);
+              return (
+                <tr key={entry.id}>
+                  <td className="p-1 border border-border whitespace-nowrap">{entry.athleteName}</td>
+                  <td className="text-center p-1 border border-border font-mono">{suggestedSec ? formatTime(suggestedSec) : ''}</td>
+                  {REPS.map((rep) => {
+                    const value = entry[repField(rep)];
+                    return (
+                      <td key={rep} className="h-8 p-1 border border-border font-mono text-center">
+                        {value != null ? formatTime(value) : ''}
+                      </td>
+                    );
+                  })}
+                  <td className="border border-border" />
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
