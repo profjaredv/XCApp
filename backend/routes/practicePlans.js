@@ -125,8 +125,16 @@ router.get('/mine', authenticate, requireLinkedAthlete, async (req, res) => {
   }
 });
 
-// POST /api/practice-plans — upsert a day's plan (all fields at once; the
-// Schedule day-editor sends the whole form every save).
+// POST /api/practice-plans — upsert a day's plan. Only fields actually
+// present in the body are written (see the fields-building block below) —
+// the Schedule day-editor only sends what a coach actually changed in
+// that dialog session, not a full resend of every field from whatever was
+// loaded when the dialog opened. Two coaches editing different fields of
+// the same day's plan around the same time — one typing Announcements,
+// another attaching a Workout Template — must not have either save
+// silently blank out the other's already-saved field, which a blanket
+// "always write all eight fields" upsert would risk whenever one coach's
+// save is built from a snapshot that predates the other's.
 router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
   const { seasonId, date, locationId, startTime, announcements, preRun, run, postRun, workoutTemplateId, intervalSessionId } = req.body;
   if (!seasonId || !date) {
@@ -151,16 +159,15 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
       if (!session) return res.status(404).json({ msg: 'Interval session not found.' });
     }
 
-    const fields = {
-      locationId: locationId || null,
-      startTime: startTime ?? null,
-      announcements: announcements ?? null,
-      preRun: preRun ?? null,
-      run: run ?? null,
-      postRun: postRun ?? null,
-      workoutTemplateId: workoutTemplateId || null,
-      intervalSessionId: intervalSessionId || null,
-    };
+    const fields = {};
+    if (locationId !== undefined) fields.locationId = locationId || null;
+    if (startTime !== undefined) fields.startTime = startTime ?? null;
+    if (announcements !== undefined) fields.announcements = announcements ?? null;
+    if (preRun !== undefined) fields.preRun = preRun ?? null;
+    if (run !== undefined) fields.run = run ?? null;
+    if (postRun !== undefined) fields.postRun = postRun ?? null;
+    if (workoutTemplateId !== undefined) fields.workoutTemplateId = workoutTemplateId || null;
+    if (intervalSessionId !== undefined) fields.intervalSessionId = intervalSessionId || null;
 
     const normalizedDate = new Date(date);
     const plan = await prisma.practicePlan.upsert({

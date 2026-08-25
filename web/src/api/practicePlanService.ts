@@ -41,6 +41,14 @@ export interface PracticePlan {
   intervalSession: PracticePlanIntervalSession | null;
 }
 
+// Every field but seasonId/date is optional and should stay that way:
+// the day editor only includes a field here when the coach actually
+// edited it in that dialog session, never a full resend of every field
+// from whatever was loaded when the dialog opened. The backend only
+// writes keys actually present in the request body — omitting a field
+// leaves it exactly as it already is, so two coaches editing different
+// fields of the same day's plan around the same time can't have one
+// save blank out the other's already-saved field.
 export interface PracticePlanInput {
   seasonId: string;
   date: string;

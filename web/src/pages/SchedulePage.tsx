@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Archive, ChevronLeft, ChevronRight, Download, Loader2, MoreVertical, Pencil, Plus, Timer, Upload } from 'lucide-react';
+import { Archive, ChevronLeft, ChevronRight, Download, Flag, Loader2, MoreVertical, Pencil, Plus, Timer, Upload } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import {
@@ -25,7 +25,7 @@ import { usePracticeLocations, useCreatePracticeLocation } from '@/hooks/usePrac
 import { useWorkoutTemplates, useCreateWorkoutTemplate, useUpdateWorkoutTemplate } from '@/hooks/useWorkoutTemplates';
 import { useIntervalSessions } from '@/hooks/useIntervalSessions';
 import { useMeets } from '@/hooks/useMeetOps';
-import type { PracticePlan } from '@/api/practicePlanService';
+import type { PracticePlan, PracticePlanInput } from '@/api/practicePlanService';
 import type { MeetSummary } from '@/api/meetOpsService';
 import type { WorkoutTemplate, WorkoutTemplateInput } from '@/api/workoutTemplateService';
 import { PracticePlanPreview } from '@/components/practicePlans/PracticePlanPreview';
@@ -200,6 +200,10 @@ const SchedulePage: React.FC = () => {
 
   const scheduleActionButtons = (
     <>
+      <Button variant="outline" onClick={() => navigate(teamPath('/meets'))}>
+        <Flag className="h-4 w-4 mr-2" />
+        Meets
+      </Button>
       <Button variant="outline" onClick={() => setTemplateManagerOpen(true)}>
         <Pencil className="h-4 w-4 mr-2" />
         Workout Templates
@@ -884,6 +888,26 @@ const DayEditorDialog: React.FC<{
   const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
   const [dialogTab, setDialogTab] = useState<'edit' | 'preview'>('edit');
 
+  // What this dialog session actually loaded, captured once (this
+  // component remounts fresh per day — see where it's rendered below,
+  // gated on editorDate truthiness with no key, so a different day's
+  // dialog is always a full unmount/remount, never a prop swap on a
+  // reused instance). Diffed against at save time so handleSave only
+  // sends fields the coach actually changed in THIS session — not every
+  // field resent from this snapshot, which could be stale relative to
+  // another coach's save that landed after this dialog opened. See
+  // PracticePlanInput's doc comment.
+  const initialFormRef = useRef({
+    locationId: plan?.locationId ?? NONE,
+    startTime: plan?.startTime ?? '',
+    announcements: plan?.announcements ?? '',
+    preRun: plan?.preRun ?? '',
+    run: plan?.run ?? '',
+    postRun: plan?.postRun ?? '',
+    workoutTemplateId: plan?.workoutTemplateId ?? NONE,
+    intervalSessionId: plan?.intervalSessionId ?? NONE,
+  });
+
   // Built from the form's own live state, not a fetch — GET /practice-
   // plans/mine deliberately only ever returns a published plan (an
   // athlete can't see a draft), so a coach previewing an unpublished or
@@ -916,18 +940,29 @@ const DayEditorDialog: React.FC<{
         const created = await createLocation.mutateAsync(newLocationName.trim());
         finalLocationId = created.id;
       }
-      await savePlan.mutateAsync({
-        seasonId,
-        date,
-        locationId: finalLocationId === NONE ? null : finalLocationId,
-        startTime: startTime || null,
-        announcements: announcements || null,
-        preRun: preRun || null,
-        run: run || null,
-        postRun: postRun || null,
-        workoutTemplateId: workoutTemplateId === NONE ? null : workoutTemplateId,
-        intervalSessionId: intervalSessionId === NONE ? null : intervalSessionId,
-      });
+
+      const initial = initialFormRef.current;
+      const changes: Partial<PracticePlanInput> = {};
+      if (finalLocationId !== initial.locationId) changes.locationId = finalLocationId === NONE ? null : finalLocationId;
+      if (startTime !== initial.startTime) changes.startTime = startTime || null;
+      if (announcements !== initial.announcements) changes.announcements = announcements || null;
+      if (preRun !== initial.preRun) changes.preRun = preRun || null;
+      if (run !== initial.run) changes.run = run || null;
+      if (postRun !== initial.postRun) changes.postRun = postRun || null;
+      if (workoutTemplateId !== initial.workoutTemplateId) changes.workoutTemplateId = workoutTemplateId === NONE ? null : workoutTemplateId;
+      if (intervalSessionId !== initial.intervalSessionId) changes.intervalSessionId = intervalSessionId === NONE ? null : intervalSessionId;
+
+      // Nothing edited on a day that already had a plan — genuinely
+      // nothing to do. A brand-new day (no existing plan) still saves
+      // even with nothing filled in, same as before this change: clicking
+      // Save on an empty new-day dialog is how a coach marks the day as
+      // a practice day at all, details TBD.
+      if (Object.keys(changes).length === 0 && plan) {
+        onClose();
+        return;
+      }
+
+      await savePlan.mutateAsync({ seasonId, date, ...changes });
       toast.success('Plan saved.');
       onClose();
     } catch {

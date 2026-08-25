@@ -201,7 +201,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
           its own four-item list rather than the coach spine with items
           hidden. Meets is read-only for athletes (MeetsPage branches on
           teamRole); My Group is /groups, already athlete-scoped
-          (GroupsPage's existing AthleteGroupsView). */}
+          (GroupsPage's existing AthleteGroupsView).
+
+          No standalone "Meets" item for a coach: Schedule's calendar is
+          the one place practices, workouts, and meets all live now (a
+          meet chip on any day deep-links straight to it), and Schedule's
+          own header carries a "Meets" button into the list/create/import
+          screen (/meets, same route as before — just no longer a sidebar
+          peer of Schedule). Athletes have no Schedule/calendar view of
+          their own, so their Meets link stays here as their only path to
+          it. */}
       <nav className="mt-2 flex-1 min-h-0 px-3 overflow-y-auto">
         <NavItem to={teamPath('/today')} icon={Home} label="Today" isCollapsed={isCollapsed} onClick={handleLinkClick} />
 
@@ -210,7 +219,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
             <NavItem to={teamPath('/roster')} icon={ClipboardList} label="Athletes" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <NavItem to={teamPath('/groups')} icon={Users} label="Groups" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <NavItem to={teamPath('/schedule')} icon={CalendarDays} label="Schedule" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            <NavItem to={teamPath('/meets')} icon={Flag} label="Meets" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             <SeasonNavSection isCollapsed={isCollapsed} teamPath={teamPath} onLinkClick={handleLinkClick} />
             <NavItem to={teamPath('/band-trends')} icon={TrendingUp} label="Program" isCollapsed={isCollapsed} onClick={handleLinkClick} />
             {!isVolunteerCoach && (
