@@ -149,6 +149,7 @@ const AthleteGroupsView: React.FC = () => {
 
 const CoachGroupsView: React.FC = () => {
   const queryClient = useQueryClient();
+  const { currentUser } = useAuth();
   const { seasons, activeYear } = useSeasonSelection();
   const selectedSeason = seasons.find((s) => s.year === activeYear) ?? null;
   const seasonId = selectedSeason?.id ?? null;
@@ -251,6 +252,15 @@ const CoachGroupsView: React.FC = () => {
   // would miss anyone whose stint hasn't expired yet but is bounded.
   const otherGroups = groups.filter((g) => g.type !== 'TRAINING' && g.type !== 'X_TRAINING' && !g.archived);
   const changeCount = Object.keys(pendingChanges).length;
+
+  // "My Groups" — whatever this coach is personally assigned to lead, any
+  // type, shown first thing on the page. A head coach who isn't personally
+  // a leader of anything just doesn't get this section (no manufactured
+  // empty state) and sees the page exactly as before.
+  const myLedGroups = useMemo(
+    () => groups.filter((g) => !g.archived && g.leaders.some((l) => l.userId === currentUser?.uid)),
+    [groups, currentUser?.uid]
+  );
 
   const handleInitializeSeason = async () => {
     if (!activeYear) return;
@@ -445,6 +455,24 @@ const CoachGroupsView: React.FC = () => {
         </div>
       </div>
 
+      {myLedGroups.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold">My Groups</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {myLedGroups.map((g) => (
+              <GroupCard
+                key={g.id}
+                group={g}
+                onOpen={() => setMembersTarget(g)}
+                onEdit={() => openEdit(g)}
+                onManageLeaders={() => setLeadersTarget(g)}
+                onDelete={() => handleDeleteGroup(g)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <button
         type="button"
         onClick={() => setXTrainingRosterOpen(true)}
@@ -532,36 +560,14 @@ const CoachGroupsView: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {otherGroups.map((g) => (
-              <Card key={g.id}>
-                <CardHeader className="py-3">
-                  <CardTitle className="text-sm flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      {g.name}
-                      <Badge variant="outline" className="text-[10px]">{g.type === 'CAPTAIN' ? 'Captain' : 'Custom'}</Badge>
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(g)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeadersTarget(g)}>
-                        <UserCog className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteGroup(g)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="py-2 space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    {g.activeMemberCount} member{g.activeMemberCount === 1 ? '' : 's'}
-                    {g.leaders.length > 0 ? ` · led by ${g.leaders.map((l) => l.name || l.email).join(', ')}` : ''}
-                  </p>
-                  <Button variant="outline" size="sm" onClick={() => setMembersTarget(g)}>
-                    Manage members
-                  </Button>
-                </CardContent>
-              </Card>
+              <GroupCard
+                key={g.id}
+                group={g}
+                onOpen={() => setMembersTarget(g)}
+                onEdit={() => openEdit(g)}
+                onManageLeaders={() => setLeadersTarget(g)}
+                onDelete={() => handleDeleteGroup(g)}
+              />
             ))}
           </div>
         )}
@@ -653,7 +659,7 @@ const CoachGroupsView: React.FC = () => {
         seasonId={seasonId}
         onClose={() => setMembersTarget(null)}
         roster={athletes}
-        otherGroups={otherGroups}
+        allGroups={groups}
       />
       <XTrainingSendDialog
         athlete={xTrainingSendTarget}
@@ -802,6 +808,66 @@ const GenderColumn: React.FC<{
   );
 };
 
+// Shared by "My Groups" and "Captain & Custom Groups" — clicking anywhere
+// on the card opens the roster (ManageMembersDialog, via onOpen), which is
+// also where add/move/remove live; the icon buttons are separate smaller
+// actions (rename, leaders, delete) that stop the click from bubbling up
+// to onOpen. The TRAINING board's own cards (GenderColumn, above) already
+// have their own click-to-expand-inline behavior and don't use this.
+const GroupCard: React.FC<{
+  group: Group;
+  onOpen: () => void;
+  onEdit: () => void;
+  onManageLeaders: () => void;
+  onDelete: () => void;
+}> = ({ group, onOpen, onEdit, onManageLeaders, onDelete }) => {
+  const stop = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
+
+  return (
+    <Card
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className="cursor-pointer hover:bg-accent/40 transition-colors"
+    >
+      <CardHeader className="py-3">
+        <CardTitle className="text-sm flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            {group.name}
+            <Badge variant="outline" className="text-[10px]">{GROUP_TYPE_LABEL[group.type]}</Badge>
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={stop(onManageLeaders)} title="Manage leaders">
+              <UserCog className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={stop(onEdit)} title="Rename">
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={stop(onDelete)} title="Delete">
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="py-2">
+        <p className="text-xs text-muted-foreground">
+          {group.activeMemberCount} member{group.activeMemberCount === 1 ? '' : 's'}
+          {group.leaders.length > 0 ? ` · led by ${group.leaders.map((l) => l.name || l.email).join(', ')}` : ''}
+        </p>
+      </CardContent>
+    </Card>
+  );
+};
+
 const ManageLeadersDialog: React.FC<{ group: Group | null; seasonId: string | null; onClose: () => void }> = ({ group, seasonId, onClose }) => {
   const { data: staff = [], isLoading: staffLoading } = useStaff();
   const assignLeader = useAssignLeader(seasonId);
@@ -883,9 +949,9 @@ const ManageMembersDialog: React.FC<{
   seasonId: string | null;
   onClose: () => void;
   roster: AthleteRow[];
-  /** CAPTAIN/CUSTOM groups other than this one — the "move to" target list. */
-  otherGroups: Group[];
-}> = ({ group, seasonId, onClose, roster, otherGroups }) => {
+  /** Every group this season — the "move to" list is this minus the group being viewed and any archived ones. */
+  allGroups: Group[];
+}> = ({ group, seasonId, onClose, roster, allGroups }) => {
   const { data: members = [], isLoading: membersLoading } = useGroupMembers(group?.id ?? null);
   const addMember = useAddMember(seasonId);
   const removeMember = useRemoveMember(seasonId);
@@ -896,7 +962,7 @@ const ManageMembersDialog: React.FC<{
 
   const memberIds = new Set(members.map((m) => m.athleteId));
   const available = roster.filter((a) => !memberIds.has(a.id));
-  const moveTargets = otherGroups.filter((g) => g.id !== group.id);
+  const moveTargets = allGroups.filter((g) => g.id !== group.id && !g.archived);
 
   const handleAdd = async () => {
     if (!selectedAthleteId) return;
@@ -918,12 +984,12 @@ const ManageMembersDialog: React.FC<{
     }
   };
 
-  // Moving is remove-then-add (there's no single "move" endpoint for
-  // non-TRAINING groups — CAPTAIN/CUSTOM memberships are looser than
-  // TRAINING's exclusive-per-athlete slot, so there's no "the" prior group
-  // to atomically swap out of the way the bulk-assign screen does). Both
-  // requests are still sequenced from one click here instead of the coach
-  // having to open a second group's dialog and re-find the athlete.
+  // Moving is remove-then-add (there's no single "move" endpoint here —
+  // unlike the TRAINING board's bulk-assign, which can swap a TRAINING
+  // membership atomically because it's exclusive-per-athlete-per-type,
+  // this dialog's move targets can span any group type). Both requests are
+  // still sequenced from one click here instead of the coach having to
+  // open a second group's dialog and re-find the athlete.
   const handleMove = async (athleteId: string, targetGroupId: string) => {
     setMovingAthleteId(athleteId);
     try {

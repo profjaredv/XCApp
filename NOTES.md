@@ -2652,3 +2652,60 @@ couldn't confirm duplicate sessions are even what caused the reported
 Gigi Anderson symptom rather than a duplicate Athlete row — see point 1),
 and the grid/tabs in an actual browser (no UI test runner in this repo,
 per earlier session notes).
+
+## Groups page: a "My Groups" section, and click-to-open on Captain/Custom cards
+
+Two follow-up complaints, both on `GroupsPage.tsx`:
+
+1. "For coaches, my groups should be the first section they see." Asked
+   which of three readings was meant (a new section of groups the coach
+   personally leads; reordering the existing Captain/Custom section above
+   the Training board; or just moving the whole board above the Cross
+   Training banner) — user picked the first. New `myLedGroups` in
+   `CoachGroupsView`: every group (any type — training, captain, or
+   custom) where `group.leaders` contains the signed-in user's id,
+   filtered client-side from the `groups` list `useGroups(seasonId)`
+   already fetches (no new backend endpoint needed — leaders were already
+   in the response). Rendered as a "My Groups" section right after the
+   page header, before the "Cross Training today" banner — the literal
+   first thing on the page below the title. A head coach not personally
+   assigned as a leader of anything sees no such section (no manufactured
+   empty state, matching this file's usual convention) — the page looks
+   exactly as it did before for them.
+
+2. "Clicking any group should pull up list of names... right now I can't
+   just click to open." Real gap, confirmed by reading the code: the
+   Training board's cards (`GenderColumn`) already toggle an inline
+   member list on click, but the Captain & Custom Groups cards below it
+   only had that behavior behind a separate "Manage members" button — the
+   card itself (name, badge, member count) did nothing when clicked. New
+   shared `GroupCard` component (used by both the new "My Groups" section
+   and the existing Captain/Custom section) makes the whole card clickable
+   to open `ManageMembersDialog` — the same dialog "Manage members" used
+   to open, which already showed the roster and let a coach add or move
+   members, so this is the "list of names, edit allows to add or move"
+   the user described. The three icon buttons (rename, leaders, delete)
+   stay as separate small targets that `stopPropagation` so they don't
+   also trigger the card's open action.
+
+   Since "My Groups" can include a TRAINING-type group (unlike the old
+   Captain/Custom-only entry point), `ManageMembersDialog`'s "move to"
+   list was widened from `otherGroups` (CAPTAIN/CUSTOM peers only) to
+   `allGroups` minus the group being viewed and any archived ones —
+   backend support for this was already generic (`POST`/`DELETE
+   /groups/:id/members` and `GET /groups/:id/members` never restricted by
+   type, gated by `canManageGroup` either way), so this is a frontend-only
+   widening, not a new capability. TRAINING membership exclusivity is
+   still enforced server-side by `moveAthleteToGroup` ("active is scoped
+   per GroupType" — see the board's own comment above), so moving someone
+   into a second TRAINING group here still correctly closes out their
+   first one rather than creating an overlap.
+
+Verification: `tsc -b`, `eslint src/pages/GroupsPage.tsx`, and `npm run
+build` (web) all clean; backend `node --test` 340/341, same unrelated
+pre-existing scraper fixture failure, unaffected since this is a
+frontend-only change (no backend routes or schema touched). Not verified:
+in an actual browser with a coach account that leads a group (no UI test
+runner or live data in this sandbox) — reasoned from `useGroups`'s
+existing response shape and the generic member-management routes, not
+observed directly.
