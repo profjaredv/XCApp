@@ -2810,3 +2810,39 @@ honestly it needs a bulk endpoint — the current per-record PATCH would fire
 one request per athlete (~130 on a real roster). Backend scope, and beyond
 "mobile UX", so it's a decision for the user rather than something to
 smuggle into a layout pass.
+
+## Athletes list: "Preview as athlete" reduced to an icon, not removed
+
+User: "In the Athletes list, we can remove the preview athlete button for
+all, or just make it the eyeball icon. I don't think it is really necessary
+anymore." — two options offered, leaning toward removal.
+
+Took the icon-only option, because removal turns out to cost more than the
+phrasing suggests: `RosterPage.tsx` is the **only** entry point to the
+preview feature anywhere in the app (`grep setPreviewAthlete` returns
+`lib/impersonation.ts`'s definition and this one call site). Deleting the
+button would leave a complete, working, still-maintained full-stack path
+unreachable — `lib/impersonation.ts`'s preview half, the
+`currentUser.isPreviewingAthlete` branch of `ImpersonationBanner`, axios's
+`X-Preview-Athlete-Id` request header, `isPreviewingAthlete` on the `User`
+type, and the server-side handling in `middleware/auth.js` — i.e. dead code
+that still looks live to the next reader. The icon achieves what the
+request is actually after (this row carries up to *eight* actions and
+"Preview as athlete" was the longest label on it, for the action a coach
+reaches for least) at no such cost.
+
+Sized `h-11 w-11 p-0 sm:h-8 sm:w-8`, matching the touch-target convention
+from the mobile pass above, with the explanatory copy moved into `title`
+and a per-athlete `aria-label` so the icon isn't unlabeled for screen
+readers.
+
+If the feature really is dead to the user, the honest version of "remove
+it" is a separate pass that also deletes the preview half of
+`impersonation.ts`, the banner branch, the axios header, the type field and
+the server middleware — worth doing deliberately, not as a side effect of
+tidying one row. Flagged for them rather than assumed either way.
+
+Verification: `tsc -b`, `eslint src/pages/RosterPage.tsx`, and `npm run
+build` (web) all clean. Frontend-only, no backend touched. Not verified in
+a browser — the button is inside `<Layout>` and needs live roster data, so
+the harness approach used above didn't apply here.

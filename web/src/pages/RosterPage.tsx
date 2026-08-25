@@ -612,15 +612,25 @@ const RosterPage: React.FC = () => {
                     >
                       View Profile
                     </Button>
+                    {/* Icon-only: this row already carries up to eight
+                        actions and "Preview as athlete" was the longest
+                        label on it, for the one action a coach reaches for
+                        least. Kept rather than deleted because this is the
+                        only entry point to the preview feature — removing
+                        the button would strand a working full-stack path
+                        (lib/impersonation.ts's preview half,
+                        ImpersonationBanner, axios's X-Preview-Athlete-Id
+                        header, and the server middleware behind it). */}
                     {isCoach && (
                       <Button
                         variant="outline"
                         size="sm"
-                        title="See the app as this athlete would — their own profile, log-a-run, race reflections, etc."
+                        className="h-11 w-11 p-0 sm:h-8 sm:w-8"
+                        title="Preview as athlete — see the app as they would: their own profile, log-a-run, race reflections"
+                        aria-label={`Preview the app as ${athlete.preferredName || athlete.name}`}
                         onClick={() => setPreviewAthlete(athlete.id, athlete.preferredName || athlete.name, teamPath)}
                       >
-                        <Eye className="mr-2 h-4 w-4" />
-                        Preview as athlete
+                        <Eye className="h-4 w-4" />
                       </Button>
                     )}
                     {isCoach && athlete.flaggedForRemoval && (
