@@ -10,6 +10,8 @@ import { AdminTeamSwitcher } from './AdminTeamSwitcher';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { CheckoutReminderBanner } from './CheckoutReminderBanner';
 import { useOptionalSeasonSelection } from '../contexts/SeasonContext';
+import { useQuery } from '@tanstack/react-query';
+import api from '../api/api';
 import { sectionForPath, isDrillInPath } from '../lib/sectionTheme';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
@@ -228,7 +230,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
                 <NavItem to={teamPath('/equipment')} icon={Package} label="Equipment" isCollapsed={isCollapsed} onClick={handleLinkClick} />
                 <NavItem to={teamPath('/field-results')} icon={Upload} label="Field Results" isCollapsed={isCollapsed} onClick={handleLinkClick} />
                 <NavItem to={teamPath('/settings')} icon={Settings} label="Settings" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-                <NavItem to={teamPath('/feedback')} icon={MessageSquare} label="Feedback" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                {/* The feedback INBOX is the maintainer's, not a per-team
+                    feature — filing a report is still open to everyone via
+                    the floating FeedbackWidget on every screen. The backend
+                    is what enforces this (requireSuperAdmin); hiding the
+                    link just stops coaches walking into a 403. */}
+                {currentUser?.isSuperAdmin && (
+                  <FeedbackNavItem isCollapsed={isCollapsed} teamPath={teamPath} onClick={handleLinkClick} />
+                )}
               </CollapsibleSetupSection>
             )}
           </>
@@ -315,6 +324,38 @@ const TeamSeasonHeader: React.FC = () => {
         </Select>
       )}
     </>
+  );
+};
+
+// Feedback with an unread count, so a report that arrives while the
+// maintainer is doing something else is actually noticed. There's no email
+// provider wired up in this app, so an in-app badge is the notification.
+// Its own tiny endpoint (GET /feedback/unread-count) rather than reusing the
+// list query, which pulls up to 500 rows.
+const FeedbackNavItem: React.FC<{
+  isCollapsed: boolean;
+  teamPath: (p: string) => string;
+  onClick: () => void;
+}> = ({ isCollapsed, teamPath, onClick }) => {
+  const { data } = useQuery({
+    queryKey: ['feedbackUnreadCount'],
+    queryFn: async () => (await api.get('/feedback/unread-count')).data as { open: number },
+    staleTime: 60_000,
+  });
+  const open = data?.open ?? 0;
+
+  return (
+    <div className="relative">
+      <NavItem to={teamPath('/feedback')} icon={MessageSquare} label="Feedback" isCollapsed={isCollapsed} onClick={onClick} />
+      {open > 0 && (
+        <span
+          aria-label={`${open} unread`}
+          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white"
+        >
+          {open}
+        </span>
+      )}
+    </div>
   );
 };
 

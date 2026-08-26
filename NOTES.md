@@ -3041,3 +3041,86 @@ the same temporary harness technique as previous entries, **deleted again
 afterward**. Not verified: the back button against real drill-in routes
 with live data — `isDrillInPath` was reasoned against the router's actual
 subpath list, not clicked through.
+
+## Feedback becomes the maintainer's inbox — and closing a cross-tenant leak found on the way
+
+User: "change the feedback tool to something that goes to me for me to see.
+vallejo+xc@gmail.com is the superadmin. give me a screen that stores and
+collects so I can give it back to you in an organized way."
+
+Most of the machinery already existed — a `Feedback` model, a submit widget,
+a review queue grouped by screen, triage, and a markdown export whose comment
+already said "ready to hand over verbatim". So this was less "build a
+feedback tool" than "make it actually be *yours*".
+
+### The leak (the real finding)
+
+`GET /feedback`, `PATCH /feedback/:id` and `GET /feedback/export` were gated
+on `requireRole(['HEAD_COACH','COACH'])` — and none of them scoped the query
+to the caller's own team. `mine=true` existed but was **opt-in**, so the
+default response was every report from every team on the platform, including
+each reporter's email address and raw console output. PATCH was equally
+unscoped: any coach could re-triage any other school's reports. The route's
+own comment read "Coach-only: reports can contain other people's email
+addresses", which is precisely the risk it wasn't preventing.
+
+All three are now `requireSuperAdmin` (the guard already existed in
+`middleware/auth.js`, backed by the `SUPER_ADMIN_EMAILS` allowlist in
+`lib/superAdmin.js`). `POST /` stays open to any signed-in user — a coach
+hitting a bug in the field is exactly who needs it, and they are never a
+super admin.
+
+`test/feedbackAuth.test.js` (new, 3 tests) locks this down statically:
+every route authenticates; only `POST /` is un-gated; and no route may use
+`requireRole` at all. `routeAuth.test.js` could not have caught this — it
+only checks that *non-GET* routes carry *some* guard, so `GET /` and
+`GET /export` were invisible to it and `PATCH` looked fine with a coach role.
+Confirmed non-vacuous by reintroducing the old guard and watching the suite
+go red, then reverting.
+
+### The inbox
+
+`FeedbackPage.tsx` is now super-admin only (backend enforces; the page just
+explains itself rather than spinning or throwing a bare 403 at a coach who
+lands on the URL). Added: team name per report (resolved by mapping `teamId`
+manually — `Feedback` deliberately has no FK to `Team` so a report outlives
+the team it's about), severity filter and counts, free-text search across
+message/screen/team/reporter, and two exports — "Copy as markdown" (open +
+triaged, for pasting into chat) and "Download all" (everything, resolved
+included, as a `.md` file).
+
+The export got rewritten to be worth handing over: a summary line (totals,
+untouched count, blocker count, timestamp), grouped by screen, **severity-
+ordered within each screen so blockers lead**, and each entry stamped with
+route/status/team/season/reporter/date, with triage notes and console errors
+folded into a `<details>` block.
+
+### Notification
+
+There is **no email provider in this codebase at all** — no nodemailer,
+resend, sendgrid or anything else in either package.json (the apparent
+matches are the substring "mail" inside `userEmail`). Staff invites already
+work by copy-the-link for the same reason. So "goes to me" is delivered as
+an in-app inbox plus an unread badge on the sidebar's Feedback item, fed by
+a new `GET /feedback/unread-count` (its own tiny route so the sidebar
+doesn't pull 500 rows on every page load). Real email would mean adding a
+provider, an API key and a Railway env var — worth doing if you want it, but
+it's a dependency and a deploy decision, not something to assume.
+
+### ⚠️ Action required before this works in production
+
+`SUPER_ADMIN_EMAILS` must include `vallejo+xc@gmail.com` on Railway. The
+allowlist is an env var read at request time (`lib/superAdmin.js`), not a
+database flag, and this session cannot set Railway env vars. **If that
+variable is unset or doesn't contain that address, the Feedback nav item
+won't appear and the inbox will 403 — for everyone, including you.** Same
+variable that gates the admin team switcher, so if that switcher is already
+visible in production, this will work too.
+
+Verification: `tsc -b`, `eslint` on both changed frontend files, and
+`npm run build` (web) all clean; backend `node --test` 343/344 — the three
+new tests pass, and the one failure is the same pre-existing unrelated
+scraper-fixture gap. Not verified: the inbox against real feedback rows or a
+live super-admin session (no live DB or auth in this sandbox), and the
+unread badge's count endpoint has no test since it is a one-line `count()`
+behind the guard that `feedbackAuth.test.js` already asserts.

@@ -1,7 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireSuperAdmin } = require('../middleware/auth');
+
+// Feedback is the product owner's channel, not a per-team feature: anyone
+// signed in can FILE a report (POST /), but reading, triaging and exporting
+// the queue is super-admin only (lib/superAdmin.js — the SUPER_ADMIN_EMAILS
+// allowlist).
+//
+// This replaced requireRole(['HEAD_COACH','COACH']) on the read/triage/export
+// routes, which was a real cross-tenant leak rather than a preference: those
+// queries were never scoped to the caller's team by default (`mine=true` was
+// opt-in), so any coach at any school could read — and PATCH — every other
+// school's reports, including the reporter's email address and raw console
+// output. The route comment claimed "Coach-only: reports can contain other
+// people's email addresses", which is exactly the risk it wasn't preventing.
 
 const SEVERITIES = ['blocker', 'bug', 'polish', 'idea'];
 const STATUSES = ['open', 'triaged', 'fixed', 'wontfix'];
@@ -63,15 +76,24 @@ router.post('/', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/feedback — review queue. Coach-only: reports can contain other
-// people's email addresses and raw error output.
-router.get('/', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
-  const { status, severity, mine } = req.query;
+// Feedback carries no FK to Team on purpose (see the schema comment: a
+// report must outlive the team it is about). So team names are resolved
+// separately and a missing one is normal, not an error.
+async function withTeamNames(items) {
+  const teamIds = [...new Set(items.map((i) => i.teamId).filter(Boolean))];
+  if (teamIds.length === 0) return items.map((i) => ({ ...i, teamName: null }));
+  const teams = await prisma.team.findMany({ where: { id: { in: teamIds } }, select: { id: true, name: true } });
+  const nameById = new Map(teams.map((t) => [t.id, t.name]));
+  return items.map((i) => ({ ...i, teamName: i.teamId ? nameById.get(i.teamId) ?? null : null }));
+}
+
+// GET /api/feedback — the review queue, across every team.
+router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
+  const { status, severity } = req.query;
 
   try {
     const feedback = await prisma.feedback.findMany({
       where: {
-        ...(String(mine) === 'true' ? { teamId: req.user.teamId } : {}),
         ...(STATUSES.includes(status) ? { status } : {}),
         ...(SEVERITIES.includes(severity) ? { severity } : {}),
       },
@@ -79,14 +101,18 @@ router.get('/', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, 
       take: 500,
     });
 
-    const counts = await prisma.feedback.groupBy({
-      by: ['status'],
-      _count: { _all: true },
-    });
+    const [statusCounts, severityCounts] = await Promise.all([
+      prisma.feedback.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.feedback.groupBy({ by: ['severity'], _count: { _all: true }, where: { status: { in: ['open', 'triaged'] } } }),
+    ]);
 
     res.json({
-      feedback,
-      counts: Object.fromEntries(counts.map((c) => [c.status, c._count._all])),
+      feedback: await withTeamNames(feedback),
+      counts: Object.fromEntries(statusCounts.map((c) => [c.status, c._count._all])),
+      // Severity counts cover only what's still actionable, so "3 blockers"
+      // means three open blockers rather than three since the beginning of
+      // time.
+      severityCounts: Object.fromEntries(severityCounts.map((c) => [c.severity, c._count._all])),
     });
   } catch (error) {
     console.error('Error fetching feedback:', error.message);
@@ -94,8 +120,20 @@ router.get('/', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, 
   }
 });
 
+// GET /api/feedback/unread-count — just the number, for the nav badge. Its
+// own route so the sidebar doesn't pull 500 rows on every page load.
+router.get('/unread-count', authenticate, requireSuperAdmin, async (req, res) => {
+  try {
+    const open = await prisma.feedback.count({ where: { status: 'open' } });
+    res.json({ open });
+  } catch (error) {
+    console.error('Error counting feedback:', error.message);
+    res.status(500).json({ message: 'Could not count feedback.' });
+  }
+});
+
 // PATCH /api/feedback/:id — triage.
-router.patch('/:id', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.patch('/:id', authenticate, requireSuperAdmin, async (req, res) => {
   const { status, notes } = req.body || {};
 
   try {
@@ -116,36 +154,71 @@ router.patch('/:id', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (
   }
 });
 
-// GET /api/feedback/export — everything as markdown, ready to hand over
-// verbatim. This is the format that is actually useful to work from.
-router.get('/export', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+// GET /api/feedback/export — the queue as markdown, ready to paste
+// verbatim into a chat with whoever is doing the work. Grouped by screen
+// (how reports arrive and how they're worked through), severity-ordered
+// within a screen so blockers lead, and stamped with team + reporter so a
+// report can be chased up. ?status=all includes already-resolved items;
+// the default is just what's still actionable.
+router.get('/export', authenticate, requireSuperAdmin, async (req, res) => {
+  const wantAll = String(req.query.status) === 'all';
+
   try {
-    const feedback = await prisma.feedback.findMany({
-      where: { status: { in: ['open', 'triaged'] } },
-      orderBy: [{ route: 'asc' }, { createdAt: 'asc' }],
+    const rows = await prisma.feedback.findMany({
+      where: wantAll ? {} : { status: { in: ['open', 'triaged'] } },
+      orderBy: [{ createdAt: 'asc' }],
       take: 500,
     });
+    const feedback = await withTeamNames(rows);
 
-    const byRoute = new Map();
+    const severityRank = (s) => {
+      const i = SEVERITIES.indexOf(s);
+      return i === -1 ? SEVERITIES.length : i;
+    };
+
+    const byScreen = new Map();
     for (const item of feedback) {
-      if (!byRoute.has(item.route)) byRoute.set(item.route, []);
-      byRoute.get(item.route).push(item);
+      const key = item.screen || item.route;
+      if (!byScreen.has(key)) byScreen.set(key, []);
+      byScreen.get(key).push(item);
     }
 
-    const lines = ['# Feedback export', ''];
-    for (const [route, items] of byRoute) {
-      lines.push(`## ${items[0].screen || route}  \`${route}\``, '');
+    const total = feedback.length;
+    const openCount = feedback.filter((f) => f.status === 'open').length;
+    const blockers = feedback.filter((f) => f.severity === 'blocker' && f.status !== 'fixed' && f.status !== 'wontfix').length;
+
+    const lines = [
+      '# LeadPack feedback',
+      '',
+      `_${total} report${total === 1 ? '' : 's'}${wantAll ? '' : ' still open or triaged'} · ${openCount} untouched · ${blockers} blocker${blockers === 1 ? '' : 's'} · exported ${new Date().toISOString().slice(0, 16).replace('T', ' ')}Z_`,
+      '',
+    ];
+
+    for (const [screen, items] of byScreen) {
+      items.sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || a.createdAt - b.createdAt);
+      lines.push(`## ${screen}`, '');
       for (const item of items) {
-        lines.push(`### [${item.severity}] ${item.message.split('\n')[0].slice(0, 80)}`);
-        lines.push(`- season: ${item.season ?? 'n/a'}`);
-        lines.push(`- reported: ${item.createdAt.toISOString()} by ${item.userEmail || 'unknown'}`);
-        lines.push('', item.message, '');
+        const firstLine = item.message.split('\n')[0].slice(0, 90);
+        lines.push(`### [${item.severity}] ${firstLine}`);
+        const meta = [
+          `route \`${item.route}\``,
+          `status **${item.status}**`,
+          item.teamName ? `team ${item.teamName}` : null,
+          item.season ? `season ${item.season}` : null,
+          item.userEmail ? `from ${item.userEmail}` : null,
+          item.createdAt.toISOString().slice(0, 10),
+        ].filter(Boolean);
+        lines.push('', meta.join(' · '), '');
+        lines.push(item.message, '');
+        if (item.notes) lines.push(`> Triage note: ${item.notes}`, '');
         const errors = item.context?.consoleErrors || [];
         if (errors.length) {
-          lines.push('```', ...errors, '```', '');
+          lines.push('<details><summary>console errors</summary>', '', '```', ...errors, '```', '', '</details>', '');
         }
       }
     }
+
+    if (total === 0) lines.push('_Nothing to report._', '');
 
     res.type('text/markdown').send(lines.join('\n'));
   } catch (error) {
