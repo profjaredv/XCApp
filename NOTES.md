@@ -3097,17 +3097,25 @@ folded into a `<details>` block.
 
 ### Notification
 
-There is **no email provider in this codebase at all** — no nodemailer,
-resend, sendgrid or anything else in either package.json (the apparent
-matches are the substring "mail" inside `userEmail`). Staff invites already
-work by copy-the-link for the same reason. So "goes to me" is delivered as
-an in-app inbox plus an unread badge on the sidebar's Feedback item, fed by
-a new `GET /feedback/unread-count` (its own tiny route so the sidebar
-doesn't pull 500 rows on every page load). Real email would mean adding a
-provider, an API key and a Railway env var — worth doing if you want it, but
-it's a dependency and a deploy decision, not something to assume.
+**Correction to what this entry originally claimed.** It said there was "no
+email provider in this codebase at all", on the strength of a package.json
+grep for nodemailer/resend/sendgrid. That was wrong: `backend/lib/email.js`
+is a working eusend wrapper (verified sending domain `mail.leadpack.cc`,
+disabled by leaving `EUSEND_API_KEY` unset) and it is already called from
+`routes/admin.js`, `routes/athletes.js` and `routes/team.js`. It uses raw
+`fetch`, so it has no npm dependency for a package.json grep to find —
+the wrong search, confidently read. Copy-the-link on invites is the
+FALLBACK when the key is unset, not evidence that email doesn't exist.
 
-### ⚠️ Action required before this works in production
+So emailing feedback out was always available and cheap: one `sendEmail`
+call in `POST /feedback`. The user's call, made after this was raised, was
+"it can just be managed within the app" — so notification stays in-app: the
+inbox plus an unread badge on the sidebar's Feedback item, fed by a new
+`GET /feedback/unread-count` (its own tiny route so the sidebar doesn't
+pull 500 rows on every page load). Left undone deliberately, not because it
+was impossible.
+
+### ⚠️ Action required before this works in production (still open)
 
 `SUPER_ADMIN_EMAILS` must include `vallejo+xc@gmail.com` on Railway. The
 allowlist is an env var read at request time (`lib/superAdmin.js`), not a
