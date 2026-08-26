@@ -3132,3 +3132,81 @@ scraper-fixture gap. Not verified: the inbox against real feedback rows or a
 live super-admin session (no live DB or auth in this sandbox), and the
 unread badge's count endpoint has no test since it is a one-line `count()`
 behind the guard that `feedbackAuth.test.js` already asserts.
+
+## Manual race-results import — the scraper's insurance policy
+
+User: "importing race results manually. that needs to be the feature that
+prevents this app from not working if athletic.net tries to block the
+scraper."
+
+Surveyed first, because a lot of manual entry already existed. CSV import
+was already there for the roster, field results, practice plans, the meet
+calendar and splits; manual Meets/Races (`isManual`), per-athlete results
+entry, and the live finish-order timer all existed too. **The one gap was
+the scraper's actual core output**: a whole race's Results. The batch write
+endpoint (`POST /races/:raceId/results`) takes `athleteId` UUIDs, which a
+coach looking at a results page does not have and cannot get. So there was
+no path from "I can see the results" to "they're in the app" other than
+typing each athlete one at a time.
+
+`backend/lib/resultImport.js` (new, pure, 22 tests) closes it. Two input
+shapes, handled differently on purpose:
+
+- **Delimited with a header** (`Place,Athlete,Time`, tab or comma) —
+  unambiguous, parsed exactly, never guessed at. Tab beats comma when both
+  appear, since a pasted table's cells often contain "Last, First".
+- **Free-form pasted lines** — `1 Callum Woods-Vallejo 12 18:42.3 Kenwood`.
+  Place and time extract confidently. Telling the *athlete* name from the
+  *school* name does not, from the text alone. So the parser deliberately
+  refuses to decide: it emits every plausible name span as a candidate and
+  the route resolves them against the team's roster, which is the
+  information that actually settles it. A school name only wins if a team
+  really has an athlete by that name. Anything still unresolved goes to the
+  coach with a dropdown rather than being guessed.
+
+That "roster is the disambiguator" design has a useful consequence: pasting
+an entire public results page (every school in the meet) just works —
+everyone else's rows come back unmatched and are never offered for import.
+
+`POST /meet-ops/races/:raceId/results/parse` is **read-only**. It returns
+what it *would* write — matched, unmatched, duplicated, and the lines it
+ignored — and the frontend then submits through the existing batch endpoint.
+One write path, shared with manual entry and the live timer, so an import
+can't half-apply and there's no second place for result-writing bugs to
+live. `ImportResultsDialog.tsx` is the two-step UI (paste/upload → review →
+import), reachable from a race's "Import Results" button next to Enter
+Results and Live Timer.
+
+### Two bugs the tests and a realistic dry run caught
+
+1. **`+12pts` wasn't recognised as noise**, so it polluted name candidates —
+   the points regex was anchored on `\d` and Athletic.net renders points
+   with a leading sign. Fixed, and wind readings (`-1.2m/s`) covered too.
+2. **The "Last, First" handling was dead on the real path.** Its unit test
+   passed because it called `parseFreeformLine` directly; `parseResultsText`
+   stripped *all* commas before ever reaching it, so `Woods, Tess` never
+   matched `Tess Woods`. Found by running a realistic multi-school paste
+   end-to-end rather than trusting green tests. Commas do two jobs here: a
+   headerless-CSV delimiter (must become whitespace) and a name separator
+   (must survive). Now split on the convention that a delimiter comma has no
+   space after it and a name comma does. Regression test added **at the
+   `parseResultsText` level** — the level that was actually broken.
+
+Worth keeping in mind generally: a green unit test on a helper says nothing
+about whether the caller reaches it the way the test does.
+
+Verification: 22 new tests in `test/resultImport.test.js`, backend suite
+365/366 (the one failure is the same pre-existing unrelated scraper-fixture
+gap); `tsc -b`, `eslint` on all touched frontend files, and `npm run build`
+(web) clean. Also ran a realistic five-line multi-school paste through
+parse + resolve directly and confirmed all four cases behave: own-team
+athletes matched, other schools left unmatched, "Last, First" resolved,
+section headers and team-score lines reported as skipped rather than
+silently dropped. Not verified: the dialog against a live race with a real
+roster (no DB or auth in this sandbox) — the parse route itself is exercised
+only through its pure lib, not over HTTP.
+
+**Still deliberately not built**: importing whole *meets/races* in bulk from
+a paste. Races can already be created manually and this covers the results
+inside one, so the fallback is complete end-to-end; a bulk meet importer is
+a convenience on top, not a gap in the insurance policy.

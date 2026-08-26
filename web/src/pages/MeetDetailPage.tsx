@@ -14,9 +14,10 @@ import {
 } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Timer as TimerIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Upload, Timer as TimerIcon } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults } from '@/hooks/useMeetOps';
+import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 import { formatTimeSec, type MeetDetail, type ResultStatus, type RaceResultEntry } from '@/api/meetOpsService';
 import { rosterService } from '@/api/rosterService';
@@ -52,6 +53,7 @@ const MeetDetailPage: React.FC = () => {
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
   const [addRaceOpen, setAddRaceOpen] = useState(false);
   const [enterResultsOpen, setEnterResultsOpen] = useState(false);
+  const [importResultsOpen, setImportResultsOpen] = useState(false);
 
   useEffect(() => {
     if (!meet) return;
@@ -202,6 +204,12 @@ const MeetDetailPage: React.FC = () => {
                     </Button>
                   )}
                   {selectedRaceId && (
+                    <Button variant="outline" onClick={() => setImportResultsOpen(true)}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Import Results
+                    </Button>
+                  )}
+                  {selectedRaceId && (
                     <Button variant="outline" onClick={() => setEnterResultsOpen(true)}>
                       <ClipboardList className="h-4 w-4 mr-2" />
                       Enter Results
@@ -229,6 +237,15 @@ const MeetDetailPage: React.FC = () => {
           seasonYear={meet.seasonYear}
           open={enterResultsOpen}
           onOpenChange={setEnterResultsOpen}
+        />
+      )}
+      {selectedRaceId && (
+        <ImportResultsDialog
+          raceId={selectedRaceId}
+          raceName={selectedRace?.name ?? ''}
+          seasonYear={meet.seasonYear}
+          open={importResultsOpen}
+          onOpenChange={setImportResultsOpen}
         />
       )}
     </div>

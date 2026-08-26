@@ -139,6 +139,26 @@ export function entryStatusLabel(status: EntryStatus | undefined): string {
   }
 }
 
+
+export interface ParsedResultRow {
+  raw: string;
+  place: number | null;
+  timeSec: number;
+  athleteId: string | null;
+  matchedName: string | null;
+  matchedOn: string | null;
+  duplicate: boolean;
+  nameCandidates: string[];
+}
+
+export interface ParsedResultsPreview {
+  race: { id: string; name: string; date: string; distance: string | null };
+  format: 'delimited' | 'freeform' | 'empty';
+  skipped: string[];
+  rows: ParsedResultRow[];
+  summary: { parsed: number; matched: number; unmatched: number; skipped: number };
+}
+
 export const meetOpsService = {
   async listMeets(seasonId: string): Promise<MeetSummary[]> {
     const response = await api.get<MeetSummary[]>('/meet-ops', { params: { seasonId } });
@@ -168,6 +188,16 @@ export const meetOpsService = {
 
   async getRaceResults(raceId: string): Promise<RaceResultsDetail> {
     const response = await api.get<RaceResultsDetail>(`/meet-ops/races/${raceId}/results`);
+    return response.data;
+  },
+
+  /**
+   * Parse a pasted/uploaded results block against the roster. Read-only —
+   * the returned rows are submitted through submitRaceResults like any
+   * other entry, so import and manual entry share one write path.
+   */
+  async parseRaceResults(raceId: string, text: string): Promise<ParsedResultsPreview> {
+    const response = await api.post<ParsedResultsPreview>(`/meet-ops/races/${raceId}/results/parse`, { text });
     return response.data;
   },
 

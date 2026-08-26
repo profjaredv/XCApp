@@ -5,6 +5,8 @@ const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require
 const { buildMeetMappingProposal } = require('../lib/meetMapping');
 const { parseTeamCalendar } = require('../lib/icalMeets');
 const { decideResultWrite } = require('../lib/raceResults');
+const { parseResultsText, resolveRows } = require('../lib/resultImport');
+const { normalizeAthleteName } = require('../lib/athleteMatching');
 
 // T4 (Team Management handoff), simplified per the Schedule rework: meet
 // operations — the Meet parent entity (name/date/location/home-or-away)
@@ -514,6 +516,89 @@ router.get('/races/:raceId/results', authenticate, requireTeam, requireRole(COAC
     });
   } catch (error) {
     console.error('Error fetching race results:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/meet-ops/races/:raceId/results/parse — the manual-import
+// fallback for a blocked scraper. Takes whatever a coach can actually get
+// hold of (a copied block from a results page, or a CSV) and returns what
+// it WOULD write, matched against this team's roster. Writes nothing: the
+// coach reviews and fixes matches, then the existing batch write endpoint
+// below saves it. Keeping parse and write separate means the import can
+// never half-apply, and the proven write path stays the only way results
+// are created.
+//
+// Only this team's athletes are ever matched or returned, so pasting a full
+// public results page (every school in the meet) is fine — everyone else's
+// rows come back unmatched and are simply not offered for import.
+router.post('/races/:raceId/results/parse', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ msg: 'Paste or upload some results first.' });
+  }
+  // Bounded so a stray paste of an entire web page can't tie up the server.
+  if (text.length > 200_000) {
+    return res.status(413).json({ msg: 'That is too much text to import at once — paste one race at a time.' });
+  }
+
+  try {
+    const teamId = req.user.teamId;
+    const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId } });
+    if (!race) {
+      return res.status(404).json({ msg: 'Race not found.' });
+    }
+
+    const athletes = await prisma.athlete.findMany({
+      where: { teamId },
+      select: { id: true, name: true, preferredName: true },
+    });
+
+    // Both legal and preferred names are indexed: a results page prints
+    // whichever the school registered, and the roster may hold the other.
+    const rosterIndex = new Map();
+    for (const a of athletes) {
+      const entry = { athleteId: a.id, name: a.preferredName || a.name };
+      rosterIndex.set(normalizeAthleteName(a.name), entry);
+      if (a.preferredName) rosterIndex.set(normalizeAthleteName(a.preferredName), entry);
+    }
+
+    const { rows, skipped, format } = parseResultsText(text);
+    const resolved = resolveRows(rows, rosterIndex, normalizeAthleteName);
+
+    // Two rows resolving to the same athlete means the paste covered the
+    // same person twice (e.g. two heats pasted together). Flagged rather
+    // than silently letting the last one win on write.
+    const seen = new Map();
+    for (const row of resolved) {
+      if (!row.athleteId) continue;
+      seen.set(row.athleteId, (seen.get(row.athleteId) || 0) + 1);
+    }
+
+    res.json({
+      race: { id: race.id, name: race.name, date: race.date, distance: race.distance },
+      format,
+      skipped,
+      rows: resolved.map((r) => ({
+        raw: r.raw,
+        place: r.place,
+        timeSec: r.timeSec,
+        athleteId: r.athleteId,
+        matchedName: r.matchedName,
+        matchedOn: r.matchedOn,
+        duplicate: r.athleteId ? seen.get(r.athleteId) > 1 : false,
+        // What to show a coach resolving an unmatched row by hand.
+        nameCandidates: r.nameCandidates.slice(0, 5),
+      })),
+      summary: {
+        parsed: resolved.length,
+        matched: resolved.filter((r) => r.athleteId).length,
+        unmatched: resolved.filter((r) => !r.athleteId).length,
+        skipped: skipped.length,
+      },
+    });
+  } catch (error) {
+    console.error('Error parsing race results:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
