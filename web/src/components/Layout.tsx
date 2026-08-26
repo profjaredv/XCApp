@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, Link, NavLink, useLocation } from 'react-router-dom';
+import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, ClipboardList, Gauge, Users, CalendarDays, Flag, TrendingUp, Database, Package, Upload, MessageSquare } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,6 +10,7 @@ import { AdminTeamSwitcher } from './AdminTeamSwitcher';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { CheckoutReminderBanner } from './CheckoutReminderBanner';
 import { useOptionalSeasonSelection } from '../contexts/SeasonContext';
+import { sectionForPath, isDrillInPath } from '../lib/sectionTheme';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface SidebarProps {
@@ -319,6 +320,13 @@ const TeamSeasonHeader: React.FC = () => {
 
 const Layout: React.FC = () => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Which area of the app this is (see lib/sectionTheme.ts) — drives the
+  // header's colour wash, and nothing else.
+  const section = sectionForPath(location.pathname);
+  const showBack = isDrillInPath(location.pathname);
+
   return (
     <div className="flex flex-col h-screen">
       <ImpersonationBanner />
@@ -326,10 +334,35 @@ const Layout: React.FC = () => {
       <div className="flex flex-1 bg-background overflow-hidden md:overflow-auto">
         <Sidebar isMobileOpen={isMobileOpen} setIsMobileOpen={setIsMobileOpen} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <header className="bg-background/80 backdrop-blur-xl border-b border-border px-3 md:px-4 py-3 md:py-4 flex items-center gap-2">
-            <button onClick={() => setIsMobileOpen(true)} className="md:hidden -ml-1 p-2 text-muted-foreground hover:bg-accent rounded-lg transition-colors">
+          <header className="relative isolate bg-background/80 backdrop-blur-xl border-b border-border px-3 md:px-4 py-3 md:py-4 flex items-center gap-2">
+            {/* Section wash: a gradient fading down into the page, plus a
+                hairline of the same hue along the top. Purely decorative
+                and pointer-events-none, so it can never sit between a
+                finger and a control. */}
+            <div aria-hidden className={`pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b to-transparent ${section.wash}`} />
+            <div aria-hidden className={`pointer-events-none absolute inset-x-0 top-0 -z-10 h-0.5 ${section.rule}`} />
+            <button
+              onClick={() => setIsMobileOpen(true)}
+              aria-label="Open menu"
+              className="md:hidden -ml-1 p-2 text-muted-foreground hover:bg-accent rounded-lg transition-colors"
+            >
               <Menu className="h-6 w-6" />
             </button>
+            {/* On a phone the sidebar is behind the hamburger, so a detail
+                page (a meet, an athlete) otherwise has no way out except
+                the browser's back gesture — which an installed PWA doesn't
+                have. Shown at every width since it's just as useful with a
+                mouse. */}
+            {showBack && (
+              <button
+                onClick={() => navigate(-1)}
+                aria-label="Go back"
+                title="Back"
+                className="-ml-1 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+            )}
             <TeamSeasonHeader />
           </header>
           <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 md:p-6">

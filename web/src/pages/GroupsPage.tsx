@@ -907,6 +907,7 @@ const ManageLeadersDialog: React.FC<{ group: Group | null; seasonId: string | nu
           <DialogDescription>Coaches assigned here can edit this group and move athletes into it (volunteer coaches only for groups they lead).</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <div className="max-h-[50vh] space-y-3 overflow-y-auto">
           {group.leaders.length === 0 && <p className="text-sm text-muted-foreground">No leaders assigned yet.</p>}
           {group.leaders.map((l) => (
             <div key={l.userId} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
@@ -919,6 +920,7 @@ const ManageLeadersDialog: React.FC<{ group: Group | null; seasonId: string | nu
               </Button>
             </div>
           ))}
+          </div>
           <div className="flex items-center gap-2 pt-2">
             <Select value={selectedUserId} onValueChange={setSelectedUserId}>
               <SelectTrigger className="flex-1"><SelectValue placeholder={staffLoading ? 'Loading staff…' : 'Add a coach…'} /></SelectTrigger>
@@ -1011,6 +1013,13 @@ const ManageMembersDialog: React.FC<{
           <DialogTitle>Members — {group.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
+          {/* The member list scrolls inside the dialog rather than growing it:
+              a 15-athlete group used to make the whole dialog taller than the
+              phone screen, and a centered dialog that overflows has no
+              reachable top or bottom. Keeping the list bounded also keeps the
+              "add an athlete" row and Done button on screen where a coach can
+              actually reach them. */}
+          <div className="max-h-[50vh] space-y-3 overflow-y-auto">
           {membersLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : members.length === 0 ? (
@@ -1044,6 +1053,7 @@ const ManageMembersDialog: React.FC<{
               </div>
             ))
           )}
+          </div>
           <div className="flex items-center gap-2 pt-2">
             <Select value={selectedAthleteId} onValueChange={setSelectedAthleteId}>
               <SelectTrigger className="flex-1"><SelectValue placeholder="Add an athlete…" /></SelectTrigger>
@@ -1189,7 +1199,7 @@ const XTrainingRosterDialog: React.FC<{
           </DialogTitle>
           <DialogDescription>Who's cross-training right now, why, and when they're expected back.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-2">
+        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : !data || data.members.length === 0 ? (

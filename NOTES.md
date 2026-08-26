@@ -2943,3 +2943,101 @@ Verification: `tsc -b`, `eslint` on both changed frontend files, and
 unrelated scraper-fixture failure. The SQL script is **not** executed
 anywhere and has no test; it's a read-only diagnostic (five SELECTs, no
 writes) meant to be pasted into a console by a human.
+
+## Duplicate athletes confirmed; unreachable dialogs fixed; back buttons and a section colour scheme
+
+User confirmed the diagnostic's top hypothesis: **Callum Woods-Vallejo and
+Gigi Anderson both had duplicate Athlete rows, and the merge tool resolved
+both.** That closes the "missing 2025 data" thread — it was never a caching
+or query-filter problem, and `summarizeRaces`'s raced-but-no-pace blind
+spot (flagged in the previous entry) was NOT the cause. That defect is
+still real and still unfixed; leaving it flagged rather than acting on it
+now that the actual cause is known to be something else.
+
+### The unreachable dialog — a `dialog.tsx` bug, not a Groups bug
+
+Reported as "on mobile, the groups of athletes view, when I open a group
+where the list of names is more than what the screen can show, I can't
+scroll or view anything." Root cause was in the shared primitive, so it
+affected **every dialog in the app**, not just group members:
+`DialogContent` is `fixed top-[50%] translate-y-[-50%]` with no
+`max-height` and no `overflow`. Once its content exceeds the viewport it
+extends off both the top and the bottom with no scroll container of its
+own, while Radix scroll-locks the page behind it — the content is
+genuinely unreachable, exactly as described.
+
+Two layers of fix:
+- `dialog.tsx`: `max-h-[calc(100dvh-2rem)] overflow-y-auto` on
+  `DialogContent`. `dvh` rather than `vh` so mobile browser chrome is
+  accounted for. This is the safety net — no dialog anywhere can be
+  unreachable again.
+- The three long-list dialogs in `GroupsPage.tsx` (members, leaders,
+  cross-training roster) additionally scroll their *list* internally
+  (`max-h-[50vh]`/`60vh`), which keeps the dialog itself inside the
+  viewport so the title, the "add an athlete" row, the Done button and the
+  X never scroll away. The global cap alone would have left those
+  scrolling with the content.
+
+Verified in a browser at 375×667 (iPhone SE) with an 18-member group:
+dialog 544px tall inside a 667px viewport, list scrolling 960px of content
+in a 334px window, and title/Add/Done all reported visible. Before the fix
+that dialog would have been ~960px+ against a 667px viewport.
+
+### Back buttons
+
+`Layout`'s header had a hamburger and nothing else, so a drill-in page (a
+meet, an athlete profile) had no way out on a phone except the browser's
+back gesture — which an installed PWA doesn't have. Added a Back control
+driven by `isDrillInPath()` (`lib/sectionTheme.ts`): any route that isn't a
+bare top-level sidebar destination gets one. Shown at all widths, since
+it's just as useful with a mouse. The standalone full-screen routes
+(attendance, splits, timer, interval sessions) already had explicit Close
+actions via `FieldHeader` and were left alone.
+
+### Section colour scheme
+
+User asked for "subtle beautiful gradients where the gradient range color
+means something — if an athlete screen it is a certain color, if groups, if
+coach views, etc."
+
+`web/src/lib/sectionTheme.ts` maps route → section → a wash + a hairline
+rule: athlete violet, groups teal, schedule amber (attendance and interval
+sessions included), meets rose, analytics sky, Today slate. Applied in
+exactly two places — `Layout`'s header and `FieldHeader` — so no page needs
+per-page work and nothing can drift.
+
+Constraints it holds to, so it stays a cue rather than decoration: the
+colour is a gradient fading to transparent behind the *header only*, never
+behind body content; every value is an alpha over the existing background
+(`/10`, `/70`) rather than a hardcoded light-mode colour; the washes are
+`aria-hidden` + `pointer-events-none`; and colour is never the only carrier
+of meaning, always secondary to the title already there.
+
+Two things the browser check changed:
+- **Setup/admin is now deliberately uncoloured.** As zinc it sat next to
+  Today's slate as two indistinguishable greys, which defeats the point of
+  the scheme. Settings/data/billing are chrome rather than somewhere you do
+  the work, so "no wash" is itself the signal.
+- **Stacking.** The wash is `absolute`, and a positioned element paints
+  above non-positioned siblings — so it covered the header text. Fixed with
+  `isolate` on the header plus `-z-10` on the washes, which puts them above
+  the header's own background but below its text, avoiding a wrapper around
+  `TeamSeasonHeader` (a fragment of flex children that can't be wrapped
+  without breaking the layout).
+
+Dark mode: **not verified as shipping behaviour, because this app has no
+dark mode yet** — `index.css` uses a class-based `.dark` variant and says
+outright that nothing ever adds the class, so `prefers-color-scheme`
+screenshots came back identical to light. Forcing `.dark` on the root
+element confirms the alpha-based washes compose correctly against the dark
+background, which is the reason for choosing alphas over fixed colours, but
+that is a check of the tokens, not of a feature anyone can currently use.
+
+Verification: `tsc -b`, `eslint` on all five changed frontend files, and
+`npm run build` (web) all clean; backend `node --test` 340/341 (the usual
+unrelated scraper-fixture failure — nothing backend was touched). The
+375×667 dialog measurements and the light/dark wash screenshots came from
+the same temporary harness technique as previous entries, **deleted again
+afterward**. Not verified: the back button against real drill-in routes
+with live data — `isDrillInPath` was reasoned against the router's actual
+subpath list, not clicked through.

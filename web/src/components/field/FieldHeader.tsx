@@ -1,6 +1,8 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { Loader2, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { sectionForPath } from '@/lib/sectionTheme';
 
 // The sticky top bar shared by every "field screen" — the full-screen,
 // standalone routes a coach actually works from on a phone at practice or
@@ -32,8 +34,16 @@ export const FieldHeader: React.FC<{
   actions?: FieldAction[];
   /** Optional second row — a pill selector, an offline warning, a filter. */
   children?: React.ReactNode;
-}> = ({ title, subtitle, actions = [], children }) => (
-  <div className="print:hidden sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+}> = ({ title, subtitle, actions = [], children }) => {
+  // These routes render outside <Layout>, so they don't get its header
+  // wash — they carry their own, from the same map, so an attendance
+  // screen reads as part of Schedule and a splits screen as part of Meets.
+  const section = sectionForPath(useLocation().pathname);
+
+  return (
+  <div className="print:hidden sticky top-0 z-20 isolate border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div aria-hidden className={`pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b to-transparent ${section.wash}`} />
+    <div aria-hidden className={`pointer-events-none absolute inset-x-0 top-0 -z-10 h-0.5 ${section.rule}`} />
     <div className="flex items-center justify-between gap-2 px-3 py-2 sm:px-6 sm:py-3">
       <div className="min-w-0">
         <h1 className="truncate text-base font-semibold leading-tight sm:text-lg">{title}</h1>
@@ -59,6 +69,7 @@ export const FieldHeader: React.FC<{
     </div>
     {children}
   </div>
-);
+  );
+};
 
 export default FieldHeader;
