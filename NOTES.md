@@ -3691,3 +3691,99 @@ the source.
 migration is unapplied here, and the save path was exercised against a
 stubbed API in a browser, not against Postgres. The unique index on
 (team_id, abbreviation) in particular has never actually rejected anything.
+
+## Interval sessions on the team's pace zones
+
+The suggested per-rep targets on an interval sheet now come from the team's
+own zone definitions plus the McMillan-style defaults, replacing the fixed
+Daniels/VDOT trio.
+
+### The problem that had to be solved first
+
+A session stores WHICH zone its targets come from. Saving the zone set is a
+delete-then-insert, so **every custom zone gets a fresh uuid on every save**
+— a session holding a `PaceZone.id` would have been orphaned the first time
+a coach edited an unrelated zone. That is a bug the previous commit created
+and this one had to notice before writing any UI.
+
+So `interval_sessions.zone` holds a **stable key**, never a row id:
+
+    mcm-vo2     a default zone, by its constant id
+    team:DIS    a team's own zone, by abbreviation — already unique per
+                team at the database level, and unchanged by a save
+
+`backend/lib/paceZoneRules.js` owns that vocabulary server-side,
+`web/src/lib/paceZoneLookup.ts` client-side. Because the default keys are
+now duplicated across a language boundary,
+`backend/test/paceZoneKeys.test.js` **reads MCMILLAN_ZONES out of the
+frontend TypeScript** and fails if the two lists drift. Same class of
+problem as the `splitMarkerScheme` near-miss: verify the two halves agree
+rather than trusting that they do.
+
+### Migrating existing sessions
+
+    threshold  -> mcm-tempo
+    interval   -> mcm-vo2
+    repetition -> mcm-speed
+
+These are the same zones under different authors' names — Daniels'
+Threshold is a tempo effort, his Interval is VO2max work, his Repetition is
+short speed work. Only the label changes; no session's meaning is
+reinterpreted.
+
+### zone_label, and why a snapshot is not redundant
+
+The live definition is preferred, so retuning or renaming a zone updates
+in-progress sessions. But a coach who **deletes** a zone in December would
+otherwise turn October's sheet into a session labelled with a dangling key.
+So the name is snapshotted at creation and used as the fallback. The raw key
+is the last resort, deliberately ugly: a sheet showing `team:GONE` is a
+visible problem a coach reports, one showing a plausible wrong name is not.
+
+### Targets are ranges now
+
+Zones are ranges, so targets are: "3:03-3:13", collapsing to one number when
+both ends round to the same second. **Recorded rep times keep their tenth,
+targets do not** — a recorded time came off a stopwatch, a target came out of
+a model, and carrying a tenth on the latter was false precision. The old
+`T = ` prefix is gone as redundant with the "Target" column header above it.
+
+### The picker offers everything now
+
+The old list had three zones because Daniels' Easy and Marathon paces have no
+meaningful repeat split. But a coach who wrote their own vocabulary and wants
+6 x 1000m at steady state is not making a mistake, and it is not this
+screen's job to tell them so. Team zones list first (those are the words used
+at practice), then the standards marked "(standard)", each showing its rule.
+
+Worth noting the picker handles the collision case cleanly by accident of
+good naming: a team with a zone abbreviated "T" sits directly above the
+standard "T · Tempo (standard)". Different names, different keys
+(`team:T` vs `mcm-tempo`), and a test covers exactly that.
+
+### Verified in a browser, three cases
+
+| Case | Header | Target |
+|---|---|---|
+| team zone | "VO2 Max pace" | 2:48-2:53 |
+| default zone | "Tempo pace" | 3:03-3:13 |
+| zone deleted since | "Old Sprint Zone pace" (from the snapshot) | — |
+
+Per-athlete targets differ correctly: an 18:00 and a 21:30 5K runner get
+2:48-2:53 and 3:21-3:26 for the same 800m session.
+
+### Harness lessons, both mine
+
+Two self-inflicted delays worth writing down, because both will recur:
+
+1. **A `**/api/**` Playwright route intercepts Vite's own module requests**
+   for anything under `src/api/`, and the page fails with a MIME-type error
+   that says nothing about routing. Scope stubs to the API origin.
+2. **Playwright resolves the most recently registered matching route first.**
+   A catch-all registered last silently shadows every specific stub before
+   it. Register the catch-all first.
+
+**Not verified:** no live database, so the migration is unapplied and the
+legacy zone mapping has never actually rewritten a row. The zone-key
+validation path (`zoneKeyError`) has not run against real PaceZone rows
+either.
