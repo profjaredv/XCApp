@@ -3429,3 +3429,139 @@ a different bug.
 Noted, not touched: `main.tsx` and `TeamAthleteProfilePage.tsx` each carry a
 **pre-existing** lint error (confirmed by stashing this work and re-running).
 Left alone as unrelated.
+
+## The invite 403 — four bugs wearing one costume
+
+"I can't resend an invite, 403." One symptom, four independent causes, any
+one of which produces it on its own. Worth writing down as a pattern: a
+report that sounds like a single bug can be a *class* of bug, and the first
+plausible cause you find is not evidence that it is the only one.
+
+### 1. The bearer token was never refreshed (the big one)
+
+`AuthProvider` called `getJWTToken()` once when the session synced and
+pinned the result on `api.defaults.headers.common['Authorization']` for the
+life of the tab. Neon Auth JWTs are short-lived. Past their `exp`,
+`middleware/auth.js` answers **403 "Invalid or expired token."** — not 401 —
+to *every* request.
+
+What made this hard to see: react-query still had the GETs cached, so the
+screen looked completely normal. Nothing degrades. The first thing you
+*click* fails, which reads as "this particular button is broken" rather than
+"my session is dead." Open a screen, come back later, press a button, get a
+403 on an action you obviously have permission for.
+
+`api/axios.ts` now fetches the token in a request interceptor. That is not
+the expensive thing it looks like: `@neondatabase/auth` caches the session
+and derives that cache's TTL from the JWT's own `exp` minus a clock-skew
+buffer (`adapter-core`'s `SessionCacheManager`), so it returns the in-memory
+token with no network call until it genuinely needs a new one. Neon's own
+`createClient` passes `getJWTToken` as the per-request token source for its
+data API — the primitive is designed to be called this way.
+
+### 2, 3. Two UI gates that did not match their server gate
+
+Both showed a live-looking button that could only ever answer 403:
+
+- **`RosterPage`** gated its whole editing toolbar on
+  `currentUser.role === 'coach'`. That is the sticky UX hint, and
+  `authenticate` deliberately sets it to `'coach'` for `VOLUNTEER_COACH`
+  too (so real staff get the coach sidebar). But *every* route behind those
+  buttons is `requireRole(['HEAD_COACH','COACH'])` or tighter — none accept
+  `VOLUNTEER_COACH`. A volunteer coach saw sync, import, join code, captain,
+  nickname, invite/resend and preview-as-athlete, and every single one 403s.
+- **`StaffManager`** gated Resend on `isSuperAdmin` alone. `requireRole`
+  waves the super admin through only when `isImpersonating` is *also* set —
+  i.e. once an `X-Admin-Team-Id` has actually resolved to a team.
+
+The rule this suggests: **a UI gate must be written from the same fact the
+server's gate reads.** `TeamMember.role` (exposed as `teamRole` by
+`GET /users/me`) is that fact. `User.role` is not, and never was.
+
+### 4. Nothing said what was wrong
+
+`StaffManager` and `RosterPage` each had their own error reader that checked
+only `response.data.msg`. Every 401/403 from `middleware/auth.js` uses
+`message`. So the real reason ("Invalid or expired token", "Access denied")
+was thrown away and the toast fell back to axios's `"Request failed with
+status code 403"`. Both now use `lib/apiError`'s `getApiErrorMessage`, which
+reads both keys — it was written last session for exactly this and had not
+been adopted here yet.
+
+This is the part that turned a five-minute diagnosis into a long one, and
+it is worth being blunt about: **an error path that discards the server's
+own explanation is not a cosmetic problem.** Three of the four causes above
+would have named themselves.
+
+## Making the web app installable (PWA), and a config that was never running
+
+The plan is the PWA first — cheap, reversible, and it answers whether
+"native app" was ever about the App Store or just about the app feeling
+like it belongs on a phone.
+
+### The stale artifact that had to go first
+
+A compiled **`vite.config.js` was committed next to `vite.config.ts`**, and
+**Vite resolves `vite.config.js` first**. So for the entire life of this
+project the real config was dead code and every build ran the minimal
+leftover instead. Visible proof: the `manualChunks` and hashed
+`[name].[hash].js` filenames configured in the `.ts` had never taken effect
+— builds emitted one 2.4MB `index-<hash>.js`. After deleting the `.js`, the
+same build splits into vendor/router/ui/charts as intended.
+
+Adding a plugin to a file nothing reads would have silently done nothing,
+which is a bad way to find out. Its two unique settings (dev server
+port/host) are carried into the `.ts`; `tsconfig.node.json` now emits its
+`.d.ts` into `node_modules/.tmp` and both artifacts are gitignored, so the
+pair cannot come back. That config's `manualChunks` also still named
+`firebase`, which stopped being a dependency when this app moved to Neon
+Auth.
+
+Generalising: **an artifact whose filename shadows a source file is a
+silent, permanent bug.** Nothing errors. Nothing warns. Every result is
+merely wrong in ways that look like something else.
+
+### Decisions in the PWA setup
+
+- **`registerType: 'prompt'`, not `'autoUpdate'`.** `autoUpdate` reloads the
+  page as soon as a new build's service worker takes over. On an attendance
+  grid or the live timer that is a reload in the middle of unrecoverable
+  work. New versions install quietly; `src/registerServiceWorker.ts` offers
+  a toast with an Update action and no auto-dismiss.
+- **Nothing caches `/api`.** Workbox's navigate fallback will answer an API
+  request with `index.html` unless denylisted, and in production the backend
+  is same-origin under `/api`. Beyond that: every number this app shows is
+  one a coach acts on, so a stale-but-plausible roster is worse than an
+  honest failure. Offline means "the app opens and says it can't reach the
+  server", not "the app shows you yesterday's answers". Real offline
+  *capture* is a much bigger piece of work (a write queue with conflict
+  rules) and is deliberately not started here.
+- **Icons are the LP mark the landing page already uses**, not a nicer new
+  one — same gradient, same 30% corner radius. First attempt was an
+  invented chevron mark; matching the logo a coach already associates with
+  the app matters more. Separate full-bleed art for `apple-touch-icon`
+  (iOS applies its own corner mask, so shipping pre-rounded double-rounds
+  it) and for the maskable icon (inset to the central 80% safe zone).
+- **No `viewport-fit=cover`.** Without it iOS keeps a standalone web app
+  inside the safe area by itself, so nothing needs `env(safe-area-inset-*)`
+  padding and no fixed element can slide under a notch. Edge-to-edge is a
+  look, not a feature, and it would need every fixed element audited first.
+
+### Verified, in headless Chromium against a production build
+
+Service worker registers and controls the page; manifest and all four icons
+resolve; deep links (`/t/:id/attendance`, `/settings`) still serve the app
+shell with the network switched off; `/api` requests are not answered by the
+service worker either online or offline (checked offline specifically —
+while online, `vite preview`'s own SPA fallback returns `index.html` for
+`/api/*` and would mask the difference).
+
+**Not verified:** actual installation on a real iOS or Android device, the
+update toast (needs two deployed builds), and whether `theme_color` looks
+right against the real status bar. The token-refresh fix has also not been
+exercised against a live expiring session — it is reasoned from the library
+source, not observed.
+
+**Noticed, not fixed:** the landing page header overflows at 390px width —
+the "Get Started" button is clipped off the right edge. Pre-existing and
+unrelated to any of this.
