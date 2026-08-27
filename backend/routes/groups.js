@@ -450,6 +450,72 @@ router.get('/:id/members', authenticate, requireTeam, async (req, res) => {
   }
 });
 
+// GET /api/groups/athlete/:athleteId/memberships
+// Every group this athlete currently belongs to, in one call — training
+// group, captain group, any custom groups, and whether they're in cross
+// training right now. Purely a cross-reference of tables that already
+// exist; it creates no new concept and writes nothing.
+//
+// Uses isMembershipActiveOn rather than a plain `endDate: null` filter,
+// which matters for X_TRAINING specifically: those memberships are bounded
+// (see GroupType's schema comment), so a stint that has expired or hasn't
+// started yet still has a row and would otherwise show as current.
+//
+// Coach-tier sees any athlete on their team; an athlete may only ask about
+// themselves, so this can't be used to enumerate teammates' assignments.
+router.get('/athlete/:athleteId/memberships', authenticate, requireTeam, async (req, res) => {
+  try {
+    const isCoachTier = await hasTeamRole(req.user, ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']);
+    if (!isCoachTier && req.params.athleteId !== req.user.linkedAthlete?.id) {
+      return res.status(403).json({ msg: 'Access denied.' });
+    }
+
+    const athlete = await prisma.athlete.findFirst({ where: { id: req.params.athleteId, teamId: req.user.teamId } });
+    if (!athlete) {
+      return res.status(404).json({ msg: 'Athlete not found.' });
+    }
+
+    const today = new Date();
+    const memberships = await prisma.groupMembership.findMany({
+      where: { athleteId: athlete.id },
+      include: {
+        group: {
+          include: {
+            season: { select: { year: true } },
+            leaders: { include: { user: { select: { id: true, name: true, email: true } } } },
+          },
+        },
+      },
+      orderBy: { startDate: 'desc' },
+    });
+
+    const active = memberships.filter((m) => isMembershipActiveOn(m, today));
+
+    res.json({
+      athleteId: athlete.id,
+      groups: active.map((m) => ({
+        membershipId: m.id,
+        groupId: m.group.id,
+        name: m.group.name,
+        type: m.group.type,
+        gender: normalizeGender(m.group.gender),
+        archived: m.group.archived,
+        seasonYear: m.group.season?.year ?? null,
+        since: m.startDate,
+        // Only ever set for a bounded stint (X_TRAINING today) — null for a
+        // normal open-ended membership.
+        until: m.endDate,
+        reason: m.reason,
+        // Who runs this group — the point of "which coach's group is this".
+        leaders: m.group.leaders.map((l) => ({ userId: l.userId, name: l.user.name, email: l.user.email, primary: l.primary })),
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching athlete memberships:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // GET /api/groups/athlete/:athleteId/current
 // A concrete consumer of getGroupOn, not just its own test — "today" is
 // the overwhelmingly common query, e.g. for showing an athlete their own

@@ -207,3 +207,12 @@ export function useCopyGroupsFromSeason(seasonId: string | null) {
     },
   });
 }
+
+/** Every group one athlete is currently in — for the cross-reference card on their profile. */
+export function useAthleteMemberships(athleteId: string | null) {
+  return useQuery({
+    queryKey: ['athleteMemberships', athleteId],
+    queryFn: () => groupService.getAthleteMemberships(athleteId as string),
+    enabled: !!athleteId,
+  });
+}

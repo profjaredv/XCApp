@@ -3210,3 +3210,54 @@ only through its pure lib, not over HTTP.
 a paste. Races can already be created manually and this covers the results
 inside one, so the fallback is complete end-to-end; a bulk meet importer is
 a convenience on top, not a gap in the insurance policy.
+
+## Athlete profile: which groups they're actually in
+
+User: as a logged-in coach, on an athlete's profile, show which captain's
+group and which coach's group they're in, and whether they're in cross
+training — "basically cross reference against other tables that we already
+have."
+
+Taken literally, which is the right scope: no new concept, no new state, no
+writes. `GET /api/groups/athlete/:athleteId/memberships` returns every group
+the athlete currently belongs to across all four types, and
+`AthleteGroupsCard` renders it above Training Paces on
+`TeamAthleteProfilePage`.
+
+Two details that matter more than the endpoint itself:
+
+- **Cross training uses `isMembershipActiveOn`, not `endDate: null`.**
+  X_TRAINING memberships are bounded (GroupType's schema comment), so a
+  stint that has expired — or hasn't started yet — still has a row and a
+  plain `endDate: null` filter would report it as current. The existing
+  helper already encodes that rule; reusing it is the whole point rather
+  than writing a second date check that could drift from
+  `getActiveMembersOf`.
+- **Cross training is presented differently from the other groups**, not
+  listed as a fourth row: it's the only temporary one, so the card shows the
+  return date and the stated reason. That's what a coach actually needs to
+  know from a profile.
+
+Group leaders are included, since "which coach's group" is half the request
+— a group is shown as "led by …" rather than leaving the coach to infer it
+from the group's name. (The first draft returned `leaders: []` as a
+placeholder; shipping an always-empty field would have been dead weight, so
+it's populated from `GroupLeader` the same way `GET /groups` already does.)
+
+Authorization: coach-tier sees any athlete on their own team; an athlete may
+only request themselves, so this can't be used to enumerate teammates'
+assignments. Same shape as the neighbouring
+`/athlete/:athleteId/current` route.
+
+Verification: `tsc -b` and `npm run build` (web) clean; backend suite 365/366
+(unchanged — the same pre-existing scraper-fixture failure; no backend logic
+was added beyond a read route). Not verified against live data (no DB or
+auth here), so the card's empty state and the cross-training banner have
+been reasoned about, not seen.
+
+Noted, not touched: `TeamAthleteProfilePage.tsx` has a **pre-existing** lint
+error (`setSelectedSeason` assigned but never used) — confirmed present with
+my changes stashed, so it isn't from this work. Left alone deliberately: a
+dead setter can mean an unfinished feature, and silently deleting it is a
+behaviour question rather than a lint cleanup. It does mean `eslint` on that
+one file is red until someone decides which way it goes.

@@ -15,6 +15,7 @@ import { SeasonModeSelector } from '@/components/analytics/SeasonModeSelector';
 import type { SeasonMode } from '@/components/analytics/types';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
+import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
 import { formatDateShort } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import type { Athlete, Race, AthleteSeasonData } from '@/types/analytics';
@@ -302,6 +303,12 @@ const TeamAthleteProfilePage = () => {
           />
         </div>
       </div>
+
+      {athleteId && (
+        <div className="mb-6">
+          <AthleteGroupsCard athleteId={athleteId} />
+        </div>
+      )}
 
       <div className="mb-6">
         <TrainingPacesCard recentRaces={recentRaces} />

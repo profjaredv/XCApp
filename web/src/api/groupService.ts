@@ -176,6 +176,12 @@ export const groupService = {
     await api.delete(`/groups/${groupId}`);
   },
 
+  /** Every group this athlete is currently in, across types — training, captain, custom, cross training. */
+  async getAthleteMemberships(athleteId: string): Promise<{ athleteId: string; groups: AthleteGroupMembership[] }> {
+    const response = await api.get(`/groups/athlete/${athleteId}/memberships`);
+    return response.data;
+  },
+
   async assignLeader(groupId: string, userId: string, primary = false): Promise<void> {
     await api.post(`/groups/${groupId}/leaders`, { userId, primary });
   },
@@ -265,6 +271,24 @@ export const groupService = {
 export function seasonBestTime(athlete: RosterAthleteWithRaces): number | null {
   const times = athlete.races.map((r) => r.time).filter((t): t is number => typeof t === 'number' && t > 0);
   return times.length > 0 ? Math.min(...times) : null;
+}
+
+
+/** One current group membership for a single athlete — the cross-reference
+ * shown on their profile. `until`/`reason` are only ever set for a bounded
+ * stint (cross training). */
+export interface AthleteGroupMembership {
+  membershipId: string;
+  groupId: string;
+  name: string;
+  type: GroupType;
+  gender: string | null;
+  archived: boolean;
+  seasonYear: number | null;
+  since: string;
+  until: string | null;
+  reason: string | null;
+  leaders: Array<{ userId: string; name: string | null; email: string; primary: boolean }>;
 }
 
 /** Fastest (lowest) pace per mile this season, distance-normalized across races — safe for
