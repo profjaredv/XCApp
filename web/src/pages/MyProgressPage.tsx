@@ -32,7 +32,9 @@ import { useTeamPath } from '@/hooks/useTeamRoute';
 import { athleteService } from '@/api/athleteService';
 import { trainingLogService, type TrainingLogType } from '@/api/trainingLogService';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
-import { formatTime, parseTimeToSeconds, formatDateShort } from '@/lib/formatUtils';
+import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
+import { formatTime, parseTimeToSeconds, formatDateShort, todayIso as todayIsoLocal } from '@/lib/formatUtils';
+import { useTodayIso } from '@/hooks/useTodayIso';
 import { useAthleteSplits, useAthleteSplitsAggregate } from '@/hooks/useSplits';
 import { SPLIT_PATTERN_LABEL, SPLIT_PATTERN_BADGE_CLASS, formatSplitMMSS } from '@/lib/splitPatternDisplay';
 import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSummary';
@@ -76,7 +78,7 @@ const MyProgressPage: React.FC = () => {
   // bucket, shared with the coach-facing view on TeamAthleteProfilePage.
   const { data: splitsAggregate } = useAthleteSplitsAggregate(linkedAthlete?.id ?? null);
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = useTodayIso();
   const { data: todaysPlan } = useMyPracticePlan(todayIso, !!linkedAthlete);
   const { data: meetCard } = useMyMeetCard(!!linkedAthlete);
 
@@ -90,7 +92,7 @@ const MyProgressPage: React.FC = () => {
     enabled: !!linkedAthlete,
   });
 
-  const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [logDate, setLogDate] = useState(todayIsoLocal);
   const [logType, setLogType] = useState<TrainingLogType>('easy');
   const [logDistance, setLogDistance] = useState('');
   const [logDuration, setLogDuration] = useState('');
@@ -225,6 +227,12 @@ const MyProgressPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Same card the coach sees on this athlete's profile — the athlete
+          always knows which training group, captain's group and cross
+          training they're currently in, without asking. The endpoint already
+          allows an athlete to read their own memberships and nobody else's. */}
+      {linkedAthlete && <AthleteGroupsCard athleteId={linkedAthlete.id} />}
 
       <TrainingPacesCard recentRaces={recentRaces} />
 

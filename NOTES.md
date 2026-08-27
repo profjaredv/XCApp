@@ -3261,3 +3261,70 @@ my changes stashed, so it isn't from this work. Left alone deliberately: a
 dead setter can mean an unfinished feature, and silently deleting it is a
 behaviour question rather than a lint cleanup. It does mean `eslint` on that
 one file is red until someone decides which way it goes.
+
+## Athletes see their own groups too; and the "yesterday's practice" date bug
+
+### The groups card, athlete-side
+
+User: "does the athlete's own login have the same view. so they always
+know." Now yes — `AthleteGroupsCard` also renders on `MyProgressPage` for
+the signed-in athlete. No new endpoint or permission was needed: the
+memberships route added in the previous entry already allowed an athlete to
+read their own memberships and nobody else's, so this is the same card
+against the same data. (Athletes also had a read-only "My Group" view on
+GroupsPage already, but that's a separate destination — the point of this
+request is that it's on the profile they already look at.)
+
+### Two date bugs, only one of which explains the report
+
+User: "i opened up today and it was showing yesterdays scheduled practice
+not todays."
+
+**The one that caused it: a stale react-query key across midnight.** The
+date was computed inline during render (`todayIso()` called in the component
+body). That is right exactly once. On a phone the app isn't reloaded
+overnight, it's *resumed* — and while react-query does refetch on window
+focus, it refetches **the key it already has**. Nothing re-rendered the
+component with a new date, so the key still said yesterday and the refresh
+faithfully re-fetched yesterday's plan. Which looks exactly like caching,
+and is, but not the kind a `staleTime` change would fix — the cache was
+working correctly, it was being asked the wrong question.
+
+New `useTodayIso()` makes the day a piece of state and changes it on:
+a timer armed for the next local midnight (re-armed each fire rather than a
+drifting interval), plus `focus`/`visibilitychange` — which is the case that
+actually matters, and which coincides with react-query's own refetch, so the
+new key and the refetch line up.
+
+**The one found while looking: every "today" in this app was UTC, not
+local.** `new Date().toISOString().slice(0, 10)` was used in a dozen places
+and yields the *UTC* date. Verified concretely rather than assumed — at
+7:30pm Pacific on Aug 26 that expression returns `2026-08-27`:
+
+    America/Los_Angeles  local: 2026-08-26  UTC: 2026-08-27  <-- DISAGREE
+    America/Chicago      local: 2026-08-26  UTC: 2026-08-27  <-- DISAGREE
+
+So from late afternoon onward, a US coach's "today's practice" was
+tomorrow's, and every date-defaulted form (new meet, duplicate interval
+session, log a run, attendance week) pre-filled the wrong day. Note this is
+the **opposite** direction from the reported symptom — it shows tomorrow in
+the evening, never yesterday in the morning — so it is a second, independent
+bug that happened to be sitting next to the first, not an alternative
+explanation for it.
+
+Fixed with `localIsoDate(d)` / `todayIso()` in `formatUtils`, built from
+`getFullYear/getMonth/getDate` so no conversion is involved at all, and
+applied across TodayPage, MyProgressPage, MeetsPage, IntervalSessionsPage
+and AttendancePage. `AttendancePage`'s `addDays` was deliberately left as-is:
+it parses and formats a `YYYY-MM-DD` string consistently in UTC, so there's
+no local/UTC ambiguity to fix there.
+
+Verification: `tsc -b`, `eslint` on all eight touched files, and `npm run
+build` (web) clean; backend 365/366, unchanged (frontend-only). The
+timezone divergence was demonstrated by running the old and new expressions
+under four TZs rather than reasoned about. **Not verified**: `useTodayIso`'s
+midnight/focus behaviour — there is no frontend test runner in this repo and
+this sandbox can't hold a session open across a real midnight, so the hook
+is reasoned from the event model, not observed. Worth a deliberate check:
+leave the app open overnight (or shift the device clock past midnight) and
+confirm Today rolls over on focus.

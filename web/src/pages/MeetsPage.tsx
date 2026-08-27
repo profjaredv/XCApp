@@ -25,7 +25,7 @@ import { Plus, Loader2, CalendarDays, Download } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatDateShort } from '@/lib/formatUtils';
+import { formatDateShort, todayIso } from '@/lib/formatUtils';
 import {
   useMeets,
   useCreateMeet,
@@ -58,7 +58,7 @@ const MeetsPage: React.FC = () => {
   const createMeet = useCreateMeet(seasonId);
   const [newMeetOpen, setNewMeetOpen] = useState(false);
   const [newMeetName, setNewMeetName] = useState('');
-  const [newMeetDate, setNewMeetDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [newMeetDate, setNewMeetDate] = useState(todayIso);
   const [newMeetLocation, setNewMeetLocation] = useState('');
   const [newMeetIsHome, setNewMeetIsHome] = useState<string>('unspecified');
 

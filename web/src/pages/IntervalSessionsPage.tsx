@@ -19,7 +19,7 @@ import {
   useDuplicateIntervalSession,
 } from '@/hooks/useIntervalSessions';
 import type { IntervalSession, IntervalZone } from '@/api/intervalSessionService';
-import { formatDateShort } from '@/lib/formatUtils';
+import { formatDateShort, todayIso } from '@/lib/formatUtils';
 
 // Coach-adoption pass item 6: replaces the printed sheet a coach fills in
 // by hand at the track. This page is the session LIST only — three states
@@ -47,7 +47,7 @@ interface NewSessionForm {
 
 const EMPTY_NEW_SESSION: NewSessionForm = {
   groupId: AD_HOC,
-  date: new Date().toISOString().slice(0, 10),
+  date: todayIso(),
   title: '',
   repDistanceM: '800',
   zone: 'interval',
@@ -111,7 +111,7 @@ const IntervalSessionsPage: React.FC = () => {
 
   const [duplicateSource, setDuplicateSource] = useState<IntervalSession | null>(null);
   const [duplicateGroupId, setDuplicateGroupId] = useState(AD_HOC);
-  const [duplicateDate, setDuplicateDate] = useState(new Date().toISOString().slice(0, 10));
+  const [duplicateDate, setDuplicateDate] = useState(todayIso);
 
   const createSession = useCreateIntervalSession(seasonId);
   const deleteSession = useDeleteIntervalSession(seasonId);

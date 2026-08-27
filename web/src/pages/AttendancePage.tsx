@@ -11,7 +11,7 @@ import { AttendanceStatusCell, AttendanceStatusPicker } from '@/components/atten
 import { ATTENDANCE_STATUS_MARK } from '@/lib/attendanceStatus';
 import { FieldHeader } from '@/components/field/FieldHeader';
 import { SegmentedPills } from '@/components/field/SegmentedPills';
-import { lastNameOf, mondayOf } from '@/lib/formatUtils';
+import { lastNameOf, mondayOf, todayIso } from '@/lib/formatUtils';
 import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
 import { toCsv } from '@/lib/csvParse';
 
@@ -79,7 +79,7 @@ const AttendancePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const weekParam = searchParams.get('week');
   const [weekStart, setWeekStartState] = useState(() =>
-    weekParam ? mondayOf(weekParam) : mondayOf(new Date().toISOString().slice(0, 10))
+    weekParam ? mondayOf(weekParam) : mondayOf(todayIso())
   );
   // Keeps the URL in sync so the settings icon (which links to a day's
   // detail page) can carry `?week=` back, and a refresh/bookmark reopens
@@ -97,8 +97,8 @@ const AttendancePage: React.FC = () => {
   // case: a coach opening this at practice), else Monday.
   const [activeDay, setActiveDay] = useState(() => {
     const todayIdx = Math.round(
-      (Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z') -
-        Date.parse(mondayOf(new Date().toISOString().slice(0, 10)) + 'T00:00:00Z')) /
+      (Date.parse(todayIso() + 'T00:00:00Z') -
+        Date.parse(mondayOf(todayIso()) + 'T00:00:00Z')) /
         86400000
     );
     return todayIdx >= 0 && todayIdx <= 4 ? todayIdx : 0;
@@ -189,7 +189,7 @@ const AttendancePage: React.FC = () => {
           variant="outline"
           size="sm"
           className="h-11 flex-1 sm:h-8 sm:flex-none"
-          onClick={() => setWeekStart(mondayOf(new Date().toISOString().slice(0, 10)))}
+          onClick={() => setWeekStart(mondayOf(todayIso()))}
         >
           This week
         </Button>

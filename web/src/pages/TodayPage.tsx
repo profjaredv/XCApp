@@ -26,7 +26,8 @@ import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
 import { entryStatusLabel } from '@/api/meetOpsService';
 import { usePracticePlanRange, useSetPublished, useDuplicateDay } from '@/hooks/usePracticePlans';
-import { formatTime, formatDateShort } from '@/lib/formatUtils';
+import { formatTime, formatDateShort, localIsoDate } from '@/lib/formatUtils';
+import { useTodayIso } from '@/hooks/useTodayIso';
 import { SetupChecklist } from '@/components/SetupChecklist';
 import { SeasonReadinessChecklist } from '@/components/SeasonReadinessChecklist';
 
@@ -36,14 +37,12 @@ import { SeasonReadinessChecklist } from '@/components/SeasonReadinessChecklist'
 // If a control feels necessary, the answer is a link to the full page
 // instead (see AGENTS/handoff doc, A1).
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function yesterdayIso(): string {
-  const d = new Date();
+// Derived from the passed-in local `today` rather than from `new Date()`,
+// so it can never disagree with the date the queries are keyed on.
+function yesterdayIso(today: string): string {
+  const d = new Date(today + 'T00:00:00');
   d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
+  return localIsoDate(d);
 }
 
 // ---------------------------------------------------------------------------
@@ -93,8 +92,8 @@ const BlockShell: React.FC<BlockShellProps> = ({ title, icon: Icon, isLoading, i
 // ---------------------------------------------------------------------------
 
 const CoachPracticeBlock: React.FC<{ seasonId: string; teamPath: (p: string) => string }> = ({ seasonId, teamPath }) => {
-  const today = todayIso();
-  const yesterday = yesterdayIso();
+  const today = useTodayIso();
+  const yesterday = yesterdayIso(today);
   const { data: todayPlans, isLoading, isError } = usePracticePlanRange(seasonId, today, today);
   const { data: yesterdayPlans } = usePracticePlanRange(seasonId, yesterday, yesterday);
   const setPublished = useSetPublished(seasonId);
@@ -440,7 +439,8 @@ const CoachToday: React.FC<{ teamPath: (p: string) => string }> = ({ teamPath })
 // ---------------------------------------------------------------------------
 
 const AthleteToday: React.FC<{ teamPath: (p: string) => string; linkedAthleteId: string }> = ({ teamPath, linkedAthleteId }) => {
-  const { data: planData, isLoading: planLoading, isError: planError } = useMyPracticePlan(todayIso(), true);
+  const today = useTodayIso();
+  const { data: planData, isLoading: planLoading, isError: planError } = useMyPracticePlan(today, true);
   const { data: meetCard, isLoading: meetLoading, isError: meetError } = useMyMeetCard(true);
   const { data: recentRaces, isLoading: raceLoading, isError: raceError } = useQuery({
     queryKey: ['myRecentRace', linkedAthleteId],

@@ -66,3 +66,17 @@ export const parseTimeToSeconds = (timeStr: string): number => {
   }
   return NaN;
 };
+
+// TODAY, in the viewer's own timezone.
+//
+// `new Date().toISOString().slice(0, 10)` — which this codebase used in a
+// dozen places — is the UTC date, not the local one. For a US coach (UTC-5
+// to -8) those disagree every evening: at 6pm Pacific it is already
+// tomorrow in UTC, so "today's practice" silently became tomorrow's, and a
+// date-defaulted form (new meet, duplicate session, log a run) pre-filled
+// the wrong day. Built from the local getFullYear/getMonth/getDate parts so
+// no conversion is involved at all.
+export const localIsoDate = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+export const todayIso = (): string => localIsoDate(new Date());
