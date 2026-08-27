@@ -3565,3 +3565,129 @@ source, not observed.
 **Noticed, not fixed:** the landing page header overflows at 390px width —
 the "Get Started" button is clipped off the right edge. Pre-existing and
 unrelated to any of this.
+
+## Team-defined pace zones, and what the numbers turned out to say
+
+A team can now write down what its own pace terms mean, and training paces
+are calculated from those definitions rather than from a fixed set of ours.
+
+### The vocabulary
+
+Coaches write pace zones relative to RACE performances, always. Two rule
+shapes covered every definition we were given:
+
+  OFFSET  "Distance = 2-3 minutes slower than best 1 mile time"
+  RANGE   "VO2 = 2 mile to 5k race pace"
+
+Both produce a pace RANGE, not a single number, because that is how they are
+written. Equal ends give an exact pace. The good sign that the vocabulary is
+right: the shipped McMillan-style defaults are expressed in it too — they are
+nothing but zones a coach could have typed.
+
+### Defaults are a constant, not rows
+
+`MCMILLAN_ZONES` lives in `web/src/lib/paceZones.ts` and is never written to
+the database. That buys three things: it can be corrected without a data
+migration, no team can edit it into something wrong, and a team with zero
+custom zones is in the normal state rather than a misconfigured one. The
+migration deliberately seeds nothing, so it cannot change what any existing
+team sees.
+
+Custom and standard zones render side by side, separately labelled, never
+merged. A team's "T" and the standard "T" are different definitions;
+showing one under the other's name is how an athlete runs the wrong workout.
+
+### On McMillan, stated plainly
+
+His published pace tables are his own work and are not reproduced here. What
+is implemented is the zone structure and the race-pace relationships he
+describes in prose, computed by a Riegel equivalent-performance model. The
+UI says "McMillan-style" for exactly that reason — same posture
+`vdotPaces.ts` already takes about Daniels' tables.
+
+### Riegel's limit, documented rather than hidden
+
+Riegel compresses at short distances. From an 18:00 5K it predicts 5:11/mi
+for 800m against 5:25/mi for the mile — 14 seconds apart, where a real 5:25
+miler races 800m nearer 4:50/mi. So zones anchored on 800m-1600m (the
+default Speed zone, EHS's R) come out CONSERVATIVE, and the error grows the
+shorter the anchor. It is stable and predictable rather than erratic, which
+is why a single well-understood model still beats blending two, but it is
+written at the constant so nobody has to rediscover it.
+
+### What the numbers said about EHS's own definitions
+
+Computing the EHS set for an 18:00 5K runner (equivalent mile 5:25, 5K
+5:48/mi) surfaced something worth raising:
+
+| Zone | Rule | Result |
+|---|---|---|
+| DIS | mile +2:00..+3:00 | 7:25 - 8:25 |
+| SS | mile +1:30..+2:00 | 6:55 - 7:25 |
+| T | mile +1:00..+1:30 | **6:25 - 6:55** |
+| T | 5k +0:30 (the "or") | **6:18** |
+| VO2 | 2mi..5k | 5:39 - 5:48 |
+| R | 800m..mile | 5:11 - 5:25 |
+
+**Threshold's two formulations disagree.** The mile-anchored version is up to
+37 sec/mile slower than the 5k-anchored one. Only one can be the computed
+rule; the other is kept as the zone's notes so nothing the coach wrote is
+silently dropped. There is a test asserting they disagree, so that if the
+engine ever quietly makes them agree someone has to come and look at why.
+
+### Vitest, finally
+
+Added to the web package with this feature. The engine is pure arithmetic,
+this project's rule is that arithmetic gets its test written first, and
+there was no frontend runner at all — every frontend calculation to date
+(VDOT paces, PR bucketing, split maths) had been verified only by reading
+it. 47 tests now run on `npm test` in `web/`.
+
+It is a separate `vitest.config.ts`, not a `test` block inside
+`vite.config.ts`: Vitest 4 ships rolldown-flavoured config types under which
+the build's object-form `manualChunks` stops type-checking, so merging them
+fails `tsc -b` on a setting that is correct and working.
+
+### Five bugs found by driving the editor, not by reading it
+
+The same lesson as the harness work earlier this session, and it keeps
+paying:
+
+1. **Rep splits showed tenths** — "1:17.4-1:20.7". A tenth is right for a
+   time somebody ran on a stopwatch; on a modelled target it is false
+   precision, and it is harder to read at the track. Whole seconds now.
+2. **Easy pace was getting 400m rep splits.** The first gate was an absolute
+   7:30/mi ceiling, which Easy squeaked under. Worse, an absolute cutoff
+   silently denies rep targets to every slower athlete — a 25:00 5K
+   runner's real interval pace is around 7:30/mi. Now measured against the
+   athlete's own 5K pace, which scales across the roster.
+3. **A failed GET left the editor permanently unsavable**, because `dirty`
+   required `saved !== undefined`. The symptom was confusing; the risk
+   underneath was worse. Saving REPLACES the whole set, so saving on top of
+   a set we failed to read would have deleted it. Editing is now blocked
+   with an explanation and a retry, which is the honest response.
+4. **Offset fields were uncontrolled** (`defaultValue` + `onBlur`), so
+   "Discard changes" left the abandoned text on screen.
+5. **Two selects overlapped** — "Slower/faster than a race pace" ran out of
+   its `w-44` trigger into the next field.
+
+None of these would have been caught by the tests, and none were visible in
+the source.
+
+### Deliberately not done
+
+- **Interval sessions still use the Daniels/VDOT engine.** `IntervalSession.zone`
+  is a stored enum of `threshold|interval|repetition`, and pointing it at
+  team-defined zones needs its own migration and a decision about what
+  happens to existing rows. `vdotPaces.ts` is untouched and still backs
+  that and the VDOT Calculator.
+- **No "reset to defaults" button.** Deleting every custom zone already gets
+  you there.
+- **Anchor distances are a fixed list, not a free number field.** Every entry
+  is a race a coach names out loud, and an open metres box invites the "I
+  typed 1 for one mile" error that the server has to reject anyway.
+
+**Not verified:** none of this has run against a live database — the
+migration is unapplied here, and the save path was exercised against a
+stubbed API in a browser, not against Postgres. The unique index on
+(team_id, abbreviation) in particular has never actually rejected anything.
