@@ -2,6 +2,12 @@
   "compilerOptions": {
     "composite": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    /* Keep the emitted vite.config.d.ts out of the repo root. It used
+       to land next to vite.config.ts, where it was committed along
+       with a compiled vite.config.js — and Vite resolves
+       vite.config.js before vite.config.ts, so that stray artifact
+       quietly became the config every build actually ran. */
+    "outDir": "./node_modules/.tmp/node-types",
     "target": "ES2023",
     "lib": ["ES2023"],
     "module": "ESNext",

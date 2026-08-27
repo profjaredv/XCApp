@@ -22,3 +22,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# tsc -b artifacts. tsconfig.tsbuildinfo is regenerated on every
+# typecheck, so tracking it only ever produced diff noise. The other two
+# are belt-and-braces: tsconfig.node.json now emits its .d.ts into
+# node_modules/.tmp, but a committed compiled vite.config.js silently
+# shadowed vite.config.ts for the entire life of this project (Vite
+# resolves the .js first), and that must not happen twice.
+tsconfig.tsbuildinfo
+vite.config.d.ts
+vite.config.js

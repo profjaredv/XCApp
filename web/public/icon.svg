@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="LeadPack XC">
+  <!-- The same mark the landing page header already uses: a rounded square
+       in a --primary -> primary/80 gradient with a white bold LP. Matching
+       it matters more than inventing something prettier — this is the icon
+       a coach picks out on a home screen, and it should be the logo they
+       already associate with the app. Colours are src/index.css's
+       --primary (oklch(0.4 0.11 152)) resolved to #005827, and that same
+       green at 80% over white for the far end of the gradient.
+       Corner radius is 30% of the side, matching Tailwind's rounded-xl on
+       the 40px box in LandingPage.tsx. -->
+  <defs>
+    <linearGradient id="lp" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#005827"/>
+      <stop offset="1" stop-color="#337952"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="154" ry="154" fill="url(#lp)"/>
+  <text x="256" y="256" text-anchor="middle" dominant-baseline="central"
+        font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif"
+        font-size="208" font-weight="700" letter-spacing="4" fill="#ffffff">LP</text>
+</svg>

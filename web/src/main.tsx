@@ -11,11 +11,18 @@ import { authClient } from './lib/auth';
 import { router } from './router';
 import { AuthProvider } from './components/AuthProvider';
 import { installErrorBuffer } from './lib/errorBuffer';
+import { registerServiceWorker } from './registerServiceWorker';
 import './index.css';
 
 // Start capturing console errors before anything renders, so a crash during
 // initial mount is still attached to any feedback filed afterwards.
 installErrorBuffer();
+
+// Makes the app installable to a phone's home screen and precaches the
+// shell so it opens without waiting on a school's wifi. No-ops in dev
+// (devOptions.enabled is false in vite.config.ts) and on any browser
+// without service worker support.
+registerServiceWorker();
 
 const queryClient = new QueryClient();
 
