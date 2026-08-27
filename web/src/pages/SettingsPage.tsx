@@ -20,6 +20,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWalkthrough } from '@/contexts/WalkthroughContext';
 import { MeetGroupsManager } from '@/components/settings/MeetGroupsManager';
 import { StaffManager } from '@/components/settings/StaffManager';
+import { PaceZonesManager } from '@/components/settings/PaceZonesManager';
 
 interface Team {
   id: string;
@@ -284,6 +285,11 @@ const SimpleSettingsPage: React.FC = () => {
 
       {/* Staff - Only for coaches with a team */}
       {team && currentUser?.role === 'coach' && <StaffManager />}
+
+      {/* Training pace zones. Shown to anyone on a team, not just coaches:
+          the editor inside is head-coach-only, but what "T" means is
+          something an athlete needs to be able to look up. */}
+      {team && <PaceZonesManager />}
 
       {/* Meet Groups Manager - Only for coaches with a team */}
       {team && currentUser?.role === 'coach' && (

@@ -49,27 +49,27 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  team                    Team?                    @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
-  coachedTeams            Team[]                   @relation("TeamCoach")
-  teamMemberships         TeamMember[]
-  createdRaceSplits       RaceSplit[]              @relation("RaceSplitCreator")
-  createdSplits           Split[]                  @relation("SplitCreator")
-  linkedAthlete           Athlete?                 @relation("AthleteAccount")
-  athleteClaims           AthleteClaim[]
-  sentStaffInvites        StaffInvite[]            @relation("StaffInviteSender")
-  guardianLinks           GuardianLink[]           @relation("GuardianAccount")
-  resolvedGuardianLinks   GuardianLink[]           @relation("GuardianLinkResolver")
-  ledGroups               GroupLeader[]
-  createdPracticePlans    PracticePlan[]           @relation("PracticePlanCreator")
-  createdWorkoutTemplates WorkoutTemplate[]        @relation("WorkoutTemplateCreator")
-  updatedMeetEntries      MeetEntry[]              @relation("MeetEntryUpdater")
-  equipmentCheckedOut     EquipmentAssignment[]    @relation("EquipmentCheckedOutBy")
-  equipmentReturned       EquipmentAssignment[]    @relation("EquipmentReturnedBy")
-  createdIntervalSessions IntervalSession[]        @relation("IntervalSessionCreator")
-  createdTrainingLogs     TrainingLog[]            @relation("TrainingLogCreator")
-  coachUpAcknowledgements CoachUpAcknowledgement[] @relation("CoachUpAcknowledgementBy")
-  createdTimerSessions    TimerSession[]           @relation("TimerSessionCreator")
-  createdAttendanceSessions AttendanceSession[]    @relation("AttendanceSessionCreator")
+  team                      Team?                    @relation("TeamUsers", fields: [teamId], references: [id], onDelete: SetNull)
+  coachedTeams              Team[]                   @relation("TeamCoach")
+  teamMemberships           TeamMember[]
+  createdRaceSplits         RaceSplit[]              @relation("RaceSplitCreator")
+  createdSplits             Split[]                  @relation("SplitCreator")
+  linkedAthlete             Athlete?                 @relation("AthleteAccount")
+  athleteClaims             AthleteClaim[]
+  sentStaffInvites          StaffInvite[]            @relation("StaffInviteSender")
+  guardianLinks             GuardianLink[]           @relation("GuardianAccount")
+  resolvedGuardianLinks     GuardianLink[]           @relation("GuardianLinkResolver")
+  ledGroups                 GroupLeader[]
+  createdPracticePlans      PracticePlan[]           @relation("PracticePlanCreator")
+  createdWorkoutTemplates   WorkoutTemplate[]        @relation("WorkoutTemplateCreator")
+  updatedMeetEntries        MeetEntry[]              @relation("MeetEntryUpdater")
+  equipmentCheckedOut       EquipmentAssignment[]    @relation("EquipmentCheckedOutBy")
+  equipmentReturned         EquipmentAssignment[]    @relation("EquipmentReturnedBy")
+  createdIntervalSessions   IntervalSession[]        @relation("IntervalSessionCreator")
+  createdTrainingLogs       TrainingLog[]            @relation("TrainingLogCreator")
+  coachUpAcknowledgements   CoachUpAcknowledgement[] @relation("CoachUpAcknowledgementBy")
+  createdTimerSessions      TimerSession[]           @relation("TimerSessionCreator")
+  createdAttendanceSessions AttendanceSession[]      @relation("AttendanceSessionCreator")
 
   @@index([teamId])
   @@map("users")
@@ -128,6 +128,7 @@ model Team {
   coachUpAcknowledgements CoachUpAcknowledgement[]
   claim                   TeamClaim?
   attendanceSessions      AttendanceSession[]
+  paceZones               PaceZone[]
 
   @@index([coachUid])
   @@map("teams")
@@ -1051,10 +1052,10 @@ model AttendanceSession {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  team      Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  season    Season              @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  location  PracticeLocation?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  createdBy User?               @relation("AttendanceSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  team      Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season    Season             @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  location  PracticeLocation?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdBy User?              @relation("AttendanceSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
   records   AttendanceRecord[]
 
   @@unique([teamId, seasonId, date])
@@ -1154,14 +1155,14 @@ model IntervalSession {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  team            Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  season          Season                 @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  group           Group?                 @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  createdBy       User?                  @relation("IntervalSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  duplicatedFrom  IntervalSession?       @relation("IntervalSessionDuplicate", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
-  duplicates      IntervalSession[]      @relation("IntervalSessionDuplicate")
-  entries         IntervalSessionEntry[]
-  practicePlans   PracticePlan[]
+  team           Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season         Season                 @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  group          Group?                 @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdBy      User?                  @relation("IntervalSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  duplicatedFrom IntervalSession?       @relation("IntervalSessionDuplicate", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
+  duplicates     IntervalSession[]      @relation("IntervalSessionDuplicate")
+  entries        IntervalSessionEntry[]
+  practicePlans  PracticePlan[]
 
   @@index([teamId, seasonId, date])
   @@map("interval_sessions")
@@ -1562,4 +1563,68 @@ model PageView {
   @@index([route])
   @@index([createdAt])
   @@map("page_views")
+}
+
+// A team's OWN training-pace vocabulary. Only custom zones live here: the
+// McMillan-style default set is a code constant (web/src/lib/paceZones.ts),
+// never written to the database, so it can be corrected without a data
+// migration and can never be edited into something wrong by one team. Both
+// sets are shown side by side — a team's zones supplement the defaults
+// rather than replacing them.
+//
+// A zone answers "what pace is this, for this athlete" by one of two rules,
+// which between them cover every definition a coach has actually written
+// down for us:
+//
+//   OFFSET — "2-3 minutes slower than best 1 mile time"
+//            pace at refDistanceMeters, plus offsetFastSec..offsetSlowSec.
+//   RANGE  — "2 mile to 5k race pace"
+//            between the equivalent race paces at two distances.
+//
+// Both produce a RANGE of paces, not a single number, because that is how
+// coaches write them. Set offsetFastSec == offsetSlowSec for an exact
+// single pace.
+model PaceZone {
+  id           String  @id @default(uuid()) @db.Uuid
+  teamId       String  @map("team_id") @db.Uuid
+  // "DIS", "SS", "T", "VO2", "R" — what goes on the whiteboard.
+  abbreviation String
+  // "Distance", "Steady State", "Threshold".
+  name         String
+  // The coach's own wording, shown under the computed pace. This is also
+  // where a cross-check that isn't the rule lives — e.g. Threshold's
+  // "...or :30 slower than 5k average pace" — so nothing a coach wrote is
+  // silently dropped just because only one formula can be computed.
+  notes        String?
+  sortOrder    Int     @default(0) @map("sort_order")
+
+  // 'OFFSET' | 'RANGE'. A plain String rather than an enum: adding a third
+  // rule shape should not require a migration on a table this small, and
+  // lib/paceZoneRules.js validates the value plus the fields it requires.
+  ruleType String @map("rule_type")
+
+  // OFFSET only. Seconds per mile added to the reference pace; "fast" is
+  // the smaller (quicker) end. Negative is allowed — "15 seconds FASTER
+  // than 5k pace" is a legitimate zone.
+  refDistanceMeters Int? @map("ref_distance_meters")
+  offsetFastSec     Int? @map("offset_fast_sec")
+  offsetSlowSec     Int? @map("offset_slow_sec")
+
+  // RANGE only. The two race distances whose equivalent paces bound the
+  // zone. Stored as given; which one is actually faster is worked out at
+  // calculation time, so a coach can enter "2 mile to 5k" or "5k to 2
+  // mile" and get the same answer.
+  rangeDistanceAMeters Int? @map("range_distance_a_meters")
+  rangeDistanceBMeters Int? @map("range_distance_b_meters")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  // One meaning per abbreviation. Two zones both called "T" on the same
+  // whiteboard is a bug in the team's setup, not something to average over.
+  @@unique([teamId, abbreviation])
+  @@index([teamId])
+  @@map("pace_zones")
 }

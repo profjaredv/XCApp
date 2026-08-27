@@ -121,6 +121,7 @@ const main = async () => {
     const equipmentRoutes = require('./routes/equipment');
     const intervalSessionRoutes = require('./routes/intervalSessions');
     const attendanceRoutes = require('./routes/attendance');
+    const paceZoneRoutes = require('./routes/paceZones');
     const todayRoutes = require('./routes/today');
     const pageViewRoutes = require('./routes/pageViews');
     const adminRoutes = require('./routes/admin');
@@ -173,6 +174,7 @@ const main = async () => {
     app.use('/api/equipment', equipmentRoutes);
     app.use('/api/interval-sessions', intervalSessionRoutes);
     app.use('/api/attendance', attendanceRoutes);
+    app.use('/api/pace-zones', paceZoneRoutes);
     app.use('/api/today', todayRoutes);
     app.use('/api/page-views', pageViewRoutes);
     app.use('/api/admin', adminRoutes);
