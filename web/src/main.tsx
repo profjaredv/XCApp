@@ -37,7 +37,19 @@ createRoot(document.getElementById('root')!).render(
       replace={(href) => router.navigate(href, { replace: true })}
       Link={Link}
       basePath=""
-      viewPaths={{ SIGN_IN: 'login', SIGN_UP: 'register' }}
+      // Every view the auth forms can link to needs BOTH an entry here and a
+      // matching route (router/index.tsx). SIGN_IN/SIGN_UP are renamed to
+      // this app's existing /login and /register; the rest keep the
+      // library's defaults and now have routes to land on. Previously only
+      // the first two were declared, so the sign-in form's "Forgot
+      // password?" link pointed at a route that didn't exist.
+      viewPaths={{
+        SIGN_IN: 'login',
+        SIGN_UP: 'register',
+        FORGOT_PASSWORD: 'forgot-password',
+        RESET_PASSWORD: 'reset-password',
+        CALLBACK: 'auth/callback',
+      }}
     >
       <QueryClientProvider client={queryClient}>
         <AuthProvider>

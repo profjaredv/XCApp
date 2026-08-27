@@ -1,4 +1,4 @@
-import React, { ReactNode, useState, useEffect } from 'react';
+import React, { ReactNode, useState, useEffect, useCallback } from 'react';
 import { AuthContext } from '../contexts/AuthContext';
 import { User } from '../types';
 import { api } from '../api/axios';
@@ -106,7 +106,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setError(newError || '');
   };
 
-  const acceptInvite = async (token: string) => {
+  const acceptInvite = useCallback(async (token: string) => {
     const response = await api.post('/athletes/accept-invite', { token });
     // The invite just linked this account to an athlete and (re)set its
     // team — currentUser needs to reflect that immediately rather than
@@ -117,9 +117,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (refreshedUser) setCurrentUser(refreshedUser);
     }
     return response.data;
-  };
+  }, []);
 
-  const acceptStaffInvite = async (token: string) => {
+  const acceptStaffInvite = useCallback(async (token: string) => {
     const response = await api.post('/team/accept-staff-invite', { token });
     // Same reasoning as acceptInvite: team/role just changed, refresh now.
     const fresh = await getFreshToken();
@@ -128,12 +128,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (refreshedUser) setCurrentUser(refreshedUser);
     }
     return response.data;
-  };
+  }, []);
 
   // F3 (LeadPack Master Build Handoff): claiming an admin-created team —
   // same reasoning as acceptStaffInvite, this just granted HEAD_COACH, so
   // currentUser needs to reflect that immediately.
-  const claimTeam = async (token: string) => {
+  const claimTeam = useCallback(async (token: string) => {
     const response = await api.post(`/team-claims/${token}/claim`);
     const fresh = await getFreshToken();
     if (fresh) {
@@ -141,7 +141,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (refreshedUser) setCurrentUser(refreshedUser);
     }
     return response.data;
-  };
+  }, []);
 
   const value = {
     currentUser,

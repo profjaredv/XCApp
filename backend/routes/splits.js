@@ -78,6 +78,12 @@ function buildAthleteSplitRows(results) {
       raceName: r.race.name,
       date: r.race.date,
       distanceMeters: r.race.distanceMeters,
+      // Carried through for lib/splitAggregates.js, which buckets by
+      // distance AND scheme: two 5Ks marked in miles vs kilometres have
+      // segments that are not comparable, and averaging them positionally
+      // is wrong. Without this field every race defaulted to MILE and the
+      // bucketing had no effect at all.
+      splitMarkerScheme: r.race.splitMarkerScheme,
       finishSec: r.time,
       segments: segs,
       analysis: splitAnalysis(segs),

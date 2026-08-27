@@ -1,26 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { getApiErrorMessage } from '../lib/apiError';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
-
-// axios's own error.message is a generic "Request failed with status code
-// 404" — the useful text ("This invite has expired", "no longer valid",
-// etc.) is in the JSON body the backend sent, which axios only exposes
-// under response.data.
-function getErrorMessage(error: unknown): string {
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'response' in error &&
-    typeof (error as { response?: { data?: { msg?: string } } }).response?.data?.msg === 'string'
-  ) {
-    return (error as { response: { data: { msg: string } } }).response.data.msg;
-  }
-  return error instanceof Error ? error.message : 'Failed to accept invitation.';
-}
 
 const InviteAcceptPage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
@@ -28,6 +13,17 @@ const InviteAcceptPage: React.FC = () => {
   const { currentUser, acceptInvite } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'requires_auth'>('loading');
   const [message, setMessage] = useState<string>('');
+  // Accepting an invite must happen ONCE per token, and this effect cannot
+  // be trusted to run once on its own: it depends on `currentUser` and on
+  // the accept function, and the accept call itself refreshes currentUser
+  // (AuthProvider builds a brand-new user object and a brand-new function
+  // identity on every render). So the successful first call immediately
+  // re-triggered the effect, the second POST found the invite already
+  // marked accepted, the backend correctly answered "no longer valid", and
+  // the page flipped from success to a red error — while the account had
+  // in fact joined the team perfectly. That is the reported "signed up,
+  // then got an invalid/unauthorized link" bug.
+  const attemptedTokenRef = useRef<string | null>(null);
   const [athleteId, setAthleteId] = useState<string | null>(null);
   const [athleticTeamId, setAthleticTeamId] = useState<string | null>(null);
 
@@ -45,6 +41,9 @@ const InviteAcceptPage: React.FC = () => {
         return;
       }
 
+      if (attemptedTokenRef.current === token) return;
+      attemptedTokenRef.current = token;
+
       try {
         setStatus('loading');
         const response = await acceptInvite(token);
@@ -61,7 +60,7 @@ const InviteAcceptPage: React.FC = () => {
       } catch (error) {
         console.error('Error accepting invitation:', error);
         setStatus('error');
-        setMessage(getErrorMessage(error));
+        setMessage(getApiErrorMessage(error, 'Failed to accept invitation.'));
       }
     };
 

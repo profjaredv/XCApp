@@ -3328,3 +3328,104 @@ this sandbox can't hold a session open across a real midnight, so the hook
 is reasoned from the event model, not observed. Worth a deliberate check:
 leave the app open overnight (or shift the device clock past midnight) and
 confirm Today rolls over on focus.
+
+## Invite sign-up dead end, missing password-reset routes, and wrong split averages
+
+Three reports, three genuinely different causes.
+
+### 1. "Signed up, created a password, then got an invalid/unauthorized link" — while the account HAD joined
+
+Root cause found in code, and it explains the contradiction exactly:
+`StaffInviteAcceptPage`'s effect depends on `[token, currentUser,
+acceptStaffInvite]`, and `acceptStaffInvite` **itself refreshes
+currentUser**. `AuthProvider` builds a brand-new user object and a brand-new
+function identity on every render, so:
+
+1. effect runs → POST accept → succeeds, invite marked `accepted`
+2. the same call then refreshes `currentUser` → AuthProvider re-renders
+3. both deps have new identities → **effect re-runs**
+4. second POST finds `invite.status !== 'pending'` → backend correctly
+   answers 404 "This invite is no longer valid."
+5. the page overwrites its own success with a red error
+
+So the coach really had joined the team; the screen was reporting the
+*second* attempt. `InviteAcceptPage` (athlete invites) had the identical
+shape and the identical bug.
+
+Fixed with a one-shot `attemptedTokenRef` guard per token in both pages —
+the essential fix, since an effect that performs a one-time state-changing
+action cannot rely on its dependency list — plus `useCallback` on
+`acceptInvite`/`acceptStaffInvite`/`claimTeam` so the identity churn stops
+at the source. `ClaimTeamPage` was already safe (`deps: [token]` only).
+
+Also new `lib/apiError.ts`. The backend is split ~409 `{ msg }` vs ~73
+`{ message }`, and the `message` group includes **middleware/auth.js**, so
+every 401/403 used the key none of the pages read — each had its own copy
+of a reader that only checked `msg`, so auth failures surfaced as axios's
+useless "Request failed with status code 401". Reading both is the right
+fix rather than renaming 400+ backend responses.
+
+### 2. Password reset "just generates an error"
+
+Not a bug in a reset flow — **there was no reset flow to reach**.
+`NeonAuthUIProvider` declared `viewPaths` for `SIGN_IN` and `SIGN_UP` only,
+and the router had `/login` and `/register` only. But the sign-in form
+always renders a "Forgot password?" link, and the library resolves it
+against its own defaults (verified against the installed source,
+`@daveyplate/better-auth-ui/src/lib/view-paths.ts`: `forgot-password`,
+`reset-password`, `callback`, …). That link therefore pointed at a route
+that did not exist, fell through to the authenticated shell, and surfaced as
+an authorization error. The emailed reset link (`/reset-password?token=…`)
+had the same problem, so a reset could not be completed even if triggered
+another way.
+
+Added `AuthFlowPage` plus routes for `/forgot-password`, `/reset-password`
+and `/auth/callback`, and declared all of them in `viewPaths` so the
+library's links and the router agree.
+
+### 3. Split averages wrong, "especially if there aren't very many"
+
+Two real defects in `lib/splitAggregates.js`, both worst at small n — which
+is why they were noticed:
+
+- **`average()` summed raw values.** A `null` coerces to 0 in JS, so
+  `average([300, null, 320])` returned **206.7, not 310**, and an
+  `undefined` produced NaN. Now ignores non-finite values and returns the
+  count it actually used.
+- **Buckets mixed marker schemes.** Races were bucketed by distance alone,
+  so two 5Ks — one marked in miles (~1609m segments), one in kilometres
+  (1000m segments) — had their segments averaged positionally and the result
+  labelled "Mile 1". `splitMarkerScheme` is per-race and nullable, so this
+  is live, not hypothetical. Buckets are now keyed by distance AND scheme,
+  and labels come from the scheme (`1K`, `Split 1`) instead of a hardcoded
+  "Mile N".
+
+Also: `raceCount` was reported for a position while the pace average was
+computed over a *filtered* subset, overstating what the number came from.
+Now `segmentRaceCount`/`paceRaceCount` are reported separately, and the UI
+shows "N of M" when a position covers fewer races than the bucket.
+
+**Nearly shipped dead:** `buildAthleteSplitRows` in `routes/splits.js` did
+not include `splitMarkerScheme`, so every race would have defaulted to MILE
+and the bucketing fix would have had no effect on the real path while its
+tests passed — the same trap as the "Last, First" parser two entries ago.
+Caught by checking the caller before committing, not by the tests.
+
+Verification: 4 new tests in `splitAggregates.test.js`, written first and
+confirmed failing (4 fail) before the fix, then passing (13/13). Backend
+suite 369/370 — the one failure is the same pre-existing scraper-fixture
+gap. `tsc -b`, `eslint` on all touched frontend files, and `npm run build`
+clean. The corrected bucketing was also run end-to-end over mixed MILE/KM
+input to confirm the buckets separate and label correctly.
+
+**Not verified**, and worth a real check: none of the three fixes has been
+exercised against a live session. In particular the invite fix is reasoned
+from the render/dependency model rather than observed, and the password
+reset routes depend on the auth provider actually being configured to send
+reset email — if `EUSEND_API_KEY` is unset in production the form will
+render and accept an address but no email will arrive, which will look like
+a different bug.
+
+Noted, not touched: `main.tsx` and `TeamAthleteProfilePage.tsx` each carry a
+**pre-existing** lint error (confirmed by stashing this work and re-running).
+Left alone as unrelated.

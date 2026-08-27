@@ -40,6 +40,13 @@ export const SplitsAggregateSummary: React.FC<SplitsAggregateSummaryProps> = ({ 
               <span key={seg.position}>
                 {seg.label} avg: {formatSplitMMSS(seg.avgSegmentSec)}
                 {seg.avgPaceSecPerMile != null ? ` (${formatSplitMMSS(seg.avgPaceSecPerMile)}/mi)` : ''}
+                {/* Only when this position covers fewer races than the bucket —
+                    a "Mile 3" that exists in one race out of four is not the
+                    same claim as the bucket's headline race count, and with a
+                    small sample that difference is the whole story. */}
+                {seg.segmentRaceCount != null && seg.segmentRaceCount < bucket.raceCount
+                  ? ` · ${seg.segmentRaceCount} of ${bucket.raceCount}`
+                  : ''}
               </span>
             ))}
             {bucket.closingAverage && (

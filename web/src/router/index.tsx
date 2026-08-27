@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
-import { LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, BandTrendsPage, FieldResultsPage } from '../pages';
+import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, BandTrendsPage, FieldResultsPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
@@ -49,6 +49,23 @@ export const router = createBrowserRouter([
       {
         path: '/register',
         element: <RegisterPage />,
+      },
+      // The auth library's own default view paths (see
+      // @daveyplate/better-auth-ui lib/view-paths.ts). The sign-in form
+      // links straight to these, so a missing route is a dead end rather
+      // than a cosmetic gap — /forgot-password previously fell through to
+      // the authenticated shell and surfaced as an authorization error.
+      {
+        path: '/forgot-password',
+        element: <AuthFlowPage pathname="forgot-password" />,
+      },
+      {
+        path: '/reset-password',
+        element: <AuthFlowPage pathname="reset-password" />,
+      },
+      {
+        path: '/auth/callback',
+        element: <AuthFlowPage pathname="callback" />,
       },
       // Not team-scoped: reachable before a coach has (or knows) a team.
       {

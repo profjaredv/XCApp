@@ -126,12 +126,18 @@ export interface SegmentAverage {
   position: number;
   label: string;
   avgSegmentSec: number | null;
+  /** How many races actually contributed a usable value — can be fewer than raceCount. */
+  segmentRaceCount?: number;
+  paceRaceCount?: number;
   avgPaceSecPerMile: number | null;
   raceCount: number;
 }
 
 export interface ClosingSegmentAverage {
   avgSegmentSec: number | null;
+  /** How many races actually contributed a usable value — can be fewer than raceCount. */
+  segmentRaceCount?: number;
+  paceRaceCount?: number;
   avgPaceSecPerMile: number | null;
   raceCount: number;
 }
@@ -141,6 +147,8 @@ export type AggregateSplitPattern = SplitPattern | 'mixed';
 export interface SplitsAggregateByDistance {
   distanceBucketMeters: number;
   distanceLabel: string;
+  /** MILE | KM | CUSTOM — buckets never mix schemes, since their segments aren't comparable. */
+  markerScheme?: string;
   raceCount: number;
   segmentAverages: SegmentAverage[];
   closingAverage: ClosingSegmentAverage | null;

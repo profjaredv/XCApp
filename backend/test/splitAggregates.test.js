@@ -131,3 +131,103 @@ test('aggregateSplitsByDistance: races with differing marker counts at the same 
   assert.equal(bucket.segmentAverages[0].avgSegmentSec, 300);
   assert.equal(bucket.closingAverage.raceCount, 2);
 });
+
+// ---------------------------------------------------------------------------
+// Regressions: reported as "split averages look wrong, especially when there
+// aren't many races".
+// ---------------------------------------------------------------------------
+
+function raceWith({ raceId, distanceMeters, segs, closing = null, overallPace = 300, scheme = 'MILE' }) {
+  const segments = segs.map((s, i) => ({
+    sequence: i + 1,
+    isClosing: false,
+    distanceMeters: s.distanceMeters,
+    segmentSec: s.segmentSec,
+    paceSecPerMile: s.paceSecPerMile,
+  }));
+  if (closing) segments.push({ sequence: segs.length + 1, isClosing: true, ...closing });
+  return {
+    raceId,
+    raceName: raceId,
+    date: '2026-09-01',
+    distanceMeters,
+    splitMarkerScheme: scheme,
+    finishSec: 1000,
+    segments,
+    analysis: null,
+    overallPaceSecPerMile: overallPace,
+  };
+}
+
+test('a mile-marked and a km-marked race at the same distance are not averaged together', () => {
+  // Both bucket to 5000m, but one has ~1609m segments and the other 1000m
+  // segments. Averaging them positionally compares a mile split against a
+  // kilometre split and labels the result "Mile 1".
+  const out = aggregateSplitsByDistance([
+    raceWith({
+      raceId: 'mile-race',
+      distanceMeters: 5000,
+      scheme: 'MILE',
+      segs: [{ distanceMeters: 1609, segmentSec: 300, paceSecPerMile: 300 }],
+    }),
+    raceWith({
+      raceId: 'km-race',
+      distanceMeters: 5000,
+      scheme: 'KM',
+      segs: [{ distanceMeters: 1000, segmentSec: 186, paceSecPerMile: 300 }],
+    }),
+  ]);
+
+  const firstPositions = out.flatMap((b) => b.segmentAverages.filter((s) => s.position === 1));
+  for (const pos of firstPositions) {
+    assert.notEqual(
+      Math.round(pos.avgSegmentSec),
+      Math.round((300 + 186) / 2),
+      'a 1609m split and a 1000m split must never be averaged into one number'
+    );
+  }
+});
+
+test('segment labels follow the race marker scheme rather than always saying "Mile"', () => {
+  const out = aggregateSplitsByDistance([
+    raceWith({
+      raceId: 'km-race',
+      distanceMeters: 5000,
+      scheme: 'KM',
+      segs: [{ distanceMeters: 1000, segmentSec: 186, paceSecPerMile: 300 }],
+    }),
+  ]);
+  assert.equal(out[0].segmentAverages[0].label, '1K');
+});
+
+test('raceCount reports how many races actually went into the pace average', () => {
+  // One race has no pace for its segment (no usable distance). It must not be
+  // counted in a pace average it contributed nothing to.
+  const out = aggregateSplitsByDistance([
+    raceWith({
+      raceId: 'a',
+      distanceMeters: 5000,
+      segs: [{ distanceMeters: 1609, segmentSec: 300, paceSecPerMile: 300 }],
+    }),
+    raceWith({
+      raceId: 'b',
+      distanceMeters: 5000,
+      segs: [{ distanceMeters: 1609, segmentSec: 320, paceSecPerMile: null }],
+    }),
+  ]);
+  const first = out[0].segmentAverages[0];
+  assert.equal(first.avgPaceSecPerMile, 300);
+  assert.equal(first.paceRaceCount, 1, 'the pace average came from one race, and must say so');
+  assert.equal(first.raceCount, 2, 'the segment average still covers both races');
+});
+
+test('a null segmentSec is ignored, not silently treated as zero', () => {
+  // average() summed raw values, so a null counted as 0 and dragged the mean
+  // down (average([300, null, 320]) === 206.7, not 310). With two or three
+  // races that is a catastrophic error, which is exactly when it was noticed.
+  const out = aggregateSplitsByDistance([
+    raceWith({ raceId: 'a', distanceMeters: 5000, segs: [{ distanceMeters: 1609, segmentSec: 300, paceSecPerMile: 300 }] }),
+    raceWith({ raceId: 'b', distanceMeters: 5000, segs: [{ distanceMeters: 1609, segmentSec: null, paceSecPerMile: null }] }),
+  ]);
+  assert.equal(out[0].segmentAverages[0].avgSegmentSec, 300);
+});
