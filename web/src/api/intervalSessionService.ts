@@ -1,6 +1,9 @@
 import api from './api';
 
-export type IntervalZone = 'threshold' | 'interval' | 'repetition';
+// A stable pace-zone key — 'mcm-vo2' for a default zone, 'team:DIS' for one
+// the team defined. NOT a PaceZone.id: those change on every settings save.
+// See lib/paceZoneLookup.ts.
+export type IntervalZoneKey = string;
 
 export interface IntervalSessionEntry {
   id: string;
@@ -24,7 +27,11 @@ export interface IntervalSession {
   date: string;
   title: string;
   repDistanceM: number;
-  zone: IntervalZone;
+  zone: IntervalZoneKey;
+  // The zone's name when this session was created. Keeps an old session
+  // readable after its zone is renamed or deleted; the live definition is
+  // preferred when there still is one.
+  zoneLabel: string | null;
   archived: boolean;
   entries: IntervalSessionEntry[];
 }
@@ -35,7 +42,8 @@ export interface CreateIntervalSessionInput {
   date: string;
   title: string;
   repDistanceM: number;
-  zone: IntervalZone;
+  zone: IntervalZoneKey;
+  zoneLabel?: string | null;
   athleteIds?: string[];
 }
 

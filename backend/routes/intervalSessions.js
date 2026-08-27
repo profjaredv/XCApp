@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { isUsableZoneKey, parseZoneKey } = require('../lib/paceZoneRules');
 
 // Coach-adoption pass item 6: coach-led interval/tempo capture, replacing
 // the printed sheet a coach fills in by hand at the track. Any real coach
@@ -11,10 +12,27 @@ const { authenticate, requireTeam, requireRole } = require('../middleware/auth')
 // paid one.
 const COACH_ROLES = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'];
 
-// Matches vdotPaces.ts's TrainingPaceZone keys, minus easy/marathon —
-// those describe continuous running, not something you'd hit a stopwatch
-// split for on a track (see intervalSplitsForZone's own comment).
-const VALID_ZONES = ['threshold', 'interval', 'repetition'];
+// A session's `zone` is a stable pace-zone KEY — 'mcm-vo2' for one of the
+// default zones, 'team:DIS' for one the team defined (see
+// lib/paceZoneRules.js for why it is never a PaceZone.id). Validating a
+// team key means checking the team actually defined that zone, which needs
+// a query, so unlike the old fixed list this is async.
+//
+// Every zone is offered, not just the fast ones. The previous three-zone
+// list existed because Daniels' Easy/Marathon paces have no meaningful
+// repeat split — but a coach who defines their own vocabulary and wants
+// 6 x 1000m at their steady-state pace is not making a mistake, and it is
+// not this endpoint's job to tell them otherwise.
+async function zoneKeyError(zone, teamId) {
+  if (!parseZoneKey(zone)) {
+    return 'zone must be a pace-zone key like "mcm-vo2" or "team:DIS".';
+  }
+  const teamZones = await prisma.paceZone.findMany({ where: { teamId }, select: { abbreviation: true } });
+  if (!isUsableZoneKey(zone, teamZones.map((z) => z.abbreviation))) {
+    return 'That pace zone is not defined for this team.';
+  }
+  return null;
+}
 
 function serializeEntry(entry) {
   return {
@@ -42,6 +60,11 @@ function serializeSession(session) {
     title: session.title,
     repDistanceM: session.repDistanceM,
     zone: session.zone,
+    // The zone's name as it was when the session was created. The client
+    // prefers the live definition (so a rename shows through on an active
+    // session) and falls back to this, which is what keeps a session
+    // readable after its zone is renamed or deleted outright.
+    zoneLabel: session.zoneLabel ?? null,
     archived: session.archived,
     entries: (session.entries ?? []).map(serializeEntry),
   };
@@ -151,19 +174,19 @@ router.get('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (r
 // for the same reason. athleteIds is still honored for the no-group (ad
 // hoc) case, where there's no roster to derive from.
 router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
-  const { seasonId, groupId, date, title, repDistanceM, zone, athleteIds } = req.body;
+  const { seasonId, groupId, date, title, repDistanceM, zone, zoneLabel, athleteIds } = req.body;
 
   if (!seasonId || !date || !title || !repDistanceM || !zone) {
     return res.status(400).json({ msg: 'seasonId, date, title, repDistanceM, and zone are required.' });
-  }
-  if (!VALID_ZONES.includes(zone)) {
-    return res.status(400).json({ msg: `zone must be one of: ${VALID_ZONES.join(', ')}` });
   }
   if (!(Number(repDistanceM) > 0)) {
     return res.status(400).json({ msg: 'repDistanceM must be a positive number.' });
   }
 
   try {
+    const zoneError = await zoneKeyError(zone, req.user.teamId);
+    if (zoneError) return res.status(400).json({ msg: zoneError });
+
     const season = await prisma.season.findFirst({ where: { id: seasonId, teamId: req.user.teamId } });
     if (!season) {
       return res.status(404).json({ msg: 'Season not found.' });
@@ -195,6 +218,10 @@ router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req
         title,
         repDistanceM: Math.round(Number(repDistanceM)),
         zone,
+        // Snapshotted from what the client displayed, so the session keeps
+        // reading correctly after a rename. Trimmed and length-capped
+        // because it is client-supplied text that goes straight back out.
+        zoneLabel: typeof zoneLabel === 'string' && zoneLabel.trim() ? zoneLabel.trim().slice(0, 60) : null,
         createdById: req.user.id,
         entries: { create: ids.map((athleteId) => ({ athleteId })) },
       },
@@ -245,6 +272,7 @@ router.post('/:id/duplicate', authenticate, requireTeam, requireRole(COACH_ROLES
         title: source.title,
         repDistanceM: source.repDistanceM,
         zone: source.zone,
+        zoneLabel: source.zoneLabel,
         duplicatedFromId: source.id,
         createdById: req.user.id,
         entries: { create: athleteIds.map((athleteId) => ({ athleteId })) },
@@ -265,12 +293,13 @@ router.post('/:id/duplicate', authenticate, requireTeam, requireRole(COACH_ROLES
 // PUT /api/interval-sessions/:id — session-level fields only; date/group
 // are part of its identity, so change those by deleting and recreating.
 router.put('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
-  const { title, repDistanceM, zone, archived } = req.body;
-  if (zone !== undefined && !VALID_ZONES.includes(zone)) {
-    return res.status(400).json({ msg: `zone must be one of: ${VALID_ZONES.join(', ')}` });
-  }
+  const { title, repDistanceM, zone, zoneLabel, archived } = req.body;
 
   try {
+    if (zone !== undefined) {
+      const zoneError = await zoneKeyError(zone, req.user.teamId);
+      if (zoneError) return res.status(400).json({ msg: zoneError });
+    }
     const session = await prisma.intervalSession.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
     if (!session) {
       return res.status(404).json({ msg: 'Session not found.' });
@@ -279,7 +308,13 @@ router.put('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (r
     const updates = {};
     if (title !== undefined) updates.title = title;
     if (repDistanceM !== undefined) updates.repDistanceM = Math.round(Number(repDistanceM));
-    if (zone !== undefined) updates.zone = zone;
+    if (zone !== undefined) {
+      updates.zone = zone;
+      // Re-snapshot alongside the key. Leaving a stale label attached to a
+      // new zone would be worse than having none.
+      updates.zoneLabel =
+        typeof zoneLabel === 'string' && zoneLabel.trim() ? zoneLabel.trim().slice(0, 60) : null;
+    }
     if (archived !== undefined) updates.archived = Boolean(archived);
 
     const updated = await prisma.intervalSession.update({

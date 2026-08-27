@@ -19,8 +19,11 @@ import {
   useSetIntervalSessionArchived,
 } from '@/hooks/useIntervalSessions';
 import { bestPaceSecPerMile, formatTime } from '@/api/groupService';
-import type { IntervalSessionEntry, IntervalZone, RepUpdateInput } from '@/api/intervalSessionService';
-import { trainingPacesFromRace, splitTimeSec } from '@/lib/vdotPaces';
+import type { IntervalSessionEntry, RepUpdateInput } from '@/api/intervalSessionService';
+import { usePaceZones } from '@/hooks/usePaceZones';
+import { findZoneByKey, zoneDisplayName } from '@/lib/paceZoneLookup';
+import { resolvePaceZone, type PaceZoneDefinition } from '@/lib/paceZones';
+import { repTimeSec, formatRepTargetRange } from '@/lib/paceFormat';
 import { formatDateShort, compactName } from '@/lib/formatUtils';
 import { SplitCell, type CellNavigate } from '@/components/splits/SplitCell';
 import { FieldHeader, type FieldAction } from '@/components/field/FieldHeader';
@@ -31,12 +34,6 @@ import { SegmentedPills } from '@/components/field/SegmentedPills';
 // a phone at the track isn't competing with every other session for
 // screen space. Suggested per-rep splits reuse the same VDOT engine as
 // TrainingPacesCard, computed here from each athlete's own most recent race.
-
-const ZONE_LABEL: Record<IntervalZone, string> = {
-  threshold: 'Threshold',
-  interval: 'Interval',
-  repetition: 'Repetition',
-};
 
 const REP_COUNT = 6;
 const REPS: number[] = Array.from({ length: REP_COUNT }, (_, i) => i + 1);
@@ -65,26 +62,36 @@ function repInput(rep: number, value: number | null): RepUpdateInput {
   }
 }
 
+// The suggested per-rep target, from the session's pace zone and this
+// athlete's own most recent race.
+//
 // Season-agnostic on purpose — see useAthleteRecentRace's comment. A
 // preseason interval session (the exact time a coach is most likely
 // setting one up) has zero results in the *current* season, so this needs
 // whichever race actually happened most recently, any season.
-function suggestedSplitSeconds(
+//
+// A zone is a RANGE, so this returns one too. Returns null when there is
+// no race to work from, or when the session's zone has since been deleted
+// from the team's settings — in both cases there is genuinely nothing to
+// suggest, and a number would be a guess.
+function suggestedRepTarget(
   recentRace: AthleteRecentRace | null | undefined,
-  zone: IntervalZone,
+  zone: PaceZoneDefinition | null,
   repDistanceM: number
-): number | null {
-  if (!recentRace) return null;
-  const result = trainingPacesFromRace(recentRace.distance, recentRace.time);
-  if (!result) return null;
-  const paceZone = result.paces.find((p) => p.key === zone);
-  if (!paceZone) return null;
-  return splitTimeSec(paceZone.paceSecPerMile, repDistanceM);
+): { fastSec: number; slowSec: number } | null {
+  if (!recentRace || !zone) return null;
+  const paces = resolvePaceZone(zone, { distanceMiles: recentRace.distance, timeSeconds: recentRace.time });
+  if (!paces) return null;
+  return {
+    fastSec: repTimeSec(paces.fastSecPerMile, repDistanceM),
+    slowSec: repTimeSec(paces.slowSecPerMile, repDistanceM),
+  };
 }
+
 
 const EntryRow: React.FC<{
   entry: IntervalSessionEntry;
-  suggestedSec: number | null;
+  target: { fastSec: number; slowSec: number } | null;
   activeRep: number;
   registerRef: (key: string, el: HTMLInputElement | null) => void;
   onComplete: (key: string, elapsedSec: number) => void;
@@ -92,14 +99,14 @@ const EntryRow: React.FC<{
   onNavigate: (key: string, direction: CellNavigate) => void;
   onRemove: () => void;
   removing: boolean;
-}> = ({ entry, suggestedSec, activeRep, registerRef, onComplete, onClear, onNavigate, onRemove, removing }) => {
+}> = ({ entry, target, activeRep, registerRef, onComplete, onClear, onNavigate, onRemove, removing }) => {
   const repValue = (rep: number): number | null => entry[repField(rep)];
 
   return (
     <TableRow>
       <TableCell className="whitespace-nowrap">{compactName(entry.athleteName)}</TableCell>
       <TableCell className="text-center text-sm md:text-xs text-muted-foreground whitespace-nowrap font-mono">
-        {suggestedSec ? `T = ${formatTime(suggestedSec)}` : '—'}
+        {target ? formatRepTargetRange(target.fastSec, target.slowSec) : '—'}
       </TableCell>
       {REPS.map((rep) => (
         <TableCell key={rep} className={`p-1 ${rep - 1 === activeRep ? '' : 'hidden md:table-cell'}`}>
@@ -155,6 +162,12 @@ const IntervalSessionManagePage: React.FC = () => {
 
   const entryAthleteIds = useMemo(() => (session?.entries ?? []).map((e) => e.athleteId), [session?.entries]);
   const { data: recentRaceByAthlete } = useAthleteRecentRace(entryAthleteIds);
+  const { data: teamZones = [] } = usePaceZones();
+  // Resolved live, so renaming or retuning a zone in Settings updates the
+  // targets on an in-progress session. Null once a zone has been deleted —
+  // the session still renders (its stored label carries the name), it just
+  // stops suggesting paces it can no longer derive.
+  const sessionZone = session ? findZoneByKey(session.zone, teamZones) : null;
 
   // Fastest-to-slowest by each athlete's best distance-normalized pace this
   // season, so the group runs in the order they'll actually line up on the
@@ -281,7 +294,7 @@ const IntervalSessionManagePage: React.FC = () => {
       title={session?.title ?? 'Interval Session'}
       subtitle={
         session
-          ? `${formatDateShort(session.date)} · ${session.groupName ?? 'Ad hoc'} · ${session.repDistanceM}m · ${ZONE_LABEL[session.zone]} pace`
+          ? `${formatDateShort(session.date)} · ${session.groupName ?? 'Ad hoc'} · ${session.repDistanceM}m · ${zoneDisplayName(session.zone, teamZones, session.zoneLabel)} pace`
           : undefined
       }
       actions={[
@@ -363,7 +376,7 @@ const IntervalSessionManagePage: React.FC = () => {
                         <EntryRow
                           key={entry.id}
                           entry={entry}
-                          suggestedSec={suggestedSplitSeconds(recentRaceByAthlete?.get(entry.athleteId), session.zone, session.repDistanceM)}
+                          target={suggestedRepTarget(recentRaceByAthlete?.get(entry.athleteId), sessionZone, session.repDistanceM)}
                           activeRep={activeRep}
                           registerRef={registerRef}
                           onComplete={handleComplete}
@@ -415,7 +428,7 @@ const IntervalSessionManagePage: React.FC = () => {
         <h1 className="text-lg font-semibold">{session.title}</h1>
         <p className="text-sm text-muted-foreground mb-3">
           {formatDateShort(session.date)} · {session.groupName ?? 'Ad hoc'} · {session.repDistanceM}m ·{' '}
-          {ZONE_LABEL[session.zone]} pace
+          {zoneDisplayName(session.zone, teamZones, session.zoneLabel)} pace
         </p>
         <table className="w-full text-xs border-collapse">
           <thead>
@@ -432,11 +445,11 @@ const IntervalSessionManagePage: React.FC = () => {
           </thead>
           <tbody>
             {sortedEntries.map((entry) => {
-              const suggestedSec = suggestedSplitSeconds(recentRaceByAthlete?.get(entry.athleteId), session.zone, session.repDistanceM);
+              const target = suggestedRepTarget(recentRaceByAthlete?.get(entry.athleteId), sessionZone, session.repDistanceM);
               return (
                 <tr key={entry.id}>
                   <td className="p-1 border border-border whitespace-nowrap">{entry.athleteName}</td>
-                  <td className="text-center p-1 border border-border font-mono">{suggestedSec ? formatTime(suggestedSec) : ''}</td>
+                  <td className="text-center p-1 border border-border font-mono">{target ? formatRepTargetRange(target.fastSec, target.slowSec) : ''}</td>
                   {REPS.map((rep) => {
                     const value = entry[repField(rep)];
                     return (

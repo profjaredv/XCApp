@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatPaceRange, distanceLabel, formatOffset, describeRule, repTimeSec, formatRepTime, isRepeatZone } from './paceFormat';
+import { formatPaceRange, distanceLabel, formatOffset, describeRule, repTimeSec, formatRepTime, isRepeatZone, formatRepTargetRange } from './paceFormat';
 import type { PaceZoneDefinition } from './paceZones';
 
 const base: PaceZoneDefinition = {
@@ -110,5 +110,19 @@ describe('isRepeatZone', () => {
     const slowFiveK = 483;
     expect(isRepeatZone(450, slowFiveK)).toBe(true);
     expect(isRepeatZone(470, slowFiveK)).toBe(true);
+  });
+});
+
+describe('formatRepTargetRange', () => {
+  it('shows a range for a real zone range', () => {
+    // 800m at 6:07-6:27/mi. 192.5s is 3:12.5, which rounds up to 3:13.
+    expect(formatRepTargetRange(182.6, 192.5)).toBe('3:03-3:13');
+  });
+  it('collapses when both ends round to the same second', () => {
+    // A "2:35-2:35" target is noise, not information.
+    expect(formatRepTargetRange(154.9, 155.2)).toBe('2:35');
+  });
+  it('collapses an exact single pace', () => {
+    expect(formatRepTargetRange(155, 155)).toBe('2:35');
   });
 });

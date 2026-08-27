@@ -164,3 +164,79 @@ module.exports = {
   normalizePaceZone,
   normalizePaceZoneSet,
 };
+
+// --- How a saved thing (an interval session, say) REFERS to a zone ---
+//
+// Never by PaceZone.id. Saving the zone set is a delete-then-insert (see
+// routes/paceZones.js for why), so every custom zone gets a fresh uuid on
+// every save — anything holding an id would be orphaned the first time a
+// coach edited an unrelated zone. What is stable is:
+//
+//   'mcm-vo2'   a default zone, keyed by its constant id
+//   'team:DIS'  a team's own zone, keyed by its abbreviation, which is
+//               unique per team and survives a save
+//
+// The default keys are duplicated from MCMILLAN_ZONES in
+// web/src/lib/paceZones.ts because that constant is the frontend's (the
+// paces are computed client-side and the server never needs the rules).
+// test/paceZoneKeys.test.js reads that file and fails if the two lists
+// drift, so this cannot silently rot.
+const DEFAULT_ZONE_KEYS = ['mcm-speed', 'mcm-vo2', 'mcm-tempo', 'mcm-ss', 'mcm-easy', 'mcm-recovery'];
+
+const TEAM_ZONE_PREFIX = 'team:';
+
+/**
+ * Split a zone key into what it points at. Returns null for anything
+ * malformed — callers treat that as "not a zone", never as a default.
+ */
+function parseZoneKey(key) {
+  if (typeof key !== 'string' || !key) return null;
+  if (DEFAULT_ZONE_KEYS.includes(key)) return { kind: 'default', key };
+  if (key.startsWith(TEAM_ZONE_PREFIX)) {
+    const abbreviation = key.slice(TEAM_ZONE_PREFIX.length);
+    if (!abbreviation || abbreviation.length > MAX_ABBREVIATION_LENGTH) return null;
+    return { kind: 'team', key, abbreviation };
+  }
+  return null;
+}
+
+function teamZoneKey(abbreviation) {
+  return `${TEAM_ZONE_PREFIX}${abbreviation}`;
+}
+
+/**
+ * Is this key usable by this team right now?
+ *
+ * `teamAbbreviations` is the team's current custom-zone abbreviations. A
+ * default key is always fine. A team key is only accepted if the zone
+ * actually exists — otherwise a coach could pin a session to a zone that
+ * was never defined and get no suggested paces with no explanation.
+ *
+ * Note this is a check for WRITES. Reading an old session whose zone has
+ * since been deleted must still work; that is what the stored label is
+ * for.
+ */
+function isUsableZoneKey(key, teamAbbreviations) {
+  const parsed = parseZoneKey(key);
+  if (!parsed) return false;
+  if (parsed.kind === 'default') return true;
+  return teamAbbreviations.includes(parsed.abbreviation);
+}
+
+// The three zone names interval sessions used before team-defined zones
+// existed, mapped to their equivalents in the default set. These are the
+// same zones under different authors' names — Daniels' Threshold is a
+// tempo effort, his Interval is VO2max work, his Repetition is short speed
+// work — so this is a rename, not a reinterpretation of anyone's data.
+const LEGACY_ZONE_MAP = {
+  threshold: 'mcm-tempo',
+  interval: 'mcm-vo2',
+  repetition: 'mcm-speed',
+};
+
+module.exports.DEFAULT_ZONE_KEYS = DEFAULT_ZONE_KEYS;
+module.exports.TEAM_ZONE_PREFIX = TEAM_ZONE_PREFIX;
+module.exports.LEGACY_ZONE_MAP = LEGACY_ZONE_MAP;
+module.exports.parseZoneKey = parseZoneKey;
+module.exports.teamZoneKey = teamZoneKey;
+module.exports.isUsableZoneKey = isUsableZoneKey;

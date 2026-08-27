@@ -1131,13 +1131,27 @@ model IntervalSession {
   date     DateTime @db.Date
   title    String // "5 x 800m Tempo"
 
-  // Repeat distance + VDOT zone this session's suggested paces are pulled
-  // from (TrainingPaceZone['key'] in vdotPaces.ts: threshold | interval |
-  // repetition — the only zones with meaningful repeat splits). Suggested
-  // times are computed client-side from each athlete's own VDOT, not
-  // stored here.
+  // Repeat distance, plus which training-pace zone this session's suggested
+  // per-rep times come from. Suggested times are computed client-side from
+  // each athlete's own most recent race, not stored here.
+  //
+  // `zone` is a STABLE KEY, never a PaceZone.id — 'mcm-vo2' for one of the
+  // default zones, 'team:DIS' for one the team defined. Saving the zone set
+  // is a delete-then-insert, so custom zones get new uuids on every save and
+  // anything holding an id would be orphaned the first time a coach edited
+  // an unrelated zone. See lib/paceZoneRules.js.
   repDistanceM Int    @map("rep_distance_m")
   zone         String
+
+  // The zone's display name as it was when this session was created.
+  //
+  // Historical sessions have to stay readable. A coach who renames "VO2" to
+  // "Interval" in December, or deletes it outright, must not turn October's
+  // sheet into a session labelled with a dangling key — so the label is
+  // snapshotted here and the live definition is only used for recomputing
+  // paces. Null on rows created before this column existed; the UI falls
+  // back to looking the key up.
+  zoneLabel String? @map("zone_label")
 
   // Soft-hide once a session is done being managed — same pattern as
   // Group.archived. Never filtered out server-side; the list page splits

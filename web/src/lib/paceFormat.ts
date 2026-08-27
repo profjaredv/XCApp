@@ -105,3 +105,16 @@ const REP_ZONE_MAX_SEC_SLOWER_THAN_5K = 60;
 export function isRepeatZone(zoneFastSecPerMile: number, fiveKPaceSecPerMile: number): boolean {
   return zoneFastSecPerMile <= fiveKPaceSecPerMile + REP_ZONE_MAX_SEC_SLOWER_THAN_5K;
 }
+
+/**
+ * A per-rep target over a pace RANGE: "2:35" or "2:35-2:41".
+ *
+ * Collapses to one number when the range is zero-width, and also when the
+ * two ends round to the same second — an 800m rep whose range spans a
+ * third of a second should read "2:35", not "2:35-2:35".
+ */
+export function formatRepTargetRange(fastSec: number, slowSec: number): string {
+  const fast = formatRepTime(fastSec);
+  const slow = formatRepTime(slowSec);
+  return fast === slow ? fast : `${fast}-${slow}`;
+}

@@ -18,7 +18,11 @@ import {
   useSetIntervalSessionArchived,
   useDuplicateIntervalSession,
 } from '@/hooks/useIntervalSessions';
-import type { IntervalSession, IntervalZone } from '@/api/intervalSessionService';
+import type { IntervalSession, IntervalZoneKey } from '@/api/intervalSessionService';
+import { usePaceZones } from '@/hooks/usePaceZones';
+import { selectableZones, zoneDisplayName, findZoneByKey } from '@/lib/paceZoneLookup';
+import type { PaceZoneDefinition } from '@/lib/paceZones';
+import { describeRule } from '@/lib/paceFormat';
 import { formatDateShort, todayIso } from '@/lib/formatUtils';
 
 // Coach-adoption pass item 6: replaces the printed sheet a coach fills in
@@ -29,12 +33,6 @@ import { formatDateShort, todayIso } from '@/lib/formatUtils';
 // screen), and archive (soft-hide once a session is done, same pattern as
 // Group.archived — never deleted, just out of the way).
 
-const ZONE_LABEL: Record<IntervalZone, string> = {
-  threshold: 'Threshold',
-  interval: 'Interval',
-  repetition: 'Repetition',
-};
-
 const AD_HOC = '__ad_hoc__';
 
 interface NewSessionForm {
@@ -42,7 +40,7 @@ interface NewSessionForm {
   date: string;
   title: string;
   repDistanceM: string;
-  zone: IntervalZone;
+  zone: IntervalZoneKey;
 }
 
 const EMPTY_NEW_SESSION: NewSessionForm = {
@@ -50,25 +48,28 @@ const EMPTY_NEW_SESSION: NewSessionForm = {
   date: todayIso(),
   title: '',
   repDistanceM: '800',
-  zone: 'interval',
+  // The classic interval zone, and the one this screen existed for.
+  zone: 'mcm-vo2',
 };
 
 const SessionSummaryCard: React.FC<{
   session: IntervalSession;
+  teamZones: PaceZoneDefinition[];
   onManage: () => void;
   onDuplicate: () => void;
   onArchiveToggle: () => void;
   onDelete: () => void;
   archiving: boolean;
   deleting: boolean;
-}> = ({ session, onManage, onDuplicate, onArchiveToggle, onDelete, archiving, deleting }) => (
+}> = ({ session, teamZones, onManage, onDuplicate, onArchiveToggle, onDelete, archiving, deleting }) => (
   <Card>
     <CardHeader className="flex flex-row items-start justify-between gap-2 py-4">
       <div>
         <CardTitle className="text-base">{session.title}</CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
           {formatDateShort(session.date)} · {session.groupName ?? 'Ad hoc'} · {session.repDistanceM}m ·{' '}
-          {ZONE_LABEL[session.zone]} pace · {session.entries.length} athlete{session.entries.length === 1 ? '' : 's'}
+          {zoneDisplayName(session.zone, teamZones, session.zoneLabel)} pace ·{' '}
+          {session.entries.length} athlete{session.entries.length === 1 ? '' : 's'}
         </p>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
@@ -102,12 +103,15 @@ const IntervalSessionsPage: React.FC = () => {
   const { data: groups = [] } = useGroups(seasonId);
   const trainingGroups = groups.filter((g) => g.type === 'TRAINING' && !g.archived);
   const { data: sessions = [], isLoading } = useIntervalSessions(seasonId);
+  const { data: teamZones = [] } = usePaceZones();
+  const zoneOptions = selectableZones(teamZones);
 
   const activeSessions = sessions.filter((s) => !s.archived);
   const archivedSessions = sessions.filter((s) => s.archived);
 
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [form, setForm] = useState<NewSessionForm>(EMPTY_NEW_SESSION);
+  const selectedZone = findZoneByKey(form.zone, teamZones);
 
   const [duplicateSource, setDuplicateSource] = useState<IntervalSession | null>(null);
   const [duplicateGroupId, setDuplicateGroupId] = useState(AD_HOC);
@@ -156,6 +160,9 @@ const IntervalSessionsPage: React.FC = () => {
         title: form.title.trim(),
         repDistanceM: Number(form.repDistanceM),
         zone: form.zone,
+        // Snapshot the name so this session stays readable if the zone is
+        // later renamed or deleted.
+        zoneLabel: selectedZone?.name ?? null,
       });
       toast.success('Session created.');
       setNewDialogOpen(false);
@@ -261,6 +268,7 @@ const IntervalSessionsPage: React.FC = () => {
                 <SessionSummaryCard
                   key={session.id}
                   session={session}
+                  teamZones={teamZones}
                   onManage={() => navigate(teamPath(`/interval-sessions/${session.id}`))}
                   onDuplicate={() => openDuplicate(session)}
                   onArchiveToggle={() => handleArchiveToggle(session)}
@@ -350,18 +358,28 @@ const IntervalSessionsPage: React.FC = () => {
               </div>
               <div>
                 <Label>Suggested-pace zone</Label>
-                <Select value={form.zone} onValueChange={(v) => setForm({ ...form, zone: v as IntervalZone })}>
+                <Select value={form.zone} onValueChange={(v) => setForm({ ...form, zone: v })}>
                   <SelectTrigger className="mt-1">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(ZONE_LABEL) as IntervalZone[]).map((z) => (
-                      <SelectItem key={z} value={z}>
-                        {ZONE_LABEL[z]}
+                    {/* The team's own zones first — those are the words
+                        actually used at practice — then the standard set.
+                        Both are shown with their rule, so picking one does
+                        not depend on remembering what it means. */}
+                    {zoneOptions.map((option) => (
+                      <SelectItem key={option.key} value={option.key}>
+                        {option.definition.abbreviation} · {option.definition.name}
+                        {option.group === 'team' ? '' : ' (standard)'}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {selectedZone
+                    ? describeRule(selectedZone)
+                    : 'Pick a zone to see how its pace is worked out.'}
+                </p>
               </div>
             </div>
           </div>
