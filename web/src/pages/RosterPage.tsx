@@ -33,6 +33,7 @@ import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAuth } from '@/contexts/AuthContext';
+import { getApiErrorMessage } from '@/lib/apiError';
 import { PendingClaimsCard } from '@/components/PendingClaimsCard';
 import { setPreviewAthlete } from '@/lib/impersonation';
 
@@ -52,7 +53,24 @@ const RosterPage: React.FC = () => {
   const teamAthletePath = (athleteId: string) =>
     teamPath(`/team/athlete/${athleteId}${season !== undefined ? `?season=${season}` : ''}`);
   const { currentUser } = useAuth();
-  const isCoach = currentUser?.role === 'coach';
+  // TeamMember.role, not currentUser.role — every button this gates
+  // (sync, import, join code, captain, nickname, invite/resend,
+  // preview-as-athlete, keep) hits a route guarded by
+  // requireRole(['HEAD_COACH', 'COACH']) or tighter, and none of them
+  // accept VOLUNTEER_COACH.
+  //
+  // currentUser.role is the sticky 'coach'|'athlete' UX hint, and
+  // middleware/auth.js sets it to 'coach' for a VOLUNTEER_COACH too (its
+  // promotion list includes all three staff roles on purpose, so real
+  // staff get the coach sidebar). Gating on it therefore showed a
+  // volunteer coach the entire roster-editing toolbar, every button of
+  // which could only answer 403 — the "I can't resend an invite, 403"
+  // report. Super admin gets in the same way requireRole lets them:
+  // only while actually impersonating a team.
+  const isCoach =
+    currentUser?.teamRole === 'HEAD_COACH' ||
+    currentUser?.teamRole === 'COACH' ||
+    Boolean(currentUser?.isSuperAdmin && currentUser?.isImpersonating);
 
   const queryClient = useQueryClient();
   const { data: context } = useTeamContext();
@@ -290,7 +308,7 @@ const RosterPage: React.FC = () => {
       invalidate();
       closeInviteDialog();
     } catch (err) {
-      setInviteError(err instanceof Error ? err.message : 'Failed to send invitation.');
+      setInviteError(getApiErrorMessage(err, 'Failed to send invitation.'));
     } finally {
       setInviteLoading(false);
     }

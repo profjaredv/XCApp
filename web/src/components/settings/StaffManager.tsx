@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { teamService } from '../../api/teamService';
 import { useAuth } from '../../contexts/AuthContext';
+import { getApiErrorMessage } from '../../lib/apiError';
 
 type StaffRole = 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH';
 
@@ -31,7 +32,16 @@ export function StaffManager() {
   // member's role/access (routes/team.js) — everyone else who can reach
   // this screen gets the read-only view the card's own copy promises,
   // instead of interactive-looking controls that just 403 on click.
-  const canManageStaff = currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH';
+  //
+  // isSuperAdmin ALONE is not enough, and matching the server on this
+  // matters: middleware/auth.js's requireRole waves the super admin
+  // through only when isImpersonating is also set — i.e. only once an
+  // X-Admin-Team-Id has actually resolved to a team. Gating on
+  // isSuperAdmin by itself showed a super admin who hadn't picked a team
+  // in the switcher a live-looking Resend button that could only ever
+  // answer 403.
+  const canManageStaff =
+    (currentUser?.isSuperAdmin && currentUser?.isImpersonating) || currentUser?.teamRole === 'HEAD_COACH';
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<StaffRole>('COACH');
   const [isSending, setIsSending] = useState(false);
@@ -56,7 +66,7 @@ export function StaffManager() {
       toast.success(result.emailSent ? `Invite emailed to ${result.invite.email}.` : `Invite ready for ${result.invite.email}.`);
       refetch();
     } catch (err) {
-      const message = getErrorMessage(err) || 'Failed to send invite.';
+      const message = getApiErrorMessage(err, 'Failed to send invite.');
       setError(message);
       toast.error(message);
     }
@@ -97,7 +107,7 @@ export function StaffManager() {
       toast.success(!active ? 'Access restored.' : 'Access revoked.');
       refetch();
     } catch (err) {
-      toast.error(getErrorMessage(err) || 'Failed to update staff member.');
+      toast.error(getApiErrorMessage(err, 'Failed to update staff member.'));
     }
   };
 
@@ -107,7 +117,7 @@ export function StaffManager() {
       toast.success('Role updated.');
       refetch();
     } catch (err) {
-      toast.error(getErrorMessage(err) || 'Failed to update role.');
+      toast.error(getApiErrorMessage(err, 'Failed to update role.'));
     }
   };
 
@@ -270,18 +280,6 @@ export function StaffManager() {
       </CardContent>
     </Card>
   );
-}
-
-function getErrorMessage(err: unknown): string | null {
-  if (
-    typeof err === 'object' &&
-    err !== null &&
-    'response' in err &&
-    typeof (err as { response?: { data?: { msg?: string } } }).response?.data?.msg === 'string'
-  ) {
-    return (err as { response: { data: { msg: string } } }).response.data.msg;
-  }
-  return err instanceof Error ? err.message : null;
 }
 
 // Local, not shared via useGroups' useStaff — that hook filters to active
