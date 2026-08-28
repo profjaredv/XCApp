@@ -4,6 +4,7 @@ const { ZipArchive } = require('archiver');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, hasTeamRole } = require('../middleware/auth');
+const { FULL_COACH } = require('../lib/teamRoles');
 const { TEAM_EXPORT, ATHLETE_EXPORT, EXCLUDED_MODELS, redactDeep } = require('../lib/exportManifest');
 const { toCsv } = require('../lib/exportCsv');
 
@@ -163,7 +164,7 @@ function sendZip(res, filename, { data, sections, readmeText }) {
 // pile of minors' data the app can produce. A coach or volunteer can read
 // any of it a screen at a time; bundling it for download is a different
 // act and belongs with the person accountable for the team.
-router.get('/team', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+router.get('/team', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const team = await prisma.team.findUnique({ where: { id: req.user.teamId } });
     if (!team) return res.status(404).json({ msg: 'Team not found.' });

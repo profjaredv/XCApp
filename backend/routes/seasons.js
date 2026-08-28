@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { DESTRUCTIVE, FULL_COACH } = require('../lib/teamRoles');
 
 router.get('/', authenticate, requireTeam, async (req, res) => {
   const { sport = 'XC' } = req.query;
@@ -37,7 +38,7 @@ router.get('/current', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { year, sport = 'XC', startDate, endDate } = req.body;
   const teamId = req.user.teamId;
 
@@ -69,7 +70,7 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
   }
 });
 
-router.put('/:id', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.put('/:id', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { isActive, startDate, endDate } = req.body;
   const teamId = req.user.teamId;
 
@@ -99,7 +100,7 @@ router.put('/:id', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'
   }
 });
 
-router.post('/:id/roster', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/:id/roster', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { athletes } = req.body;
   const teamId = req.user.teamId;
 
@@ -139,7 +140,7 @@ router.post('/:id/roster', authenticate, requireTeam, requireRole(['HEAD_COACH',
 // SeasonRoster row (captaincy is annual, per the Build Spec), not on
 // Athlete or TeamMember — being a captain grants no extra data access by
 // itself, that's entirely a function of GroupLeader once T2 exists.
-router.patch('/:id/roster/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.patch('/:id/roster/:athleteId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { isCaptain, captainNotes } = req.body;
   const teamId = req.user.teamId;
 
@@ -168,7 +169,7 @@ router.patch('/:id/roster/:athleteId', authenticate, requireTeam, requireRole(['
   }
 });
 
-router.delete('/:id/roster/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+router.delete('/:id/roster/:athleteId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const season = await prisma.season.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
     if (!season) {
@@ -204,7 +205,7 @@ router.get('/:id/roster', authenticate, requireTeam, async (req, res) => {
   }
 });
 
-router.delete('/:id/results', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+router.delete('/:id/results', authenticate, requireTeam, requireRole(DESTRUCTIVE), async (req, res) => {
   const teamId = req.user.teamId;
 
   try {

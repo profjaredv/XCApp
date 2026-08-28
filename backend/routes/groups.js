@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete, hasTeamRole } = require('../middleware/auth');
+const { ANY_COACH, FULL_COACH } = require('../lib/teamRoles');
 const { getGroupOn, getActiveMembersOf, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn } = require('../lib/groups');
 const { decideCanManageGroup } = require('../lib/groupPermissions');
 const { normalizeGender } = require('../lib/gender');
@@ -552,7 +553,7 @@ router.get('/athlete/:athleteId/current', authenticate, requireTeam, async (req,
 });
 
 // POST /api/groups
-router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId, name, type, gender, sortOrder, color } = req.body;
 
   if (!seasonId || !name || !GROUP_TYPES.has(type)) {
@@ -614,7 +615,7 @@ router.put('/:id', authenticate, requireTeam, async (req, res) => {
 });
 
 // DELETE /api/groups/:id
-router.delete('/:id', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.delete('/:id', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const group = await prisma.group.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
     if (!group) {
@@ -631,7 +632,7 @@ router.delete('/:id', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COA
 // POST /api/groups/:id/leaders
 // Staff assignment stays coach-level even though editing the group's own
 // content (PUT above) can be delegated to a volunteer who already leads it.
-router.post('/:id/leaders', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/:id/leaders', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { userId, primary } = req.body;
   if (!userId) {
     return res.status(400).json({ msg: 'userId is required.' });
@@ -671,7 +672,7 @@ router.post('/:id/leaders', authenticate, requireTeam, requireRole(['HEAD_COACH'
 });
 
 // DELETE /api/groups/:id/leaders/:userId
-router.delete('/:id/leaders/:userId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.delete('/:id/leaders/:userId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const group = await prisma.group.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
     if (!group) {
@@ -788,7 +789,7 @@ async function getOrCreateXTrainingGroup(teamId, seasonId) {
 // endDate: null list — a bounded stint that hasn't arrived yet or already
 // expired must not show up here), each with why they're there and which
 // training group they'll return to.
-router.get('/x-training/:seasonId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
+router.get('/x-training/:seasonId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const season = await prisma.season.findFirst({ where: { id: req.params.seasonId, teamId: req.user.teamId } });
     if (!season) {
@@ -908,7 +909,7 @@ router.post('/x-training', authenticate, requireTeam, async (req, res) => {
 // transaction, per the doc ("Save writes all changes in one transaction").
 // Head/paid-coach only — a volunteer coach moving athletes one at a time
 // into their own group uses POST /:id/members above instead.
-router.post('/assign', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/assign', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { assignments, effectiveDate } = req.body;
   if (!Array.isArray(assignments) || assignments.length === 0) {
     return res.status(400).json({ msg: 'assignments array is required.' });
@@ -969,7 +970,7 @@ router.post('/assign', authenticate, requireTeam, requireRole(['HEAD_COACH', 'CO
 // point for the bulk screen, not a guarantee. Only carries an athlete
 // forward if they're also on the target season's active roster (some may
 // have graduated).
-router.post('/copy-from-season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/copy-from-season', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { fromSeasonId, toSeasonId } = req.body;
   if (!fromSeasonId || !toSeasonId) {
     return res.status(400).json({ msg: 'fromSeasonId and toSeasonId are required.' });

@@ -3,6 +3,7 @@ const router = express.Router();
 const { parse } = require('csv-parse/sync');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
+const { DESTRUCTIVE, FULL_COACH } = require('../lib/teamRoles');
 const {
   resolveActiveSeason,
   deriveGrade,
@@ -219,7 +220,7 @@ router.get('/:athleteId/races', authenticate, requireTeam, async (req, res) => {
 // Accepts either an explicit graduationYear or a grade + season to derive it
 // from — coaches think in grades ("she's a sophomore"), the data model thinks
 // in graduation years, so translate at the edge rather than storing the grade.
-router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { firstName, lastName, name, preferredName, graduationYear, grade, season, gender } = req.body;
   const teamId = req.user.teamId;
 
@@ -296,7 +297,7 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
 // verified" rule /scrape-roster follows for athleticAthleteId. Never
 // writes athleticAthleteId itself (this source has no such id) or the
 // deprecated Athlete.grade column — grade is per-season, on SeasonRoster.
-router.post('/import-roster', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/import-roster', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { season, csvData } = req.body;
   const teamId = req.user.teamId;
   const seasonYear = parseInt(season, 10);
@@ -398,7 +399,7 @@ router.post('/import-roster', authenticate, requireTeam, requireRole(['HEAD_COAC
   }
 });
 
-router.put('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.put('/:athleteId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { firstName, lastName, name, preferredName, graduationYear, grade, season, gender } = req.body;
   const teamId = req.user.teamId;
 
@@ -446,7 +447,7 @@ router.put('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH', 
   }
 });
 
-router.delete('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+router.delete('/:athleteId', authenticate, requireTeam, requireRole(DESTRUCTIVE), async (req, res) => {
   const teamId = req.user.teamId;
   try {
     const existing = await prisma.athlete.findFirst({
@@ -502,7 +503,7 @@ router.delete('/:athleteId', authenticate, requireTeam, requireRole(['HEAD_COACH
 //
 // Head-coach-only — comparable in blast radius to Clear Team Data
 // (routes/teams.js), not a routine roster edit.
-router.post('/merge', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+router.post('/merge', authenticate, requireTeam, requireRole(DESTRUCTIVE), async (req, res) => {
   const { keeperId, loserId } = req.body;
   const teamId = req.user.teamId;
 
@@ -717,7 +718,7 @@ router.post('/merge', authenticate, requireTeam, requireRole(['HEAD_COACH']), as
 const INVITE_TTL_DAYS = 30;
 
 // POST /api/athletes/:athleteId/invite
-router.post('/:athleteId/invite', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), requireActivePlan, async (req, res) => {
+router.post('/:athleteId/invite', authenticate, requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
   const { email } = req.body;
   const teamId = req.user.teamId;
 

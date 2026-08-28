@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, hasTeamRole } = require('../middleware/auth');
+const { ANY_COACH } = require('../lib/teamRoles');
 const { paceSecPerMile } = require('../lib/groupAnalytics');
 const {
   rankAthletesBySeasonBestPace,
@@ -12,7 +13,6 @@ const {
 } = require('../lib/athleteJourney');
 const { decideCanViewAthleteJourney } = require('../lib/athleteJourneyPermissions');
 
-const JOURNEY_COACH_ROLES = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'];
 
 const normalizeGender = (value) => {
   if (!value) return 'M';
@@ -273,7 +273,7 @@ router.get('/athlete/:athleteId/journey', authenticate, async (req, res) => {
     }
 
     const isSelf = req.user.linkedAthlete?.id === athleteId;
-    const isTeamCoach = req.user.teamId === athlete.teamId && JOURNEY_COACH_ROLES.includes(req.user.teamRole);
+    const isTeamCoach = req.user.teamId === athlete.teamId && ANY_COACH.includes(req.user.teamRole);
 
     let hasApprovedGuardianLink = false;
     if (!isSelf && !isTeamCoach) {

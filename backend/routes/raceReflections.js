@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
+const { ANY_COACH } = require('../lib/teamRoles');
 const { getGroupOn } = require('../lib/groups');
 const { computeLockAt, isPreRaceLocked, decideCanViewReflection } = require('../lib/raceReflections');
 
@@ -163,7 +164,7 @@ router.put('/mine/:raceId/sharing', authenticate, requireLinkedAthlete, async (r
 // list, so a captain (still just a TeamRole.ATHLETE) gets a flat 403 here
 // regardless of who they lead or which reflections are shared — they
 // never reach the per-row filter at all.
-router.get('/race/:raceId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
+router.get('/race/:raceId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
     if (!race) {

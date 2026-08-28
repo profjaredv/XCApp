@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { FULL_COACH } = require('../lib/teamRoles');
 const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, planSplitBatchWrite } = require('../lib/splitMath');
 const { normalizeDistanceMeters, aggregateSplitsByDistance } = require('../lib/splitAggregates');
 
@@ -215,7 +216,7 @@ router.get('/athlete/:athleteId/aggregate', authenticate, requireTeam, async (re
 // different points in time. (Same fix needed for a resave of an old CSV
 // export that's missing a marker column added since — see the frontend's
 // CSV import, which already only sends the columns actually present.)
-router.post('/batch', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/batch', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const { raceId, entries } = req.body;
     const teamId = req.user.teamId;
@@ -332,7 +333,7 @@ router.post('/batch', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COA
 });
 
 // DELETE /api/splits/:splitId — clears one marker's value for one athlete.
-router.delete('/:splitId', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.delete('/:splitId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const existing = await prisma.split.findFirst({
       where: { id: req.params.splitId, teamId: req.user.teamId },

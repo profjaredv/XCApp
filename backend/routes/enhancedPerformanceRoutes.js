@@ -1,6 +1,7 @@
 const express = require('express');
 const calculationService = require('../services/performance/calculationService');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { FULL_COACH } = require('../lib/teamRoles');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
 const { paceSecPerMile } = require('../lib/groupAnalytics');
@@ -14,7 +15,7 @@ const router = express.Router();
 /**
  * @route   POST /api/enhanced-performance/calculate/:season
  */
-router.post('/calculate/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/calculate/:season', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const season = parseInt(req.params.season, 10);

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { ANY_COACH } = require('../lib/teamRoles');
 const { resolveTodaySeasonState, resolveActiveSeason } = require('../lib/season');
 const { mergeStaffRoster } = require('../lib/teamStaff');
 const { getGroupOn } = require('../lib/groups');
@@ -16,7 +17,6 @@ const { decideCanViewTrainingLog } = require('../lib/trainingLogSharing');
 // athletes/:id/races) rather than duplicating them here; only the
 // genuinely new aggregations (season-state gate, next-meet-with-counts,
 // needs-attention, recent-result) get new routes.
-const COACH_ROLES = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'];
 
 // Resolves the requesting coach's own TeamRole the same way every other
 // per-row-permission route in this codebase does (raceReflections.js,
@@ -43,7 +43,7 @@ function addDays(date, days) {
 }
 
 // GET /api/today/season — the page-level gate every other block depends on.
-router.get('/season', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/season', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const result = await resolveTodaySeasonState(req.user.teamId);
     res.json(result);
@@ -57,7 +57,7 @@ router.get('/season', authenticate, requireTeam, requireRole(COACH_ROLES), async
 // doesn't have to open Schedule to see what's next. Athlete view doesn't
 // need this: GET /api/meet-ops/mine already does the same job scoped to
 // one athlete.
-router.get('/meet', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/meet', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
@@ -105,7 +105,7 @@ router.get('/meet', authenticate, requireTeam, requireRole(COACH_ROLES), async (
 // only. Deliberately returns nothing rather than a manufactured "all
 // clear" item when nothing qualifies — an empty area is the reward, per
 // the governing rule for this page.
-router.get('/attention', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/attention', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
@@ -171,7 +171,7 @@ router.get('/attention', authenticate, requireTeam, requireRole(COACH_ROLES), as
 // GET /api/today/recent-result?seasonId= — most recent race plus a
 // one-line team summary, coach view. Athlete view uses
 // GET /api/athletes/:athleteId/races?limit=1 instead.
-router.get('/recent-result', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/recent-result', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
@@ -219,13 +219,13 @@ router.get('/recent-result', authenticate, requireTeam, requireRole(COACH_ROLES)
 // so a bare count across the whole table is every athlete this team has
 // ever had on file, across every imported year. That inflated the number
 // the moment a team imported more than one season.
-router.get('/staff', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/staff', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const [team, members, activeSeason] = await Promise.all([
       prisma.team.findUnique({ where: { id: teamId }, select: { coach: { select: { id: true, name: true, email: true } } } }),
       prisma.teamMember.findMany({
-        where: { teamId, active: true, role: { in: COACH_ROLES } },
+        where: { teamId, active: true, role: { in: ANY_COACH } },
         select: { userId: true, role: true, joinedAt: true, user: { select: { name: true, email: true } } },
         orderBy: { joinedAt: 'asc' },
       }),
@@ -256,7 +256,7 @@ router.get('/staff', authenticate, requireTeam, requireRole(COACH_ROLES), async 
 // (same sharedWithCoach gate the existing race-reflections routes use).
 // VOLUNTEER_COACH is group-scoped, same as everywhere else that shows
 // per-athlete data to a volunteer.
-router.get('/activity', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/activity', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const windowStart = addDays(normalizeToday(), -14);

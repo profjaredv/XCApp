@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { ANY_COACH } = require('../lib/teamRoles');
 const { isUsableZoneKey, parseZoneKey } = require('../lib/paceZoneRules');
 
 // Coach-adoption pass item 6: coach-led interval/tempo capture, replacing
@@ -10,7 +11,6 @@ const { isUsableZoneKey, parseZoneKey } = require('../lib/paceZoneRules');
 // unlike practice plans (T3), there's no group-leader-only carve-out here;
 // a volunteer coach running a workout needs exactly the same access as a
 // paid one.
-const COACH_ROLES = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'];
 
 // A session's `zone` is a stable pace-zone KEY — 'mcm-vo2' for one of the
 // default zones, 'team:DIS' for one the team defined (see
@@ -108,7 +108,7 @@ async function syncEntryToTrainingLog(tx, entry, session, actingUserId) {
 }
 
 // GET /api/interval-sessions?seasonId=&from=&to=
-router.get('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId, from, to } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
@@ -140,7 +140,7 @@ router.get('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req,
 });
 
 // GET /api/interval-sessions/:id
-router.get('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/:id', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const session = await prisma.intervalSession.findFirst({
       where: { id: req.params.id, teamId: req.user.teamId },
@@ -173,7 +173,7 @@ router.get('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (r
 // though a group was picked. Same fix POST /:id/duplicate already needed
 // for the same reason. athleteIds is still honored for the no-group (ad
 // hoc) case, where there's no roster to derive from.
-router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId, groupId, date, title, repDistanceM, zone, zoneLabel, athleteIds } = req.body;
 
   if (!seasonId || !date || !title || !repDistanceM || !zone) {
@@ -244,7 +244,7 @@ router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req
 // zone into a fully independent new session (own entries, not shared with
 // the source), seeded from the target group's current roster — same
 // seeding the create-flow does. duplicatedFromId is traceability only.
-router.post('/:id/duplicate', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/:id/duplicate', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { groupId, date } = req.body;
 
   try {
@@ -292,7 +292,7 @@ router.post('/:id/duplicate', authenticate, requireTeam, requireRole(COACH_ROLES
 
 // PUT /api/interval-sessions/:id — session-level fields only; date/group
 // are part of its identity, so change those by deleting and recreating.
-router.put('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.put('/:id', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { title, repDistanceM, zone, zoneLabel, archived } = req.body;
 
   try {
@@ -334,7 +334,7 @@ router.put('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (r
 
 // DELETE /api/interval-sessions/:id — also removes every entry's derived
 // TrainingLog row; those exist only because this session did.
-router.delete('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.delete('/:id', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const session = await prisma.intervalSession.findFirst({
       where: { id: req.params.id, teamId: req.user.teamId },
@@ -360,7 +360,7 @@ router.delete('/:id', authenticate, requireTeam, requireRole(COACH_ROLES), async
 
 // POST /api/interval-sessions/:id/entries — "an athlete not normally in
 // this group, because sometimes that happens."
-router.post('/:id/entries', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/:id/entries', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { athleteId } = req.body;
   if (!athleteId) {
     return res.status(400).json({ msg: 'athleteId is required.' });
@@ -401,7 +401,7 @@ router.post('/:id/entries', authenticate, requireTeam, requireRole(COACH_ROLES),
 // PUT /api/interval-sessions/entries/:entryId — save rep times; writes
 // straight through to the athlete's training log in the same request, per
 // the request that these "get logged AND recorded back" in one action.
-router.put('/entries/:entryId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.put('/entries/:entryId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { rep1, rep2, rep3, rep4, rep5, rep6, notes } = req.body;
 
   try {
@@ -443,7 +443,7 @@ router.put('/entries/:entryId', authenticate, requireTeam, requireRole(COACH_ROL
 });
 
 // DELETE /api/interval-sessions/entries/:entryId
-router.delete('/entries/:entryId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.delete('/entries/:entryId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const entry = await prisma.intervalSessionEntry.findFirst({
       where: { id: req.params.entryId, intervalSession: { teamId: req.user.teamId } },

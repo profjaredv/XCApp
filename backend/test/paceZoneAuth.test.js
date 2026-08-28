@@ -35,13 +35,13 @@ test('every pace-zone route authenticates and is scoped to a team', () => {
   }
 });
 
-test('writing the set is HEAD_COACH only', () => {
+test('writing the set is limited to real coaches, not volunteers', () => {
+  // Was head-coach-only. Opened to COACH under lib/teamRoles.js's policy —
+  // defining what "T" means is coaching, not data deletion. Still closed to
+  // volunteers, whose write access is scoped to the groups they lead.
   for (const r of declaredRoutes().filter((x) => x.method !== 'GET')) {
-    assert.match(
-      r.middleware,
-      /requireRole\(\['HEAD_COACH'\]\)/,
-      `${r.method} ${r.path} must be restricted to HEAD_COACH`
-    );
+    assert.match(r.middleware, /requireRole\(FULL_COACH\)/, `${r.method} ${r.path}`);
+    assert.doesNotMatch(r.middleware, /ANY_COACH/, `${r.method} ${r.path}`);
   }
 });
 

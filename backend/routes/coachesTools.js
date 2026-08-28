@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { FULL_COACH } = require('../lib/teamRoles');
 const logger = require('../utils/logger');
 const { resolveActiveSeason, listSeasonsWithData, isEnrolled } = require('../lib/season');
 const { anonymizeAthletesForAnalysis } = require('../lib/kippwitAnonymize');
@@ -52,7 +53,7 @@ function formatPaceForPrompt(secPerMile) {
 /**
  * @route   GET /api/coaches-tools/athlete-performance/:season
  */
-router.get('/athlete-performance/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.get('/athlete-performance/:season', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const season = parseInt(req.params.season, 10);
@@ -118,7 +119,7 @@ router.get('/athlete-performance/:season', authenticate, requireTeam, requireRol
  *          existing snapshot back, not a new Gemini call. ?force=true
  *          bypasses that, but only for a superadmin (testing).
  */
-router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   if (!genAI) {
     return res.status(503).json({ success: false, message: 'AI insights are not configured (GEMINI_API_KEY is not set).' });
   }
@@ -450,7 +451,7 @@ Return JSON only, with every insight tagged by which of the four focus areas it 
  *          preseason fallback as ai-insights: no races yet this season
  *          falls back to the most recent season with data.
  */
-router.get('/coach-up/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.get('/coach-up/:season', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const requestedSeason = await resolveActiveSeason(teamId, req.params.season);
@@ -538,7 +539,7 @@ const COACH_UP_CATEGORIES = ['watch', 'consistency', 'regression'];
  *          idempotent (re-acknowledging an already-acknowledged pair is a
  *          no-op, not an error).
  */
-router.post('/coach-up/acknowledge', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/coach-up/acknowledge', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { athleteId, category, season } = req.body;
   if (!athleteId || !COACH_UP_CATEGORIES.includes(category) || !Number.isFinite(Number(season))) {
     return res.status(400).json({ success: false, message: `athleteId, season, and category (one of ${COACH_UP_CATEGORIES.join(', ')}) are required.` });
@@ -566,7 +567,7 @@ router.post('/coach-up/acknowledge', authenticate, requireTeam, requireRole(['HE
  * @route   DELETE /api/coaches-tools/coach-up/acknowledge
  * @desc    Undo a dismissal — idempotent (nothing to delete is not an error).
  */
-router.delete('/coach-up/acknowledge', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.delete('/coach-up/acknowledge', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { athleteId, category, season } = req.body;
   if (!athleteId || !COACH_UP_CATEGORIES.includes(category) || !Number.isFinite(Number(season))) {
     return res.status(400).json({ success: false, message: `athleteId, season, and category (one of ${COACH_UP_CATEGORIES.join(', ')}) are required.` });
@@ -586,7 +587,7 @@ router.delete('/coach-up/acknowledge', authenticate, requireTeam, requireRole(['
 /**
  * @route   GET /api/coaches-tools/improvement-tracking/:season
  */
-router.get('/improvement-tracking/:season', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.get('/improvement-tracking/:season', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const targetSeason = await resolveActiveSeason(teamId, req.params.season);

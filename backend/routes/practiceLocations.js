@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { ANY_COACH, FULL_COACH } = require('../lib/teamRoles');
 
 // A team's saved practice spots ("EHS Track", "Carey Lakes") — reusable
 // choices for the Schedule day-editor's Location field, instead of
@@ -9,7 +10,7 @@ const { authenticate, requireTeam, requireRole } = require('../middleware/auth')
 // season-scoped (a track doesn't stop existing between seasons).
 
 // GET /api/practice-locations
-router.get('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
+router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const locations = await prisma.practiceLocation.findMany({
       where: { teamId: req.user.teamId },
@@ -23,7 +24,7 @@ router.get('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', '
 });
 
 // POST /api/practice-locations
-router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { name } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).json({ msg: 'name is required.' });
@@ -44,7 +45,7 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
 });
 
 // PUT /api/practice-locations/:id — rename and/or archive/restore.
-router.put('/:id', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.put('/:id', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { name, archived } = req.body;
   try {
     const location = await prisma.practiceLocation.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });

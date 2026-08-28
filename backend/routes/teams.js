@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { DESTRUCTIVE, FULL_COACH } = require('../lib/teamRoles');
 const calculationService = require('../services/performance/calculationService');
 const {
   resolveActiveSeason,
@@ -59,7 +60,7 @@ router.get('/current', authenticate, requireTeam, async (req, res) => {
 // Scrapes Athletic.net for the CALLER'S OWN team — requireRole checks
 // req.user.teamId itself and limits this to head/paid coaches (importing
 // results is athlete read/write territory, not a head-coach-only action).
-router.post('/scrape', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) => {
   const { year } = req.body;
   const { spawn } = require('child_process');
   const path = require('path');
@@ -356,7 +357,7 @@ router.post('/scrape', authenticate, requireRole(['HEAD_COACH', 'COACH']), async
 // different people. (normalizeAthleteName, imported above, is this same
 // normalization — kept as one implementation per rule 3.)
 
-router.post('/scrape-roster', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/scrape-roster', authenticate, requireRole(FULL_COACH), async (req, res) => {
   const { year } = req.body;
   const { spawn } = require('child_process');
   const path = require('path');
@@ -546,7 +547,7 @@ router.post('/scrape-roster', authenticate, requireRole(['HEAD_COACH', 'COACH'])
 // A coach's "keep them" review action: this athlete didn't match the last
 // Athletic.net sync, but the coach knows they're still on the team (e.g. a
 // name mismatch, or Athletic.net just hasn't been updated yet).
-router.post('/seasons/:year/roster/:athleteId/clear-flag', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/seasons/:year/roster/:athleteId/clear-flag', authenticate, requireRole(FULL_COACH), async (req, res) => {
   const teamId = req.user.teamId;
   const year = parseInt(req.params.year, 10);
 
@@ -722,7 +723,7 @@ router.get('/context', authenticate, requireTeam, async (req, res) => {
 // else moves up a grade, and nothing is deleted — results stay attached to the
 // athletes forever, so graduated runners still appear in trends, career
 // progressions and past-season views.
-router.post('/seasons/:year/start', authenticate, requireRole(['HEAD_COACH']), async (req, res) => {
+router.post('/seasons/:year/start', authenticate, requireRole(FULL_COACH), async (req, res) => {
   const teamId = req.user.teamId;
   const targetYear = parseInt(req.params.year, 10);
   const { fromSeason, activate = true } = req.body || {};
@@ -938,7 +939,7 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
 // ---------------------------------------------------------------------------
 
 // POST /api/teams/seasons/:year/roster — add or restore an athlete
-router.post('/seasons/:year/roster', authenticate, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/seasons/:year/roster', authenticate, requireRole(FULL_COACH), async (req, res) => {
   const teamId = req.user.teamId;
   const year = parseInt(req.params.year, 10);
   const { athleteId, grade } = req.body || {};
@@ -996,7 +997,7 @@ router.post('/seasons/:year/roster', authenticate, requireRole(['HEAD_COACH', 'C
 // DELETE /api/teams/seasons/:year/roster/:athleteId
 // Deactivates the roster entry rather than deleting it: the athlete's results
 // for the season must survive being taken off the roster.
-router.delete('/seasons/:year/roster/:athleteId', authenticate, requireRole(['HEAD_COACH']), async (req, res) => {
+router.delete('/seasons/:year/roster/:athleteId', authenticate, requireRole(FULL_COACH), async (req, res) => {
   const teamId = req.user.teamId;
   const year = parseInt(req.params.year, 10);
 
@@ -1020,7 +1021,7 @@ router.delete('/seasons/:year/roster/:athleteId', authenticate, requireRole(['HE
 
 // PUT /api/teams/:id — team settings.
 // The Settings screen has always called this endpoint; it never existed.
-router.put('/:id', authenticate, requireRole(['HEAD_COACH']), async (req, res) => {
+router.put('/:id', authenticate, requireRole(FULL_COACH), async (req, res) => {
   const teamId = req.user.teamId;
   // Accepts either spelling. The frontend sent snake_case while every
   // other field went camelCase; both are honoured so an older client (a
@@ -1064,7 +1065,7 @@ router.put('/:id', authenticate, requireRole(['HEAD_COACH']), async (req, res) =
 // DELETE /api/teams/:athleticTeamId/results — clear imported race data.
 // Athletes and roster membership survive; only results/races are removed, so
 // the team you manage isn't destroyed by clearing data you imported.
-router.delete('/:athleticTeamId/results', authenticate, requireRole(['HEAD_COACH']), async (req, res) => {
+router.delete('/:athleticTeamId/results', authenticate, requireRole(DESTRUCTIVE), async (req, res) => {
   const teamId = req.user.teamId;
   const { season } = req.query;
 

@@ -9,6 +9,7 @@ import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../../contexts/AuthContext';
 import { getApiErrorMessage } from '../../lib/apiError';
+import { isFullCoach, isImpersonatingAdmin } from '../../lib/teamRole';
 import { usePaceZones, useSavePaceZones } from '../../hooks/usePaceZones';
 import { MCMILLAN_ZONES, resolvePaceZone, type PaceZoneDefinition } from '../../lib/paceZones';
 import { describeRule, formatPaceRange, distanceLabel } from '../../lib/paceFormat';
@@ -345,9 +346,8 @@ export function PaceZonesManager() {
   // Same check the server makes (routes/paceZones.js is
   // requireRole(['HEAD_COACH'])) — a super admin only counts while
   // actually impersonating a team, or the button just 403s.
-  const canEdit =
-    currentUser?.teamRole === 'HEAD_COACH' ||
-    Boolean(currentUser?.isSuperAdmin && currentUser?.isImpersonating);
+  // Follows the server: writing pace zones is requireRole(FULL_COACH) now.
+  const canEdit = isFullCoach(currentUser) || isImpersonatingAdmin(currentUser);
 
   const { data: saved, isLoading, isError, refetch } = usePaceZones();
   const saveZones = useSavePaceZones();

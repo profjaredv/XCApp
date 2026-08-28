@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
+const { ANY_TEAM_MEMBER, FULL_COACH } = require('../lib/teamRoles');
 const { buildMeetMappingProposal } = require('../lib/meetMapping');
 const { parseTeamCalendar } = require('../lib/icalMeets');
 const { decideResultWrite } = require('../lib/raceResults');
@@ -23,17 +24,15 @@ const { normalizeAthleteName } = require('../lib/athleteMatching');
 // hand-manages entries here. MeetEntry rows are still read (never
 // written) to power the athlete-facing "you are entered" status below and
 // in routes/today.js — that's the one thing this simplification kept.
-const COACH_ROLES = ['HEAD_COACH', 'COACH'];
 // B4 (LeadPack Master Build Handoff): athletes get a "Meets" nav item
 // pointing at this same list, read-only. Volunteer coaches get the full
 // PROGRAM section of the nav spine (everything but Setup), which includes
-// Meets, so they need at least read access here too — the COACH_ROLES-only
+// Meets, so they need at least read access here too — the FULL_COACH-only
 // gate above only ever covered entry/logistics *management*, never applied
 // to viewing the list.
-const LIST_VIEW_ROLES = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH', 'ATHLETE'];
 
 // GET /api/meet-ops?seasonId=
-router.get('/', authenticate, requireTeam, requireRole(LIST_VIEW_ROLES), async (req, res) => {
+router.get('/', authenticate, requireTeam, requireRole(ANY_TEAM_MEMBER), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
@@ -91,7 +90,7 @@ router.get('/', authenticate, requireTeam, requireRole(LIST_VIEW_ROLES), async (
 // POST /api/meet-ops — most Meet rows come from the coach-confirmed
 // scripts/applyMeetMapping.js backfill; this covers an upcoming meet that
 // hasn't been scraped yet and needs entries/logistics set up in advance.
-router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId, name, date, location, isHome } = req.body;
   if (!seasonId || !name || !date) {
     return res.status(400).json({ msg: 'seasonId, name, and date are required.' });
@@ -127,7 +126,7 @@ router.post('/', authenticate, requireTeam, requireRole(COACH_ROLES), async (req
 // and reachable without shell access). Read-only: proposes, writes
 // nothing. A coach reviews and edits names in the UI, then POSTs the
 // confirmed list to /import below — never auto-created.
-router.get('/import/propose', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/import/propose', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
@@ -167,7 +166,7 @@ router.get('/import/propose', authenticate, requireTeam, requireRole(COACH_ROLES
 // POST /api/meet-ops/import — creates a Meet per confirmed entry and links
 // its races. Only ever called with what a coach reviewed from the
 // propose step above; nothing here re-derives groupings on its own.
-router.post('/import', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/import', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId, meets } = req.body;
   if (!seasonId || !Array.isArray(meets) || meets.length === 0) {
     return res.status(400).json({ msg: 'seasonId and a non-empty meets array are required.' });
@@ -244,7 +243,7 @@ router.post('/import', authenticate, requireTeam, requireRole(COACH_ROLES), asyn
 // grouping already-scraped races. That feed is a plain public .ics
 // endpoint meant for calendar-app subscriptions — no login, no browser
 // rendering needed, unlike the team's Angular schedule page. Read-only.
-router.get('/import/propose-calendar', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/import/propose-calendar', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
@@ -320,7 +319,7 @@ router.get('/import/propose-calendar', authenticate, requireTeam, requireRole(CO
 // some of these meets from scraped results) never duplicates a row. Any
 // already-scraped, not-yet-linked races for the same meet ID get linked in
 // the same pass, so a coach doesn't have to separately group them later.
-router.post('/import-calendar', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/import-calendar', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId, meets } = req.body;
   if (!seasonId || !Array.isArray(meets) || meets.length === 0) {
     return res.status(400).json({ msg: 'seasonId and a non-empty meets array are required.' });
@@ -426,7 +425,7 @@ router.get('/mine', authenticate, requireLinkedAthlete, async (req, res) => {
 // required (not silently defaulted, unlike the scraper's own fallback in
 // calculationService.js) because a pace-based analysis silently drops a
 // race with no distance rather than showing a wrong number.
-router.post('/:meetId/races', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/:meetId/races', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { name, date, distanceMeters, distance } = req.body;
   const distanceMetersNum = Number(distanceMeters);
 
@@ -473,7 +472,7 @@ router.post('/:meetId/races', authenticate, requireTeam, requireRole(COACH_ROLES
 // Race.isManual's schema comment). A scraped race is only ever removed
 // by a bulk wipe/re-scrape, never through a single-race delete, so a
 // coach can't accidentally erase real Athletic.net history this way.
-router.delete('/races/:raceId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.delete('/races/:raceId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
     if (!race) {
@@ -492,7 +491,7 @@ router.delete('/races/:raceId', authenticate, requireTeam, requireRole(COACH_ROL
 
 // GET /api/meet-ops/races/:raceId/results — existing results for a race,
 // to pre-fill the results-entry grid.
-router.get('/races/:raceId/results', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/races/:raceId/results', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
     if (!race) {
@@ -532,7 +531,7 @@ router.get('/races/:raceId/results', authenticate, requireTeam, requireRole(COAC
 // Only this team's athletes are ever matched or returned, so pasting a full
 // public results page (every school in the meet) is fine — everyone else's
 // rows come back unmatched and are simply not offered for import.
-router.post('/races/:raceId/results/parse', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/races/:raceId/results/parse', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { text } = req.body || {};
   if (!text || typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ msg: 'Paste or upload some results first.' });
@@ -609,7 +608,7 @@ router.post('/races/:raceId/results/parse', authenticate, requireTeam, requireRo
 // place to fix a missing or wrong result on a scraped race. An entry
 // with no time and no status clears any existing result for that
 // athlete (someone who didn't run, or was entered by mistake).
-router.post('/races/:raceId/results', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/races/:raceId/results', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const teamId = req.user.teamId;
   const { results } = req.body;
   if (!Array.isArray(results) || results.length === 0) {
@@ -692,7 +691,7 @@ router.post('/races/:raceId/results', authenticate, requireTeam, requireRole(COA
 // Timer" itself, so an aborted/never-captured session doesn't leave
 // clutter behind — see TimerSession's schema comment for why this exists
 // at all (resuming after a coach gets pulled away mid-assignment).
-router.post('/races/:raceId/timer-sessions', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.post('/races/:raceId/timer-sessions', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { captures, assignments } = req.body;
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
@@ -718,7 +717,7 @@ router.post('/races/:raceId/timer-sessions', authenticate, requireTeam, requireR
 // GET /api/meet-ops/races/:raceId/timer-sessions — unfinished drafts for
 // this race, newest first. Multiple concurrent drafts are normal (two
 // coaches timing two heats of the same race), not an error state.
-router.get('/races/:raceId/timer-sessions', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/races/:raceId/timer-sessions', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
     if (!race) {
@@ -740,7 +739,7 @@ router.get('/races/:raceId/timer-sessions', authenticate, requireTeam, requireRo
 // action, never on a timer tick — only the discrete actions are worth
 // persisting, not the running clock itself (see the schema comment on
 // why a resumed session never lands back in a "still running" state).
-router.patch('/timer-sessions/:sessionId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.patch('/timer-sessions/:sessionId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { captures, assignments } = req.body;
   try {
     const session = await prisma.timerSession.findFirst({ where: { id: req.params.sessionId, teamId: req.user.teamId } });
@@ -765,7 +764,7 @@ router.patch('/timer-sessions/:sessionId', authenticate, requireTeam, requireRol
 // clean it up once its captures have been assigned and saved as real
 // Results elsewhere (the frontend calls this right after a successful
 // save, same as it does when a coach explicitly discards a session).
-router.delete('/timer-sessions/:sessionId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.delete('/timer-sessions/:sessionId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const session = await prisma.timerSession.findFirst({ where: { id: req.params.sessionId, teamId: req.user.teamId } });
     if (!session) {
@@ -782,7 +781,7 @@ router.delete('/timer-sessions/:sessionId', authenticate, requireTeam, requireRo
 // GET /api/meet-ops/:meetId — detail (races + season year). Placed after
 // the more specific /:meetId/* and /races/* routes above so it doesn't
 // shadow them.
-router.get('/:meetId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.get('/:meetId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const meet = await prisma.meet.findFirst({
       where: { id: req.params.meetId, teamId: req.user.teamId },
@@ -799,7 +798,7 @@ router.get('/:meetId', authenticate, requireTeam, requireRole(COACH_ROLES), asyn
 });
 
 // PUT /api/meet-ops/:meetId
-router.put('/:meetId', authenticate, requireTeam, requireRole(COACH_ROLES), async (req, res) => {
+router.put('/:meetId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { name, date, location, isHome } = req.body;
   try {
     const meet = await prisma.meet.findFirst({ where: { id: req.params.meetId, teamId: req.user.teamId } });

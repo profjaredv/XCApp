@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { ANY_COACH, FULL_COACH } = require('../lib/teamRoles');
 
 // GET /api/workout-templates
-router.get('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
+router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const templates = await prisma.workoutTemplate.findMany({
       where: { teamId: req.user.teamId, archived: false },
@@ -18,7 +19,7 @@ router.get('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', '
 });
 
 // POST /api/workout-templates
-router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { name, volumeTier, focus, durationMinutes, distanceMi, strength, details } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).json({ msg: 'name is required.' });
@@ -49,7 +50,7 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
 });
 
 // PUT /api/workout-templates/:id
-router.put('/:id', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.put('/:id', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { name, volumeTier, focus, durationMinutes, distanceMi, strength, details, archived } = req.body;
 
   try {

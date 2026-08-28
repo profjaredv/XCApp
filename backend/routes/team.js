@@ -3,6 +3,7 @@ const router = express.Router();
 const { customAlphabet } = require('nanoid');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { ANY_COACH, FULL_COACH } = require('../lib/teamRoles');
 const { resolveActiveSeason } = require('../lib/season');
 const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 const { sendEmail } = require('../lib/email');
@@ -147,7 +148,7 @@ function nameMatchScore(athleteName, userName) {
 // POST /api/team/generate-join-code
 // The frontend's join-code panel (RosterPage) has called this since it was
 // built; the backend route never existed, so it 404'd every time.
-router.post('/generate-join-code', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), requireActivePlan, async (req, res) => {
+router.post('/generate-join-code', authenticate, requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
   try {
     let joinCode;
     // joinCode is globally unique across all teams — retry on the rare
@@ -186,11 +187,22 @@ const INVITABLE_STAFF_ROLES = new Set(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']
 // access" instead of two. Read access is every coach role, including
 // VOLUNTEER_COACH — StaffManager.tsx's own copy says "everyone else can
 // see who has it"; only invite/edit (below) stays HEAD_COACH-only.
-router.get('/staff', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
+router.get('/staff', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
-    const [members, invites] = await Promise.all([
+    const [members, others, invites] = await Promise.all([
       prisma.teamMember.findMany({
         where: { teamId: req.user.teamId, role: { not: 'ATHLETE' } },
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { joinedAt: 'asc' },
+      }),
+      // Everyone else on the team. Sounds redundant — it is the fix for a
+      // real support problem: joining with the TEAM CODE always creates an
+      // ATHLETE membership, so a coach handed the code instead of a staff
+      // invite ends up an athlete at the team level. They then see a
+      // reduced menu, and because this list used to filter ATHLETE rows
+      // out, they did not appear here for anyone to correct. Now they do.
+      prisma.teamMember.findMany({
+        where: { teamId: req.user.teamId, role: 'ATHLETE' },
         include: { user: { select: { id: true, name: true, email: true } } },
         orderBy: { joinedAt: 'asc' },
       }),
@@ -202,6 +214,14 @@ router.get('/staff', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COAC
 
     res.json({
       staff: members.map((m) => ({
+        userId: m.userId,
+        name: m.user.name,
+        email: m.user.email,
+        role: m.role,
+        active: m.active,
+        joinedAt: m.joinedAt,
+      })),
+      otherMembers: others.map((m) => ({
         userId: m.userId,
         name: m.user.name,
         email: m.user.email,
@@ -225,7 +245,7 @@ router.get('/staff', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COAC
 // POST /api/team/staff-invite
 // Head-coach-only: granting HEAD_COACH/COACH/VOLUNTEER_COACH authority is
 // exactly the "staff management" the Build Spec keeps head-coach-scoped.
-router.post('/staff-invite', authenticate, requireTeam, requireRole(['HEAD_COACH']), requireActivePlan, async (req, res) => {
+router.post('/staff-invite', authenticate, requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
   const { email, role } = req.body;
   const teamId = req.user.teamId;
 
@@ -331,7 +351,7 @@ router.post('/accept-staff-invite', authenticate, async (req, res) => {
 // Head-coach-only: change an existing staff member's role, or deactivate
 // them (active: false) rather than deleting the row, so past group-leader/
 // plan-author references stay intact.
-router.patch('/staff/:userId', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+router.patch('/staff/:userId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { role, active } = req.body;
   const teamId = req.user.teamId;
 
@@ -343,8 +363,27 @@ router.patch('/staff/:userId', authenticate, requireTeam, requireRole(['HEAD_COA
     const membership = await prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId: req.params.userId } },
     });
-    if (!membership || membership.role === 'ATHLETE') {
-      return res.status(404).json({ msg: 'Staff member not found.' });
+    if (!membership) {
+      return res.status(404).json({ msg: 'Team member not found.' });
+    }
+    // Promoting FROM 'ATHLETE' is allowed on purpose. Refusing it was what
+    // made a mis-roled coach unfixable: the only route out was a fresh
+    // staff invite, and nothing on screen explained why.
+
+    // The team owner cannot be demoted or deactivated by anyone. Now that
+    // COACH can manage staff, without this a coach could remove the head
+    // coach's access and lock the owner out of their own team — an
+    // irreversible outcome nobody asked for, and not something the
+    // "coaches can do everything except delete data" rule is about.
+    const team = await prisma.team.findUnique({ where: { id: teamId }, select: { coachUid: true } });
+    if (team?.coachUid && team.coachUid === req.params.userId) {
+      const demoting = role !== undefined && role !== 'HEAD_COACH';
+      const deactivating = active !== undefined && !active;
+      if (demoting || deactivating) {
+        return res
+          .status(409)
+          .json({ msg: "This is the team's owner. Their access can't be removed or reduced here." });
+      }
     }
 
     const updates = {};
@@ -442,7 +481,7 @@ router.post('/claim-profile', authenticate, requireTeam, async (req, res) => {
 });
 
 // GET /api/team/pending-claims
-router.get('/pending-claims', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.get('/pending-claims', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const claims = await prisma.athleteClaim.findMany({
       where: { teamId: req.user.teamId, status: 'pending' },
@@ -467,7 +506,7 @@ router.get('/pending-claims', authenticate, requireTeam, requireRole(['HEAD_COAC
 });
 
 // POST /api/team/approve-claim
-router.post('/approve-claim', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/approve-claim', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { claimId, action } = req.body;
 
   if (!claimId || !['approve', 'reject'].includes(action)) {
@@ -524,7 +563,7 @@ router.post('/approve-claim', authenticate, requireTeam, requireRole(['HEAD_COAC
 // ---------------------------------------------------------------------------
 
 // GET /api/team/pending-guardian-links
-router.get('/pending-guardian-links', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.get('/pending-guardian-links', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const links = await prisma.guardianLink.findMany({
       where: { status: 'pending', athlete: { teamId: req.user.teamId } },
@@ -550,7 +589,7 @@ router.get('/pending-guardian-links', authenticate, requireTeam, requireRole(['H
 });
 
 // POST /api/team/approve-guardian-link
-router.post('/approve-guardian-link', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), requireActivePlan, async (req, res) => {
+router.post('/approve-guardian-link', authenticate, requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
   const { linkId, action } = req.body;
 
   if (!linkId || !['approve', 'reject'].includes(action)) {

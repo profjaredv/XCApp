@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { FULL_COACH } = require('../lib/teamRoles');
 const { normalizePaceZoneSet } = require('../lib/paceZoneRules');
 
 // A team's own training-pace vocabulary. See the PaceZone model comment in
@@ -62,7 +63,7 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
 //
 // HEAD_COACH only. This is not one athlete's data: changing what "T" means
 // changes every pace every athlete on the team is given.
-router.put('/', authenticate, requireTeam, requireRole(['HEAD_COACH']), async (req, res) => {
+router.put('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const normalized = normalizePaceZoneSet(req.body?.zones);
   if (!normalized.ok) return res.status(400).json({ msg: normalized.error });
 

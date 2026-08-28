@@ -2,13 +2,14 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireSuperAdmin } = require('../middleware/auth');
+const { FULL_COACH } = require('../lib/teamRoles');
 
 // Feedback is the product owner's channel, not a per-team feature: anyone
 // signed in can FILE a report (POST /), but reading, triaging and exporting
 // the queue is super-admin only (lib/superAdmin.js — the SUPER_ADMIN_EMAILS
 // allowlist).
 //
-// This replaced requireRole(['HEAD_COACH','COACH']) on the read/triage/export
+// This replaced requireRole(FULL_COACH) on the read/triage/export
 // routes, which was a real cross-tenant leak rather than a preference: those
 // queries were never scoped to the caller's team by default (`mine=true` was
 // opt-in), so any coach at any school could read — and PATCH — every other

@@ -3,6 +3,7 @@ const router = express.Router();
 const { parse } = require('csv-parse/sync');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
+const { ANY_COACH, FULL_COACH } = require('../lib/teamRoles');
 const { parsePracticePlanCsv } = require('../lib/practicePlanCsv');
 
 const EXPORT_HEADERS = [
@@ -76,7 +77,7 @@ function serializePlan(plan) {
 // Schedule List view) but only as a pair — a lone from or to would be
 // ambiguous about which side is unbounded, so either both are present or
 // neither is.
-router.get('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
+router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId, from, to } = req.query;
   if (!seasonId || (Boolean(from) !== Boolean(to))) {
     return res.status(400).json({ msg: 'seasonId is required; from and to must be given together or not at all.' });
@@ -135,7 +136,7 @@ router.get('/mine', authenticate, requireLinkedAthlete, async (req, res) => {
 // silently blank out the other's already-saved field, which a blanket
 // "always write all eight fields" upsert would risk whenever one coach's
 // save is built from a snapshot that predates the other's.
-router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId, date, locationId, startTime, announcements, preRun, run, postRun, workoutTemplateId, intervalSessionId } = req.body;
   if (!seasonId || !date) {
     return res.status(400).json({ msg: 'seasonId and date are required.' });
@@ -184,7 +185,7 @@ router.post('/', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH'])
 });
 
 // PUT /api/practice-plans/:id/publish
-router.put('/:id/publish', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.put('/:id/publish', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { published } = req.body;
   try {
     const plan = await prisma.practicePlan.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
@@ -208,7 +209,7 @@ router.put('/:id/publish', authenticate, requireTeam, requireRole(['HEAD_COACH',
 // the attached interval session — a rep-tracking sheet belongs to the day
 // it was actually run, not a fresh copy of it). Lands unpublished
 // regardless of the source's state, so the coach reviews before athletes see it.
-router.post('/:id/duplicate-day', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/:id/duplicate-day', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { toDate, toSeasonId } = req.body;
   if (!toDate) {
     return res.status(400).json({ msg: 'toDate is required.' });
@@ -253,7 +254,7 @@ router.post('/:id/duplicate-day', authenticate, requireTeam, requireRole(['HEAD_
 // POST /api/practice-plans/duplicate-week
 // Offsets all seven days by the same delta. Only days that actually have a
 // plan get copied; a week partially planned stays partially planned.
-router.post('/duplicate-week', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/duplicate-week', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId, fromWeekStart, toWeekStart, toSeasonId } = req.body;
   if (!seasonId || !fromWeekStart || !toWeekStart) {
     return res.status(400).json({ msg: 'seasonId, fromWeekStart, and toWeekStart are required.' });
@@ -326,7 +327,7 @@ router.post('/duplicate-week', authenticate, requireTeam, requireRole(['HEAD_COA
 // frontend just serializes them client-side (lib/csvParse.ts's toCsv, same
 // helper Field Results uses) rather than this route owning file-download
 // headers.
-router.get('/export', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH']), async (req, res) => {
+router.get('/export', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId, from, to } = req.query;
   if (!seasonId || (Boolean(from) !== Boolean(to))) {
     return res.status(400).json({ msg: 'seasonId is required; from and to must be given together or not at all.' });
@@ -375,7 +376,7 @@ router.get('/export', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COA
 // are matched by name (case-insensitive, scoped to this team/season); not
 // found is a per-row warning, not a fatal error, and that day still
 // imports without the attachment.
-router.post('/import', authenticate, requireTeam, requireRole(['HEAD_COACH', 'COACH']), async (req, res) => {
+router.post('/import', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId, csvData } = req.body;
   if (!seasonId || !csvData || typeof csvData !== 'string') {
     return res.status(400).json({ msg: 'seasonId and csvData are required.' });

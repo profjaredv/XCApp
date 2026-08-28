@@ -32,14 +32,15 @@ test('every export route authenticates and is team-scoped', () => {
   }
 });
 
-test('the whole-team export is HEAD_COACH only', () => {
+test('the whole-team export is limited to real coaches', () => {
+  // Was head-coach-only. Opened to COACH under the policy in
+  // lib/teamRoles.js: a coach is equal to a head coach except for deleting
+  // data, and an export deletes nothing. Volunteers are still out — their
+  // access is group-scoped, and this is every athlete on the team.
   const route = declaredRoutes().find((r) => r.path === '/team');
   assert.ok(route, 'no /team route found');
-  assert.match(
-    route.middleware,
-    /requireRole\(\['HEAD_COACH'\]\)/,
-    'downloading every athlete\'s data in one file belongs with the head coach'
-  );
+  assert.match(route.middleware, /requireRole\(FULL_COACH\)/);
+  assert.doesNotMatch(route.middleware, /ANY_COACH/, 'volunteers must not bulk-download the roster');
 });
 
 test('the athlete export checks self, coach or approved guardian in the handler', () => {

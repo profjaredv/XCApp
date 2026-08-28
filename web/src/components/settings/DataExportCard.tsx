@@ -6,6 +6,7 @@ import { Loader2, ShieldCheck, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../../contexts/AuthContext';
 import { getApiErrorMessage } from '../../lib/apiError';
+import { isFullCoach, isImpersonatingAdmin } from '../../lib/teamRole';
 import { exportService } from '../../api/exportService';
 
 // "This data is yours, you can export it at any time."
@@ -19,9 +20,10 @@ export function DataExportCard() {
   // Same check the server makes: GET /api/export/team is
   // requireRole(['HEAD_COACH']). A super admin counts only while actually
   // impersonating a team, or the button just 403s.
-  const canExportTeam =
-    currentUser?.teamRole === 'HEAD_COACH' ||
-    Boolean(currentUser?.isSuperAdmin && currentUser?.isImpersonating);
+  // Follows the server: the export moved from head-coach-only to
+  // requireRole(FULL_COACH) — a coach is equal to a head coach except for
+  // deleting data, and an export deletes nothing.
+  const canExportTeam = isFullCoach(currentUser) || isImpersonatingAdmin(currentUser);
 
   const { data: manifest } = useQuery({ queryKey: ['exportManifest'], queryFn: exportService.manifest });
   const [busy, setBusy] = useState(false);

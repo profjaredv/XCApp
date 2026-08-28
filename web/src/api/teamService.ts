@@ -125,9 +125,18 @@ export const teamService = {
     return response.data;
   },
 
-  /** Active coaching staff (HEAD_COACH/COACH/VOLUNTEER_COACH) plus pending invites. */
+  /**
+   * Coaching staff (HEAD_COACH/COACH/VOLUNTEER_COACH), pending invites, and
+   * everyone else on the team.
+   *
+   * otherMembers exists for one specific repair: joining with the TEAM CODE
+   * always creates an ATHLETE membership, so a coach handed the code
+   * instead of a staff invite ends up an athlete at the team level and sees
+   * a reduced menu. They belong in this list so someone can promote them.
+   */
   async getStaff(): Promise<{
     staff: Array<{ userId: string; name: string | null; email: string; role: string; active: boolean }>;
+    otherMembers: Array<{ userId: string; name: string | null; email: string; role: string; active: boolean }>;
     pendingInvites: Array<{ email: string; role: string; expiresAt: string }>;
   }> {
     const response = await axiosInstance.get('/team/staff');

@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { teamService } from '../../api/teamService';
 import { useAuth } from '../../contexts/AuthContext';
 import { getApiErrorMessage } from '../../lib/apiError';
+import { isFullCoach, isImpersonatingAdmin } from '../../lib/teamRole';
 
 type StaffRole = 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH';
 
@@ -39,8 +40,10 @@ export function StaffManager() {
   // isSuperAdmin by itself showed a super admin who hadn't picked a team
   // in the switcher a live-looking Resend button that could only ever
   // answer 403.
-  const canManageStaff =
-    (currentUser?.isSuperAdmin && currentUser?.isImpersonating) || currentUser?.teamRole === 'HEAD_COACH';
+  // Matches the server: staff management is requireRole(FULL_COACH) — a
+  // coach is equal to a head coach except for deleting data. Volunteers
+  // still only read this screen.
+  const canManageStaff = isFullCoach(currentUser) || isImpersonatingAdmin(currentUser);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<StaffRole>('COACH');
   const [isSending, setIsSending] = useState(false);
@@ -231,6 +234,46 @@ export function StaffManager() {
                 </div>
               )}
             </div>
+
+            {/* The repair path for the commonest support question here.
+                Someone who joined with the team code is an ATHLETE at the
+                team level whatever their account says, which is what makes
+                their menu look short. Promoting them is one click; before
+                this they did not appear on the screen at all. */}
+            {canManageStaff && !!data?.otherMembers.length && (
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Team members who aren't staff</Label>
+                <p className="text-xs text-muted-foreground">
+                  Anyone who joined with the team code is an athlete on the team, which limits what
+                  they can see. If one of these is a coach, give them the right role here.
+                </p>
+                <div className="space-y-2">
+                  {data.otherMembers.map((member) => (
+                    <div
+                      key={member.userId}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 p-3"
+                    >
+                      <div className="min-w-0 text-sm">
+                        <p className="font-medium">{member.name || member.email}</p>
+                        {member.name && <p className="text-xs text-muted-foreground">{member.email}</p>}
+                      </div>
+                      <Select onValueChange={(v) => handleRoleChange(member.userId, v as StaffRole)}>
+                        <SelectTrigger className="w-[190px]">
+                          <SelectValue placeholder="Make them staff…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(Object.keys(ROLE_LABEL) as StaffRole[]).map((r) => (
+                            <SelectItem key={r} value={r}>
+                              {ROLE_LABEL[r]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {!!data?.pendingInvites.length && (
               <div className="space-y-2">

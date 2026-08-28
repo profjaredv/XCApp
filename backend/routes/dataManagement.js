@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { DESTRUCTIVE } = require('../lib/teamRoles');
 
 // POST /api/data/clear/:season
 // Wipes all race/result/metrics data for one season of the CALLER'S OWN
@@ -9,7 +10,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 // `role === 'coach'` — any coach could wipe any other team's season. Team
 // scope now comes exclusively from the authenticated session. Destructive
 // enough (deletes race/result data outright) to keep head-coach-only.
-router.post('/clear/:season', authenticate, requireRole(['HEAD_COACH']), async (req, res) => {
+router.post('/clear/:season', authenticate, requireRole(DESTRUCTIVE), async (req, res) => {
   try {
     const teamId = req.user.teamId;
     const season = parseInt(req.params.season, 10);

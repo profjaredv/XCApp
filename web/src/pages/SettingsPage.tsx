@@ -23,6 +23,7 @@ import { PaceZonesManager } from '@/components/settings/PaceZonesManager';
 import { DataExportCard } from '@/components/settings/DataExportCard';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { useExpandedSections } from '@/hooks/useExpandedSections';
+import { isFullCoach, canDeleteData, isImpersonatingAdmin } from '@/lib/teamRole';
 import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle } from 'lucide-react';
 
 interface Team {
@@ -36,6 +37,7 @@ const SimpleSettingsPage: React.FC = () => {
   const { currentUser, loading: authLoading } = useAuth();
   const { role: walkthroughRole, open: openWalkthrough } = useWalkthrough();
   const { isOpen, isMounted, toggle } = useExpandedSections('xc_settings_open_sections');
+  const canEditTeam = isFullCoach(currentUser) || isImpersonatingAdmin(currentUser);
 
   // Team settings state
   const [team, setTeam] = useState<Team | null>(null);
@@ -254,8 +256,12 @@ const SimpleSettingsPage: React.FC = () => {
                 )}
               </div>
 
+              {/* PUT /api/teams/:id is requireRole(FULL_COACH), so a
+                  volunteer coach who reaches this screen directly gets the
+                  read-only view rather than an Edit button that can only
+                  403. */}
               <div className="flex justify-end space-x-2 pt-4">
-                {isEditing ? (
+                {!canEditTeam ? null : isEditing ? (
                   <>
                     <Button 
                       variant="outline" 
@@ -291,7 +297,7 @@ const SimpleSettingsPage: React.FC = () => {
           )}
         </SettingsSection>
 
-        {team && currentUser?.role === 'coach' && (
+        {team && (isFullCoach(currentUser) || isImpersonatingAdmin(currentUser)) && (
           <SettingsSection
             id="staff"
             title="Staff"
@@ -317,7 +323,7 @@ const SimpleSettingsPage: React.FC = () => {
           </SettingsSection>
         )}
 
-        {team && currentUser?.role === 'coach' && (
+        {team && (isFullCoach(currentUser) || isImpersonatingAdmin(currentUser)) && (
           <SettingsSection
             id="meet-groups"
             title="Meet groups"
@@ -364,7 +370,7 @@ const SimpleSettingsPage: React.FC = () => {
             hidden entirely for everyone else rather than shown and then
             403ing on click. Last in the grid, and the only section that
             looks different — it should not read like the others. */}
-        {(currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH') && (
+        {(canDeleteData(currentUser) || isImpersonatingAdmin(currentUser)) && (
           <SettingsSection
             id="danger"
             title="Danger zone"
