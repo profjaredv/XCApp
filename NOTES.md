@@ -3995,3 +3995,92 @@ structure, a version field — but nothing reads it back in yet.
 enough that this is fine, and the collection is sequential rather than
 parallel specifically so a big export cannot spike the connection pool
 everyone else shares. A multi-decade program would want streaming JSON.
+
+## Settings as expandable cards, and a heading bump
+
+Settings had reached seven full-height sections stacked vertically, so
+finding anything meant scrolling past everything else. Closed, the whole
+screen now fits in one view and reads as a menu — 620px instead of a long
+scroll. Open a section and it is exactly what it was before.
+
+### Two behaviours chosen on purpose
+
+**Sections open independently.** Opening one never closes another. An
+accordion would be tidier, but `PaceZonesManager` holds unsaved draft
+state, and silently discarding a coach's half-finished edits because they
+clicked a different heading is a much worse outcome than a slightly longer
+page.
+
+**A section stays mounted once opened,** even when collapsed again. The
+obvious implementation (unmount on collapse) would throw away an
+in-progress form the moment someone tidied up. Keeping it alive costs
+nothing after the first open, and a section that has *never* been opened is
+never mounted — so the page still loads without firing seven screens' worth
+of queries. `useExpandedSections` tracks both sets.
+
+Which sections are open is remembered per device, same localStorage pattern
+as nerd mode (wrapped, because private browsing throws).
+
+### The nesting problem
+
+Four of the seven sections (Staff, Pace zones, Meet groups, Export) are
+self-contained components that each rendered their own `<Card>` — which
+would have nested inside the new shell. Their outer Card and header are
+gone; `SettingsSection` owns that now, so there is one place that decides
+how a settings heading looks rather than four.
+
+### Headings
+
+- `CardTitle` now defaults to `text-lg` instead of inheriting the body's
+  16px. Card titles are the main heading on most screens in this app and at
+  body size did not read as headings at all. Every call site that sets its
+  own size still wins, since `className` comes last.
+- Page `h1`s go `text-3xl` → `md:text-4xl`. Desktop only, deliberately:
+  nothing can start wrapping or overflowing on a phone.
+
+### A live data-corruption bug found on the way
+
+`GET /api/teams/current` **never returned `currentSeason` at all**, and the
+settings form read `response.data.current_season` — undefined either way.
+So the "Current Season" box silently fell back to the current CALENDAR
+year, and `handleSaveTeamSettings` PUT that back.
+
+**Opening Settings and pressing Save could move a team to the wrong season
+without anyone touching that field.** `Team.currentSeason` drives
+season-scoped screens across the app, so this was quiet and expensive.
+
+Fixed at all three points: the GET returns it, both ends speak camelCase,
+and the PUT still accepts the old snake_case so a stale cached PWA keeps
+working. `test/teamCurrentSeasonRoundTrip.test.js` pins the round trip —
+it asserts the GET returns every field the form edits, that the form reads
+the name the API sends, and that `current_season` no longer appears on the
+read path. Statically, no database.
+
+The bug only surfaced because the collapsed card shows a summary line
+("Ellensburg HS · 2025 season") — the season was missing from it, which is
+what prompted the look. Worth remembering: **surfacing a value somewhere
+new is a cheap way to find out it was never right.**
+
+### Two of my own mistakes, caught by looking at the result
+
+1. **The Danger Zone's entire contents were dropped** by a bad string
+   slice — the extraction grabbed the Feature Tour body instead. `tsc` was
+   perfectly happy; only the unused `AlertDialog` imports hinted at it, and
+   reading the rendered section confirmed it. Restored from HEAD.
+2. **`—` escapes rendered literally** as backslash-u-2014 on screen.
+   They are valid inside a JS template literal and plain text inside a JSX
+   attribute, and I had written them into both.
+
+Neither was visible in the diff. Both were obvious in a screenshot.
+
+### Verified
+
+Seven sections collapse and expand; two open at once stay open; the choice
+survives a reload; no horizontal scroll at 390px; every card header clears
+a 44px touch target.
+
+**Not done:** the section list is hardcoded in `SettingsPage` rather than
+data-driven. With seven entries that reads better than a config array, but
+a fifteenth section would argue otherwise. There is also no search across
+settings — the point at which that becomes worth having is probably the
+same point.
