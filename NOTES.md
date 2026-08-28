@@ -3787,3 +3787,104 @@ Two self-inflicted delays worth writing down, because both will recur:
 legacy zone mapping has never actually rewritten a row. The zone-key
 validation path (`zoneKeyError`) has not run against real PaceZone rows
 either.
+
+## Nerd mode
+
+One switch in the sidebar footer, app-wide. Off, nothing changes anywhere.
+On, every derived number carries the formula, the actual substituted
+arithmetic, and the file and function that produced it.
+
+### The one decision the whole design turns on
+
+The brief was not only "show how it was applied" — it was "reinforce
+confidence that it is calculated correctly." Those pull in different
+directions the moment you consider maintenance. A panel of hand-written
+formula strings sitting *beside* a calculation will eventually drift from
+it and start quietly lying, and a coach who catches nerd mode contradicting
+the number next to it ends up trusting the app **less** than before the
+feature existed. That is a worse outcome than not building it.
+
+So no explanation in this feature is written next to a calculation. Every
+one is **produced by** the calculation, as a by-product of doing it:
+
+- `resolvePaceZone` builds an `explain` trace while it computes, and
+  returns it alongside the pace.
+- `explainRepTarget` appends its step inside the same function that does
+  the multiplying.
+
+And then the guard that makes it true rather than merely intended:
+`paceZones.test.ts` asserts **the last step's stated value equals the value
+actually returned**, for every default zone and both rule shapes. A change
+that updates the maths and forgets the trace fails the build instead of
+shipping a panel that disagrees with the number beside it.
+
+If nerd mode gets extended to another calculation, that is the contract:
+the trace comes out of the function, and a test pins its final value to the
+returned one.
+
+### Two defects found by looking, not reading
+
+Both would have undercut the entire point:
+
+1. **The trace rounded intermediates to the second, so it did not reproduce
+   by hand.** "2:35 ÷ 0.497 mi" is 5:12, displayed next to a 5:11. Someone
+   checking the arithmetic finds a discrepancy that is pure display
+   rounding and concludes the app is wrong. Intermediates now carry a
+   tenth ("2:34.8 ÷ 0.497 mi = 5:11") and it works out.
+2. **A RANGE zone's joined sub-derivations dropped the formula**, leaving
+   substituted numbers with nothing saying why. The substitution shows
+   WHAT happened; the formula is the half that explains anything.
+
+A third, smaller: the substituted line was `whitespace-nowrap` with
+horizontal scroll, which in a narrow card just reads as a clipped, broken
+equation with no affordance saying there is more. It wraps now — the
+strings are built with spaces around every operator so breaks land between
+tokens.
+
+### Where the panels are, and why there
+
+| Surface | Form |
+|---|---|
+| Training paces (athlete profile, My Progress) | Full derivation per zone, **below** the rep splits — it is meta content, and a coach reaching for a rep target shouldn't scroll past algebra |
+| Pace zone settings | Under the standard previews and the live editor preview, which makes that screen a place to CHECK a rule you just typed |
+| Interval sheet | Full derivation **once** above the table, worked through for a named athlete on that sheet, plus one compact line per row with that athlete's own numbers |
+| Split averages | Counts only — see below |
+
+The interval sheet split is deliberate: a six-step box per row would bury a
+grid used on a phone at the track.
+
+**Split averages are the honest exception.** They are computed server-side
+(`backend/lib/splitAggregates.js`) and never recomputed on the client, so
+there is no client-side trace to emit. Rather than invent a derivation,
+nerd mode there reports what the server actually returned — how many races
+each mean was taken over, separately for split and pace, and that
+non-numeric splits are excluded rather than counted as zero. Which is
+precisely the bug that was once live in that function. Giving it a real
+trace would mean returning one from the API; not done.
+
+### Mechanics
+
+`NerdModeProvider` is mounted **above the router** in `main.tsx`, not in
+`TeamRouteGuard` where `SeasonProvider` lives — it has to reach the
+full-screen routes that render outside `<Layout>` (live timer, interval
+sessions, splits entry) and `/profile`, which sits outside the team-scoped
+subtree.
+
+localStorage, read lazily in `useState`'s initialiser so the first paint is
+already correct (an effect would flash every panel in a moment after load).
+Every read and write is wrapped — private browsing throws on access, and
+that is not a reason to fail to render the app. It is a per-person,
+per-device display preference like a zoom level, so: no schema change, no
+round trip, no team setting.
+
+`NerdBox` returns `null` when the mode is off — no wrapper, no reserved
+space, no layout shift. Verified: page height and DOM are identical with it
+off.
+
+### Not done
+
+- **The VDOT calculator, group analytics, PR bucketing and the band/program
+  screens have no panels yet.** The pattern is established and cheap to
+  extend, but each needs its calculation to emit a trace first, and for the
+  server-side ones that means an API change.
+- No per-user default — it starts off for everyone, every device.
