@@ -3888,3 +3888,110 @@ off.
   extend, but each needs its calculation to emit a trace first, and for the
   server-side ones that means an API change.
 - No per-user default — it starts off for everyone, every device.
+
+## Data export — team level and athlete level
+
+"This data is yours, you can export it at any time" is a promise to
+customers, so this is built to be **auditable**, not merely to work.
+
+### One manifest, not thirty queries
+
+`backend/lib/exportManifest.js` declares every table an export touches —
+thirty-six of them — with how each is scoped and whether the app computed
+it. The route walks that list. A promise made of thirty hand-written
+queries scattered through a handler is one nobody can check; one file can
+be read in a sitting.
+
+### The two properties that matter, both tested
+
+**1. No live credential leaves.** Exports get emailed, dropped in shared
+drives, attached to support tickets. `redactDeep` strips `joinCode`, the
+invite/claim `token`s and the Stripe ids at any depth — applied to finished
+objects rather than trusted to each query's `select`, because a `select`
+that forgets one fails *silently* and no-select (return everything) is
+Prisma's default.
+
+The guard that keeps this true: a test scans the whole schema for anything
+`token`/`secret`/`password`/`apiKey`-shaped and fails unless it is either
+redacted or on a model excluded outright. A credential column added next
+year cannot quietly start shipping.
+
+**2. Nothing crosses teams.** Every manifest entry is filtered on its own
+`teamId` or through the single relation that leads to one. No third option,
+no unscoped query. A test resolves every entry's scoping **against the real
+schema**, DB-free, so a typo'd relation name fails the build rather than
+500ing in production.
+
+That test found two real bugs on its first run:
+- `Split` has no `athleteId` — it hangs off `Result`.
+- `FieldResult` has **no athlete link at all**, only a free-text
+  `athleteName`. It is therefore absent from the athlete export: scoping it
+  would mean matching on a name, and a name match can hand someone another
+  school's athlete's result. An export has to be right rather than complete.
+
+A third test asserts **every model in the schema is either exported or
+listed in `EXCLUDED_MODELS` with a reason**. A table nobody thought about is
+exactly the failure this feature exists to prevent, so it fails the build.
+
+### The file
+
+A ZIP: `data.json` (complete and faithful — the copy to keep), `csv/` (one
+per table, for a spreadsheet), and a `README.txt` giving row counts, which
+tables were computed vs entered, and what is deliberately missing and why.
+
+CSV cells are **formula-neutralized**: Excel and Sheets execute a leading
+`=`, `+`, `-` or `@`, so an athlete nicknamed `=Speedy` would otherwise
+become a formula in a coach's spreadsheet — the general case being CSV
+injection.
+
+### Who can export what
+
+- **Whole team → HEAD_COACH only.** Any coach can read this data a screen
+  at a time, but bundling every athlete's name, grade, results, training
+  logs and attendance into one downloadable file is a different act and
+  belongs with the person accountable for the team.
+- **One athlete → that athlete, a coach on their team, or a guardian with
+  an APPROVED link.** Same file whoever asks, so there is one answer to
+  "what's in it": what the app already shows that person. Coach-private
+  material (captain notes, coach-up acknowledgements, AI insight text) is
+  not in it — an export is not the place to newly disclose something the UI
+  never showed them. There is a test pinning that.
+
+### Three bugs found by running it, not reading it
+
+1. **archiver 8 dropped the classic `archiver('zip')` factory** for exported
+   classes (`new ZipArchive({...})`). Every export 500'd.
+2. **That 500 went out as `Content-Type: application/zip`** — a 22-byte
+   "zip" file. `setHeader` does NOT set `headersSent`, so the usual
+   `if (!res.headersSent)` guard happily sent a JSON error body wearing a
+   zip's clothes. This is precisely the corrupt-file-that-looks-complete
+   outcome this endpoint must never produce. Fixed twice over: the archive
+   is constructed *before* any header is touched, and `failCleanly` strips
+   the download headers before answering.
+3. **`Content-Disposition` is hidden from JS cross-origin** unless named in
+   `exposedHeaders`, so the download fell back to a generic filename.
+   Production is same-origin under `/api` and never noticed; dev talks to
+   `:3001` and did. Named the header in the CORS config rather than relying
+   on deployment topology continuing to hide the bug.
+
+### Verified
+
+Against the **real endpoint with a stubbed database**: 47 queries run, 0
+unscoped; the ZIP opens; a planted join code, Stripe customer id and
+subscription id appear nowhere in it; `=Speedy` comes out neutralized.
+
+In a **browser**: clicking Download saves a byte-identical file under the
+server's chosen name, and a 403 surfaces the server's own reason rather
+than an opaque Blob (axios with `responseType: 'blob'` hands you the error
+body as a Blob too, which the normal error reader cannot see).
+
+### This is export, not backup
+
+Scheduled backups and restore-from-file are a separate piece of work. The
+format is designed to make restore possible — stable UUIDs, faithful
+structure, a version field — but nothing reads it back in yet.
+
+**Also not done:** no size cap or pagination. A high-school team is small
+enough that this is fine, and the collection is sequential rather than
+parallel specifically so a big export cannot spike the connection pool
+everyone else shares. A multi-decade program would want streaming JSON.
