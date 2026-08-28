@@ -121,7 +121,7 @@ export function DataManagementPage() {
 
   return (
     <div className="container mx-auto py-6">
-      <h1 className="text-3xl font-bold mb-6">Data Management</h1>
+      <h1 className="text-3xl md:text-4xl font-bold mb-6">Data Management</h1>
       
       <div className="mb-6 flex items-center gap-4">
         <div className="flex-1">

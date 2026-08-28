@@ -155,7 +155,7 @@ const FeedbackPage: React.FC = () => {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold sm:text-3xl">Feedback</h1>
+          <h1 className="text-2xl font-bold sm:text-3xl md:text-4xl">Feedback</h1>
           <p className="text-sm text-muted-foreground">
             Every report from every team, grouped by screen.
             {data?.severityCounts?.blocker ? (

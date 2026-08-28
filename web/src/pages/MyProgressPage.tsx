@@ -175,7 +175,7 @@ const MyProgressPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">My Progress</h1>
+          <h1 className="text-3xl md:text-4xl font-bold">My Progress</h1>
           <p className="text-muted-foreground">
             {linkedAthlete.preferredName || linkedAthlete.name}
             {linkedAthlete.graduationYear ? ` • Class of ${linkedAthlete.graduationYear}` : ''}

@@ -286,7 +286,7 @@ const TeamAthleteProfilePage = () => {
             Back to Team
           </Button>
           <div>
-            <h1 className="text-3xl font-bold">{athleteIdentity.preferredName || athleteIdentity.name}</h1>
+            <h1 className="text-3xl md:text-4xl font-bold">{athleteIdentity.preferredName || athleteIdentity.name}</h1>
             <p className="text-muted-foreground">
               {athleteIdentity.grade ? gradeLabel(athleteIdentity.grade) : 'Class year unknown'}
               {athleteIdentity.gender ? ` • ${athleteIdentity.gender === 'M' ? 'Boys' : 'Girls'}` : ''}

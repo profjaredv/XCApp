@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
@@ -22,6 +21,9 @@ import { MeetGroupsManager } from '@/components/settings/MeetGroupsManager';
 import { StaffManager } from '@/components/settings/StaffManager';
 import { PaceZonesManager } from '@/components/settings/PaceZonesManager';
 import { DataExportCard } from '@/components/settings/DataExportCard';
+import { SettingsSection } from '@/components/settings/SettingsSection';
+import { useExpandedSections } from '@/hooks/useExpandedSections';
+import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle } from 'lucide-react';
 
 interface Team {
   id: string;
@@ -33,6 +35,7 @@ interface Team {
 const SimpleSettingsPage: React.FC = () => {
   const { currentUser, loading: authLoading } = useAuth();
   const { role: walkthroughRole, open: openWalkthrough } = useWalkthrough();
+  const { isOpen, isMounted, toggle } = useExpandedSections('xc_settings_open_sections');
 
   // Team settings state
   const [team, setTeam] = useState<Team | null>(null);
@@ -63,7 +66,11 @@ const SimpleSettingsPage: React.FC = () => {
             id: response.data.id,
             name: response.data.name || '',
             athleticTeamId: response.data.athleticTeamId || '',
-            currentSeason: response.data.current_season
+            // camelCase, matching what the API actually returns. Reading
+            // current_season here always produced undefined, so the field
+            // below silently defaulted to the current calendar year and
+            // saving overwrote the team's real season with it.
+            currentSeason: response.data.currentSeason
           };
           setTeam(teamData);
           setTeamName(teamData.name);
@@ -101,7 +108,7 @@ const SimpleSettingsPage: React.FC = () => {
       await api.put(`/teams/${team.id}`, {
         name: teamName,
         athleticTeamId,
-        current_season: currentSeason
+        currentSeason
       });
       
       toast.success('Team settings saved successfully');
@@ -161,15 +168,29 @@ const SimpleSettingsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Settings</h1>
+      <div>
+        <h1 className="text-3xl font-bold md:text-4xl">Settings</h1>
+        <p className="mt-1 text-muted-foreground">
+          Open a section to change it. Everything else stays out of the way.
+        </p>
+      </div>
 
-      {/* Team Settings Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Team Settings</CardTitle>
-          <CardDescription>Manage your team information</CardDescription>
-        </CardHeader>
-        <CardContent>
+      {/* A grid rather than a stack: closed, the whole of Settings fits on
+          one screen and reads as a menu. An open section takes the full
+          width (see SettingsSection), because the forms inside were built
+          for it. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <SettingsSection
+          id="team"
+          title="Team"
+          description="Name, Athletic.net ID and current season."
+          icon={Users}
+          summary={team ? `${team.name}${team.currentSeason ? ` \u00b7 ${team.currentSeason} season` : ''}` : undefined}
+          open={isOpen('team')}
+          onToggle={() => toggle('team')}
+        >
+          {isMounted('team') && (
+            <div>
           {loading ? (
             <div className="flex items-center justify-center p-6">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -266,55 +287,95 @@ const SimpleSettingsPage: React.FC = () => {
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
-      
-      {/* Feature tour - only when we have a walkthrough for this account's role */}
-      {walkthroughRole && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Feature Tour</CardTitle>
-            <CardDescription>Revisit the walkthrough you saw (or skipped) the first time you signed in.</CardDescription>
-          </CardHeader>
-          <CardContent>
+            </div>
+          )}
+        </SettingsSection>
+
+        {team && currentUser?.role === 'coach' && (
+          <SettingsSection
+            id="staff"
+            title="Staff"
+            description="Invite coaches and volunteers, and manage their access."
+            icon={UserCog}
+            open={isOpen('staff')}
+            onToggle={() => toggle('staff')}
+          >
+            {isMounted('staff') && <StaffManager />}
+          </SettingsSection>
+        )}
+
+        {team && (
+          <SettingsSection
+            id="pace-zones"
+            title="Training pace zones"
+            description="What your team's pace terms mean, and how paces are worked out."
+            icon={Gauge}
+            open={isOpen('pace-zones')}
+            onToggle={() => toggle('pace-zones')}
+          >
+            {isMounted('pace-zones') && <PaceZonesManager />}
+          </SettingsSection>
+        )}
+
+        {team && currentUser?.role === 'coach' && (
+          <SettingsSection
+            id="meet-groups"
+            title="Meet groups"
+            description="Link the same meet across seasons so it can be compared."
+            icon={Flag}
+            open={isOpen('meet-groups')}
+            onToggle={() => toggle('meet-groups')}
+          >
+            {isMounted('meet-groups') && <MeetGroupsManager teamId={team.id} />}
+          </SettingsSection>
+        )}
+
+        {team && (
+          <SettingsSection
+            id="export"
+            title="Export your data"
+            description="Download everything, any time, in a format you can keep."
+            icon={Download}
+            summary="This data is yours"
+            open={isOpen('export')}
+            onToggle={() => toggle('export')}
+          >
+            {isMounted('export') && <DataExportCard />}
+          </SettingsSection>
+        )}
+
+        {walkthroughRole && (
+          <SettingsSection
+            id="tour"
+            title="Feature tour"
+            description="Revisit the walkthrough you saw — or skipped — the first time you signed in."
+            icon={Compass}
+            open={isOpen('tour')}
+            onToggle={() => toggle('tour')}
+          >
             <Button variant="outline" onClick={openWalkthrough}>
-              Take the Tour Again
+              Take the tour again
             </Button>
-          </CardContent>
-        </Card>
-      )}
+          </SettingsSection>
+        )}
 
-      {/* Staff - Only for coaches with a team */}
-      {team && currentUser?.role === 'coach' && <StaffManager />}
-
-      {/* Training pace zones. Shown to anyone on a team, not just coaches:
-          the editor inside is head-coach-only, but what "T" means is
-          something an athlete needs to be able to look up. */}
-      {team && <PaceZonesManager />}
-
-      {/* Meet Groups Manager - Only for coaches with a team */}
-      {team && currentUser?.role === 'coach' && (
-        <MeetGroupsManager teamId={team.id} />
-      )}
-
-      {/* Export sits immediately before the Danger Zone on purpose: the two
-          screens-worth of "what happens to my data" belong together, and
-          anyone about to clear a season should pass a download button on
-          the way. Shown to everyone on a team — the card itself explains
-          who can download what. */}
-      {team && <DataExportCard />}
-
-      {/* Danger Zone Card — backend only ever lets HEAD_COACH (or an
-          impersonating super admin) actually clear team data
-          (routes/teams.js), so it's hidden entirely for everyone else
-          rather than shown and then 403ing on click. */}
-      {(currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH') && (
-        <Card className="border-red-500 border-2">
-          <CardHeader>
-            <CardTitle>Danger Zone</CardTitle>
-            <CardDescription>These actions are permanent and cannot be undone.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        {/* Backend only ever lets HEAD_COACH (or an impersonating super
+            admin) actually clear team data (routes/teams.js), so this is
+            hidden entirely for everyone else rather than shown and then
+            403ing on click. Last in the grid, and the only section that
+            looks different — it should not read like the others. */}
+        {(currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH') && (
+          <SettingsSection
+            id="danger"
+            title="Danger zone"
+            description="Permanent, irreversible actions."
+            icon={AlertTriangle}
+            tone="danger"
+            open={isOpen('danger')}
+            onToggle={() => toggle('danger')}
+          >
+            {isMounted('danger') && (
+              <div>
             <div className="flex justify-between items-center">
               <div>
                 <p className="font-semibold">Clear All Team Data</p>
@@ -342,9 +403,11 @@ const SimpleSettingsPage: React.FC = () => {
                 </AlertDialogContent>
               </AlertDialog>
             </div>
-          </CardContent>
-        </Card>
-      )}
+              </div>
+            )}
+          </SettingsSection>
+        )}
+      </div>
     </div>
   );
 };

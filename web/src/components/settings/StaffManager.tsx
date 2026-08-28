@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Mail, Copy, UserPlus } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -122,15 +121,7 @@ export function StaffManager() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Staff</CardTitle>
-        <CardDescription>
-          Invite other coaches by name and role. Only head coaches can send invites or change
-          another staff member's access — everyone else can see who has it.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <div className="space-y-6">
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -277,8 +268,7 @@ export function StaffManager() {
             )}
           </div>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }
 

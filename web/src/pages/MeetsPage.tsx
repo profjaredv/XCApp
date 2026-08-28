@@ -97,7 +97,7 @@ const MeetsPage: React.FC = () => {
   if (!isCoachViewer) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Meets</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Meets</h1>
         {meetsLoading ? (
           <p className="text-muted-foreground">Loading…</p>
         ) : meets.length === 0 ? (
@@ -137,7 +137,7 @@ const MeetsPage: React.FC = () => {
   if (!activeYear || !seasonId) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Meets</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Meets</h1>
         <p className="text-muted-foreground">No season set up yet — set one up from the Groups screen first.</p>
       </div>
     );
@@ -146,7 +146,7 @@ const MeetsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-3xl font-bold">Meets</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Meets</h1>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => setCalendarImportOpen(true)}>
             <CalendarDays className="h-4 w-4 mr-2" />

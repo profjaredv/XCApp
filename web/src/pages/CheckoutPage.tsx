@@ -81,7 +81,7 @@ const CheckoutPage: React.FC = () => {
   if (loadingStatus || polling) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Checkout</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Checkout</h1>
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
           {polling ? 'Finishing up checkout…' : 'Loading…'}
@@ -93,7 +93,7 @@ const CheckoutPage: React.FC = () => {
   if (status?.plan === 'active') {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Checkout</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Checkout</h1>
         <Card className="max-w-md">
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -112,7 +112,7 @@ const CheckoutPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Complete Checkout</h1>
+      <h1 className="text-3xl md:text-4xl font-bold">Complete Checkout</h1>
       <Card className="max-w-md">
         <CardHeader>
           <CardDescription>

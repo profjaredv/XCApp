@@ -422,7 +422,7 @@ export default function CoachesToolsPage() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold">Coaches Tools</h1>
+          <h1 className="text-3xl md:text-4xl font-bold">Coaches Tools</h1>
           <p className="text-muted-foreground mt-2">
             AI-powered training insights and athlete improvement tracking for {currentSeason} season
           </p>

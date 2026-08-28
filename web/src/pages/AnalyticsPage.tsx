@@ -513,7 +513,7 @@ const AnalyticsPage = () => {
     return (
       <div className="container mx-auto max-w-3xl space-y-6 py-10 px-4">
         <div>
-          <h1 className="text-3xl font-bold">Welcome to LeadPack XC</h1>
+          <h1 className="text-3xl md:text-4xl font-bold">Welcome to LeadPack XC</h1>
           <p className="text-muted-foreground">
             A few steps and your team's analytics come to life.
           </p>

@@ -32,7 +32,12 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-title"
-      className={cn("leading-none font-semibold", className)}
+      // text-lg by default rather than inheriting the body's 16px. Card
+      // titles are the main heading on most screens in this app, and at
+      // body size they did not read as headings at all. Every call site
+      // that already sets its own size still wins, since className comes
+      // last.
+      className={cn("text-lg leading-none font-semibold", className)}
       {...props}
     />
   )

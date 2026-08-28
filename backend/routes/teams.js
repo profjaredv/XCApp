@@ -38,6 +38,12 @@ router.get('/current', authenticate, requireTeam, async (req, res) => {
       name: team.name,
       athleticTeamId: team.athleticTeamId,
       joinCode: team.joinCode,
+      // Was missing entirely, which broke the round trip: Settings reads
+      // this to fill its "Current Season" box, got undefined, fell back to
+      // the current CALENDAR year, and then PUT that back on save — so
+      // opening Settings and pressing Save silently reset a team's season
+      // to whatever year it happened to be.
+      currentSeason: team.currentSeason,
     });
   } catch (error) {
     console.error('Error fetching current team:', error.message);
@@ -1016,7 +1022,12 @@ router.delete('/seasons/:year/roster/:athleteId', authenticate, requireRole(['HE
 // The Settings screen has always called this endpoint; it never existed.
 router.put('/:id', authenticate, requireRole(['HEAD_COACH']), async (req, res) => {
   const teamId = req.user.teamId;
-  const { name, athleticTeamId, current_season: currentSeason } = req.body || {};
+  // Accepts either spelling. The frontend sent snake_case while every
+  // other field went camelCase; both are honoured so an older client (a
+  // phone with a stale PWA cached) keeps working.
+  const body = req.body || {};
+  const currentSeason = body.currentSeason !== undefined ? body.currentSeason : body.current_season;
+  const { name, athleticTeamId } = body;
 
   if (req.params.id !== teamId) {
     return res.status(403).json({ message: 'You can only update your own team.' });

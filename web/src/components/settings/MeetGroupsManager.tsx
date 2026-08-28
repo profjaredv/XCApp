@@ -121,15 +121,6 @@ export function MeetGroupsManager({ teamId }: MeetGroupsManagerProps) {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Meet Groups</CardTitle>
-          <CardDescription>
-            Group races across seasons for comparison in Race Comparison charts. This allows you to manually link races
-            like "District Championship" even if they have different names each year.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
           {error && (
             <Alert variant="destructive" className="mb-4">
               <AlertDescription>{error}</AlertDescription>
@@ -298,8 +289,6 @@ export function MeetGroupsManager({ teamId }: MeetGroupsManagerProps) {
               </CardContent>
             </Card>
           )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

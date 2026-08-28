@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Gauge, Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../../contexts/AuthContext';
 import { getApiErrorMessage } from '../../lib/apiError';
@@ -395,18 +394,7 @@ export function PaceZonesManager() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Gauge className="h-5 w-5" />
-          Training pace zones
-        </CardTitle>
-        <CardDescription>
-          What your team's pace terms mean. Everyone gets the standard set below; anything you
-          define here is shown alongside it, in your own words.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <div className="space-y-6">
         <div className="space-y-2">
           <h3 className="text-sm font-medium">Standard zones</h3>
           <p className="text-xs text-muted-foreground">
@@ -532,8 +520,7 @@ export function PaceZonesManager() {
             </>
           )}
         </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 }
 

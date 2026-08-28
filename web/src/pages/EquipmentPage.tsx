@@ -58,7 +58,7 @@ const EquipmentPage: React.FC = () => {
   if (!activeYear || !seasonId) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Equipment</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Equipment</h1>
         <p className="text-muted-foreground">No season set up yet — set one up from the Groups screen first.</p>
       </div>
     );
@@ -67,7 +67,7 @@ const EquipmentPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-3xl font-bold">Equipment</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Equipment</h1>
       </div>
 
       <Tabs value={equipmentTab} onValueChange={setEquipmentTab}>

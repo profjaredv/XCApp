@@ -263,7 +263,7 @@ const VDOTCalculator: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h1 className="text-3xl font-bold flex items-center justify-center gap-2">
+        <h1 className="text-3xl md:text-4xl font-bold flex items-center justify-center gap-2">
           <Calculator className="h-8 w-8" />
           Performance Calculator
         </h1>

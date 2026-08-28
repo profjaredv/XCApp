@@ -109,7 +109,7 @@ const AthleteGroupsView: React.FC = () => {
   if (!groups || groups.length === 0) {
     return (
       <div className="space-y-4">
-        <h1 className="text-3xl font-bold">Groups</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Groups</h1>
         <p className="text-muted-foreground">
           You're not currently assigned to a group. Check with your coach if you think that's wrong.
         </p>
@@ -119,7 +119,7 @@ const AthleteGroupsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Groups</h1>
+      <h1 className="text-3xl md:text-4xl font-bold">Groups</h1>
       {groups.map((group) => (
         <Card key={group.id}>
           <CardHeader>
@@ -410,7 +410,7 @@ const CoachGroupsView: React.FC = () => {
   if (!seasonId) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Groups</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Groups</h1>
         <Card>
           <CardContent className="pt-6 space-y-4">
             <p className="text-muted-foreground">
@@ -431,7 +431,7 @@ const CoachGroupsView: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-3xl font-bold">Groups</h1>
+        <h1 className="text-3xl md:text-4xl font-bold">Groups</h1>
         <div className="flex items-center gap-2">
           {trainingGroups.length === 0 && previousSeason?.id && (
             <Button variant="outline" onClick={handleCopyFromPreviousSeason} disabled={copyFromSeason.isPending}>

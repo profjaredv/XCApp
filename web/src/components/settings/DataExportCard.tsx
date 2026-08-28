@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Download, Loader2, ShieldCheck } from 'lucide-react';
+import { Loader2, ShieldCheck, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../../contexts/AuthContext';
 import { getApiErrorMessage } from '../../lib/apiError';
@@ -44,18 +43,7 @@ export function DataExportCard() {
   const computed = tables.filter((t) => t.derived);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Download className="h-5 w-5" />
-          Export your data
-        </CardTitle>
-        <CardDescription>
-          This data is yours. Download all of it, any time, in a format you can keep and read
-          without this app.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div className="space-y-4">
         <div className="rounded-md border p-3 text-sm">
           <p className="font-medium">What you get</p>
           <p className="mt-1 text-muted-foreground">
@@ -127,8 +115,7 @@ export function DataExportCard() {
             from your profile.
           </p>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }
 

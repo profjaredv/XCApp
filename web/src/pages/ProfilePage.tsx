@@ -33,7 +33,7 @@ const ProfilePage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">My Profile</h1>
+      <h1 className="text-3xl md:text-4xl font-bold">My Profile</h1>
 
       <Card>
         <CardHeader>
