@@ -4084,3 +4084,107 @@ data-driven. With seven entries that reads better than a config array, but
 a fifteenth section would argue otherwise. There is also no search across
 settings — the point at which that becomes worth having is probably the
 same point.
+
+## Coach equals head coach, except deleting data
+
+Reported as "coaches with role = coach don't have all my menu options."
+Auditing it turned up three separate things, and the headline one was not
+what the report sounded like.
+
+### The policy was never written down
+
+It was spelled out route by route, so HEAD_COACH and COACH had drifted
+apart in **thirteen** places nobody could see at once. A coach could not
+edit team settings, start a season, remove someone from a season roster,
+save pace zones, export, invite staff, or change a staff role.
+
+Now stated once, in `backend/lib/teamRoles.js`:
+
+| Set | Who | For |
+|---|---|---|
+| `FULL_COACH` | head coach + coach | everything — the default |
+| `DESTRUCTIVE` | head coach only | **deleting data, and nothing else** |
+| `ANY_COACH` | + volunteers | read access a supervising volunteer needs |
+| `ANY_TEAM_MEMBER` | + athletes | the few screens athletes read |
+
+Five routes stay head-coach-only, and they are exactly the deletions:
+delete an athlete, merge athletes (destroys a row), clear a season, and the
+two delete-results routes. **Removing someone from a season roster moved to
+COACH** — that is roster management, and they can be added straight back;
+the fact that it is spelled `DELETE` is not the same as deleting data.
+
+Every literal role array in `routes/` is gone, along with six local
+`COACH_ROLES`-style constants that each duplicated one of the sets.
+`test/roleMatrix.test.js` walks every route and fails on: a literal array,
+an unknown set name, a head-coach-only route that is not on the listed
+deletions, or any new volunteer write access. **That is the point** — the
+old failure mode was a gate that reads perfectly fine on its own line and
+is invisible in aggregate. It caught two more drifted files on its first
+run.
+
+### The actual reported bug was something else entirely
+
+The sidebar already included `COACH`, so a genuine COACH saw the same menu
+all along. What was really happening:
+
+**Joining with the TEAM CODE always creates an `ATHLETE` membership**
+(`routes/team.js POST /join`, `routes/profile.js POST /join-team`). A coach
+handed the join code instead of a staff invite is therefore an athlete *at
+the team level* — and `TeamMember.role` is what every gate and the sidebar
+read, while `User.role` still says `'coach'`. Exactly "role = coach, short
+menu."
+
+Worse, it was **unfixable from the UI**: `GET /team/staff` filtered
+`ATHLETE` rows out so the person did not appear, and
+`PATCH /staff/:userId` 404'd on an `ATHLETE` membership. The only escape
+was a fresh staff invite, and nothing on screen said so.
+
+Fixed: the staff list returns them as `otherMembers`, the PATCH allows
+promoting out of `ATHLETE`, and Settings → Staff shows a "Team members who
+aren't staff" section that explains why they are there and offers the role
+in one click. Joining by code still creates an `ATHLETE` — that is correct
+for that route; the bug was having no way back.
+
+### One guard added, flagged not assumed
+
+A coach can now manage staff, so a coach could otherwise demote or
+deactivate the head coach and lock the owner out of their own team. **The
+team owner (`Team.coachUid`) can no longer be demoted or deactivated by
+anyone.** That is about an irreversible lockout, not about narrowing what
+coaches can do, and it was raised explicitly rather than slipped in.
+
+Worth being clear about the shape of this: with COACH able to manage staff,
+a coach can promote themselves to HEAD_COACH and then delete data anyway.
+The delete restriction is a guardrail against mistakes, not a security
+boundary — which is the right reading for colleagues a head coach
+deliberately invited, but should not be mistaken for the other thing.
+
+### Frontend follows the server
+
+`web/src/lib/teamRole.ts` mirrors the backend policy file:
+`isFullCoach`/`isAnyCoach`/`canDeleteData`/`isImpersonatingAdmin`.
+
+Two Settings sections were gated on `currentUser.role` — the sticky legacy
+hint that `authenticate` sets to `'coach'` for **volunteers** too — so
+volunteers were being shown staff and meet-group management they could not
+use. Same for the team-settings Edit button.
+
+**The rule this keeps proving:** gate the UI on the fact the server checks
+(`teamRole`), never on the convenience hint (`role`).
+
+### Verified by rendering as each role
+
+| | Nav | Settings |
+|---|---|---|
+| HEAD_COACH | full + Setup | all 7 sections |
+| COACH | full + Setup | all except Danger zone |
+| VOLUNTEER_COACH | full, no Setup | read-only Team, pace zones, export, tour |
+
+And the repair path end to end: a mis-roled member appears, is explained,
+and one click sends `PATCH {"role":"COACH"}`.
+
+**Not changed:** volunteers are still not equal to coaches. Their write
+access is scoped to the groups they lead, plus attendance and interval
+sessions team-wide (field capture — someone supervising a session has to
+record it). Those twelve routes are listed explicitly in the matrix test so
+a new one has to be added deliberately.
