@@ -33,6 +33,8 @@ import { athleteService } from '@/api/athleteService';
 import { trainingLogService, type TrainingLogType } from '@/api/trainingLogService';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
+import { AthleteExportButton } from '@/components/AthleteExportButton';
+import { Download } from 'lucide-react';
 import { formatTime, parseTimeToSeconds, formatDateShort, todayIso as todayIsoLocal } from '@/lib/formatUtils';
 import { useTodayIso } from '@/hooks/useTodayIso';
 import { useAthleteSplits, useAthleteSplitsAggregate } from '@/hooks/useSplits';
@@ -235,6 +237,27 @@ const MyProgressPage: React.FC = () => {
       {linkedAthlete && <AthleteGroupsCard athleteId={linkedAthlete.id} />}
 
       <TrainingPacesCard recentRaces={recentRaces} />
+
+      {/* An athlete's own copy of their own data. The same promise the team
+          gets in Settings, at the scope that is theirs — results, splits,
+          training logs, reflections, attendance. */}
+      {linkedAthlete && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Download className="h-5 w-5" />
+              Your data
+            </CardTitle>
+            <CardDescription>
+              Everything this app holds about you — results, splits, training logs, reflections and
+              attendance — as a ZIP you can keep. Yours, any time.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AthleteExportButton athleteId={linkedAthlete.id} ownData />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

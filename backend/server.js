@@ -62,7 +62,14 @@ const main = async () => {
         origin: process.env.NODE_ENV === 'production' ? productionOrigins : allowedOrigins,
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization']
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        // Without this the browser hides Content-Disposition from JS on any
+        // cross-origin response, so the data export downloads as a generic
+        // fallback name instead of the team-and-date one the server chose.
+        // Production is same-origin under /api and never noticed; dev talks
+        // to :3001 and did. Naming the header rather than relying on the
+        // deployment topology.
+        exposedHeaders: ['Content-Disposition']
     }));
     // F4 (LeadPack Master Build Handoff): Stripe's signature check needs the
     // exact raw request body, which a JSON-parsed-and-reserialized body
@@ -122,6 +129,7 @@ const main = async () => {
     const intervalSessionRoutes = require('./routes/intervalSessions');
     const attendanceRoutes = require('./routes/attendance');
     const paceZoneRoutes = require('./routes/paceZones');
+    const exportRoutes = require('./routes/export');
     const todayRoutes = require('./routes/today');
     const pageViewRoutes = require('./routes/pageViews');
     const adminRoutes = require('./routes/admin');
@@ -175,6 +183,7 @@ const main = async () => {
     app.use('/api/interval-sessions', intervalSessionRoutes);
     app.use('/api/attendance', attendanceRoutes);
     app.use('/api/pace-zones', paceZoneRoutes);
+    app.use('/api/export', exportRoutes);
     app.use('/api/today', todayRoutes);
     app.use('/api/page-views', pageViewRoutes);
     app.use('/api/admin', adminRoutes);

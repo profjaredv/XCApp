@@ -16,6 +16,7 @@ import type { SeasonMode } from '@/components/analytics/types';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
+import { AthleteExportButton } from '@/components/AthleteExportButton';
 import { formatDateShort } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import type { Athlete, Race, AthleteSeasonData } from '@/types/analytics';
@@ -312,6 +313,13 @@ const TeamAthleteProfilePage = () => {
 
       <div className="mb-6">
         <TrainingPacesCard recentRaces={recentRaces} />
+      </div>
+
+      {/* A coach can hand an athlete (or their parents) their own data
+          without anyone filing a request. Same file the athlete gets
+          themselves, so there is one answer to what is in it. */}
+      <div className="mb-6">
+        <AthleteExportButton athleteId={athleteId} />
       </div>
 
       {splitsAggregate && splitsAggregate.aggregates.length > 0 && (

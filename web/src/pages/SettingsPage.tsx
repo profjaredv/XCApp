@@ -21,6 +21,7 @@ import { useWalkthrough } from '@/contexts/WalkthroughContext';
 import { MeetGroupsManager } from '@/components/settings/MeetGroupsManager';
 import { StaffManager } from '@/components/settings/StaffManager';
 import { PaceZonesManager } from '@/components/settings/PaceZonesManager';
+import { DataExportCard } from '@/components/settings/DataExportCard';
 
 interface Team {
   id: string;
@@ -295,6 +296,13 @@ const SimpleSettingsPage: React.FC = () => {
       {team && currentUser?.role === 'coach' && (
         <MeetGroupsManager teamId={team.id} />
       )}
+
+      {/* Export sits immediately before the Danger Zone on purpose: the two
+          screens-worth of "what happens to my data" belong together, and
+          anyone about to clear a season should pass a download button on
+          the way. Shown to everyone on a team — the card itself explains
+          who can download what. */}
+      {team && <DataExportCard />}
 
       {/* Danger Zone Card — backend only ever lets HEAD_COACH (or an
           impersonating super admin) actually clear team data
