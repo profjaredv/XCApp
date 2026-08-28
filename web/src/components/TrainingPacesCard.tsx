@@ -15,6 +15,7 @@ import {
 } from '@/lib/paceZones';
 import { formatPaceRange, describeRule, repTimeSec, formatRepTime, isRepeatZone } from '@/lib/paceFormat';
 import { formatTime, formatDateShort } from '@/lib/formatUtils';
+import { NerdBox } from '@/components/NerdBox';
 
 export interface TrainingPaceRace {
   id: string;
@@ -83,6 +84,11 @@ const ZoneCard: React.FC<{ zone: ResolvedPaceZone; fiveKPaceSecPerMile: number |
           }).join(' · ')}
         </p>
       )}
+      {/* Last in the card, below the rep splits: the derivation is the
+          meta content, and a coach reaching for a rep target should not
+          have to scroll past six lines of algebra to find it. Renders
+          nothing at all when nerd mode is off. */}
+      <NerdBox explain={paces?.explain} />
     </div>
   );
 };

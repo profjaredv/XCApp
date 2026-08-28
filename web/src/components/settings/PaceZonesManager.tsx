@@ -13,6 +13,7 @@ import { getApiErrorMessage } from '../../lib/apiError';
 import { usePaceZones, useSavePaceZones } from '../../hooks/usePaceZones';
 import { MCMILLAN_ZONES, resolvePaceZone, type PaceZoneDefinition } from '../../lib/paceZones';
 import { describeRule, formatPaceRange, distanceLabel } from '../../lib/paceFormat';
+import { NerdBox } from '../NerdBox';
 import type { PaceZoneInput } from '../../api/paceZoneService';
 
 // Where a team writes down what its own pace terms mean.
@@ -333,6 +334,9 @@ const ZoneRow: React.FC<{
           <span className="italic">finish the rule to see a pace</span>
         )}
       </p>
+      {/* With nerd mode on this updates as the rule is typed, which makes
+          the editor a place to CHECK a definition, not just enter one. */}
+      <NerdBox explain={preview?.explain} />
     </div>
   );
 };
@@ -424,6 +428,7 @@ export function PaceZonesManager() {
                       18:00 5K runner: {formatPaceRange(preview)}
                     </p>
                   )}
+                  <NerdBox explain={preview?.explain} />
                 </div>
               );
             })}

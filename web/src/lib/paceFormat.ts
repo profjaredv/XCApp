@@ -2,12 +2,20 @@
 // handles a single pace; these two are about how a range reads.
 
 import { formatPace } from './formatUtils';
-import type { ResolvedPace, PaceZoneDefinition } from './paceZones';
+import type { ResolvedPace, PaceZoneDefinition, Explanation } from './paceZones';
 
 const METERS_PER_MILE = 1609.34;
 
-/** "6:25 - 6:55/mi", or a single pace when both ends agree. */
-export function formatPaceRange(paces: ResolvedPace): string {
+/**
+ * "6:25 - 6:55/mi", or a single pace when both ends agree.
+ *
+ * Takes only the three fields it reads rather than a whole ResolvedPace:
+ * formatting has no business needing the nerd-mode trace, and narrowing
+ * the type says so.
+ */
+export function formatPaceRange(
+  paces: Pick<ResolvedPace, 'fastSecPerMile' | 'slowSecPerMile' | 'isSinglePace'>
+): string {
   if (paces.isSinglePace) return formatPace(paces.fastSecPerMile);
   // Only the slow end carries the "/mi" — repeating it on both reads as
   // two separate paces rather than one range.
@@ -117,4 +125,41 @@ export function formatRepTargetRange(fastSec: number, slowSec: number): string {
   const fast = formatRepTime(fastSec);
   const slow = formatRepTime(slowSec);
   return fast === slow ? fast : `${fast}-${slow}`;
+}
+
+/**
+ * A per-rep target, plus the zone's own derivation with the rep-distance
+ * conversion appended.
+ *
+ * Built here rather than in the page for the reason the whole nerd-mode
+ * design turns on: the step that says "× (800 ÷ 1609.34)" is produced by
+ * the same function that does the multiplying, so the two cannot drift.
+ * A page assembling that string by hand could.
+ */
+export function explainRepTarget(
+  paces: Pick<ResolvedPace, 'fastSecPerMile' | 'slowSecPerMile' | 'isSinglePace' | 'explain'>,
+  repDistanceM: number
+): { fastSec: number; slowSec: number; explain: Explanation } {
+  const fastSec = repTimeSec(paces.fastSecPerMile, repDistanceM);
+  const slowSec = repTimeSec(paces.slowSecPerMile, repDistanceM);
+  const single = formatRepTime(fastSec) === formatRepTime(slowSec);
+  return {
+    fastSec,
+    slowSec,
+    explain: {
+      ...paces.explain,
+      steps: [
+        ...paces.explain.steps,
+        {
+          label: `Scale that pace to one ${repDistanceM}m rep`,
+          formula: 'rep = pace per mile × (rep distance ÷ 1609.34)',
+          substituted: single
+            ? `${formatPace(paces.fastSecPerMile)} × (${repDistanceM} ÷ 1609.34)`
+            : `${formatPace(paces.fastSecPerMile)} … ${formatPace(paces.slowSecPerMile)} × (${repDistanceM} ÷ 1609.34)`,
+          result: single ? formatRepTime(fastSec) : `${formatRepTime(fastSec)}-${formatRepTime(slowSec)}`,
+          value: fastSec,
+        },
+      ],
+    },
+  };
 }

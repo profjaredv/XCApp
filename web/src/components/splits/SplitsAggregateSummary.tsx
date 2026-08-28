@@ -2,6 +2,7 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { SPLIT_PATTERN_LABEL, SPLIT_PATTERN_BADGE_CLASS, formatSplitMMSS } from '@/lib/splitPatternDisplay';
 import type { SplitsAggregateByDistance } from '@/types/splits';
+import { NerdNote } from '@/components/NerdBox';
 
 // C10 (LeadPack Master Build Handoff follow-up): "how does this athlete
 // typically pace themselves" — one block per distance bucket, shared
@@ -35,6 +36,19 @@ export const SplitsAggregateSummary: React.FC<SplitsAggregateSummaryProps> = ({ 
               </Badge>
             )}
           </div>
+          {/* These averages are computed server-side
+              (backend/lib/splitAggregates.js) and never recomputed here, so
+              nerd mode reports the counts the server actually used rather
+              than inventing a derivation. The distinction matters: this is
+              the calculation that was once silently averaging nulls in as
+              zeroes, and "how many races is this actually the mean of" is
+              exactly the question that would have caught it. */}
+          <NerdNote>
+            Bucketed by distance (±50m) and marker scheme; positional mean over{' '}
+            {bucket.raceCount} race{bucket.raceCount === 1 ? '' : 's'} at {bucket.distanceLabel}
+            {bucket.markerScheme ? `, ${bucket.markerScheme}-marked` : ''}. Non-numeric splits are
+            excluded from a mean, never counted as zero.
+          </NerdNote>
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
             {bucket.segmentAverages.map((seg) => (
               <span key={seg.position}>
@@ -47,6 +61,17 @@ export const SplitsAggregateSummary: React.FC<SplitsAggregateSummaryProps> = ({ 
                 {seg.segmentRaceCount != null && seg.segmentRaceCount < bucket.raceCount
                   ? ` · ${seg.segmentRaceCount} of ${bucket.raceCount}`
                   : ''}
+                {/* Split and pace means can be taken over different
+                    subsets — a segment with no usable distance has a time
+                    but no pace — so nerd mode reports both counts rather
+                    than the one that flatters. */}
+                <NerdNote>
+                  mean of {seg.segmentRaceCount ?? seg.raceCount} split
+                  {(seg.segmentRaceCount ?? seg.raceCount) === 1 ? '' : 's'}
+                  {seg.paceRaceCount != null && seg.paceRaceCount !== seg.segmentRaceCount
+                    ? `; pace mean of ${seg.paceRaceCount}`
+                    : ''}
+                </NerdNote>
               </span>
             ))}
             {bucket.closingAverage && (

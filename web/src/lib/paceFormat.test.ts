@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { formatPaceRange, distanceLabel, formatOffset, describeRule, repTimeSec, formatRepTime, isRepeatZone, formatRepTargetRange } from './paceFormat';
-import type { PaceZoneDefinition } from './paceZones';
+import { formatPaceRange, distanceLabel, formatOffset, describeRule, repTimeSec, formatRepTime, isRepeatZone, formatRepTargetRange, explainRepTarget } from './paceFormat';
+import { resolvePaceZone, type PaceZoneDefinition } from './paceZones';
 
 const base: PaceZoneDefinition = {
   id: 'x', abbreviation: 'X', name: 'X', notes: null,
@@ -124,5 +124,45 @@ describe('formatRepTargetRange', () => {
   });
   it('collapses an exact single pace', () => {
     expect(formatRepTargetRange(155, 155)).toBe('2:35');
+  });
+});
+
+describe('explainRepTarget', () => {
+  const zone: PaceZoneDefinition = {
+    id: 'mcm-vo2', abbreviation: 'VO2', name: 'VO2 Max', notes: null,
+    ruleType: 'RANGE', rangeDistanceAMeters: 3000, rangeDistanceBMeters: 5000,
+    refDistanceMeters: null, offsetFastSec: null, offsetSlowSec: null,
+  };
+  const source = { distanceMiles: 5000 / 1609.34, timeSeconds: 18 * 60 };
+
+  it('returns the same rep times repTimeSec would', () => {
+    const paces = resolvePaceZone(zone, source)!;
+    const target = explainRepTarget(paces, 800);
+    expect(target.fastSec).toBeCloseTo(repTimeSec(paces.fastSecPerMile, 800), 6);
+    expect(target.slowSec).toBeCloseTo(repTimeSec(paces.slowSecPerMile, 800), 6);
+  });
+
+  it('appends exactly one step to the zone\'s own derivation', () => {
+    const paces = resolvePaceZone(zone, source)!;
+    const target = explainRepTarget(paces, 800);
+    expect(target.explain.steps.length).toBe(paces.explain.steps.length + 1);
+  });
+
+  it('the appended step lands on the rep time actually returned', () => {
+    // The guarantee that makes nerd mode trustworthy on the interval sheet.
+    const paces = resolvePaceZone(zone, source)!;
+    const target = explainRepTarget(paces, 800);
+    const last = target.explain.steps[target.explain.steps.length - 1];
+    expect(last.value).toBeCloseTo(target.fastSec, 6);
+    expect(last.substituted).toContain('800');
+  });
+
+  it('carries the rep distance actually used, not a default', () => {
+    const paces = resolvePaceZone(zone, source)!;
+    for (const dist of [400, 1000, 1600]) {
+      const last = explainRepTarget(paces, dist).explain.steps.slice(-1)[0];
+      expect(last.substituted).toContain(String(dist));
+      expect(last.label).toContain(`${dist}m`);
+    }
   });
 });

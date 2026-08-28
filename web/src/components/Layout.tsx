@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, ClipboardList, Gauge, Users, CalendarDays, Flag, TrendingUp, Database, Package, Upload, MessageSquare } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, ClipboardList, Gauge, Users, CalendarDays, Flag, TrendingUp, Database, Package, Upload, MessageSquare, FlaskConical } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamContext } from '../hooks/useTeamContext';
@@ -13,6 +13,7 @@ import { useOptionalSeasonSelection } from '../contexts/SeasonContext';
 import { useQuery } from '@tanstack/react-query';
 import api from '../api/api';
 import { sectionForPath, isDrillInPath } from '../lib/sectionTheme';
+import { useNerdMode } from '../contexts/NerdModeContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface SidebarProps {
@@ -151,6 +152,7 @@ const SeasonNavSection: React.FC<{
 
 const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { enabled: nerdMode, toggle: toggleNerdMode } = useNerdMode();
   const isMobile = () => window.innerWidth < 768;
 
   const handleLinkClick = () => {
@@ -267,6 +269,31 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
             )}
           </div>
         </div>
+        {/* Nerd mode. Sits with Profile/Settings/Logout rather than in the
+            nav spine above: it changes how every screen reads, like a
+            display preference, and is not a place you navigate to. State
+            is app-wide (contexts/NerdModeProvider.tsx) — on means on
+            everywhere, including the full-screen routes outside Layout. */}
+        <button
+          onClick={toggleNerdMode}
+          aria-pressed={nerdMode}
+          title={nerdMode ? 'Hide the formulas behind every number' : 'Show the formulas behind every number'}
+          className={`flex items-center w-full px-4 py-2.5 transition-colors border-t border-sidebar-border ${
+            nerdMode
+              ? 'bg-primary/10 text-primary'
+              : 'text-sidebar-foreground/70 hover:bg-sidebar-accent'
+          }`}
+        >
+          <FlaskConical className={isCollapsed ? 'h-6 w-6' : 'h-5 w-5'} strokeWidth={2} />
+          {!isCollapsed && (
+            <>
+              <span className="ml-3 text-sm font-medium">Nerd mode</span>
+              {/* A word, not a switch graphic: the row is already the
+                  control, and its highlighted state carries the meaning. */}
+              <span className="ml-auto text-xs font-mono opacity-70">{nerdMode ? 'on' : 'off'}</span>
+            </>
+          )}
+        </button>
         <Link to="/profile" onClick={handleLinkClick} className="flex items-center w-full px-4 py-2.5 text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors border-t border-sidebar-border">
           <UserIcon className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2} />
           {!isCollapsed && <span className="ml-3 text-sm font-medium">Profile</span>}

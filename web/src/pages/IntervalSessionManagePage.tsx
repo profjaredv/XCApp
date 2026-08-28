@@ -22,8 +22,9 @@ import { bestPaceSecPerMile, formatTime } from '@/api/groupService';
 import type { IntervalSessionEntry, RepUpdateInput } from '@/api/intervalSessionService';
 import { usePaceZones } from '@/hooks/usePaceZones';
 import { findZoneByKey, zoneDisplayName } from '@/lib/paceZoneLookup';
-import { resolvePaceZone, type PaceZoneDefinition } from '@/lib/paceZones';
-import { repTimeSec, formatRepTargetRange } from '@/lib/paceFormat';
+import { resolvePaceZone, type PaceZoneDefinition, type Explanation } from '@/lib/paceZones';
+import { formatRepTargetRange, explainRepTarget } from '@/lib/paceFormat';
+import { NerdBox, NerdNote } from '@/components/NerdBox';
 import { formatDateShort, compactName } from '@/lib/formatUtils';
 import { SplitCell, type CellNavigate } from '@/components/splits/SplitCell';
 import { FieldHeader, type FieldAction } from '@/components/field/FieldHeader';
@@ -78,20 +79,17 @@ function suggestedRepTarget(
   recentRace: AthleteRecentRace | null | undefined,
   zone: PaceZoneDefinition | null,
   repDistanceM: number
-): { fastSec: number; slowSec: number } | null {
+): { fastSec: number; slowSec: number; explain: Explanation } | null {
   if (!recentRace || !zone) return null;
   const paces = resolvePaceZone(zone, { distanceMiles: recentRace.distance, timeSeconds: recentRace.time });
   if (!paces) return null;
-  return {
-    fastSec: repTimeSec(paces.fastSecPerMile, repDistanceM),
-    slowSec: repTimeSec(paces.slowSecPerMile, repDistanceM),
-  };
+  return explainRepTarget(paces, repDistanceM);
 }
 
 
 const EntryRow: React.FC<{
   entry: IntervalSessionEntry;
-  target: { fastSec: number; slowSec: number } | null;
+  target: { fastSec: number; slowSec: number; explain: Explanation } | null;
   activeRep: number;
   registerRef: (key: string, el: HTMLInputElement | null) => void;
   onComplete: (key: string, elapsedSec: number) => void;
@@ -107,6 +105,13 @@ const EntryRow: React.FC<{
       <TableCell className="whitespace-nowrap">{compactName(entry.athleteName)}</TableCell>
       <TableCell className="text-center text-sm md:text-xs text-muted-foreground whitespace-nowrap font-mono">
         {target ? formatRepTargetRange(target.fastSec, target.slowSec) : '—'}
+        {/* One compact line per athlete rather than the full panel: this
+            grid gets used on a phone at the track, and a six-step box per
+            row would bury the thing a coach is actually here to do. The
+            full derivation for the session sits above the table. */}
+        {target && (
+          <NerdNote>{target.explain.steps[target.explain.steps.length - 1].substituted}</NerdNote>
+        )}
       </TableCell>
       {REPS.map((rep) => (
         <TableCell key={rep} className={`p-1 ${rep - 1 === activeRep ? '' : 'hidden md:table-cell'}`}>
@@ -168,6 +173,22 @@ const IntervalSessionManagePage: React.FC = () => {
   // the session still renders (its stored label carries the name), it just
   // stops suggesting paces it can no longer derive.
   const sessionZone = session ? findZoneByKey(session.zone, teamZones) : null;
+
+  // The first athlete on the sheet with a race behind them, used as the
+  // worked example for the nerd-mode panel above the table. Deliberately a
+  // real athlete rather than a made-up 18:00 runner: a coach checking the
+  // arithmetic can cross-check it against a name they know.
+  const workedExample = useMemo(() => {
+    for (const entry of session?.entries ?? []) {
+      const target = suggestedRepTarget(
+        recentRaceByAthlete?.get(entry.athleteId),
+        sessionZone,
+        session?.repDistanceM ?? 0
+      );
+      if (target) return { name: entry.athleteName, target };
+    }
+    return null;
+  }, [session?.entries, session?.repDistanceM, recentRaceByAthlete, sessionZone]);
 
   // Fastest-to-slowest by each athlete's best distance-normalized pace this
   // season, so the group runs in the order they'll actually line up on the
@@ -347,6 +368,19 @@ const IntervalSessionManagePage: React.FC = () => {
                   Type 3 or 4 digits for minutes:seconds — e.g. <span className="font-mono">530</span> becomes{' '}
                   <span className="font-mono">5:30</span>. Nothing else is accepted.
                 </p>
+                {/* Where the whole Target column comes from, worked all the
+                    way through once for a real athlete on this sheet. The
+                    per-row notes then only have to show the last step. */}
+                {workedExample && (
+                  <div className="pb-3">
+                    <NerdBox
+                      explain={{
+                        ...workedExample.target.explain,
+                        title: `${workedExample.target.explain.title} — worked through for ${workedExample.name}`,
+                      }}
+                    />
+                  </div>
+                )}
                 <SegmentedPills
                   className="pb-3 md:hidden"
                   caption="Rep"

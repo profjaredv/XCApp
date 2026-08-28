@@ -25,6 +25,8 @@
 // so on — computed by the Riegel engine below. Treat the output as a solid
 // coaching estimate in the McMillan tradition, not as his calculator.
 
+import { formatPace } from './formatUtils';
+
 const METERS_PER_MILE = 1609.34;
 
 // Riegel's exponent. 1.06 is the value from his original 1977 paper and the
@@ -41,6 +43,61 @@ const METERS_PER_MILE = 1609.34;
 // well-understood model is still better here than blending two, but a coach
 // setting rep targets off the Speed zone should expect to tighten them.
 const RIEGEL_EXPONENT = 1.06;
+
+
+// --- Nerd mode: the arithmetic, shown ---
+//
+// These traces are built BY the calculation, as a by-product of doing it,
+// and every one ends on the value actually returned. That is the whole
+// point: a hand-written formula string sitting beside the code could drift
+// from it and quietly start lying, which would wreck the trust nerd mode
+// exists to build. paceZones.test.ts asserts the last step's value equals
+// the returned pace, so a divergence fails the build rather than shipping.
+
+export type ExplainStep = {
+  /** What this step works out, in words. */
+  label: string;
+  /** The rule in symbols. Omitted where the substitution says it all. */
+  formula?: string;
+  /** The same thing with THIS calculation's real numbers in it. */
+  substituted: string;
+  /** The step's result, formatted for a human. */
+  result: string;
+  /** The same result as a raw number, so tests can check the trace is honest. */
+  value: number;
+};
+
+export type Explanation = {
+  title: string;
+  steps: ExplainStep[];
+  /** Where this lives, for anyone who wants to go read it. */
+  source: string;
+};
+
+/**
+ * m:ss for a whole number of seconds, m:ss.s otherwise.
+ *
+ * The tenth is not decoration. A trace that rounds its intermediate values
+ * to the second does not reproduce when someone checks it by hand — 2:35 ÷
+ * 0.497mi comes out 5:12, next to a displayed 5:11 — and a coach who finds
+ * that trusts the number LESS than before they looked. Carrying the tenth
+ * makes the arithmetic on screen actually work out.
+ */
+function secs(total: number): string {
+  const sign = total < 0 ? '-' : '';
+  const abs = Math.abs(total);
+  const whole = Math.floor(abs / 60);
+  const rest = abs - whole * 60;
+  const isWhole = Math.abs(rest - Math.round(rest)) < 0.05;
+  const body = isWhole
+    ? String(Math.round(rest)).padStart(2, '0')
+    : rest.toFixed(1).padStart(4, '0');
+  return `${sign}${whole}:${body}`;
+}
+
+function round(n: number, places = 1): string {
+  return n.toFixed(places).replace(/\.0+$/, '');
+}
 
 /** A race an athlete actually ran, used as the source of every estimate. */
 export type SourceRace = {
@@ -68,6 +125,8 @@ export type ResolvedPace = {
   slowSecPerMile: number;
   /** True when the two ends are the same pace, so the UI shows one number. */
   isSinglePace: boolean;
+  /** How this pace was arrived at — rendered by nerd mode. */
+  explain: Explanation;
 };
 
 export type ResolvedPaceZone = {
@@ -108,6 +167,46 @@ export function equivalentRacePaceSecPerMile(
   return time / (targetDistanceMeters / METERS_PER_MILE);
 }
 
+/**
+ * The same thing, plus the two steps it took to get there.
+ *
+ * Returns the steps rather than a whole Explanation so a caller can splice
+ * them into a longer derivation — an offset zone is "work out the
+ * reference pace, THEN add the offset", and both halves should be visible.
+ */
+function equivalentRacePaceExplained(
+  source: SourceRace,
+  targetDistanceMeters: number
+): { pace: number; steps: ExplainStep[] } | null {
+  const sourceMeters = source.distanceMiles * METERS_PER_MILE;
+  const time = riegelEquivalentTimeSec(sourceMeters, source.timeSeconds, targetDistanceMeters);
+  if (time === null) return null;
+  const miles = targetDistanceMeters / METERS_PER_MILE;
+  const pace = time / miles;
+
+  const steps: ExplainStep[] = [];
+  // Only show the equivalency step when there IS one. Asking for the pace
+  // at the distance they actually raced is just division, and dressing it
+  // up as a prediction would misrepresent how solid the number is.
+  if (Math.round(sourceMeters) !== Math.round(targetDistanceMeters)) {
+    steps.push({
+      label: `Predict a ${round(targetDistanceMeters)}m time from the ${round(sourceMeters)}m race`,
+      formula: 'T₂ = T₁ × (D₂ ÷ D₁) ^ 1.06   (Riegel)',
+      substituted: `${secs(source.timeSeconds)} × (${round(targetDistanceMeters)} ÷ ${round(sourceMeters)}) ^ 1.06`,
+      result: secs(time),
+      value: time,
+    });
+  }
+  steps.push({
+    label: steps.length > 0 ? 'Convert that to a pace per mile' : 'Pace per mile from the race itself',
+    formula: 'pace = time ÷ (distance ÷ 1609.34)',
+    substituted: `${secs(time)} ÷ (${round(targetDistanceMeters)} ÷ 1609.34) = ${secs(time)} ÷ ${round(miles, 3)} mi`,
+    result: `${formatPace(pace)}`,
+    value: pace,
+  });
+  return { pace, steps };
+}
+
 // Floating point makes "the same offset twice" not quite equal after the
 // division above, so single-pace detection needs a tolerance rather than
 // ===. A tenth of a second per mile is far below anything displayable.
@@ -131,18 +230,62 @@ export function resolvePaceZone(
 ): ResolvedPace | null {
   let a: number | null = null;
   let b: number | null = null;
+  const steps: ExplainStep[] = [];
 
   if (definition.ruleType === 'OFFSET') {
     if (!isNum(definition.refDistanceMeters)) return null;
     if (!isNum(definition.offsetFastSec) || !isNum(definition.offsetSlowSec)) return null;
-    const refPace = equivalentRacePaceSecPerMile(source, definition.refDistanceMeters);
-    if (refPace === null) return null;
-    a = refPace + definition.offsetFastSec;
-    b = refPace + definition.offsetSlowSec;
+    const ref = equivalentRacePaceExplained(source, definition.refDistanceMeters);
+    if (ref === null) return null;
+    steps.push(...ref.steps);
+    a = ref.pace + definition.offsetFastSec;
+    b = ref.pace + definition.offsetSlowSec;
+    const fastOff = definition.offsetFastSec;
+    const slowOff = definition.offsetSlowSec;
+    steps.push({
+      label: fastOff === slowOff ? 'Apply the zone\u2019s offset' : 'Apply the zone\u2019s offset range',
+      formula: 'zone = reference pace + offset',
+      substituted:
+        fastOff === slowOff
+          ? `${formatPace(ref.pace)} + ${secs(fastOff)}`
+          : `${formatPace(ref.pace)} + ${secs(fastOff)}  \u2026  ${formatPace(ref.pace)} + ${secs(slowOff)}`,
+      result: fastOff === slowOff ? formatPace(a) : `${formatPace(a)} \u2013 ${formatPace(b)}`,
+      value: Math.min(a, b),
+    });
   } else if (definition.ruleType === 'RANGE') {
     if (!isNum(definition.rangeDistanceAMeters) || !isNum(definition.rangeDistanceBMeters)) return null;
-    a = equivalentRacePaceSecPerMile(source, definition.rangeDistanceAMeters);
-    b = equivalentRacePaceSecPerMile(source, definition.rangeDistanceBMeters);
+    const first = equivalentRacePaceExplained(source, definition.rangeDistanceAMeters);
+    const second = equivalentRacePaceExplained(source, definition.rangeDistanceBMeters);
+    if (first === null || second === null) return null;
+    a = first.pace;
+    b = second.pace;
+    // A range's two ends are two independent derivations. Collapsing them
+    // to one line would hide that the zone's width comes from the gap
+    // between two predicted race paces, which is the interesting part.
+    // Each end keeps the formula from its own sub-steps: joining the
+    // substitutions without it would show the arithmetic but not the rule
+    // it came from, which is the half that actually explains anything.
+    const joinedFormula = first.steps.map((st) => st.formula).filter(Boolean).join('  then  ');
+    steps.push({
+      label: `Pace at ${round(definition.rangeDistanceAMeters)}m race effort`,
+      formula: joinedFormula || undefined,
+      substituted: first.steps.map((st) => st.substituted).join('  →  '),
+      result: formatPace(first.pace),
+      value: first.pace,
+    });
+    steps.push({
+      label: `Pace at ${round(definition.rangeDistanceBMeters)}m race effort`,
+      formula: second.steps.map((st) => st.formula).filter(Boolean).join('  then  ') || undefined,
+      substituted: second.steps.map((st) => st.substituted).join('  →  '),
+      result: formatPace(second.pace),
+      value: second.pace,
+    });
+    steps.push({
+      label: 'The zone is everything between them',
+      substituted: `${formatPace(Math.min(a, b))} \u2026 ${formatPace(Math.max(a, b))}`,
+      result: `${formatPace(Math.min(a, b))} \u2013 ${formatPace(Math.max(a, b))}`,
+      value: Math.min(a, b),
+    });
   } else {
     return null;
   }
@@ -158,6 +301,11 @@ export function resolvePaceZone(
     fastSecPerMile: fast,
     slowSecPerMile: slow,
     isSinglePace: slow - fast < SINGLE_PACE_TOLERANCE_SEC,
+    explain: {
+      title: `${definition.name} (${definition.abbreviation}), from a ${round(source.distanceMiles * METERS_PER_MILE)}m race in ${secs(source.timeSeconds)}`,
+      steps,
+      source: 'web/src/lib/paceZones.ts \u00b7 resolvePaceZone()',
+    },
   };
 }
 
