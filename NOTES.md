@@ -4188,3 +4188,68 @@ access is scoped to the groups they lead, plus attendance and interval
 sessions team-wide (field capture — someone supervising a session has to
 record it). Those twelve routes are listed explicitly in the matrix test so
 a new one has to be added deliberately.
+
+## The feature tour, rebuilt from the nav
+
+The tour had gone badly stale after the sidebar rework:
+
+**Coaches** were sent to an "Analytics" screen the sidebar calls **Season**,
+and a "Roster" it calls **Athletes**. **Athletes** had it worse — four of
+five steps pointed at screens that are not in an athlete's sidebar at all
+(Analytics, Results Grid, Pace Calculator, Roster). Neither role's tour
+mentioned **Today**, which is where both of them land.
+
+### Why re-syncing it would have been the wrong fix
+
+Every one of those steps was correct when it was written. Nothing tied the
+tour to the nav, so nothing caught it when the nav moved. Fixing today's
+snapshot just restarts the same clock.
+
+So the sidebar is now **data** (`lib/navigation.ts`) and both sides consume
+it:
+
+- `Layout` **renders** from it.
+- `walkthroughContent` **builds** from it — a step supplies only a
+  `description` and a `cta`; its title, icon and path come from the nav
+  entry.
+
+A step therefore *cannot* name a screen that isn't in the nav, or call it
+something the sidebar doesn't. `navigation.test.ts` checks the seam that
+remains: every step is a real nav entry **for that role**, titles/paths/icons
+match, steps follow sidebar order, an athlete is toured through their whole
+sidebar, a coach through the whole spine, and no description is short enough
+to just restate the title.
+
+### The tour walks the spine, in spine order
+
+That order is already a hierarchy — an athlete belongs to a group, a group
+trains at practice, practices build toward a meet, meets make a season,
+seasons make a program — so it is also the right order to explain the app
+in. No separate editorial ordering to keep in sync.
+
+| | Steps |
+|---|---|
+| Coach | Today, Athletes, Groups, Schedule, Season, Program, Settings |
+| Athlete | Today, My Progress, My Group, Meets |
+
+Settings is the one Setup entry worth a first-run stop (pace zones, staff,
+export); Data & Import, Equipment and Field Results are found when needed.
+
+### Verified
+
+Stepped through both tours in a browser: 7 and 4 steps, right labels, right
+order, Finish and Skip both close, reopening starts at step 1. And rendered
+the sidebar as all four roles to confirm the Layout refactor changed
+nothing — identical items, every href valid.
+
+### Not changed
+
+Clicking a step's "Open X" still **ends** the tour rather than resuming
+after the visit, so a coach who explores at step 1 loses the other six.
+Pre-existing, and a bigger interaction change than this was — but worth
+revisiting, since it defeats the point of a seven-step tour.
+
+`SeasonNavSection` and `CollapsibleSetupSection` still own their own
+rendering (a collapsible group of Analytics tabs, and a disclosure); only
+their *entries* come from the data. Fully data-driving them was more risk
+than value.
