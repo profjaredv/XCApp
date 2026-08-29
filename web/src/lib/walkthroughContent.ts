@@ -1,86 +1,110 @@
-import type { ComponentType } from 'react';
-import { Gauge, Home, BarChart2, Calculator, ClipboardList, Users, CalendarDays } from 'lucide-react';
+import { navEntry, type NavEntry } from './navigation';
 
 export type WalkthroughRole = 'coach' | 'athlete';
 
-export interface WalkthroughStep {
-  icon: ComponentType<{ className?: string }>;
-  title: string;
+/** What a step says. Where it goes and what it is called come from the nav. */
+interface StepCopy {
+  navKey: string;
   description: string;
-  // Appended to /t/:athleticTeamId to build the "go there" link.
-  path: string;
   cta: string;
 }
 
-// Five most important features per role, in the order a first-time user
-// should meet them. Coach and athlete accounts see different sets — see
-// WalkthroughContext for how the role is picked.
+export interface WalkthroughStep extends StepCopy {
+  title: NavEntry['label'];
+  path: NavEntry['path'];
+  icon: NavEntry['icon'];
+}
+
+// The tour walks the sidebar, in sidebar order, using the sidebar's own
+// words. Only the description and button text are written here — the title,
+// the icon and the destination all come from lib/navigation.ts.
+//
+// That is deliberate, and it is the fix for how this went wrong before. The
+// old tour sent coaches to an "Analytics" screen the sidebar calls
+// "Season", and a "Roster" it calls "Athletes"; four of the five ATHLETE
+// steps pointed at screens that are not in an athlete's sidebar at all
+// (Analytics, Results Grid, Pace Calculator, Roster). Every one of those
+// was right when written. Teaching someone vocabulary the app does not use
+// is worse than not touring at all, so the two now share one source.
+
+const COACH_STEPS: StepCopy[] = [
+  {
+    navKey: 'today',
+    description:
+      "Where you land. Today's practice, who is expected, and what is coming up — the screen to open at the track, not a dashboard to study.",
+    cta: 'Open Today',
+  },
+  {
+    navKey: 'athletes',
+    description:
+      'Your roster, season by season. Add athletes, invite them to their own login, mark captains, and merge duplicates when a scrape brings the same runner in twice.',
+    cta: 'Open Athletes',
+  },
+  {
+    navKey: 'groups',
+    description:
+      'Training groups, captains’ groups, and cross training. An athlete can be in more than one, and their profile shows every group they belong to.',
+    cta: 'Open Groups',
+  },
+  {
+    navKey: 'schedule',
+    description:
+      'The calendar of practices and meets. Attendance, interval sessions and practice plans all hang off a day here — start from the date, not from a menu.',
+    cta: 'Open Schedule',
+  },
+  {
+    navKey: 'season',
+    description:
+      'This season’s analysis, split into tabs: the dashboard, athletes, meets, performance, by group, the results grid, the pace calculator and coach insights.',
+    cta: 'Open Season',
+  },
+  {
+    navKey: 'program',
+    description:
+      'The long view — how each ability band has moved across seasons, so you can see whether the program is improving, not just this year’s team.',
+    cta: 'Open Program',
+  },
+  {
+    navKey: 'settings',
+    description:
+      'Under Setup. Define what your team’s pace terms mean, invite staff, and download everything you have ever entered. Your data is yours, any time.',
+    cta: 'Open Settings',
+  },
+];
+
+const ATHLETE_STEPS: StepCopy[] = [
+  {
+    navKey: 'today',
+    description: "What is on today — practice, the workout, and where to be.",
+    cta: 'Open Today',
+  },
+  {
+    navKey: 'my-progress',
+    description:
+      'Your races, your splits, and your training paces worked out from your most recent result. You can log a run here too.',
+    cta: 'Open My Progress',
+  },
+  {
+    navKey: 'my-group',
+    description:
+      'Which training group you are in, who leads it, and who else is in it.',
+    cta: 'Open My Group',
+  },
+  {
+    navKey: 'meets',
+    description: 'The meet schedule, and your results once they are in.',
+    cta: 'Open Meets',
+  },
+];
+
+function build(steps: StepCopy[]): WalkthroughStep[] {
+  return steps.map((step) => {
+    const entry = navEntry(step.navKey);
+    return { ...step, title: entry.label, path: entry.path, icon: entry.icon };
+  });
+}
+
 export const WALKTHROUGH_STEPS: Record<WalkthroughRole, WalkthroughStep[]> = {
-  coach: [
-    {
-      icon: Home,
-      title: 'Analytics',
-      description: "Your team's home base — performance trends, PRs, and race results as soon as a season's data is imported.",
-      path: '/analytics',
-      cta: 'View Analytics',
-    },
-    {
-      icon: ClipboardList,
-      title: 'Roster',
-      description: 'Manage your athletes, invite assistant or volunteer coaches, and mark team captains.',
-      path: '/roster',
-      cta: 'Open Roster',
-    },
-    {
-      icon: Users,
-      title: 'Groups',
-      description: 'Organize athletes into training groups — varsity, JV, distance, sprints — and assign group leaders.',
-      path: '/groups',
-      cta: 'Open Groups',
-    },
-    {
-      icon: CalendarDays,
-      title: 'Schedule',
-      description: 'A month calendar of practices and meets — plan each day, attach a workout, and import your season from Athletic.net.',
-      path: '/schedule',
-      cta: 'Open Schedule',
-    },
-  ],
-  athlete: [
-    {
-      icon: Gauge,
-      title: 'My Progress',
-      description: 'Your personal dashboard — race history and training paces, plus a button to log a run yourself.',
-      path: '/me',
-      cta: 'View My Progress',
-    },
-    {
-      icon: Home,
-      title: 'Analytics',
-      description: "See your races in the context of the whole team's season.",
-      path: '/analytics',
-      cta: 'View Analytics',
-    },
-    {
-      icon: BarChart2,
-      title: 'Results Grid',
-      description: 'A sortable table of every race result for the season, yours included.',
-      path: '/results-grid',
-      cta: 'Open Results Grid',
-    },
-    {
-      icon: Calculator,
-      title: 'Pace Calculator',
-      description: 'VDOT-based training paces, calculated from your most recent race.',
-      path: '/tools',
-      cta: 'Open Pace Calculator',
-    },
-    {
-      icon: ClipboardList,
-      title: 'Roster',
-      description: 'See your teammates, coaches, and team info.',
-      path: '/roster',
-      cta: 'Open Roster',
-    },
-  ],
+  coach: build(COACH_STEPS),
+  athlete: build(ATHLETE_STEPS),
 };

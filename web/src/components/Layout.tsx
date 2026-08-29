@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, Home, LayoutDashboard, ClipboardList, Gauge, Users, CalendarDays, Flag, TrendingUp, Database, Package, Upload, MessageSquare, FlaskConical } from 'lucide-react';
+// The nav's own icons now come with its entries (lib/navigation.ts);
+// these are the ones this file draws itself.
+import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamContext } from '../hooks/useTeamContext';
@@ -14,6 +16,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../api/api';
 import { sectionForPath, isDrillInPath } from '../lib/sectionTheme';
 import { useNerdMode } from '../contexts/NerdModeContext';
+import { navFor, navEntry } from '../lib/navigation';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface SidebarProps {
@@ -217,21 +220,26 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
           their own, so their Meets link stays here as their only path to
           it. */}
       <nav className="mt-2 flex-1 min-h-0 px-3 overflow-y-auto">
-        <NavItem to={teamPath('/today')} icon={Home} label="Today" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+        <NavItem to={teamPath(navEntry('today').path)} icon={navEntry('today').icon} label={navEntry('today').label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
 
         {isCoachSpine ? (
           <>
-            <NavItem to={teamPath('/roster')} icon={ClipboardList} label="Athletes" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            <NavItem to={teamPath('/groups')} icon={Users} label="Groups" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            <NavItem to={teamPath('/schedule')} icon={CalendarDays} label="Schedule" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            {/* Rendered from lib/navigation.ts so the sidebar and the
+                feature tour cannot drift apart — see that file. Season is
+                the one entry with its own component (a collapsible group
+                of Analytics tabs), so the spine is split around it. */}
+            {navFor('coach', 'spine')
+              .filter((i) => i.key !== 'today' && !i.custom && i.key !== 'program')
+              .map((item) => (
+                <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+              ))}
             <SeasonNavSection isCollapsed={isCollapsed} teamPath={teamPath} onLinkClick={handleLinkClick} />
-            <NavItem to={teamPath('/band-trends')} icon={TrendingUp} label="Program" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath(navEntry('program').path)} icon={navEntry('program').icon} label={navEntry('program').label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
             {!isVolunteerCoach && (
               <CollapsibleSetupSection isCollapsed={isCollapsed}>
-                <NavItem to={teamPath('/data-management')} icon={Database} label="Data & Import" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-                <NavItem to={teamPath('/equipment')} icon={Package} label="Equipment" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-                <NavItem to={teamPath('/field-results')} icon={Upload} label="Field Results" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-                <NavItem to={teamPath('/settings')} icon={Settings} label="Settings" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                {navFor('coach', 'setup').map((item) => (
+                  <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                ))}
                 {/* The feedback INBOX is the maintainer's, not a per-team
                     feature — filing a report is still open to everyone via
                     the floating FeedbackWidget on every screen. The backend
@@ -245,9 +253,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
           </>
         ) : currentUser?.linkedAthlete ? (
           <>
-            <NavItem to={teamPath('/me')} icon={Gauge} label="My Progress" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            <NavItem to={teamPath('/groups')} icon={Users} label="My Group" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            <NavItem to={teamPath('/meets')} icon={Flag} label="Meets" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            {navFor('athlete', 'spine')
+              .filter((i) => i.key !== 'today')
+              .map((item) => (
+                <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+              ))}
           </>
         ) : null}
       </nav>
