@@ -30,7 +30,7 @@ import { athleteService } from '@/api/athleteService';
 import { teamService } from '@/api/teamService';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
-import { gradeLabel } from '@/lib/seasonUtils';
+import { gradeLabel, deriveGraduationYear } from '@/lib/seasonUtils';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { getApiErrorMessage } from '@/lib/apiError';
@@ -235,6 +235,29 @@ const RosterPage: React.FC = () => {
       invalidate();
     },
     onError: () => toast.error('Could not save preferred name'),
+  });
+
+  // Class year. The roster has always BADGED "Needs class year" without
+  // offering any way to set one — nickname was the only inline edit — so an
+  // athlete an import created without a grade stayed ungraded forever.
+  // Grade is derived from graduationYear everywhere (lib/seasonUtils), so
+  // that is what gets stored; coaches think in grades, so that is what they
+  // pick, and the year is worked back from the season on screen.
+  const [classYearTarget, setClassYearTarget] = useState<RosterAthlete | null>(null);
+  const [classYearGrade, setClassYearGrade] = useState<string>('');
+  const saveClassYear = useMutation({
+    mutationFn: () => {
+      const grade = parseInt(classYearGrade, 10);
+      const graduationYear = deriveGraduationYear(grade, season ?? null);
+      if (graduationYear === null) throw new Error('Pick a grade first.');
+      return rosterService.updateAthlete(classYearTarget!.id, { graduationYear });
+    },
+    onSuccess: () => {
+      toast.success('Class year saved');
+      setClassYearTarget(null);
+      invalidate();
+    },
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Could not save class year')),
   });
 
   const byGrade = useMemo(() => {
@@ -581,7 +604,25 @@ const RosterPage: React.FC = () => {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {athlete.graduated && <Badge variant="secondary">Graduated</Badge>}
-                    {!athlete.graduationYear && <Badge variant="outline">Needs class year</Badge>}
+                    {!athlete.graduationYear &&
+                      (isCoach ? (
+                        // Actionable rather than just a complaint: this is
+                        // the fix for an athlete showing up with no grade in
+                        // meet analysis.
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setClassYearTarget(athlete);
+                            setClassYearGrade('');
+                          }}
+                        >
+                          <GraduationCap className="mr-2 h-4 w-4" />
+                          Set class year
+                        </Button>
+                      ) : (
+                        <Badge variant="outline">Needs class year</Badge>
+                      ))}
                     {isCoach && athlete.seasonId && (
                       <Button
                         variant="outline"
@@ -852,6 +893,46 @@ const RosterPage: React.FC = () => {
             </Button>
             <Button onClick={() => saveNickname.mutate()} disabled={saveNickname.isPending}>
               {saveNickname.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!classYearTarget} onOpenChange={(open) => !open && setClassYearTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Class year — {classYearTarget?.name}</DialogTitle>
+            <DialogDescription>
+              What grade are they in for the {season} season? Their class year is worked out from
+              that, so every past and future season shows the right grade automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Grade in {season}</Label>
+            <Select value={classYearGrade} onValueChange={setClassYearGrade}>
+              <SelectTrigger>
+                <SelectValue placeholder="Pick a grade" />
+              </SelectTrigger>
+              <SelectContent>
+                {[9, 10, 11, 12].map((g) => (
+                  <SelectItem key={g} value={String(g)}>
+                    {gradeLabel(g)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {classYearGrade && season !== undefined && (
+              <p className="text-xs text-muted-foreground">
+                Saved as class of {deriveGraduationYear(parseInt(classYearGrade, 10), season)}.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClassYearTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => saveClassYear.mutate()} disabled={!classYearGrade || saveClassYear.isPending}>
+              {saveClassYear.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

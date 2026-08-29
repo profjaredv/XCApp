@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, hasTeamRole } = require('../middleware/auth');
+const { deriveGrade } = require('../lib/season');
 const { ANY_COACH } = require('../lib/teamRoles');
 const { paceSecPerMile } = require('../lib/groupAnalytics');
 const {
@@ -48,9 +49,31 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
 
     const athleteMetrics = await prisma.athleteSeasonMetrics.findMany({
       where: { teamId, season },
-      include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true, grade: true } } },
+      // graduationYear, not grade. Athlete.grade is a vestigial column
+      // nothing has written since the app moved to deriving grade from
+      // graduationYear (see lib/season.js) — reading it meant reading
+      // whatever a long-ago import happened to leave there, or null.
+      include: {
+        athlete: { select: { id: true, name: true, preferredName: true, gender: true, graduationYear: true } },
+      },
       orderBy: { bestTime5k: { sort: 'asc', nulls: 'last' } },
     });
+
+    // This season's own roster grades — the authoritative record of what
+    // grade someone was in during THIS season, set when the roster was
+    // synced or imported. Same source and same precedence as
+    // routes/athletes.js.
+    const seasonRow = await prisma.season.findFirst({ where: { teamId, year: season }, select: { id: true } });
+    const rosterGradeByAthleteId = new Map(
+      seasonRow
+        ? (
+            await prisma.seasonRoster.findMany({
+              where: { seasonId: seasonRow.id },
+              select: { athleteId: true, grade: true },
+            })
+          ).map((r) => [r.athleteId, r.grade])
+        : []
+    );
 
     const meetMetrics = await prisma.meetPerformanceMetrics.findMany({
       where: { teamId, season },
@@ -93,7 +116,21 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
         id: athlete.id || am.athleteId,
         name: athlete.preferredName || athlete.name || 'Unknown',
         gender,
-        currentGrade: athlete.grade || am.grade || 9,
+        // NOT `|| 9`. That fallback invented a grade whenever nothing was
+        // known, so every athlete an import had just created — no roster
+        // row, no metrics yet — was displayed as a freshman. A confident
+        // wrong answer, on a screen a coach reads to check their data.
+        // Null renders as "Unknown" (lib/seasonUtils gradeLabel), which is
+        // the honest answer and visibly needs fixing.
+        //
+        // ?? not ||, and this order deliberately: the season's own roster
+        // row first, then the grade derived from graduationYear, then the
+        // snapshot stored on the metrics row, then nothing.
+        currentGrade:
+          rosterGradeByAthleteId.get(am.athleteId) ??
+          deriveGrade(athlete.graduationYear, season) ??
+          am.grade ??
+          null,
         totalRaces: am.totalRaces || 0,
         bestTime: am.bestTime5k || 0,
         prBest5K: prBestByAthleteId.get(am.athleteId) || am.bestTime5k || 0,

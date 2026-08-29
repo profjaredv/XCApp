@@ -165,7 +165,11 @@ export interface Athlete {
   name: string;
   firstName: string;
   lastName: string;
-  currentGrade: number;
+  /** Null when the athlete's grade genuinely is not known — render
+   *  it as "Unknown" (gradeLabel), never as a default. The API used
+   *  to substitute 9 here, which showed brand-new athletes as
+   *  freshmen. */
+  currentGrade: number | null;
   gender: 'M' | 'F';
   teamName: string;
   seasons: AthleteSeasonData[];
@@ -244,7 +248,11 @@ export interface MostImprovedAthlete {
   id: string;
   name: string;
   improvementPercent: number;
-  currentGrade: number;
+  /** Null when the athlete's grade genuinely is not known — render
+   *  it as "Unknown" (gradeLabel), never as a default. The API used
+   *  to substitute 9 here, which showed brand-new athletes as
+   *  freshmen. */
+  currentGrade: number | null;
   gender: 'M' | 'F';
   teamName: string;
   bestTime: number;

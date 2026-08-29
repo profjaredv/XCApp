@@ -77,7 +77,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
   };
 
   // Filter results based on gender and grade
-  const filterResults = (results: Array<{athleteGender: string; athleteGrade: number; time: number; place: number; division?: string | null; overallPlace?: number | null; overallFieldSize?: number | null; teamPlace?: number | null; athleteName: string; [key: string]: unknown}>) => {
+  const filterResults = (results: Array<{athleteGender: string; athleteGrade: number | null; time: number; place: number; division?: string | null; overallPlace?: number | null; overallFieldSize?: number | null; teamPlace?: number | null; athleteName: string; [key: string]: unknown}>) => {
     return results.filter(result => {
       const genderMatch = genderFilter === 'all' || result.athleteGender === genderFilter;
       const gradeMatch = gradeFilter === 'all' || result.athleteGrade === gradeFilter;
@@ -86,7 +86,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
   };
 
   // Calculate filtered statistics for display
-  const calculateFilteredStats = (enrichedResults: Array<{time: number; athleteGender: string; athleteGrade: number; place: number; athleteName: string; [key: string]: unknown}>) => {
+  const calculateFilteredStats = (enrichedResults: Array<{time: number; athleteGender: string; athleteGrade: number | null; place: number; athleteName: string; [key: string]: unknown}>) => {
     const filteredResults = filterResults(enrichedResults);
     if (filteredResults.length === 0) return null;
     
@@ -120,7 +120,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
       return {
         ...result,
         athleteName: athlete?.name || 'Unknown',
-        athleteGrade: athlete?.currentGrade || 0,
+        athleteGrade: athlete?.currentGrade ?? null,
         athleteGender: athlete?.gender || 'U'
       };
     }).sort((a, b) => a.time - b.time);
@@ -150,8 +150,13 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
     const girlsFirstToSeventhGap = girlsTop7.length >= 7 ? girlsTop7[6].time - girlsTop7[0].time : 0;
     
     // Grade cohort analysis
+    // Athletes whose grade isn't known sit out the cohort comparison
+    // rather than forming a phantom one. A null key would stringify to
+    // "null" and come back through parseInt as NaN, which then sorts
+    // unpredictably and renders as "Grade NaN".
     const gradeGroups = enrichedResults.reduce((acc, result) => {
       const grade = result.athleteGrade;
+      if (grade == null) return acc;
       if (!acc[grade]) acc[grade] = [];
       acc[grade].push(result);
       return acc;
@@ -268,7 +273,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
       return {
         ...result,
         athleteName: athlete?.name || 'Unknown',
-        athleteGrade: athlete?.currentGrade || 0,
+        athleteGrade: athlete?.currentGrade ?? null,
         athleteGender: athlete?.gender || 'U'
       };
     }).sort((a, b) => a.time - b.time);

@@ -25,10 +25,17 @@ const CareerProgressChart: React.FC<CareerProgressChartProps> = ({ athlete, heig
       return { chartData: [], avgPace: 0, bestPace: 0 };
     }
 
-    // Calculate graduation year based on current grade
+    // Grade at each race is worked back from the athlete's current grade,
+    // so an unknown grade means the whole chart's grade banding would be
+    // guesswork. Defaulting to 12 quietly produced a plausible-looking
+    // chart built on an invented graduation year; better to draw nothing
+    // than to draw something wrong and confident.
     const currentYear = new Date().getFullYear();
-    const currentGrade = athlete.currentGrade || 12;
-    const graduationYear = currentYear + (12 - currentGrade);
+    const currentGrade = athlete.currentGrade;
+    if (!Number.isFinite(currentGrade)) {
+      return { chartData: [], avgPace: 0, bestPace: 0 };
+    }
+    const graduationYear = currentYear + (12 - (currentGrade as number));
 
     interface ProcessedRace {
       x?: number;
@@ -224,7 +231,10 @@ const CareerProgressChart: React.FC<CareerProgressChartProps> = ({ athlete, heig
           name="Pace"
           dot={(props) => {
             // Extract grade from payload
-            const grade = props.payload?.grade || 9;
+            // Colour only — getGradeColor already has a neutral default
+            // for anything outside 9-12, so an unknown grade draws grey
+            // rather than being coloured as a freshman.
+            const grade = props.payload?.grade ?? 0;
             return (
               <circle 
                 cx={props.cx} 
