@@ -18,6 +18,7 @@ const { requireActivePlan } = require('../lib/entitlements');
 const calculationService = require('../services/performance/calculationService');
 const { parseRosterCsv } = require('../lib/rosterCsv');
 const { matchAthlete, normalizeAthleteName } = require('../lib/athleteMatching');
+const { validateImportRequest } = require('../lib/trainingLogImport');
 const { planDedup } = require('../lib/athleteMerge');
 
 // www, not the apex — the apex leadpack.cc has no DNS record pointed at
@@ -953,6 +954,152 @@ router.delete('/me/training-logs/:logId', authenticate, requireLinkedAthlete, as
     res.json({ msg: 'Deleted' });
   } catch (error) {
     console.error('Error in DELETE /athletes/me/training-logs/:logId:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/athletes/me/training-logs/import
+//
+// The athlete drops a file from their watch or a platform export; the
+// browser parses it (web/src/lib/activityFiles) and posts summary rows
+// here. See lib/trainingLogImport.js for why the validation lives
+// server-side even though our own code produced the payload.
+//
+// There is deliberately NO coach-facing counterpart to this route, and
+// there should never be one. TrainingLog's schema comment establishes the
+// posture — "private by default (the original design: 'yours alone')" —
+// and a coach importing an athlete's health data would invert it: the
+// athlete would find their own runs already in the app, shared, without
+// having done anything. If a coach needs the data, the athlete shares it.
+router.post('/me/training-logs/import', authenticate, requireLinkedAthlete, async (req, res) => {
+  const athleteId = req.user.linkedAthlete.id;
+
+  // Nothing predating high school is a plausible training log for this
+  // roster, and an archive that far back is a sign the athlete picked the
+  // wrong export. Five years covers a senior's full career with room to
+  // spare.
+  const earliestAllowed = new Date();
+  earliestAllowed.setFullYear(earliestAllowed.getFullYear() - 5);
+
+  const parsed = validateImportRequest(req.body, { earliestAllowed });
+  if (parsed.error) {
+    return res.status(400).json({ msg: parsed.error });
+  }
+
+  const sharedWithCoach = Boolean(req.body.sharedWithCoach);
+  const sharedWithTeam = Boolean(req.body.sharedWithTeam);
+
+  try {
+    // The batch row is created first so every log can point at it, and the
+    // whole thing is one transaction: a half-applied import that the undo
+    // button cannot reach is worse than a failed one.
+    const result = await prisma.$transaction(async (tx) => {
+      const batch = await tx.trainingLogImportBatch.create({
+        data: {
+          athleteId,
+          source: parsed.source,
+          fileName: parsed.fileName,
+          rowsParsed: parsed.parsed,
+          rowsCreated: 0,
+          rowsSkipped: 0,
+        },
+      });
+
+      // skipDuplicates leans on the (athleteId, source, externalId) unique
+      // index, which is what makes re-dropping the same file a no-op
+      // instead of a second copy of the season.
+      const created = await tx.trainingLog.createMany({
+        data: parsed.rows.map((row) => ({
+          athleteId,
+          date: row.date,
+          type: row.type,
+          distanceMi: row.distanceMi,
+          durationSec: row.durationSec,
+          notes: row.notes,
+          sharedWithCoach,
+          sharedWithTeam,
+          source: parsed.source,
+          externalId: row.externalId,
+          startedAt: row.startedAt,
+          avgHrBpm: row.avgHrBpm,
+          elevationFt: row.elevationFt,
+          importBatchId: batch.id,
+        })),
+        skipDuplicates: true,
+      });
+
+      const alreadyPresent = parsed.rows.length - created.count;
+      const rowsSkipped =
+        Object.values(parsed.skipped).reduce((sum, n) => sum + n, 0) + alreadyPresent;
+
+      const finalBatch = await tx.trainingLogImportBatch.update({
+        where: { id: batch.id },
+        data: { rowsCreated: created.count, rowsSkipped },
+      });
+
+      return { batch: finalBatch, created: created.count, alreadyPresent };
+    });
+
+    res.status(201).json({
+      batchId: result.batch.id,
+      parsed: parsed.parsed,
+      created: result.created,
+      skipped: { ...parsed.skipped, alreadyImported: result.alreadyPresent },
+    });
+  } catch (error) {
+    console.error('Error in POST /athletes/me/training-logs/import:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/athletes/me/training-logs/imports — the athlete's own import
+// history, so "undo" has something to point at.
+router.get('/me/training-logs/imports', authenticate, requireLinkedAthlete, async (req, res) => {
+  try {
+    const batches = await prisma.trainingLogImportBatch.findMany({
+      where: { athleteId: req.user.linkedAthlete.id },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+    res.json(batches);
+  } catch (error) {
+    console.error('Error in GET /athletes/me/training-logs/imports:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// DELETE /api/athletes/me/training-logs/imports/:batchId
+//
+// Undo one import. The logs are deleted explicitly here rather than by
+// cascade (the FK is SetNull on purpose — see the model comment), so the
+// destructive step is visible in one place. Scoped by athleteId in the
+// same query as the id: a batch belonging to someone else must 404, not
+// delete.
+router.delete('/me/training-logs/imports/:batchId', authenticate, requireLinkedAthlete, async (req, res) => {
+  const athleteId = req.user.linkedAthlete.id;
+
+  try {
+    const batch = await prisma.trainingLogImportBatch.findFirst({
+      where: { id: req.params.batchId, athleteId },
+    });
+    if (!batch) {
+      return res.status(404).json({ msg: 'Import not found.' });
+    }
+
+    const deleted = await prisma.$transaction(async (tx) => {
+      // athleteId is repeated here rather than trusting importBatchId
+      // alone — the batch is already known to be this athlete's, and this
+      // way no future bug in batch ownership can widen a delete.
+      const { count } = await tx.trainingLog.deleteMany({
+        where: { importBatchId: batch.id, athleteId },
+      });
+      await tx.trainingLogImportBatch.delete({ where: { id: batch.id } });
+      return count;
+    });
+
+    res.json({ msg: 'Import undone', deleted });
+  } catch (error) {
+    console.error('Error in DELETE /athletes/me/training-logs/imports/:batchId:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

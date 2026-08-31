@@ -38,6 +38,8 @@ const EXCLUDED_MODELS = {
   AthleteClaim: 'Exists only to carry a live token.',
   TeamClaim: 'Exists only to carry a live token.',
   Course: 'A shared lookup table, not team-owned. Course names travel on the races that reference them.',
+  TrainingLogImportBatch:
+    'Bookkeeping for the undo button, not training data. What it records — where a log came from — travels on each training log\'s own `source` column, which IS exported.',
 };
 
 /**

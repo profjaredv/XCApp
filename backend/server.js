@@ -97,6 +97,19 @@ const main = async () => {
     app.use('/api/team/join', roleChangeLimiter);
     app.post('/api/team-claims/:token/claim', roleChangeLimiter);
 
+    // Training-log import: the athlete parses a file in the browser and
+    // posts up to 500 summary rows at a time. Legitimate use is a handful
+    // of chunked requests when someone first drops an archive in; anything
+    // beyond this is a script, not a runner with a watch.
+    const importLimiter = rateLimit({
+        windowMs: 60 * 60 * 1000, // 1 hour
+        limit: 40,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { message: 'Too many imports in a row. Try again in an hour.' },
+    });
+    app.post('/api/athletes/me/training-logs/import', importLimiter);
+
     const { authenticate } = require('./middleware/auth');
 
     // Import routes

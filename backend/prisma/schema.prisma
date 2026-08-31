@@ -228,24 +228,25 @@ model Athlete {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  team                    Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user                    User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
-  results                 Result[]
-  raceSplits              RaceSplit[]
-  seasonRosterEntries     SeasonRoster[]
-  seasonMetrics           AthleteSeasonMetrics[]
-  bestInMeets             MeetPerformanceMetrics[] @relation("BestAthlete")
-  invite                  AthleteInvite?
-  claims                  AthleteClaim[]
-  trainingLogs            TrainingLog[]
-  guardianLinks           GuardianLink[]
-  groupMemberships        GroupMembership[]
-  meetEntries             MeetEntry[]
-  raceReflections         RaceReflection[]
-  equipmentAssignments    EquipmentAssignment[]
-  intervalSessionEntries  IntervalSessionEntry[]
-  coachUpAcknowledgements CoachUpAcknowledgement[]
-  attendanceRecords       AttendanceRecord[]
+  team                     Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user                     User?                    @relation("AthleteAccount", fields: [userId], references: [id], onDelete: SetNull)
+  results                  Result[]
+  raceSplits               RaceSplit[]
+  seasonRosterEntries      SeasonRoster[]
+  seasonMetrics            AthleteSeasonMetrics[]
+  bestInMeets              MeetPerformanceMetrics[] @relation("BestAthlete")
+  invite                   AthleteInvite?
+  claims                   AthleteClaim[]
+  trainingLogs             TrainingLog[]
+  trainingLogImportBatches TrainingLogImportBatch[]
+  guardianLinks            GuardianLink[]
+  groupMemberships         GroupMembership[]
+  meetEntries              MeetEntry[]
+  raceReflections          RaceReflection[]
+  equipmentAssignments     EquipmentAssignment[]
+  intervalSessionEntries   IntervalSessionEntry[]
+  coachUpAcknowledgements  CoachUpAcknowledgement[]
+  attendanceRecords        AttendanceRecord[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -390,12 +391,69 @@ model TrainingLog {
   // sourceIntervalSessionEntryId; a plain self-reported log has no splits.
   repSplits                    Json?   @map("rep_splits")
 
+  // Where this row came from. 'manual' is the original case (the athlete
+  // typed it), 'interval_session' is the coach-recorded case above, and
+  // every other value is a file the athlete imported themselves — see
+  // lib/trainingLogImport.js. Deliberately a string, not an enum: new file
+  // formats should not need a migration.
+  source      String    @default("manual") @map("source")
+  // A stable identity for this activity WITHIN its source, so re-importing
+  // the same file is a no-op rather than a duplicate. Derivation is
+  // per-format (see web/src/lib/activityFiles) — a FIT file's creation
+  // timestamp, a GPX's first trackpoint, an Apple Health workout's
+  // startDate — falling back to a hash of the file bytes. Null for manual
+  // and interval_session rows, which have no external identity.
+  externalId  String?   @map("external_id")
+  // The actual instant the run started, kept alongside `date` rather than
+  // replacing it. `date` stays the athlete's LOCAL calendar day (a 6am run
+  // in Denver is not the UTC day) and is what every existing query groups
+  // by; this is the precise timestamp a file gave us, for ordering two runs
+  // on the same day. Null for hand-entered logs, which only ever had a day.
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(6)
+  avgHrBpm    Int?      @map("avg_hr_bpm")
+  elevationFt Float?    @map("elevation_ft")
+
+  importBatch   TrainingLogImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  importBatchId String?                 @map("import_batch_id") @db.Uuid
+
   athlete                    Athlete               @relation(fields: [athleteId], references: [id], onDelete: Cascade)
   createdBy                  User?                 @relation("TrainingLogCreator", fields: [createdById], references: [id], onDelete: SetNull)
   sourceIntervalSessionEntry IntervalSessionEntry? @relation(fields: [sourceIntervalSessionEntryId], references: [id], onDelete: SetNull)
 
+  // Idempotent re-import: the same activity from the same source for the
+  // same athlete can only land once. Postgres treats NULLs as distinct, so
+  // this constrains imported rows only — manual and interval_session rows
+  // (externalId null) are unaffected and can repeat freely.
+  @@unique([athleteId, source, externalId])
   @@index([athleteId, date])
   @@map("training_logs")
+}
+
+// One "the athlete dropped a file in" event. Exists so an import can be
+// undone as a unit — dropping four years of Strava history and then
+// realising it was the wrong account should be one click, not 600
+// deletions.
+//
+// The FK is SetNull, deliberately: at the database level, losing a batch
+// row must never take training logs with it. The undo endpoint deletes the
+// logs and the batch together, explicitly, inside a transaction — so the
+// destructive path is one readable place in routes/athletes.js rather than
+// an ambient cascade nobody reading this model would expect.
+model TrainingLogImportBatch {
+  id          String   @id @default(uuid()) @db.Uuid
+  athleteId   String   @map("athlete_id") @db.Uuid
+  source      String
+  fileName    String?  @map("file_name")
+  rowsParsed  Int      @map("rows_parsed")
+  rowsCreated Int      @map("rows_created")
+  rowsSkipped Int      @map("rows_skipped")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  athlete Athlete       @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  logs    TrainingLog[]
+
+  @@index([athleteId, createdAt])
+  @@map("training_log_import_batches")
 }
 
 // T5 (Team Management handoff): "the most emotionally valuable thing in

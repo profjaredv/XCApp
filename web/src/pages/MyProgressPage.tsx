@@ -26,13 +26,14 @@ import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { Activity, Bus, CalendarDays, Lock, MessageCircleHeart, Trash2, Trophy, Users, Flag } from 'lucide-react';
+import { Activity, Bus, CalendarDays, FileUp, Lock, MessageCircleHeart, Trash2, Trophy, Users, Flag } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { athleteService } from '@/api/athleteService';
 import { trainingLogService, type TrainingLogType } from '@/api/trainingLogService';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
+import { ImportWorkoutsDialog } from '@/components/training/ImportWorkoutsDialog';
 import { AthleteExportButton } from '@/components/AthleteExportButton';
 import { Download } from 'lucide-react';
 import { formatTime, parseTimeToSeconds, formatDateShort, todayIso as todayIsoLocal } from '@/lib/formatUtils';
@@ -95,6 +96,7 @@ const MyProgressPage: React.FC = () => {
   });
 
   const [logDate, setLogDate] = useState(todayIsoLocal);
+  const [importOpen, setImportOpen] = useState(false);
   const [logType, setLogType] = useState<TrainingLogType>('easy');
   const [logDistance, setLogDistance] = useState('');
   const [logDuration, setLogDuration] = useState('');
@@ -261,13 +263,21 @@ const MyProgressPage: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Activity className="h-5 w-5" />
-            Log a run
-          </CardTitle>
-          <CardDescription>
-            Training runs are private by default — check a box below to share one with your coach, your team, or both.
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1.5">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Activity className="h-5 w-5" />
+                Log a run
+              </CardTitle>
+              <CardDescription>
+                Training runs are private by default — check a box below to share one with your coach, your team, or both.
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+              <FileUp className="mr-2 h-4 w-4" />
+              Import from watch
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -489,6 +499,8 @@ const MyProgressPage: React.FC = () => {
           Team & meet results
         </Button>
       </div>
+
+      <ImportWorkoutsDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 };

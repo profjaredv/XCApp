@@ -5,6 +5,22 @@ export const formatTime = (seconds: number): string => {
   return `${mins}:${secs.padStart(4, '0')}`;
 };
 
+// A training-run duration, as a runner would say it: "48:12", "1:30:00".
+//
+// Distinct from formatTime above, which formats a RACE time — tenths of a
+// second matter there and nothing is ever an hour long, so it renders 5400
+// seconds as "90:00.0". For a long run that is simply wrong-looking; this
+// rolls hours over and drops the tenths.
+export const formatDuration = (seconds: number): string => {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
+  const total = Math.round(seconds);
+  const hours = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return hours > 0 ? `${hours}:${pad(mins)}:${pad(secs)}` : `${mins}:${pad(secs)}`;
+};
+
 export const formatPace = (seconds: number): string => {
   if (seconds <= 0) return '0:00/mi';
   const mins = Math.floor(seconds / 60);
