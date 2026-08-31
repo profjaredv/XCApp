@@ -74,3 +74,59 @@ test('anonymizeAthletesForAnalysis: fresh token map every call — tokens are no
   }
   assert.equal(allSame, false);
 });
+
+// --- the guarantee the marketing page rests on -------------------------
+//
+// The public site claims the model writing a team's insights never sees
+// who anyone is. That is only true while every call to a third-party AI
+// sits downstream of the tokenizer. The tests above prove the tokenizer
+// works; these prove nothing routes around it.
+
+const path = require('node:path');
+const fs = require('node:fs');
+
+const BACKEND = path.join(__dirname, '..');
+
+function sourceFiles(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...sourceFiles(full));
+    else if (entry.name.endsWith('.js') && !full.includes(`${path.sep}test${path.sep}`)) out.push(full);
+  }
+  return out;
+}
+
+test('there is exactly one third-party AI call site in the backend', () => {
+  // A second one added without anonymization would silently break the
+  // claim. Finding out here is the point: if this fails because a new AI
+  // feature was added, route it through anonymizeAthletesForAnalysis and
+  // update the count deliberately.
+  const callers = sourceFiles(BACKEND).filter((f) =>
+    /generateContent\(/.test(fs.readFileSync(f, 'utf8'))
+  );
+  assert.deepEqual(
+    callers.map((f) => path.relative(BACKEND, f)),
+    ['routes/coachesTools.js'],
+    'a new AI call site must anonymize before it sends anything'
+  );
+});
+
+test('names are tokenized before the prompt is built, and the prompt carries no real name', () => {
+  const source = fs.readFileSync(path.join(BACKEND, 'routes', 'coachesTools.js'), 'utf8');
+
+  const anonymizeAt = source.indexOf('anonymizeAthletesForAnalysis(validAthletes)');
+  const promptAt = source.indexOf('const prompt = `');
+  const sendAt = source.indexOf('model.generateContent(prompt)');
+
+  assert.ok(anonymizeAt > 0 && promptAt > 0 && sendAt > 0, 'all three steps should be findable');
+  assert.ok(anonymizeAt < promptAt, 'anonymization must happen before the prompt is built');
+  assert.ok(promptAt < sendAt, 'the prompt must be built before it is sent');
+
+  // The prompt interpolates `anonymized`, never the raw athlete list. If
+  // this ever reads validAthletes, real names go over the wire.
+  const promptBody = source.slice(promptAt, sendAt);
+  assert.match(promptBody, /\$\{anonymized\./, 'the prompt must interpolate the anonymized list');
+  assert.doesNotMatch(promptBody, /\$\{validAthletes/, 'the prompt must never interpolate raw athletes');
+});

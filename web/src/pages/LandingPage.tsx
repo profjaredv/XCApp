@@ -291,8 +291,9 @@ export default function LandingPage() {
                 <div>
                   <h4 className="font-semibold mb-1">Never sold. Never advertised against.</h4>
                   <p className="text-white/70 text-sm">
-                    We don't sell student data, we don't run ads, and we don't use your team's data
-                    to train AI models.
+                    We don't sell student data and we don't run ads. Our one AI feature strips every
+                    athlete's name before anything leaves our servers — the model writing your team's
+                    insights never learns who anyone is.
                   </p>
                 </div>
               </div>

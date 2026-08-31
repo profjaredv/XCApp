@@ -43,7 +43,8 @@ export const USE: PolicySection = {
     'We use your data to run the product you are paying for: showing results, computing paces and season summaries, taking attendance, and generating the coaching views a coach asks for.',
     'We never sell student data. Not to anyone, for any price, under any structure. There is no version of LeadPack where student data is a revenue source.',
     'We never use student data for advertising, and we do not run behavioural advertising of any kind.',
-    'We do not use student data to train AI models. Some features send data to an AI provider to generate a summary for your team, and that provider is contractually barred from training on it. Those features are labelled where they appear, and an AI-generated observation is always about your team, only ever shown to your team.',
+    'LeadPack has one feature that uses AI: the coaching insights in Coach’s Tools. Before anything is sent, every athlete’s name is replaced with a random token, and the names are put back only after the response returns. The AI provider receives paces, race counts and trends — never a name, and never your school’s name. The tokens are regenerated on every request, so they cannot be matched up across time.',
+    'An AI-generated observation is about your team and is only ever shown to your team. We use a paid API tier whose terms prohibit the provider from training on what we send.',
     'We collect basic usage telemetry — which screens get opened — to find what is broken or unused. It is never sold and never used for advertising.',
   ],
 };
