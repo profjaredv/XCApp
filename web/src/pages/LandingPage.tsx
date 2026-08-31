@@ -253,8 +253,15 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="border-t bg-slate-50 py-8">
-        <div className="container mx-auto px-4 text-center text-slate-600">
+        <div className="container mx-auto space-y-3 px-4 text-center text-slate-600">
           <p>&copy; 2025 LeadPack XC. Built for cross country coaches and athletes.</p>
+          <p className="text-sm">
+            <Link to="/policies" className="underline underline-offset-4 hover:text-slate-900">
+              Your data, and what we do with it
+            </Link>
+            <span className="mx-2 text-slate-400">·</span>
+            <span className="text-slate-500">We never sell student data.</span>
+          </p>
         </div>
       </footer>
     </div>

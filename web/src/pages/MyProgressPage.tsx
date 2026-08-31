@@ -34,6 +34,7 @@ import { trainingLogService, type TrainingLogType } from '@/api/trainingLogServi
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
 import { ImportWorkoutsDialog } from '@/components/training/ImportWorkoutsDialog';
+import { WhoCanSeeMyStuff } from '@/components/privacy/WhoCanSeeMyStuff';
 import { AthleteExportButton } from '@/components/AthleteExportButton';
 import { Download } from 'lucide-react';
 import { formatTime, parseTimeToSeconds, formatDateShort, todayIso as todayIsoLocal } from '@/lib/formatUtils';
@@ -499,6 +500,14 @@ const MyProgressPage: React.FC = () => {
           Team & meet results
         </Button>
       </div>
+
+      <WhoCanSeeMyStuff />
+
+      <p className="text-center text-xs text-muted-foreground">
+        <Link to="/policies" className="underline underline-offset-4 hover:text-foreground">
+          What LeadPack does with your data
+        </Link>
+      </p>
 
       <ImportWorkoutsDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>

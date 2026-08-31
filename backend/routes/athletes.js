@@ -19,6 +19,8 @@ const calculationService = require('../services/performance/calculationService')
 const { parseRosterCsv } = require('../lib/rosterCsv');
 const { matchAthlete, normalizeAthleteName } = require('../lib/athleteMatching');
 const { validateImportRequest } = require('../lib/trainingLogImport');
+const { decideCanHaveAccount } = require('../lib/minorPolicy');
+const { byClass, needsAgreementReview } = require('../lib/dataClassification');
 const { planDedup } = require('../lib/athleteMerge');
 
 // www, not the apex — the apex leadpack.cc has no DNS record pointed at
@@ -736,6 +738,19 @@ router.post('/:athleteId/invite', authenticate, requireTeam, requireRole(FULL_CO
       return res.status(409).json({ msg: 'This athlete is already linked to an account.' });
     }
 
+    // Age gate. Checked when the invite is SENT, not only when it is
+    // accepted, so the coach learns immediately rather than after a
+    // student has clicked a link that then refuses them. See
+    // lib/minorPolicy.js for why the line is 9th grade.
+    const seasonYear = await resolveActiveSeason(teamId);
+    const eligibility = decideCanHaveAccount({
+      graduationYear: athlete.graduationYear,
+      season: seasonYear,
+    });
+    if (!eligibility.allowed) {
+      return res.status(403).json({ msg: eligibility.reason });
+    }
+
     const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
 
     // One invite per athlete — resending overwrites the token (a fresh link)
@@ -820,6 +835,18 @@ router.post('/accept-invite', authenticate, async (req, res) => {
     });
     if (!canAccept.allowed) {
       return res.status(403).json({ msg: canAccept.reason });
+    }
+
+    // Re-checked at acceptance as well as at send: an invite issued before
+    // a coach set a class year could otherwise still link a middle
+    // schooler months later.
+    const acceptSeason = await resolveActiveSeason(invite.teamId);
+    const acceptEligibility = decideCanHaveAccount({
+      graduationYear: invite.athlete.graduationYear,
+      season: acceptSeason,
+    });
+    if (!acceptEligibility.allowed) {
+      return res.status(403).json({ msg: acceptEligibility.reason });
     }
 
     const [athlete] = await prisma.$transaction([
@@ -1100,6 +1127,95 @@ router.delete('/me/training-logs/imports/:batchId', authenticate, requireLinkedA
     res.json({ msg: 'Import undone', deleted });
   } catch (error) {
     console.error('Error in DELETE /athletes/me/training-logs/imports/:batchId:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/athletes/me/visibility
+//
+// One honest answer to "who can see my stuff?".
+//
+// The app already enforces this correctly — decideCanViewTrainingLog and
+// decideCanViewReflection are query-layer allowlists, not hidden buttons —
+// but until now an athlete could only learn a log's visibility by finding
+// that log. Sharing decisions were made one at a time, months apart, and
+// there was nowhere to see the shape of what she had agreed to. A control
+// nobody can survey is not really a control.
+//
+// Returns live counts, not a description of the settings, so the numbers
+// are the truth rather than a restatement of intent.
+router.get('/me/visibility', authenticate, requireLinkedAthlete, async (req, res) => {
+  const athleteId = req.user.linkedAthlete.id;
+
+  try {
+    const [logTotal, logCoach, logTeam, reflectionTotal, reflectionCoach, guardians] =
+      await Promise.all([
+        prisma.trainingLog.count({ where: { athleteId } }),
+        prisma.trainingLog.count({ where: { athleteId, sharedWithCoach: true } }),
+        prisma.trainingLog.count({ where: { athleteId, sharedWithTeam: true } }),
+        prisma.raceReflection.count({ where: { athleteId } }),
+        prisma.raceReflection.count({ where: { athleteId, sharedWithCoach: true } }),
+        prisma.guardianLink.findMany({
+          where: { athleteId, status: 'approved' },
+          select: { user: { select: { name: true, email: true } } },
+        }),
+      ]);
+
+    res.json({
+      trainingLogs: { total: logTotal, sharedWithCoach: logCoach, sharedWithTeam: logTeam },
+      reflections: { total: reflectionTotal, sharedWithCoach: reflectionCoach },
+      // Named, not just counted: "a parent can see your meet info" is a
+      // fact she should be able to check the name on.
+      guardians: guardians.map((g) => ({
+        name: g.user?.name ?? null,
+        email: g.user?.email ?? null,
+      })),
+    });
+  } catch (error) {
+    console.error('Error in GET /athletes/me/visibility:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// PUT /api/athletes/me/visibility/training-logs
+//
+// Change every training log at once. The per-log toggle stays — this is
+// the "actually, none of it" and "actually, all of it" switch that a
+// per-log control cannot express without forty taps.
+router.put('/me/visibility/training-logs', authenticate, requireLinkedAthlete, async (req, res) => {
+  const { sharedWithCoach, sharedWithTeam } = req.body;
+
+  // Both must be sent explicitly. Treating a missing field as false would
+  // let a request meant to change one flag silently un-share the other.
+  if (typeof sharedWithCoach !== 'boolean' || typeof sharedWithTeam !== 'boolean') {
+    return res.status(400).json({ msg: 'sharedWithCoach and sharedWithTeam must both be booleans.' });
+  }
+
+  try {
+    const { count } = await prisma.trainingLog.updateMany({
+      where: { athleteId: req.user.linkedAthlete.id },
+      data: { sharedWithCoach, sharedWithTeam },
+    });
+    res.json({ updated: count });
+  } catch (error) {
+    console.error('Error in PUT /athletes/me/visibility/training-logs:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/athletes/me/data-practices
+//
+// The classification registry, rendered for a person rather than a
+// lawyer. Served from the API rather than hardcoded in the frontend so
+// that it is generated from lib/dataClassification.js — the same file the
+// coverage test runs against. A category cannot appear on this page
+// without existing in the schema, and a table cannot exist in the schema
+// without appearing here.
+router.get('/me/data-practices', authenticate, async (req, res) => {
+  try {
+    res.json({ classes: byClass(), needsAgreementReview: needsAgreementReview() });
+  } catch (error) {
+    console.error('Error in GET /athletes/me/data-practices:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

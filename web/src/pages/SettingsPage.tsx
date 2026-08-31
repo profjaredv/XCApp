@@ -22,9 +22,10 @@ import { StaffManager } from '@/components/settings/StaffManager';
 import { PaceZonesManager } from '@/components/settings/PaceZonesManager';
 import { DataExportCard } from '@/components/settings/DataExportCard';
 import { SettingsSection } from '@/components/settings/SettingsSection';
+import { DataPracticesCard } from '@/components/settings/DataPracticesCard';
 import { useExpandedSections } from '@/hooks/useExpandedSections';
 import { isFullCoach, canDeleteData, isImpersonatingAdmin } from '@/lib/teamRole';
-import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle } from 'lucide-react';
+import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 interface Team {
   id: string;
@@ -320,6 +321,19 @@ const SimpleSettingsPage: React.FC = () => {
             onToggle={() => toggle('pace-zones')}
           >
             {isMounted('pace-zones') && <PaceZonesManager />}
+          </SettingsSection>
+        )}
+
+        {team && (
+          <SettingsSection
+            id="data-practices"
+            title="Student data & privacy"
+            description="What LeadPack stores, who can see it, and what a district needs to know."
+            icon={ShieldCheck}
+            open={isOpen('data-practices')}
+            onToggle={() => toggle('data-practices')}
+          >
+            {isMounted('data-practices') && <DataPracticesCard />}
           </SettingsSection>
         )}
 

@@ -5,6 +5,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { ANY_COACH, FULL_COACH } = require('../lib/teamRoles');
 const { resolveActiveSeason } = require('../lib/season');
+const { decideCanHaveAccount } = require('../lib/minorPolicy');
 const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 const { sendEmail } = require('../lib/email');
 const { requireActivePlan } = require('../lib/entitlements');
@@ -465,6 +466,18 @@ router.post('/claim-profile', authenticate, requireTeam, async (req, res) => {
       return res.status(409).json({ msg: 'This profile has already been claimed.' });
     }
 
+    // Age gate, at the request rather than only at approval — a student
+    // below 9th grade should be told now, not left waiting on a coach for
+    // an approval that would be refused. See lib/minorPolicy.js.
+    const claimSeason = await resolveActiveSeason(teamId);
+    const claimEligibility = decideCanHaveAccount({
+      graduationYear: athlete.graduationYear,
+      season: claimSeason,
+    });
+    if (!claimEligibility.allowed) {
+      return res.status(403).json({ msg: claimEligibility.reason });
+    }
+
     const matchScore = nameMatchScore(athlete.name, req.user.name);
 
     await prisma.athleteClaim.upsert({
@@ -528,6 +541,18 @@ router.post('/approve-claim', authenticate, requireTeam, requireRole(FULL_COACH)
       const athlete = await prisma.athlete.findUnique({ where: { id: claim.athleteId } });
       if (athlete?.userId && athlete.userId !== claim.userId) {
         return res.status(409).json({ msg: 'This profile was claimed by someone else in the meantime.' });
+      }
+
+      // The last gate before an account is actually linked. A claim can
+      // sit pending while a coach fills in class years, so eligibility is
+      // re-decided here rather than trusted from request time.
+      const approveSeason = await resolveActiveSeason(req.user.teamId);
+      const approveEligibility = decideCanHaveAccount({
+        graduationYear: athlete?.graduationYear ?? null,
+        season: approveSeason,
+      });
+      if (!approveEligibility.allowed) {
+        return res.status(403).json({ msg: approveEligibility.reason });
       }
       await prisma.$transaction([
         prisma.athlete.update({ where: { id: claim.athleteId }, data: { userId: claim.userId } }),

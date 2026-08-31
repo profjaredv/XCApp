@@ -215,7 +215,18 @@ test('the import route is athlete-scoped and has no coach counterpart', () => {
 
 test('imported logs are not force-shared — the athlete decides', () => {
   assert.match(ROUTES, /sharedWithCoach = Boolean\(req\.body\.sharedWithCoach\)/);
-  assert.doesNotMatch(ROUTES, /sharedWithCoach:\s*true/, 'never hardcode sharing on');
+
+  // Scoped to the import route's write, not the whole file: elsewhere
+  // `sharedWithCoach: true` is a legitimate COUNT filter (the visibility
+  // summary asks how many logs are shared), and a file-wide regex flagged
+  // that as if it were hardcoding sharing on.
+  const createBlock = ROUTES.slice(
+    ROUTES.indexOf('const created = await tx.trainingLog.createMany('),
+    ROUTES.indexOf('skipDuplicates: true')
+  );
+  assert.ok(createBlock.length > 0, 'the import createMany should be findable');
+  assert.match(createBlock, /sharedWithCoach,\n\s+sharedWithTeam,/, 'the write must pass the athlete\'s choice through');
+  assert.doesNotMatch(createBlock, /sharedWith\w+:\s*true/, 'never hardcode sharing on for an import');
 });
 
 test('re-import is idempotent by construction', () => {

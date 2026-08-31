@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
-import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, BandTrendsPage, FieldResultsPage } from '../pages';
+import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, BandTrendsPage, FieldResultsPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
@@ -41,6 +41,13 @@ export const router = createBrowserRouter([
         index: true,
         path: '/',
         element: <LandingPage />,
+      },
+      {
+        // Public on purpose: a parent or athletic director evaluating
+        // LeadPack should be able to read what we do with student data
+        // without creating an account.
+        path: '/policies',
+        element: <PoliciesPage />,
       },
       {
         path: '/login',

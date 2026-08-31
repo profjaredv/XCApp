@@ -38,6 +38,24 @@ export interface ImportBatch {
   createdAt: string;
 }
 
+export interface VisibilitySummary {
+  trainingLogs: { total: number; sharedWithCoach: number; sharedWithTeam: number };
+  reflections: { total: number; sharedWithCoach: number };
+  guardians: Array<{ name: string | null; email: string | null }>;
+}
+
+export interface DataPracticeEntry {
+  model: string;
+  class: string;
+  what: string;
+  why: string;
+}
+
+export interface DataPractices {
+  classes: Record<string, DataPracticeEntry[]>;
+  needsAgreementReview: string[];
+}
+
 export interface NewTrainingLog {
   date: string;
   type: TrainingLogType;
@@ -87,6 +105,27 @@ export const trainingLogService = {
       results.push(response.data);
     }
     return results;
+  },
+
+  async getVisibility(): Promise<VisibilitySummary> {
+    const response = await axiosInstance.get<VisibilitySummary>('/athletes/me/visibility');
+    return response.data;
+  },
+
+  /** Change every training log at once. Both flags are always sent —
+   *  the server rejects a partial update, so a change to one cannot
+   *  silently reset the other. */
+  async setAllLogVisibility(sharedWithCoach: boolean, sharedWithTeam: boolean): Promise<{ updated: number }> {
+    const response = await axiosInstance.put<{ updated: number }>('/athletes/me/visibility/training-logs', {
+      sharedWithCoach,
+      sharedWithTeam,
+    });
+    return response.data;
+  },
+
+  async getDataPractices(): Promise<DataPractices> {
+    const response = await axiosInstance.get<DataPractices>('/athletes/me/data-practices');
+    return response.data;
   },
 
   async getImports(): Promise<ImportBatch[]> {
