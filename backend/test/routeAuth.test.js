@@ -44,6 +44,12 @@ const ALLOWED_UNGUARDED = new Set([
   // Deliberately open to any signed-in user; every field written is scoped
   // to req.user.id / req.user.teamId, never to a body-supplied id.
   'feedback.js POST /',
+  // Asking for a team to be created. Requiring team membership here would
+  // be circular — this is the route for people who have none — and the row
+  // it writes is scoped entirely to req.user.id and req.user.email, with
+  // no body-supplied identity. Approving one is separately super-admin
+  // only (routes/admin.js), so filing a request grants nothing.
+  'teamRequests.js POST /',
   // The invite token itself is the authorization (a coach already named
   // this exact athlete/invitee when creating it) — not team/role membership.
   'athletes.js POST /accept-invite',

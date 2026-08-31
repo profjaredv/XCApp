@@ -16,3 +16,4 @@ export { default as BandTrendsPage } from './BandTrendsPage';
 export { default as FieldResultsPage } from './FieldResultsPage';
 export { default as AuthFlowPage } from './AuthFlowPage';
 export { default as PoliciesPage } from './PoliciesPage';
+export { default as AdminDashboardPage } from './AdminDashboardPage';

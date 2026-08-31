@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 // The nav's own icons now come with its entries (lib/navigation.ts);
 // these are the ones this file draws itself.
-import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamContext } from '../hooks/useTeamContext';
@@ -264,8 +264,18 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
 
       <div className="flex-shrink-0 w-full border-t border-sidebar-border bg-sidebar/80 backdrop-blur-sm">
         {currentUser?.isSuperAdmin && (
-          <div className="p-3 border-b border-sidebar-border">
+          <div className="p-3 border-b border-sidebar-border space-y-2">
             <AdminTeamSwitcher isCollapsed={isCollapsed} />
+            {/* Deliberately not in NAV_ITEMS: that list is audience-based
+                (coach/athlete) and drives the feature tour. A platform
+                destination belongs with the other super-admin controls. */}
+            <NavItem
+              to={teamPath('/admin')}
+              icon={ShieldCheck}
+              label="Platform"
+              isCollapsed={isCollapsed}
+              onClick={handleLinkClick}
+            />
           </div>
         )}
         <div className="p-4">

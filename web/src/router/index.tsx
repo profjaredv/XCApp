@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
-import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, BandTrendsPage, FieldResultsPage } from '../pages';
+import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, BandTrendsPage, FieldResultsPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
@@ -288,6 +288,13 @@ export const router = createBrowserRouter([
                   {
                     path: 'settings',
                     element: <SettingsPage />,
+                  },
+                  {
+                    // Platform dashboard. The real gate is
+                    // requireSuperAdmin on every /api/admin route; the page
+                    // itself just shows a sentence to anyone else.
+                    path: 'admin',
+                    element: <AdminDashboardPage />,
                   },
                   {
                     // F4: the required-every-time checkout step. Reachable

@@ -114,6 +114,7 @@ const main = async () => {
 
     // Import routes
     const profileRoutes = require('./routes/profile');
+    const teamRequestRoutes = require('./routes/teamRequests');
     const teamRoutes = require('./routes/teams');
     const resultRoutes = require('./routes/results');
     const userRoutes = require('./routes/users');
@@ -157,6 +158,7 @@ const main = async () => {
     // Note: there is no /api/auth route anymore — Neon Auth (Stack) handles
     // sign-up/sign-in entirely client-side; the backend only verifies the
     // resulting access token (see middleware/auth.js).
+    app.use('/api/team-requests', teamRequestRoutes);
     app.use('/api/profile', profileRoutes);
     app.use('/api/teams', teamRoutes);
     app.use('/api/results', resultRoutes);

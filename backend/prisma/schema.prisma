@@ -70,6 +70,8 @@ model User {
   coachUpAcknowledgements   CoachUpAcknowledgement[] @relation("CoachUpAcknowledgementBy")
   createdTimerSessions      TimerSession[]           @relation("TimerSessionCreator")
   createdAttendanceSessions AttendanceSession[]      @relation("AttendanceSessionCreator")
+  teamRequests              TeamRequest[]            @relation("TeamRequester")
+  teamRequestsResolved      TeamRequest[]            @relation("TeamRequestResolver")
 
   @@index([teamId])
   @@map("users")
@@ -141,6 +143,46 @@ model Team {
 // expiry/status conventions rather than inventing new ones. Whoever holds
 // the link and signs in becomes HEAD_COACH; the account's email is never
 // required to match `email` (see F3 — the link itself is the credential).
+// A coach asking for a team to be set up.
+//
+// This used to be filed as a Feedback row with severity 'blocker' — which
+// meant a real request to join the product sat in the same list as bug
+// reports, could not be approved or declined, and notified nobody. Nothing
+// ever emailed out, so a coach who filled in the form heard nothing back
+// and had no way to tell whether it had been received.
+//
+// A first-class model instead: it has a status, it can be actioned, and
+// the super-admin dashboard is the notification. Approving one creates the
+// Team and its TeamClaim in a single step, so "yes" is a button rather
+// than a sequence of manual calls.
+model TeamRequest {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  // Copied at request time rather than joined on demand: this is the
+  // address we promised to follow up at, and it must stay what the coach
+  // saw even if they later change their account email.
+  email     String
+  name      String?
+  // Whatever the coach typed — school, team name, anything else useful.
+  message   String
+  status    String   @default("pending") // pending | approved | declined
+  createdAt DateTime @default(now()) @map("created_at")
+
+  resolvedAt    DateTime? @map("resolved_at")
+  resolvedById  String?   @map("resolved_by") @db.Uuid
+  // Set when approving created a team, so the dashboard can link a request
+  // to what it produced.
+  createdTeamId String?   @map("created_team_id") @db.Uuid
+  // Why it was declined, for the admin's own memory. Never emailed.
+  adminNote     String?   @map("admin_note")
+
+  user       User  @relation("TeamRequester", fields: [userId], references: [id], onDelete: Cascade)
+  resolvedBy User? @relation("TeamRequestResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("team_requests")
+}
+
 model TeamClaim {
   id        String    @id @default(uuid()) @db.Uuid
   teamId    String    @unique @map("team_id") @db.Uuid

@@ -76,11 +76,11 @@ const OnboardingPage: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      await axiosInstance.post('/feedback', {
-        route: '/onboarding',
-        screen: 'Onboarding — needs a team',
-        severity: 'blocker',
-        message: contactMessage.trim() || 'Requesting a new team be set up.',
+      // A first-class TeamRequest, not a Feedback row. The old call filed
+      // this among bug reports and notified nobody — POST /feedback sends
+      // no mail — so a coach saw "Sent" and then heard nothing forever.
+      await axiosInstance.post('/team-requests', {
+        message: contactMessage.trim(),
       });
       setContactSent(true);
     } catch (err) {
@@ -229,7 +229,8 @@ const OnboardingPage: React.FC = () => {
           {contactSent ? (
             <>
               <div className="bg-green-100 text-green-700 p-3 rounded text-sm">
-                Sent — we'll follow up at {currentUser?.email ?? 'your account email'} once your team is set up.
+                Request received. We'll email {currentUser?.email ?? 'your account email'} with a
+                setup link once your team is created — usually within a day.
               </div>
               <Button variant="outline" onClick={() => setStep('choice')} className="w-full">
                 Back
@@ -257,16 +258,20 @@ const OnboardingPage: React.FC = () => {
                 />
               </div>
               <div className="flex gap-3">
+                {/* flex-1, not w-full: Button's base class sets shrink-0,
+                    so two w-full children each claim 100% of the row and
+                    neither gives way — which pushed Send Request clean out
+                    of the card. */}
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => { setStep('choice'); setError(''); }}
-                  className="w-full"
+                  className="flex-1"
                 >
                   Back
                 </Button>
-                <Button type="submit" disabled={loading} className="w-full">
-                  {loading ? 'Sending...' : 'Send Request'}
+                <Button type="submit" disabled={loading} className="flex-1">
+                  {loading ? 'Sending…' : 'Send Request'}
                 </Button>
               </div>
             </form>

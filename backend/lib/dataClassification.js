@@ -75,6 +75,11 @@ const CLASSIFICATION = {
     what: 'A one-time link letting a coach claim their school.',
     why: 'Account setup for an adult. It carries a coach\'s email and a one-time token, and no student data at all.',
   },
+  TeamRequest: {
+    class: CLASSES.OPERATIONAL,
+    what: 'A coach asking us to set up their team, and whether we did.',
+    why: 'Correspondence with LeadPack from an adult coach. Names no student, and is not part of any team export.',
+  },
   StaffInvite: {
     class: CLASSES.OPERATIONAL,
     what: 'A pending invitation to a coach or volunteer.',
