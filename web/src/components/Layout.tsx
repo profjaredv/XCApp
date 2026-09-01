@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 // The nav's own icons now come with its entries (lib/navigation.ts);
 // these are the ones this file draws itself.
+import { accentFor, sectionForNavKey, type SectionKey } from '@/lib/sectionAccent';
+import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
@@ -34,20 +36,54 @@ interface NavItemProps {
   label: string;
   isCollapsed: boolean;
   onClick: () => void;
+  /** Which part of the app this leads to — decides the colour. */
+  section?: SectionKey;
 }
 
-const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, label, isCollapsed, onClick }) => (
-  <NavLink
-    to={to}
-    onClick={onClick}
-    className={({ isActive }) =>
-      `flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2.5 text-sidebar-foreground/70 font-medium transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-foreground ${isActive && 'bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm'}`
-    }
-  >
-    <Icon className={isCollapsed ? 'h-6 w-6' : 'h-5 w-5'} strokeWidth={2.5} />
-    {!isCollapsed && <span className="text-sm">{label}</span>}
-  </NavLink>
-);
+// Each destination wears its section's colour, so the sidebar is a legend
+// for the rest of the app: the block at the top of Athletes is the same
+// blue as the Athletes item here. The active row gets a rail in that
+// colour rather than the old uniform green wash, which made every page
+// look the same once you were on it.
+const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, label, isCollapsed, onClick, section = 'neutral' }) => {
+  const accent = accentFor(section);
+  return (
+    <NavLink
+      to={to}
+      onClick={onClick}
+      className={({ isActive }) =>
+        cn(
+          'group relative flex items-center rounded-xl px-3 py-2.5 font-medium transition-all duration-200',
+          isCollapsed ? 'justify-center' : 'gap-3',
+          isActive
+            ? cn(accent.soft, 'text-sidebar-foreground shadow-sm')
+            : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+        )
+      }
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <span
+              className={cn('absolute inset-y-1 left-0 w-1 rounded-r-full', accent.rail)}
+              aria-hidden
+            />
+          )}
+          <Icon
+            className={cn(
+              isCollapsed ? 'h-6 w-6' : 'h-5 w-5',
+              // Colour on the icon at all times, not just when active —
+              // that is what makes the sidebar readable as a legend.
+              isActive ? accent.text : cn(accent.text, 'opacity-60 group-hover:opacity-100')
+            )}
+            strokeWidth={2.5}
+          />
+          {!isCollapsed && <span className="text-sm">{label}</span>}
+        </>
+      )}
+    </NavLink>
+  );
+};
 
 // Setup (B2 in the handoff doc): collapsed by default. It's still one item
 // in the eight-item spine count — Data & Import, Equipment, Field Results,
@@ -114,7 +150,7 @@ const SeasonNavSection: React.FC<{
   const open = isOnAnalytics || manualOpen;
 
   if (isCollapsed) {
-    return <NavItem to={analyticsPath} icon={LayoutDashboard} label="Season" isCollapsed={isCollapsed} onClick={onLinkClick} />;
+    return <NavItem to={analyticsPath} icon={LayoutDashboard} label="Season" isCollapsed={isCollapsed} onClick={onLinkClick} section="season" />;
   }
 
   return (
@@ -220,7 +256,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
           their own, so their Meets link stays here as their only path to
           it. */}
       <nav className="mt-2 flex-1 min-h-0 px-3 overflow-y-auto">
-        <NavItem to={teamPath(navEntry('today').path)} icon={navEntry('today').icon} label={navEntry('today').label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+        <NavItem to={teamPath(navEntry('today').path)} icon={navEntry('today').icon} label={navEntry('today').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('today')} />
 
         {isCoachSpine ? (
           <>
@@ -231,14 +267,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
             {navFor('coach', 'spine')
               .filter((i) => i.key !== 'today' && !i.custom && i.key !== 'program')
               .map((item) => (
-                <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey(item.key)} />
               ))}
             <SeasonNavSection isCollapsed={isCollapsed} teamPath={teamPath} onLinkClick={handleLinkClick} />
-            <NavItem to={teamPath(navEntry('program').path)} icon={navEntry('program').icon} label={navEntry('program').label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            <NavItem to={teamPath(navEntry('program').path)} icon={navEntry('program').icon} label={navEntry('program').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('program')} />
             {!isVolunteerCoach && (
               <CollapsibleSetupSection isCollapsed={isCollapsed}>
                 {navFor('coach', 'setup').map((item) => (
-                  <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                  <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey(item.key)} />
                 ))}
                 {/* The feedback INBOX is the maintainer's, not a per-team
                     feature — filing a report is still open to everyone via
@@ -256,7 +292,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
             {navFor('athlete', 'spine')
               .filter((i) => i.key !== 'today')
               .map((item) => (
-                <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey(item.key)} />
               ))}
           </>
         ) : null}

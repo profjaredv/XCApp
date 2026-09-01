@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star, Eye, Upload, Loader2, Merge } from 'lucide-react';
+import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star, Eye, Upload, Loader2, Merge, ClipboardList } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { rosterService, type RosterAthlete, type RosterImportResult } from '@/api/rosterService';
 import { athleteService } from '@/api/athleteService';
@@ -31,6 +31,7 @@ import { teamService } from '@/api/teamService';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { gradeLabel, deriveGraduationYear } from '@/lib/seasonUtils';
+import { PageHeader } from '@/components/PageHeader';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { getApiErrorMessage } from '@/lib/apiError';
@@ -367,14 +368,12 @@ const RosterPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-bold">Athletes</h1>
-          <p className="text-muted-foreground">
-            Manage who is on the team, season by season.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <PageHeader
+        section="athletes"
+        icon={ClipboardList}
+        title="Athletes"
+        description="Manage who is on the team, season by season."
+        actions={<>
           <Select
             value={season?.toString() ?? ''}
             onValueChange={(v) => setSelectedYear(parseInt(v, 10))}
@@ -431,8 +430,8 @@ const RosterPage: React.FC = () => {
             <UserPlus className="mr-2 h-4 w-4" />
             Add athlete
           </Button>
-        </div>
-      </div>
+        </>}
+      />
 
       {isPreseason && (
         <Card className="border-primary/30 bg-primary/5">

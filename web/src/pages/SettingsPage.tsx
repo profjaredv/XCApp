@@ -23,9 +23,10 @@ import { PaceZonesManager } from '@/components/settings/PaceZonesManager';
 import { DataExportCard } from '@/components/settings/DataExportCard';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { DataPracticesCard } from '@/components/settings/DataPracticesCard';
+import { PageHeader } from '@/components/PageHeader';
 import { useExpandedSections } from '@/hooks/useExpandedSections';
 import { isFullCoach, canDeleteData, isImpersonatingAdmin } from '@/lib/teamRole';
-import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2 } from 'lucide-react';
 
 interface Team {
   id: string;
@@ -171,12 +172,12 @@ const SimpleSettingsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold md:text-4xl">Settings</h1>
-        <p className="mt-1 text-muted-foreground">
-          Open a section to change it. Everything else stays out of the way.
-        </p>
-      </div>
+      <PageHeader
+        section="neutral"
+        icon={Settings2}
+        title="Settings"
+        description="Open a section to change it. Everything else stays out of the way."
+      />
 
       {/* A grid rather than a stack: closed, the whole of Settings fits on
           one screen and reads as a menu. An open section takes the full
@@ -185,6 +186,7 @@ const SimpleSettingsPage: React.FC = () => {
       <div className="grid gap-4 md:grid-cols-2">
         <SettingsSection
           id="team"
+            section="season"
           title="Team"
           description="Name, Athletic.net ID and current season."
           icon={Users}
@@ -301,6 +303,7 @@ const SimpleSettingsPage: React.FC = () => {
         {team && (isFullCoach(currentUser) || isImpersonatingAdmin(currentUser)) && (
           <SettingsSection
             id="staff"
+            section="athletes"
             title="Staff"
             description="Invite coaches and volunteers, and manage their access."
             icon={UserCog}
@@ -314,6 +317,7 @@ const SimpleSettingsPage: React.FC = () => {
         {team && (
           <SettingsSection
             id="pace-zones"
+            section="training"
             title="Training pace zones"
             description="What your team's pace terms mean, and how paces are worked out."
             icon={Gauge}
@@ -327,6 +331,7 @@ const SimpleSettingsPage: React.FC = () => {
         {team && (
           <SettingsSection
             id="data-practices"
+            section="neutral"
             title="Student data & privacy"
             description="What LeadPack stores, who can see it, and what a district needs to know."
             icon={ShieldCheck}
@@ -340,6 +345,7 @@ const SimpleSettingsPage: React.FC = () => {
         {team && (isFullCoach(currentUser) || isImpersonatingAdmin(currentUser)) && (
           <SettingsSection
             id="meet-groups"
+            section="meets"
             title="Meet groups"
             description="Link the same meet across seasons so it can be compared."
             icon={Flag}
@@ -353,6 +359,7 @@ const SimpleSettingsPage: React.FC = () => {
         {team && (
           <SettingsSection
             id="export"
+            section="program"
             title="Export your data"
             description="Download everything, any time, in a format you can keep."
             icon={Download}
@@ -367,6 +374,7 @@ const SimpleSettingsPage: React.FC = () => {
         {walkthroughRole && (
           <SettingsSection
             id="tour"
+            section="neutral"
             title="Feature tour"
             description="Revisit the walkthrough you saw — or skipped — the first time you signed in."
             icon={Compass}

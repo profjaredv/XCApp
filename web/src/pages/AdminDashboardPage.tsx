@@ -16,6 +16,9 @@ import {
 } from 'lucide-react';
 import { adminService, type TeamRequest } from '@/api/adminService';
 import { UsageCard } from '@/components/admin/UsageCard';
+import { PageHeader } from '@/components/PageHeader';
+import { accentFor, type SectionKey } from '@/lib/sectionAccent';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateShort } from '@/lib/formatUtils';
@@ -29,15 +32,26 @@ import { formatDateShort } from '@/lib/formatUtils';
 // pending-requests card here IS the notification: it is the thing to check,
 // and unlike an email it can be acted on in place.
 
-const StatTile: React.FC<{ label: string; value: number | string; hint?: string }> = ({
-  label, value, hint,
-}) => (
-  <div className="rounded-lg border p-4">
-    <p className="text-sm text-muted-foreground">{label}</p>
-    <p className="mt-1 text-3xl font-bold tabular-nums">{value}</p>
-    {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
-  </div>
-);
+// A tile is a hero number, not a chart: one value, no plot, so it carries
+// no axis and no legend. The accent is a bar across the top rather than a
+// tinted background — the number has to stay the most legible thing on it,
+// and colouring the fill behind a large numeral fights that.
+const StatTile: React.FC<{
+  label: string;
+  value: number | string;
+  hint?: string;
+  section?: SectionKey;
+}> = ({ label, value, hint, section = 'neutral' }) => {
+  const accent = accentFor(section);
+  return (
+    <div className="relative overflow-hidden rounded-lg border p-4">
+      <div className={cn('absolute inset-x-0 top-0 h-1', accent.rail)} aria-hidden />
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="mt-1 text-3xl font-bold tabular-nums">{value}</p>
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+};
 
 /** Approve or create — the same three fields either way, so one dialog
  *  serves both rather than two that drift apart. */
@@ -229,22 +243,24 @@ const AdminDashboardPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-4 py-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Platform</h1>
-          <p className="text-muted-foreground">Everything happening across LeadPack.</p>
-        </div>
-        <Button
-          onClick={() => {
-            setDialogRequest(null);
-            setCreateMode(true);
-            setDialogOpen(true);
-          }}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Create a team
-        </Button>
-      </div>
+      <PageHeader
+        section="neutral"
+        icon={Building2}
+        title="Platform"
+        description="Everything happening across LeadPack."
+        actions={
+          <Button
+            onClick={() => {
+              setDialogRequest(null);
+              setCreateMode(true);
+              setDialogOpen(true);
+            }}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Create a team
+          </Button>
+        }
+      />
 
       {/* Requests first: this is the queue that used to be invisible. */}
       <Card>
@@ -344,25 +360,28 @@ const AdminDashboardPage: React.FC = () => {
             <>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatTile
+                  section="season"
                   label="Teams"
                   value={overview.totals.teams}
                   hint={`${overview.recent.activeTeamsWeek} active this week`}
                 />
                 <StatTile
+                  section="athletes"
                   label="People"
                   value={overview.totals.users}
                   hint={`${overview.recent.newUsersWeek} new this week`}
                 />
-                <StatTile label="Athletes" value={overview.totals.athletes} />
+                <StatTile section="athletes" label="Athletes" value={overview.totals.athletes} />
                 <StatTile
+                  section="program"
                   label="Paying teams"
                   value={overview.recent.paidTeams}
                   hint={`${overview.recent.newTeamsMonth} teams added in 30 days`}
                 />
               </div>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <StatTile label="Race results" value={overview.totals.results.toLocaleString()} />
-                <StatTile label="Training logs" value={overview.totals.trainingLogs.toLocaleString()} />
+                <StatTile section="meets" label="Race results" value={overview.totals.results.toLocaleString()} />
+                <StatTile section="training" label="Training logs" value={overview.totals.trainingLogs.toLocaleString()} />
               </div>
             </>
           )}

@@ -2,6 +2,7 @@ import React from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Card } from '../ui/card';
 import { cn } from '@/lib/utils';
+import { accentFor, type SectionKey } from '@/lib/sectionAccent';
 
 // One settings area, as a card you open.
 //
@@ -27,6 +28,11 @@ export interface SettingsSectionProps {
   onToggle: () => void;
   /** Styling for a section that deserves to look different (Danger Zone). */
   tone?: 'default' | 'danger';
+  /** Which part of the app this section configures — decides its colour.
+   *  Settings is a menu of unrelated things, so giving each card its own
+   *  accent turns a wall of identical white boxes into something you can
+   *  aim at. */
+  section?: SectionKey;
   children: React.ReactNode;
 }
 
@@ -39,9 +45,11 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({
   open,
   onToggle,
   tone = 'default',
+  section = 'neutral',
   children,
 }) => {
   const danger = tone === 'danger';
+  const accent = accentFor(section);
   return (
     <Card
       className={cn(
@@ -53,6 +61,9 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({
         danger && 'border-destructive/40'
       )}
     >
+      {/* A band across the top rather than a tinted card: the section's
+          own content sits below it and needs a neutral surface. */}
+      {!danger && <div className={cn('h-1 w-full', accent.rail)} aria-hidden />}
       <button
         type="button"
         onClick={onToggle}
@@ -64,7 +75,15 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({
           danger && 'hover:bg-destructive/5'
         )}
       >
-        <Icon className={cn('mt-0.5 h-5 w-5 flex-shrink-0', danger ? 'text-destructive' : 'text-primary')} />
+        <span
+          className={cn(
+            'mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg',
+            danger ? 'bg-destructive/10' : accent.soft
+          )}
+          aria-hidden
+        >
+          <Icon className={cn('h-5 w-5', danger ? 'text-destructive' : accent.text)} />
+        </span>
         <span className="min-w-0 flex-1">
           <span className={cn('block text-xl font-semibold leading-tight', danger && 'text-destructive')}>
             {title}
