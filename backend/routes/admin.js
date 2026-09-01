@@ -152,16 +152,30 @@ router.get('/overview', authenticate, requireSuperAdmin, async (req, res) => {
       prisma.teamRequest.count({ where: { status: 'pending' } }),
       prisma.user.count({ where: { createdAt: { gte: weekAgo } } }),
       prisma.team.count({ where: { createdAt: { gte: monthAgo } } }),
-      // "Active" means someone opened a screen, which is the only signal
-      // that distinguishes a team using the product from a team that was
-      // created and abandoned.
-      prisma.pageView
-        .findMany({
-          where: { createdAt: { gte: weekAgo }, teamId: { not: null } },
+      // "Active" means a team DID something — recorded results, added a
+      // race, took attendance. Not page opens: PageView deliberately
+      // stores no teamId (route, role and timestamp only, see
+      // lib/pageViewLogging.js), so per-team activity cannot come from
+      // there and should not — that model is aggregate-only on purpose.
+      // Work done is the better signal anyway; a team that opened a screen
+      // and left is not active.
+      Promise.all([
+        prisma.result.findMany({
+          where: { createdAt: { gte: weekAgo } },
           select: { teamId: true },
           distinct: ['teamId'],
-        })
-        .then((rows) => rows.length),
+        }),
+        prisma.race.findMany({
+          where: { createdAt: { gte: weekAgo } },
+          select: { teamId: true },
+          distinct: ['teamId'],
+        }),
+        prisma.attendanceSession.findMany({
+          where: { createdAt: { gte: weekAgo } },
+          select: { teamId: true },
+          distinct: ['teamId'],
+        }),
+      ]).then((groups) => new Set(groups.flat().map((r) => r.teamId)).size),
       prisma.team.count({ where: { plan: 'active' } }),
     ]);
 
@@ -227,6 +241,66 @@ router.get('/activity', authenticate, requireSuperAdmin, async (req, res) => {
     res.json(events);
   } catch (error) {
     console.error('Error in GET /admin/activity:', error.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET /api/admin/usage?days=30 — which parts of the app get opened.
+//
+// Built on PageView, which stores exactly three things: a normalized route
+// ("/t/:id/athlete/:id/journey" — every id segment collapsed, see
+// lib/pageViewLogging.js), a coarse role bucket, and a timestamp. No user,
+// no team, no athlete. That is a deliberate design, not an omission, so
+// this endpoint answers "which screens does anyone use" and cannot answer
+// "what did this team do" — the right question for deciding what to build
+// next, and the wrong tool for looking at a person.
+//
+// Aggregation happens in SQL rather than by loading rows: this table grows
+// by one row per navigation, so a findMany here would be pulling the
+// entire history into memory within a season.
+router.get('/usage', authenticate, requireSuperAdmin, async (req, res) => {
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  try {
+    const [byRoute, byRole, byDay, total] = await Promise.all([
+      prisma.pageView.groupBy({
+        by: ['route'],
+        where: { createdAt: { gte: since } },
+        _count: { _all: true },
+        orderBy: { _count: { route: 'desc' } },
+        take: 20,
+      }),
+      prisma.pageView.groupBy({
+        by: ['role'],
+        where: { createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      // Day buckets for the trend line. Grouped in Postgres because
+      // date_trunc there is one pass over an index; doing it in JS means
+      // shipping every row.
+      prisma.$queryRaw`
+        SELECT date_trunc('day', created_at)::date AS day, COUNT(*)::int AS views
+        FROM page_views
+        WHERE created_at >= ${since}
+        GROUP BY 1
+        ORDER BY 1 ASC
+      `,
+      prisma.pageView.count({ where: { createdAt: { gte: since } } }),
+    ]);
+
+    res.json({
+      days,
+      total,
+      routes: byRoute.map((r) => ({ route: r.route, views: r._count._all })),
+      roles: byRole.map((r) => ({ role: r.role, views: r._count._all })),
+      daily: byDay.map((d) => ({
+        day: d.day instanceof Date ? d.day.toISOString().slice(0, 10) : String(d.day),
+        views: Number(d.views),
+      })),
+    });
+  } catch (error) {
+    console.error('Error in GET /admin/usage:', error.message);
     res.status(500).json({ message: 'Server error' });
   }
 });

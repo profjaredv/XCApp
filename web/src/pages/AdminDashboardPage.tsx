@@ -15,6 +15,7 @@ import {
   Activity, Building2, Check, Copy, Inbox, Loader2, Plus, Users, X, MailWarning,
 } from 'lucide-react';
 import { adminService, type TeamRequest } from '@/api/adminService';
+import { UsageCard } from '@/components/admin/UsageCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateShort } from '@/lib/formatUtils';
@@ -367,6 +368,8 @@ const AdminDashboardPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      <UsageCard />
 
       {/* Activity */}
       <Card>

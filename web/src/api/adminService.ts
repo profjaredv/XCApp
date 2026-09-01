@@ -21,6 +21,15 @@ export interface AdminActivityEvent {
   detail: string;
 }
 
+export interface AdminUsage {
+  days: number;
+  total: number;
+  /** Route with every id segment collapsed — "/t/:id/roster". */
+  routes: Array<{ route: string; views: number }>;
+  roles: Array<{ role: string; views: number }>;
+  daily: Array<{ day: string; views: number }>;
+}
+
 export interface TeamRequest {
   id: string;
   email: string;
@@ -54,6 +63,11 @@ export const adminService = {
 
   async activity(): Promise<AdminActivityEvent[]> {
     const response = await api.get<AdminActivityEvent[]>('/admin/activity');
+    return response.data;
+  },
+
+  async usage(days = 30): Promise<AdminUsage> {
+    const response = await api.get<AdminUsage>('/admin/usage', { params: { days } });
     return response.data;
   },
 
