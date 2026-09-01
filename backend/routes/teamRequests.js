@@ -18,12 +18,22 @@ const { authenticate } = require('../middleware/auth');
 // then heard nothing, with no way to tell whether it had arrived.
 
 const MAX_MESSAGE = 1000;
+const VALID_ROLES = new Set(['coach', 'athlete', 'parent']);
 
 // POST /api/team-requests
 router.post('/', authenticate, async (req, res) => {
   const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+  // Captured by the sign-up wizard before the account existed. Optional
+  // because the plain form still posts here with only a message.
+  const role = VALID_ROLES.has(req.body?.role) ? req.body.role : null;
+  const teamName =
+    typeof req.body?.teamName === 'string' && req.body.teamName.trim()
+      ? req.body.teamName.trim().slice(0, 200)
+      : null;
 
-  if (!message) {
+  // A team name is enough on its own — the wizard collects it as a field,
+  // so a request no longer depends on someone writing prose.
+  if (!message && !teamName) {
     return res.status(400).json({ message: 'Tell us your school and team name.' });
   }
 
@@ -35,10 +45,29 @@ router.post('/', authenticate, async (req, res) => {
       where: { userId: req.user.id, status: 'pending' },
     });
 
+    // When the person picked a real team out of search, they are asking
+    // for access to it rather than for a new one. Verified server-side
+    // rather than trusted from the body: a bad id would otherwise sit in
+    // the admin queue pointing at nothing.
+    let wantsTeamId = null;
+    if (typeof req.body?.wantsTeamId === 'string' && req.body.wantsTeamId) {
+      const team = await prisma.team.findUnique({
+        where: { id: req.body.wantsTeamId },
+        select: { id: true },
+      });
+      wantsTeamId = team?.id ?? null;
+    }
+
     if (existing) {
       const updated = await prisma.teamRequest.update({
         where: { id: existing.id },
-        data: { message: message.slice(0, MAX_MESSAGE), email: req.user.email },
+        data: {
+          message: message.slice(0, MAX_MESSAGE),
+          email: req.user.email,
+          role,
+          teamName,
+          wantsTeamId,
+        },
       });
       return res.status(200).json({ id: updated.id, status: updated.status, updated: true });
     }
@@ -51,6 +80,9 @@ router.post('/', authenticate, async (req, res) => {
         email: req.user.email,
         name: req.user.name || null,
         message: message.slice(0, MAX_MESSAGE),
+        role,
+        teamName,
+        wantsTeamId,
       },
     });
 

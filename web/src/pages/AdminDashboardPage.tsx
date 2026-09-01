@@ -73,10 +73,12 @@ const TeamSetupDialog: React.FC<{
   React.useEffect(() => {
     if (!open) return;
     setClaimLink(null);
-    setName('');
     setAthleticTeamId('');
     setEmail(request?.email ?? '');
-  }, [open, request?.id, request?.email]);
+    // Prefilled from what the coach typed in the sign-up wizard, so
+    // approving is one field (the Athletic.net id) rather than three.
+    setName(request?.teamName ?? '');
+  }, [open, request?.id, request?.email, request?.teamName]);
 
   const submit = useMutation({
     mutationFn: () => {
@@ -288,9 +290,19 @@ const AdminDashboardPage: React.FC = () => {
             <div key={request.id} className="rounded-lg border p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-medium">{request.user?.name || request.email}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium">{request.user?.name || request.email}</p>
+                    {request.role && (
+                      <Badge variant="outline" className="capitalize">{request.role}</Badge>
+                    )}
+                    {/* The distinction that decides what to do: someone
+                        asking to join a team that exists needs their head
+                        coach nudged, not a second team created. */}
+                    {request.wantsTeamId && <Badge variant="secondary">wants access to an existing team</Badge>}
+                  </div>
                   <p className="text-sm text-muted-foreground">{request.email}</p>
-                  <p className="mt-2 whitespace-pre-wrap text-sm">{request.message}</p>
+                  {request.teamName && <p className="mt-1 text-sm font-medium">{request.teamName}</p>}
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.message}</p>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {formatDateShort(request.createdAt)}
                   </p>

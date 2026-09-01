@@ -17,3 +17,4 @@ export { default as FieldResultsPage } from './FieldResultsPage';
 export { default as AuthFlowPage } from './AuthFlowPage';
 export { default as PoliciesPage } from './PoliciesPage';
 export { default as AdminDashboardPage } from './AdminDashboardPage';
+export { default as StartPage } from './StartPage';

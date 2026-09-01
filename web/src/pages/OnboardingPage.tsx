@@ -1,285 +1,450 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ArrowRight, Check, Loader2, Mail, UserCheck } from 'lucide-react';
 import { axiosInstance } from '@/api/axios';
+import { teamService } from '@/api/teamService';
 import { authClient } from '@/lib/auth';
 import { useAuth } from '@/contexts/AuthContext';
+import { readIntent, clearIntent, type SignupIntent } from '@/lib/signupIntent';
+import { getApiErrorMessage } from '@/lib/apiError';
+
+// What happens after the account exists.
+//
+// This used to be where EVERYTHING was asked, as a two-button fork: "join
+// with a code" or "need a team set up". An assistant coach joining a team
+// that already existed matched neither, so they used the athlete join code
+// and silently became an ATHLETE.
+//
+// Now StartPage asks who you are and which team you mean before the
+// account is created, and this page is mostly a resolver: it reads that
+// intent (lib/signupIntent.ts) and opens on the one step that applies. The
+// old fork still exists as a fallback for anyone who arrived without going
+// through the wizard — an invite link, a bookmark, an older session — but
+// it has the missing third option now.
+
+type Step = 'choice' | 'join' | 'claim' | 'request' | 'staff-access' | 'parent';
 
 const OnboardingPage: React.FC = () => {
   const { currentUser } = useAuth();
-  const [step, setStep] = useState<'choice' | 'join' | 'create'>('choice');
+  const navigate = useNavigate();
+
+  const [intent, setIntent] = useState<SignupIntent | null>(null);
+  const [step, setStep] = useState<Step>('choice');
   const [joinCode, setJoinCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [contactMessage, setContactMessage] = useState('');
-  const [contactSent, setContactSent] = useState(false);
-  const navigate = useNavigate();
+  const [sent, setSent] = useState(false);
 
-  // Onboarding has no header/nav chrome — without this, someone stuck here
-  // (wrong account, needs to re-authenticate) has no way back to /login
-  // short of clearing cookies. signOut() redirects through Neon Auth, which
-  // lands back on /login once there's no session.
+  // Roster rows nobody has claimed on the team just joined — the step the
+  // old flow skipped entirely, which left athletes joined to a team but
+  // never linked to their own results.
+  const [profiles, setProfiles] = useState<Array<{ _id: string; name: string }>>([]);
+  const [joinedTeamName, setJoinedTeamName] = useState('');
+  const [claimed, setClaimed] = useState(false);
+
+  useEffect(() => {
+    const stored = readIntent();
+    if (!stored) return;
+    setIntent(stored);
+    if (stored.role === 'coach') setStep(stored.teamId ? 'staff-access' : 'request');
+    else if (stored.role === 'athlete') setStep('join');
+    else if (stored.role === 'parent') setStep('parent');
+  }, []);
+
+  // Onboarding has no nav chrome — without this, someone stuck here (wrong
+  // account, needs to re-authenticate) has no way back to /login short of
+  // clearing cookies.
   const handleSignOut = () => {
+    clearIntent();
     authClient.signOut();
   };
 
   const handleJoinTeam = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
-
     if (!joinCode.trim()) {
       setError('Please enter a join code.');
-      setLoading(false);
       return;
     }
-
+    setLoading(true);
     try {
-      const response = await axiosInstance.post(
-        '/profile/join-team',
-        { joinCode }
-      );
-
-      if (response.data.success) {
-        // Navigate straight off this response rather than the legacy /analytics
-        // redirect (which reads currentUser.team from auth context) — that
-        // context may not have re-synced yet the instant after joining, which
-        // would bounce back to /onboarding instead of forward.
-        const athleticTeamId = response.data.user?.team?.athleticTeamId;
-        navigate(athleticTeamId ? `/t/${athleticTeamId}` : '/onboarding');
-      } else {
-        throw new Error(response.data.message || 'Failed to join team');
-      }
-    } catch (err: any) {
-      if (err.response?.status === 404 || err.response?.data?.message?.includes('not found')) {
-        setError('Invalid or expired join code. Would you like to create a new team instead?');
-      } else {
-        setError(err.response?.data?.message || err.message || 'Failed to join team.');
-      }
-      console.error(err);
+      // POST /team/join, not /profile/join-team. Both add the membership,
+      // but only this one returns the unclaimed roster rows — and without
+      // that step an athlete ends up on the team with no results, no PRs
+      // and a My Progress page that does not know who they are.
+      const result = await teamService.joinTeam(joinCode.trim());
+      setJoinedTeamName(result.teamName);
+      setProfiles(result.availableProfiles ?? []);
+      clearIntent();
+      setStep('claim');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Could not join with that code.'));
     }
-
     setLoading(false);
   };
 
-  // F1/F5 (LeadPack Master Build Handoff): no self-serve team creation —
-  // reuses the same working /api/feedback pipeline FeedbackWidget posts to
-  // (open to any signed-in user regardless of team, per server.js's
-  // ALLOWED_UNGUARDED) rather than routing to the team-scoped Feedback page,
-  // which would just bounce back here via LegacyRedirect for a teamless user.
-  const handleContactRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleClaimProfile = async (athleteId: string) => {
     setError('');
     setLoading(true);
     try {
-      // A first-class TeamRequest, not a Feedback row. The old call filed
-      // this among bug reports and notified nobody — POST /feedback sends
-      // no mail — so a coach saw "Sent" and then heard nothing forever.
-      await axiosInstance.post('/team-requests', {
-        message: contactMessage.trim(),
-      });
-      setContactSent(true);
+      await teamService.claimProfile(athleteId);
+      setClaimed(true);
     } catch (err) {
-      const message =
-        (typeof err === 'object' && err !== null && 'response' in err
-          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
-          : undefined) ?? (err instanceof Error ? err.message : 'Could not send that — try again.');
-      setError(message);
+      setError(getApiErrorMessage(err, 'Could not send that claim.'));
     }
     setLoading(false);
   };
 
-  if (step === 'choice') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 gap-3">
-        {currentUser && (
-          <div className="text-xs text-muted-foreground flex items-center gap-2">
-            Signed in as {currentUser.email}
-            <button type="button" onClick={handleSignOut} className="text-blue-600 hover:underline">
-              Not you? Sign out
-            </button>
-          </div>
-        )}
-        <Card className="mx-auto max-w-lg w-full">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Welcome to LeadPack XC!</CardTitle>
-            <CardDescription>Let's get you set up with your team</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Button
-              onClick={() => setStep('join')}
-              className="w-full h-20 text-lg"
-              variant="outline"
-            >
-              <div className="text-center">
-                <div className="font-semibold">Join an Existing Team</div>
-                <div className="text-sm font-normal text-muted-foreground">I have a join code from my coach</div>
-              </div>
-            </Button>
+  const submitRequest = async (extra: Partial<SignupIntent> = {}) => {
+    setError('');
+    setLoading(true);
+    try {
+      const merged = { ...intent, ...extra };
+      await axiosInstance.post('/team-requests', {
+        message: contactMessage.trim() || defaultMessage(merged),
+        role: merged.role ?? undefined,
+        teamName: merged.teamName ?? undefined,
+        wantsTeamId: merged.teamId ?? undefined,
+      });
+      clearIntent();
+      setSent(true);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Could not send that — try again.'));
+    }
+    setLoading(false);
+  };
 
-            <Button
-              onClick={() => setStep('create')}
-              className="w-full h-20 text-lg"
-              variant="outline"
-            >
-              <div className="text-center">
-                <div className="font-semibold">Don't Have a Team Yet?</div>
-                <div className="text-sm font-normal text-muted-foreground">I'm a coach and need one set up</div>
-              </div>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (step === 'join') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 gap-3">
-        {currentUser && (
-          <div className="text-xs text-muted-foreground flex items-center gap-2">
-            Signed in as {currentUser.email}
-            <button type="button" onClick={handleSignOut} className="text-blue-600 hover:underline">
-              Not you? Sign out
-            </button>
-          </div>
-        )}
-        <Card className="mx-auto max-w-md w-full">
-          <CardHeader>
-            <CardTitle>Join Your Team</CardTitle>
-            <CardDescription>Enter the join code provided by your coach</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {error && (
-              <div className="bg-red-100 text-red-700 p-3 rounded mb-4 text-sm">
-                {error}
-              </div>
-            )}
-            <form onSubmit={handleJoinTeam} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="join-code">Join Code</Label>
-                <Input
-                  id="join-code"
-                  type="text"
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value)}
-                  placeholder="Enter join code"
-                  required
-                  autoFocus
-                />
-              </div>
-              <div className="flex gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => { setStep('choice'); setError(''); }}
-                  className="w-full"
-                >
-                  Back
-                </Button>
-                <Button type="submit" disabled={loading} className="w-full">
-                  {loading ? 'Joining...' : 'Join Team'}
-                </Button>
-              </div>
-            </form>
-            <div className="mt-4 text-center">
-              <button
-                type="button"
-                onClick={() => { setStep('create'); setError(''); }}
-                className="text-sm text-blue-600 hover:underline"
-              >
-                Don't have a team yet?
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // F1/F5 (LeadPack Master Build Handoff): teams are no longer created
-  // self-serve. POST /api/teams let any signed-in user become HEAD_COACH of
-  // any unclaimed Athletic.net team ID, with no check they had any real
-  // connection to that school — a global namespace, first-come-first-served.
-  // The owner now creates every team by hand and sends a claim link
-  // (routes/teamClaims.js, /claim/:token) instead.
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 gap-3">
+  const shell = (children: React.ReactNode) => (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-50 via-white to-secondary p-4">
       {currentUser && (
-        <div className="text-xs text-muted-foreground flex items-center gap-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           Signed in as {currentUser.email}
-          <button type="button" onClick={handleSignOut} className="text-blue-600 hover:underline">
+          <button type="button" onClick={handleSignOut} className="text-primary underline underline-offset-4">
             Not you? Sign out
           </button>
         </div>
       )}
-      <Card className="mx-auto max-w-md w-full">
+      <Card className="mx-auto w-full max-w-md">{children}</Card>
+    </div>
+  );
+
+  const errorBox = error ? (
+    <Alert variant="destructive">
+      <AlertDescription>{error}</AlertDescription>
+    </Alert>
+  ) : null;
+
+  // --- a coach whose team is already on LeadPack -------------------------
+  // The case the old flow had no answer for at all.
+  if (step === 'staff-access') {
+    return shell(
+      <>
         <CardHeader>
-          <CardTitle>Get Your Team Set Up</CardTitle>
+          <CardTitle>Get added to {intent?.teamName ?? 'your team'}</CardTitle>
           <CardDescription>
-            Teams on LeadPack are set up by hand right now, not self-serve — this keeps every team
-            connected to a real coach at a real school.
+            Coach access is granted by the team's head coach, not by a join code — a join code
+            would make you an athlete. Send a request and we'll pass it on.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {contactSent ? (
-            <>
-              <div className="bg-green-100 text-green-700 p-3 rounded text-sm">
-                Request received. We'll email {currentUser?.email ?? 'your account email'} with a
-                setup link once your team is created — usually within a day.
-              </div>
-              <Button variant="outline" onClick={() => setStep('choice')} className="w-full">
-                Back
-              </Button>
-            </>
+          {errorBox}
+          {sent ? (
+            <Alert>
+              <Check className="h-4 w-4" />
+              <AlertDescription>
+                Request sent. We'll email {currentUser?.email ?? 'you'} once you've been added.
+              </AlertDescription>
+            </Alert>
           ) : (
-            <form onSubmit={handleContactRequest} className="space-y-4">
-              {error && (
-                <div className="bg-red-100 text-red-700 p-3 rounded text-sm">
-                  {error}
-                </div>
-              )}
-              <p className="text-sm text-muted-foreground">
-                We'll follow up at <strong>{currentUser?.email ?? 'the email on this account'}</strong>.
-              </p>
+            <>
               <div className="space-y-2">
-                <Label htmlFor="contact-message">Your school and team name</Label>
+                <Label htmlFor="staff-note">Anything they should know? (optional)</Label>
                 <Textarea
-                  id="contact-message"
+                  id="staff-note"
+                  rows={3}
                   value={contactMessage}
                   onChange={(e) => setContactMessage(e.target.value)}
-                  placeholder="e.g. Lincoln High School — Lincoln XC"
-                  rows={3}
-                  autoFocus
+                  placeholder="Assistant coach, distance squad"
                 />
               </div>
-              <div className="flex gap-3">
-                {/* flex-1, not w-full: Button's base class sets shrink-0,
-                    so two w-full children each claim 100% of the row and
-                    neither gives way — which pushed Send Request clean out
-                    of the card. */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => { setStep('choice'); setError(''); }}
-                  className="flex-1"
-                >
-                  Back
-                </Button>
-                <Button type="submit" disabled={loading} className="flex-1">
-                  {loading ? 'Sending…' : 'Send Request'}
-                </Button>
-              </div>
-            </form>
+              <Button className="w-full" disabled={loading} onClick={() => submitRequest()}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <Mail className="mr-2 h-4 w-4" />
+                Ask to be added
+              </Button>
+              <button
+                type="button"
+                onClick={() => { setStep('choice'); setError(''); }}
+                className="w-full text-center text-sm text-muted-foreground underline underline-offset-4"
+              >
+                That's not my team
+              </button>
+            </>
           )}
         </CardContent>
-      </Card>
-    </div>
+      </>
+    );
+  }
+
+  // --- a coach whose team is not on LeadPack yet -------------------------
+  if (step === 'request') {
+    return shell(
+      <>
+        <CardHeader>
+          <CardTitle>Get your team set up</CardTitle>
+          <CardDescription>
+            We set teams up by hand, which is what keeps every team tied to a real coach at a real
+            school.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {errorBox}
+          {sent ? (
+            <Alert>
+              <Check className="h-4 w-4" />
+              <AlertDescription>
+                Request received. We'll email {currentUser?.email ?? 'your account'} with a setup
+                link once your team is created — usually within a day.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="team-name">Your school and team name</Label>
+                <Input
+                  id="team-name"
+                  autoFocus
+                  defaultValue={intent?.teamName ?? intent?.searchedFor ?? ''}
+                  onChange={(e) => setIntent((p) => ({ ...(p ?? { role: 'coach' }), teamName: e.target.value }))}
+                  placeholder="Ellensburg High School — Boys & Girls XC"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="request-note">Anything else? (optional)</Label>
+                <Textarea
+                  id="request-note"
+                  rows={2}
+                  value={contactMessage}
+                  onChange={(e) => setContactMessage(e.target.value)}
+                  placeholder="We compete in the CWAC, about 40 runners"
+                />
+              </div>
+              <Button
+                className="w-full"
+                disabled={loading || !(intent?.teamName ?? '').trim()}
+                onClick={() => submitRequest()}
+              >
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Send request
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </>
+    );
+  }
+
+  // --- an athlete entering their join code -------------------------------
+  if (step === 'join') {
+    return shell(
+      <>
+        <CardHeader>
+          <CardTitle>Join {intent?.teamName ?? 'your team'}</CardTitle>
+          <CardDescription>Enter the join code your coach gave you.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {errorBox}
+          <form onSubmit={handleJoinTeam} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="join-code">Join code</Label>
+              <Input
+                id="join-code"
+                autoFocus
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value)}
+                placeholder="ABC123"
+                className="font-mono tracking-widest uppercase"
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Join team
+            </Button>
+          </form>
+          <button
+            type="button"
+            onClick={() => { setStep('choice'); setError(''); }}
+            className="w-full text-center text-sm text-muted-foreground underline underline-offset-4"
+          >
+            I don't have a code
+          </button>
+        </CardContent>
+      </>
+    );
+  }
+
+  // --- pick your name off the roster -------------------------------------
+  if (step === 'claim') {
+    return shell(
+      <>
+        <CardHeader>
+          <CardTitle>You're on {joinedTeamName}</CardTitle>
+          <CardDescription>
+            {claimed
+              ? 'Your coach will approve this shortly.'
+              : profiles.length > 0
+                ? "Which one is you? Picking your name links your races and training to you."
+                : 'There are no unclaimed roster spots right now — your coach can link you.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {errorBox}
+          {claimed ? (
+            <Alert>
+              <UserCheck className="h-4 w-4" />
+              <AlertDescription>
+                Claim sent. Once a coach approves it, your results and training log are yours.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            profiles.map((profile) => (
+              <button
+                key={profile._id}
+                type="button"
+                disabled={loading}
+                onClick={() => handleClaimProfile(profile._id)}
+                className="flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted/60 disabled:opacity-50"
+              >
+                <span className="font-medium">{profile.name}</span>
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
+              </button>
+            ))
+          )}
+          <Button
+            variant={claimed ? 'default' : 'outline'}
+            className="w-full"
+            onClick={() => navigate('/login')}
+          >
+            {claimed ? 'Go to LeadPack' : "I'm not on this list — continue anyway"}
+          </Button>
+        </CardContent>
+      </>
+    );
+  }
+
+  // --- a parent ----------------------------------------------------------
+  if (step === 'parent') {
+    return shell(
+      <>
+        <CardHeader>
+          <CardTitle>Following your athlete</CardTitle>
+          <CardDescription>
+            A parent account is linked to one athlete, and a coach approves the link — we never
+            connect a parent to a student without that.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {errorBox}
+          {sent ? (
+            <Alert>
+              <Check className="h-4 w-4" />
+              <AlertDescription>
+                Sent. A coach at {intent?.teamName ?? 'the team'} will review it.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="parent-note">Your athlete's name</Label>
+                <Input
+                  id="parent-note"
+                  autoFocus
+                  value={contactMessage}
+                  onChange={(e) => setContactMessage(e.target.value)}
+                  placeholder="Morgan Mays"
+                />
+              </div>
+              <Button
+                className="w-full"
+                disabled={loading || !contactMessage.trim()}
+                onClick={() => submitRequest()}
+              >
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Request access
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </>
+    );
+  }
+
+  // --- fallback fork, for anyone who skipped the wizard ------------------
+  return shell(
+    <>
+      <CardHeader className="text-center">
+        <CardTitle className="text-2xl">Welcome to LeadPack XC</CardTitle>
+        <CardDescription>Which of these is you?</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {errorBox}
+        <Button variant="outline" className="h-auto w-full py-4" onClick={() => setStep('join')}>
+          <span className="text-center">
+            <span className="block font-semibold">I'm an athlete with a join code</span>
+            <span className="block text-sm font-normal text-muted-foreground">
+              Join the team and pick your name off the roster
+            </span>
+          </span>
+        </Button>
+
+        {/* The option the old fork was missing. Without it, an assistant
+            coach used the athlete join code and became an ATHLETE. */}
+        <Button
+          variant="outline"
+          className="h-auto w-full py-4"
+          onClick={() => { setIntent({ role: 'coach' }); setStep('choice'); navigate('/start'); }}
+        >
+          <span className="text-center">
+            <span className="block font-semibold">I'm a coach and my team is already here</span>
+            <span className="block text-sm font-normal text-muted-foreground">
+              Find your team — coach access comes from your head coach, not a code
+            </span>
+          </span>
+        </Button>
+
+        <Button variant="outline" className="h-auto w-full py-4" onClick={() => setStep('request')}>
+          <span className="text-center">
+            <span className="block font-semibold">I'm a coach and need a team set up</span>
+            <span className="block text-sm font-normal text-muted-foreground">
+              We'll create it and send you a setup link
+            </span>
+          </span>
+        </Button>
+      </CardContent>
+    </>
   );
 };
+
+/** What the admin sees when nobody typed a note. Built from the intent so
+ *  a request is never just an email address with no context. */
+function defaultMessage(intent: Partial<SignupIntent>): string {
+  if (intent.role === 'coach' && intent.teamId) {
+    return `Coach requesting staff access to ${intent.teamName ?? 'an existing team'}.`;
+  }
+  if (intent.role === 'coach') {
+    return `Coach requesting a new team: ${intent.teamName ?? intent.searchedFor ?? 'unnamed'}.`;
+  }
+  if (intent.role === 'parent') {
+    return `Parent requesting access${intent.teamName ? ` at ${intent.teamName}` : ''}.`;
+  }
+  return 'Requesting access.';
+}
 
 export default OnboardingPage;

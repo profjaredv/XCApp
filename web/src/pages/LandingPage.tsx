@@ -55,7 +55,7 @@ export default function LandingPage() {
             <Link to="/login">
               <Button variant="ghost" size="sm" className="sm:h-9 sm:px-4">Sign In</Button>
             </Link>
-            <Link to="/login">
+            <Link to="/start">
               <Button size="sm" className="bg-gradient-to-r from-primary to-primary/80 sm:h-9 sm:px-4">
                 Get Started
               </Button>
@@ -79,7 +79,7 @@ export default function LandingPage() {
             Made by a coach who got tired of the spreadsheet.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/login">
+            <Link to="/start">
               <Button size="lg" className="bg-gradient-to-r from-primary to-primary/80 text-lg px-8 py-6">
                 Start Free Trial
                 <ArrowRight className="ml-2 h-5 w-5" />
@@ -391,7 +391,7 @@ export default function LandingPage() {
             Start with your current roster and last season's results. You will have a working season
             in an afternoon.
           </p>
-          <Link to="/login">
+          <Link to="/start">
             <Button size="lg" className="bg-white text-primary hover:bg-white/90 text-lg px-8 py-6">
               Start Your Free Trial
               <ArrowRight className="ml-2 h-5 w-5" />

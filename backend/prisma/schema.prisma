@@ -156,17 +156,29 @@ model Team {
 // Team and its TeamClaim in a single step, so "yes" is a button rather
 // than a sequence of manual calls.
 model TeamRequest {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
   // Copied at request time rather than joined on demand: this is the
   // address we promised to follow up at, and it must stay what the coach
   // saw even if they later change their account email.
-  email     String
-  name      String?
+  email       String
+  name        String?
   // Whatever the coach typed — school, team name, anything else useful.
-  message   String
-  status    String   @default("pending") // pending | approved | declined
-  createdAt DateTime @default(now()) @map("created_at")
+  message     String
+  status      String   @default("pending") // pending | approved | declined
+  // What the person said they were and what team they meant, captured in
+  // the sign-up wizard BEFORE the account existed. Previously neither was
+  // ever asked: role was inferred from which button got pressed, and the
+  // team arrived as free prose in `message`. Both are optional because a
+  // request can still be filed from the older plain form.
+  role        String? // coach | athlete | parent
+  teamName    String?  @map("team_name")
+  // Set when the person picked an EXISTING team from search — they are
+  // asking for access to it, not for a new one to be created. A request
+  // with this set is answered by nudging that team's head coach, never by
+  // creating a duplicate team.
+  wantsTeamId String?  @map("wants_team_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
 
   resolvedAt    DateTime? @map("resolved_at")
   resolvedById  String?   @map("resolved_by") @db.Uuid

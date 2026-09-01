@@ -43,6 +43,15 @@ const RegisterPage: React.FC = () => {
         </span>
       </Link>
       <AuthView pathname="register" redirectTo="/register" />
+      {/* Someone who lands straight on /register never answered the two
+          questions that decide where they go next. This is the way back
+          into that, rather than leaving them to the fallback fork. */}
+      <p className="text-sm text-muted-foreground">
+        Not sure where to start?{' '}
+        <Link to="/start" className="underline underline-offset-4">
+          Tell us about your team first
+        </Link>
+      </p>
     </div>
   );
 };

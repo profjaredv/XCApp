@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
-import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, BandTrendsPage, FieldResultsPage } from '../pages';
+import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
@@ -48,6 +48,13 @@ export const router = createBrowserRouter([
         // without creating an account.
         path: '/policies',
         element: <PoliciesPage />,
+      },
+      {
+        // Sign-up starts here, not at /register: it asks who you are and
+        // which team before the account exists, so nothing downstream has
+        // to guess. See StartPage.tsx.
+        path: '/start',
+        element: <StartPage />,
       },
       {
         path: '/login',

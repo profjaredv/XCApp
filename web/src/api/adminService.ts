@@ -36,6 +36,13 @@ export interface TeamRequest {
   name: string | null;
   message: string;
   status: 'pending' | 'approved' | 'declined';
+  /** Captured by the sign-up wizard before the account existed. Null on
+   *  requests filed before that flow, or through the plain form. */
+  role: 'coach' | 'athlete' | 'parent' | null;
+  teamName: string | null;
+  /** Set when they picked an EXISTING team out of search — they want
+   *  access to it, not a new one created. */
+  wantsTeamId: string | null;
   createdAt: string;
   resolvedAt: string | null;
   createdTeamId: string | null;
