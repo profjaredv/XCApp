@@ -5,18 +5,93 @@ const { authenticate } = require('../middleware/auth');
 const { requireApprovedGuardianLink } = require('../middleware/guardian');
 const { resolveActiveSeason, deriveGrade } = require('../lib/season');
 
+// POST /api/guardian/lookup
+// Which athletes are on the team this join code belongs to.
+//
+// Reads only — it grants nothing and creates nothing, which is the whole
+// point: a parent has to be able to SEE the roster to say which of these
+// children are theirs, and doing that through POST /team/join would have
+// made them a team member with role ATHLETE.
+//
+// The join code is the boundary, exactly as it is for an athlete joining.
+// Anyone holding it can already join the team and see this same list, so
+// showing names here discloses nothing new — and without a valid code this
+// returns a 404 rather than any part of a roster.
+router.post('/lookup', authenticate, async (req, res) => {
+  const joinCode = typeof req.body?.joinCode === 'string' ? req.body.joinCode.trim() : '';
+  if (!joinCode) {
+    return res.status(400).json({ msg: 'A join code is required.' });
+  }
+
+  try {
+    const team = await prisma.team.findUnique({
+      where: { joinCode },
+      select: { id: true, name: true },
+    });
+    if (!team) {
+      return res.status(404).json({ msg: 'No team found for that code.' });
+    }
+
+    const [athletes, existing] = await Promise.all([
+      prisma.athlete.findMany({
+        where: { teamId: team.id },
+        select: { id: true, name: true, preferredName: true },
+        orderBy: { name: 'asc' },
+      }),
+      // So the UI can show "already requested" instead of letting a parent
+      // file the same request twice and wonder why nothing changed.
+      prisma.guardianLink.findMany({
+        where: { userId: req.user.id, athlete: { teamId: team.id } },
+        select: { athleteId: true, status: true },
+      }),
+    ]);
+
+    const statusByAthlete = new Map(existing.map((l) => [l.athleteId, l.status]));
+
+    res.json({
+      teamName: team.name,
+      athletes: athletes.map((a) => ({
+        id: a.id,
+        name: a.preferredName || a.name,
+        existingStatus: statusByAthlete.get(a.id) ?? null,
+      })),
+    });
+  } catch (error) {
+    console.error('Error in POST /guardian/lookup:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // POST /api/guardian/request-link
 // A guardian isn't a team member — they don't have a join code flow of
 // their own, so this reuses the team's existing join code as the "which
 // team is this kid on" lookup, same as an athlete joining. Filing the
 // request does NOT grant access by itself; a coach has to approve it (see
 // POST /team/approve-guardian-link), same pattern as AthleteClaim.
+//
+// Takes athleteIds (plural). A parent with two runners on the same team is
+// the normal case, not an edge one, and making them repeat the whole flow
+// per child was the kind of thing that reads as the product not knowing
+// how families work. One GuardianLink row per child either way — the
+// approval is still per-child, because a coach might reasonably approve
+// one and not the other.
 router.post('/request-link', authenticate, async (req, res) => {
-  const { joinCode, athleteId } = req.body;
+  const { joinCode } = req.body;
   const userId = req.user.id;
 
-  if (!joinCode || !athleteId) {
-    return res.status(400).json({ msg: 'joinCode and athleteId are required.' });
+  // Singular `athleteId` still accepted: older clients post it, and it is
+  // the same request with one child.
+  const ids = Array.isArray(req.body?.athleteIds)
+    ? req.body.athleteIds
+    : req.body?.athleteId
+      ? [req.body.athleteId]
+      : [];
+
+  if (!joinCode || ids.length === 0) {
+    return res.status(400).json({ msg: 'A join code and at least one athlete are required.' });
+  }
+  if (ids.length > 10) {
+    return res.status(400).json({ msg: 'That is more athletes than one guardian can request at once.' });
   }
 
   try {
@@ -25,20 +100,36 @@ router.post('/request-link', authenticate, async (req, res) => {
       return res.status(404).json({ msg: 'Team not found for this join code.' });
     }
 
-    const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId: team.id } });
-    if (!athlete) {
-      return res.status(404).json({ msg: 'Athlete not found on that team.' });
+    // Every id is checked against THIS team. Without that, a parent
+    // holding one team's code could file links against another team's
+    // roster by posting ids from it.
+    const athletes = await prisma.athlete.findMany({
+      where: { id: { in: ids }, teamId: team.id },
+      select: { id: true, name: true, preferredName: true },
+    });
+    if (athletes.length === 0) {
+      return res.status(404).json({ msg: 'None of those athletes are on that team.' });
     }
 
-    const link = await prisma.guardianLink.upsert({
-      where: { userId_athleteId: { userId, athleteId } },
-      update: { status: 'pending', requestedAt: new Date(), resolvedAt: null, resolvedById: null },
-      create: { userId, athleteId },
-    });
+    await prisma.$transaction(
+      athletes.map((athlete) =>
+        prisma.guardianLink.upsert({
+          where: { userId_athleteId: { userId, athleteId: athlete.id } },
+          update: { status: 'pending', requestedAt: new Date(), resolvedAt: null, resolvedById: null },
+          create: { userId, athleteId: athlete.id },
+        })
+      )
+    );
 
+    const names = athletes.map((a) => a.preferredName || a.name);
     res.status(201).json({
-      msg: `Request submitted for coach approval — you'll be able to view ${athlete.name}'s info once approved.`,
-      status: link.status,
+      msg:
+        `Request submitted for coach approval — you'll be able to view ` +
+        `${names.join(' and ')}'s info once approved.`,
+      requested: athletes.map((a) => a.id),
+      // Told plainly rather than silently dropped: a parent who mistyped
+      // or picked a child who has since left should know.
+      skipped: ids.filter((id) => !athletes.some((a) => a.id === id)).length,
     });
   } catch (error) {
     console.error('Error requesting guardian link:', error.message);

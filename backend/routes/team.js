@@ -613,6 +613,50 @@ router.get('/pending-guardian-links', authenticate, requireTeam, requireRole(FUL
   }
 });
 
+// GET /api/team/guardian-links?status=pending
+//
+// The queue a coach approves from. Its absence was a real gap rather than
+// a missing nicety: POST /team/approve-guardian-link has existed for a
+// while, but nothing listed the requests, so a parent's request sat in
+// `pending` forever and the coach was never told it existed.
+//
+// Scoped by the athlete's team, not by the requesting user's — a guardian
+// belongs to no team, so `link.athlete.teamId` is the only thing that ties
+// a request to the coach who may answer it.
+router.get('/guardian-links', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  const status = ['pending', 'approved', 'rejected'].includes(req.query.status)
+    ? req.query.status
+    : 'pending';
+
+  try {
+    const links = await prisma.guardianLink.findMany({
+      where: { status, athlete: { teamId: req.user.teamId } },
+      include: {
+        user: { select: { name: true, email: true } },
+        athlete: { select: { id: true, name: true, preferredName: true } },
+      },
+      orderBy: { requestedAt: 'desc' },
+      take: 100,
+    });
+
+    res.json(
+      links.map((link) => ({
+        id: link.id,
+        status: link.status,
+        requestedAt: link.requestedAt,
+        guardian: { name: link.user?.name ?? null, email: link.user?.email ?? null },
+        athlete: {
+          id: link.athlete.id,
+          name: link.athlete.preferredName || link.athlete.name,
+        },
+      }))
+    );
+  } catch (error) {
+    console.error('Error in GET /team/guardian-links:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // POST /api/team/approve-guardian-link
 router.post('/approve-guardian-link', authenticate, requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
   const { linkId, action } = req.body;

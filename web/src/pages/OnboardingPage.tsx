@@ -6,9 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { cn } from '@/lib/utils';
 import { ArrowRight, Check, Loader2, Mail, UserCheck } from 'lucide-react';
 import { axiosInstance } from '@/api/axios';
-import { teamService } from '@/api/teamService';
+import { teamService, type GuardianLookupAthlete } from '@/api/teamService';
 import { authClient } from '@/lib/auth';
 import { useAuth } from '@/contexts/AuthContext';
 import { readIntent, clearIntent, type SignupIntent } from '@/lib/signupIntent';
@@ -48,6 +51,13 @@ const OnboardingPage: React.FC = () => {
   const [profiles, setProfiles] = useState<Array<{ _id: string; name: string }>>([]);
   const [joinedTeamName, setJoinedTeamName] = useState('');
   const [claimed, setClaimed] = useState(false);
+
+  // Guardian flow. A parent looks the roster up with the team's join code
+  // and picks their children — plural, because a family with two runners
+  // on one team is ordinary.
+  const [guardianTeam, setGuardianTeam] = useState<string | null>(null);
+  const [guardianAthletes, setGuardianAthletes] = useState<GuardianLookupAthlete[]>([]);
+  const [picked, setPicked] = useState<string[]>([]);
 
   useEffect(() => {
     const stored = readIntent();
@@ -98,6 +108,42 @@ const OnboardingPage: React.FC = () => {
       setClaimed(true);
     } catch (err) {
       setError(getApiErrorMessage(err, 'Could not send that claim.'));
+    }
+    setLoading(false);
+  };
+
+  const handleGuardianLookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!joinCode.trim()) {
+      setError('Please enter the join code.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await teamService.guardianLookup(joinCode.trim());
+      setGuardianTeam(result.teamName);
+      setGuardianAthletes(result.athletes);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'No team found for that code.'));
+    }
+    setLoading(false);
+  };
+
+  const handleGuardianRequest = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      // Straight to the guardian pipeline, NOT to /team-requests. A parent
+      // following their child is the coach's decision, not LeadPack's —
+      // routing it to the platform queue meant the coach never saw it and
+      // the only available action was "create a team", which is nonsense
+      // for a parent.
+      await teamService.requestGuardianLinks(joinCode.trim(), picked);
+      clearIntent();
+      setSent(true);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Could not send that request.'));
     }
     setLoading(false);
   };
@@ -344,41 +390,107 @@ const OnboardingPage: React.FC = () => {
     return shell(
       <>
         <CardHeader>
-          <CardTitle>Following your athlete</CardTitle>
+          <CardTitle>{guardianTeam ? `Who are your athletes at ${guardianTeam}?` : 'Follow your athlete'}</CardTitle>
           <CardDescription>
-            A parent account is linked to one athlete, and a coach approves the link — we never
-            connect a parent to a student without that.
+            {sent
+              ? 'A coach reviews every parent link — we never connect a parent to a student without that.'
+              : guardianTeam
+                ? 'Pick everyone who is yours. You can select more than one.'
+                : "Enter your team's join code — your athlete or their coach can give it to you."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {errorBox}
+
           {sent ? (
-            <Alert>
-              <Check className="h-4 w-4" />
-              <AlertDescription>
-                Sent. A coach at {intent?.teamName ?? 'the team'} will review it.
-              </AlertDescription>
-            </Alert>
-          ) : (
             <>
+              <Alert>
+                <Check className="h-4 w-4" />
+                <AlertDescription>
+                  Request sent to the coaches at {guardianTeam}. We'll email{' '}
+                  {currentUser?.email ?? 'you'} once it's approved.
+                </AlertDescription>
+              </Alert>
+              <Button className="w-full" onClick={() => navigate('/login')}>
+                Done
+              </Button>
+            </>
+          ) : !guardianTeam ? (
+            <form onSubmit={handleGuardianLookup} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="parent-note">Your athlete's name</Label>
+                <Label htmlFor="guardian-code">Join code</Label>
                 <Input
-                  id="parent-note"
+                  id="guardian-code"
                   autoFocus
-                  value={contactMessage}
-                  onChange={(e) => setContactMessage(e.target.value)}
-                  placeholder="Morgan Mays"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  placeholder="ABC123"
+                  className="font-mono uppercase tracking-widest"
                 />
               </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Find my athlete
+              </Button>
+            </form>
+          ) : (
+            <>
+              <div className="max-h-72 space-y-2 overflow-y-auto">
+                {guardianAthletes.map((athlete) => {
+                  const already = athlete.existingStatus;
+                  const checked = picked.includes(athlete.id);
+                  return (
+                    <label
+                      key={athlete.id}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-3 rounded-lg border p-3',
+                        already && 'cursor-not-allowed opacity-60',
+                        checked && 'border-primary bg-primary/5'
+                      )}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        disabled={Boolean(already)}
+                        onCheckedChange={(next) =>
+                          setPicked((prev) =>
+                            next === true
+                              ? [...prev, athlete.id]
+                              : prev.filter((id) => id !== athlete.id)
+                          )
+                        }
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {athlete.name}
+                      </span>
+                      {/* Shown rather than hidden: a parent who already
+                          asked should see why they cannot ask again. */}
+                      {already && (
+                        <Badge variant="secondary" className="shrink-0 capitalize">
+                          {already}
+                        </Badge>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+
               <Button
                 className="w-full"
-                disabled={loading || !contactMessage.trim()}
-                onClick={() => submitRequest()}
+                disabled={loading || picked.length === 0}
+                onClick={handleGuardianRequest}
               >
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Request access
+                {picked.length > 1
+                  ? `Request access for ${picked.length} athletes`
+                  : 'Request access'}
               </Button>
+              <button
+                type="button"
+                onClick={() => { setGuardianTeam(null); setGuardianAthletes([]); setPicked([]); }}
+                className="w-full text-center text-sm text-muted-foreground underline underline-offset-4"
+              >
+                Wrong team
+              </button>
             </>
           )}
         </CardContent>

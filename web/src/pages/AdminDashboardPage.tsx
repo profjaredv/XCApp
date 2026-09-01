@@ -302,23 +302,36 @@ const AdminDashboardPage: React.FC = () => {
                   </div>
                   <p className="text-sm text-muted-foreground">{request.email}</p>
                   {request.teamName && <p className="mt-1 text-sm font-medium">{request.teamName}</p>}
+                  {request.role === 'parent' && (
+                    <p className="mt-1 text-sm text-amber-700 dark:text-amber-500">
+                      Parent access is granted by a coach on the Athletes page, not from here.
+                      Close this once they've been linked.
+                    </p>
+                  )}
                   <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.message}</p>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {formatDateShort(request.createdAt)}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setDialogRequest(request);
-                      setCreateMode(false);
-                      setDialogOpen(true);
-                    }}
-                  >
-                    <Check className="mr-2 h-4 w-4" />
-                    Approve
-                  </Button>
+                  {/* "Approve" here means "create a team", which is the
+                      wrong and only action for a parent — they need a
+                      coach to link them to their child, not a new team.
+                      Parent requests filed before that flow existed are
+                      shown so they can be closed, never approved. */}
+                  {request.role !== 'parent' && (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setDialogRequest(request);
+                        setCreateMode(false);
+                        setDialogOpen(true);
+                      }}
+                    >
+                      <Check className="mr-2 h-4 w-4" />
+                      Approve
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"

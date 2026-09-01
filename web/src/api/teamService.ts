@@ -31,6 +31,27 @@ export interface PendingClaim {
   matchScore: number;
 }
 
+export interface GuardianLookupAthlete {
+  id: string;
+  name: string;
+  /** 'pending' | 'approved' | 'rejected' when this guardian already asked
+   *  about this athlete, so the UI never invites a duplicate request. */
+  existingStatus: string | null;
+}
+
+export interface GuardianLookup {
+  teamName: string;
+  athletes: GuardianLookupAthlete[];
+}
+
+export interface PendingGuardianLink {
+  id: string;
+  status: string;
+  requestedAt: string;
+  guardian: { name: string | null; email: string | null };
+  athlete: { id: string; name: string };
+}
+
 export const teamService = {
   /**
    * Get team performance data for a specific season
@@ -104,6 +125,41 @@ export const teamService = {
   /**
    * Request to claim an athlete profile
    */
+  /** Read-only: which athletes are on the team this code belongs to.
+   *  Grants nothing — a parent must be able to see the roster to say which
+   *  children are theirs, and joining to find out would make them an
+   *  athlete on the team. */
+  async guardianLookup(joinCode: string): Promise<GuardianLookup> {
+    const response = await axiosInstance.post<GuardianLookup>('/guardian/lookup', { joinCode });
+    return response.data;
+  },
+
+  /** One request covering every child — a parent with two runners on the
+   *  same team is the normal case. The coach still approves each child
+   *  separately. */
+  async requestGuardianLinks(joinCode: string, athleteIds: string[]): Promise<{ msg: string }> {
+    const response = await axiosInstance.post<{ msg: string }>('/guardian/request-link', {
+      joinCode,
+      athleteIds,
+    });
+    return response.data;
+  },
+
+  async pendingGuardianLinks(): Promise<PendingGuardianLink[]> {
+    const response = await axiosInstance.get<PendingGuardianLink[]>('/team/guardian-links', {
+      params: { status: 'pending' },
+    });
+    return response.data;
+  },
+
+  async resolveGuardianLink(linkId: string, action: 'approve' | 'reject'): Promise<{ msg: string }> {
+    const response = await axiosInstance.post<{ msg: string }>('/team/approve-guardian-link', {
+      linkId,
+      action,
+    });
+    return response.data;
+  },
+
   async claimProfile(athleteId: string): Promise<ClaimProfileResponse> {
     const response = await axiosInstance.post<ClaimProfileResponse>('/team/claim-profile', { athleteId });
     return response.data;

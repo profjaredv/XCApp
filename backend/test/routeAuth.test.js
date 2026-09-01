@@ -59,6 +59,12 @@ const ALLOWED_UNGUARDED = new Set([
   // grants no access by itself (see requireApprovedGuardianLink, and
   // team.js POST /approve-guardian-link, which does require a role).
   'guardian.js POST /request-link',
+  // Same reasoning, one step earlier: a parent has to SEE the roster to
+  // say which children are theirs. The join code is the boundary — it is
+  // the same list anyone holding that code can already reach by joining —
+  // and this route only reads. It creates nothing and grants nothing, so
+  // there is no role it could require that a guardian would have.
+  'guardian.js POST /lookup',
   // E2 usage logging: fires from pages a signed-in-but-teamless user can
   // still land on (onboarding, join-team), and the write itself carries no
   // team/user/athlete id at all (see lib/pageViewLogging.js) — there is no
