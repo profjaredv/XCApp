@@ -3,6 +3,7 @@ import App from '../App';
 import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
 import { FeatureGate } from '../components/FeatureGate';
+import GroupDayPage from '../pages/GroupDayPage';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
@@ -269,6 +270,15 @@ export const router = createBrowserRouter([
                   {
                     path: 'groups',
                     element: <GroupsPage />,
+                  },
+                  {
+                    // One group on one afternoon: who is here, what they
+                    // last ran, and a sheet built from whoever turned up.
+                    // Deliberately not behind the attendance feature flag —
+                    // the roster and last times are the point even for a
+                    // team that doesn't take attendance.
+                    path: 'group/:groupId',
+                    element: <GroupDayPage />,
                   },
                   // Schedule rework: Practice and Meets merged into one
                   // month calendar. 'practice-plans' redirects old

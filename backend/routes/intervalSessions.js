@@ -197,8 +197,17 @@ router.post('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, 
       if (!group) {
         return res.status(404).json({ msg: 'Group not found.' });
       }
-      const members = await prisma.groupMembership.findMany({ where: { groupId, endDate: null }, select: { athleteId: true } });
-      ids = members.map((m) => m.athleteId);
+      if (Array.isArray(athleteIds)) {
+        // A group AND a list: the session belongs to the group (so it is
+        // labelled and found as that group's), but only these athletes get
+        // entries. This is what the group day view sends — a coach
+        // building a sheet from who actually turned up shouldn't get six
+        // blank rows for the kids who are home sick.
+        ids = [...new Set(athleteIds)];
+      } else {
+        const members = await prisma.groupMembership.findMany({ where: { groupId, endDate: null }, select: { athleteId: true } });
+        ids = members.map((m) => m.athleteId);
+      }
     } else {
       ids = Array.isArray(athleteIds) ? [...new Set(athleteIds)] : [];
     }

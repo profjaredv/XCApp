@@ -48,6 +48,46 @@ export interface RosterAthleteWithRaces {
   races: Array<{ time: number | null; race: { date: string; distanceMeters: number | null } }>;
 }
 
+
+// One group, one afternoon — see backend routes/groups.js GET /:id/day.
+export interface GroupDayLastRace {
+  raceId: string;
+  name: string;
+  date: string;
+  timeSec: number;
+  distanceMeters: number | null;
+  paceSecPerMile: number | null;
+}
+
+export interface GroupDayMember {
+  athleteId: string;
+  name: string;
+  gender: 'M' | 'F' | null;
+  grade: number | null;
+  /** null when nobody has taken attendance yet — distinct from "marked absent". */
+  status: 'PRESENT' | 'ABSENT' | 'EXCUSED' | 'LATE' | null;
+  onSession: boolean;
+  lastRace: GroupDayLastRace | null;
+}
+
+export interface GroupDay {
+  group: {
+    id: string;
+    name: string;
+    type: GroupType;
+    gender: string | null;
+    seasonId: string;
+    season: number;
+    leaders: Array<{ userId: string; name: string | null; email: string; primary: boolean }>;
+  };
+  date: string;
+  attendanceEnabled: boolean;
+  session: { id: string; time: string | null; location: { id: string; name: string } | null } | null;
+  members: GroupDayMember[];
+  counts: { PRESENT: number; ABSENT: number; EXCUSED: number; LATE: number; unmarked: number };
+  intervalSessions: Array<{ id: string; title: string; date: string; repDistanceM: number; entryCount: number }>;
+}
+
 export interface GroupAnalyticsAthlete {
   athleteId: string;
   name: string;
@@ -214,6 +254,12 @@ export const groupService = {
   },
 
   /** Roster with per-race results, for computing each athlete's season-best on the card. */
+  /** Who is here, what they last ran, and what is planned — the group day view. */
+  async getGroupDay(groupId: string, date?: string): Promise<GroupDay> {
+    const response = await api.get<GroupDay>(`/groups/${groupId}/day`, { params: date ? { date } : {} });
+    return response.data;
+  },
+
   async getRosterWithRaces(season: number): Promise<RosterAthleteWithRaces[]> {
     const response = await api.get<RosterAthleteWithRaces[]>('/athletes', { params: { season } });
     return response.data;

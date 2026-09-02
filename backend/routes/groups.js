@@ -10,6 +10,7 @@ const { deriveGrade } = require('../lib/season');
 const { parseDistanceToMeters } = require('../lib/distance');
 const { buildAthleteSeasonSummary, summarizeGroup, paceSecPerMile, summarizeGroupAtRace } = require('../lib/groupAnalytics');
 const { RULES, findRule, evaluateRule, evaluateAll } = require('../lib/dynamicGroups');
+const { isFeatureEnabled } = require('../lib/teamFeatures');
 
 const GROUP_TYPES = new Set(['TRAINING', 'CAPTAIN', 'CUSTOM']);
 
@@ -418,6 +419,163 @@ router.get('/captains', authenticate, requireTeam, async (req, res) => {
 // defaults to the group's own season year; explicit past years work the
 // same "no fallback substitution, just that year's real data" way
 // GET /analytics's dataYear does.
+// GET /api/groups/:id/day?date=YYYY-MM-DD
+//
+// One group, one afternoon: who is here, what they last ran, and what is
+// already planned for them. This is the screen a coach actually stands on
+// a field holding — everything else about groups is configuration.
+//
+// Attendance is deliberately NOT scoped to the group. A team takes
+// attendance once per day (AttendanceSession is unique per team+season+
+// date); this filters that one session down to this group's members. An
+// athlete is at practice or they aren't, and two groups practising at the
+// same time must not be able to record contradictory answers about the
+// same person. Marking someone here from this screen is the same row the
+// week grid shows.
+router.get('/:id/day', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+  try {
+    const teamId = req.user.teamId;
+    const group = await prisma.group.findFirst({
+      where: { id: req.params.id, teamId },
+      include: {
+        season: { select: { id: true, year: true } },
+        leaders: { include: { user: { select: { id: true, name: true, email: true } } } },
+      },
+    });
+    if (!group) {
+      return res.status(404).json({ msg: 'Group not found.' });
+    }
+
+    const date = req.query.date ? new Date(req.query.date) : new Date();
+    if (Number.isNaN(date.getTime())) {
+      return res.status(400).json({ msg: 'date must be a calendar date.' });
+    }
+    // Attendance sessions are stored as a bare date; comparing against a
+    // timestamp would never match the row a coach created this morning.
+    const dayOnly = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+
+    const members = await getActiveMembersOf(group.id, dayOnly);
+    const athleteIds = members.map((m) => m.athleteId);
+
+    const athletes = athleteIds.length
+      ? await prisma.athlete.findMany({
+          where: { id: { in: athleteIds }, teamId },
+          select: { id: true, name: true, preferredName: true, gender: true, graduationYear: true },
+        })
+      : [];
+
+    const [rosterRows, lastResults, team, intervalSessions] = await Promise.all([
+      prisma.seasonRoster.findMany({
+        where: { seasonId: group.seasonId, athleteId: { in: athleteIds } },
+        select: { athleteId: true, grade: true },
+      }),
+      athleteIds.length
+        ? prisma.result.findMany({
+            where: { athleteId: { in: athleteIds }, status: 'FINISHED', time: { gt: 0 } },
+            select: {
+              athleteId: true,
+              time: true,
+              race: { select: { id: true, name: true, date: true, distance: true, distanceMeters: true } },
+            },
+            orderBy: { race: { date: 'desc' } },
+          })
+        : [],
+      prisma.team.findUnique({ where: { id: teamId }, select: { features: true } }),
+      prisma.intervalSession.findMany({
+        where: { groupId: group.id, archived: false },
+        select: { id: true, title: true, date: true, repDistanceM: true, _count: { select: { entries: true } } },
+        orderBy: { date: 'desc' },
+        take: 5,
+      }),
+    ]);
+
+    // Most recent race per athlete. The query is already newest-first, so
+    // the first row seen for an athlete is theirs.
+    const lastRaceByAthlete = new Map();
+    for (const r of lastResults) {
+      if (lastRaceByAthlete.has(r.athleteId)) continue;
+      const distanceMeters = r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance);
+      lastRaceByAthlete.set(r.athleteId, {
+        raceId: r.race.id,
+        name: r.race.name,
+        date: r.race.date,
+        timeSec: r.time,
+        distanceMeters,
+        paceSecPerMile: paceSecPerMile(r.time, distanceMeters),
+      });
+    }
+
+    // Only read attendance if the team uses it — the rest of this screen
+    // is useful either way, so a team with attendance off gets the roster
+    // and last times rather than a 403.
+    const attendanceEnabled = isFeatureEnabled(team && team.features, 'attendance');
+    const session = attendanceEnabled
+      ? await prisma.attendanceSession.findUnique({
+          where: { teamId_seasonId_date: { teamId, seasonId: group.seasonId, date: dayOnly } },
+          include: { location: { select: { id: true, name: true } }, records: { select: { athleteId: true, status: true } } },
+        })
+      : null;
+
+    const statusByAthlete = new Map((session ? session.records : []).map((r) => [r.athleteId, r.status]));
+    const gradeByAthlete = new Map(rosterRows.map((r) => [r.athleteId, r.grade]));
+    const athleteById = new Map(athletes.map((a) => [a.id, a]));
+
+    const memberRows = athleteIds
+      .map((athleteId) => {
+        const athlete = athleteById.get(athleteId);
+        if (!athlete) return null;
+        return {
+          athleteId,
+          name: athlete.preferredName || athlete.name,
+          gender: normalizeGender(athlete.gender),
+          grade: gradeByAthlete.get(athleteId) ?? deriveGrade(athlete.graduationYear, group.season.year),
+          // null (rather than ABSENT) when the athlete has no row on the
+          // day's session at all — "nobody has taken attendance" and
+          // "marked absent" are different answers to what a coach is
+          // looking at, and the screen says so.
+          status: statusByAthlete.has(athleteId) ? statusByAthlete.get(athleteId) : null,
+          onSession: statusByAthlete.has(athleteId),
+          lastRace: lastRaceByAthlete.get(athleteId) ?? null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const counts = { PRESENT: 0, LATE: 0, EXCUSED: 0, ABSENT: 0, unmarked: 0 };
+    for (const row of memberRows) {
+      if (row.status === null) counts.unmarked += 1;
+      else counts[row.status] = (counts[row.status] || 0) + 1;
+    }
+
+    res.json({
+      group: {
+        id: group.id,
+        name: group.name,
+        type: group.type,
+        gender: group.gender,
+        seasonId: group.seasonId,
+        season: group.season.year,
+        leaders: group.leaders.map((l) => ({ userId: l.userId, name: l.user.name, email: l.user.email, primary: l.primary })),
+      },
+      date: dayOnly.toISOString().slice(0, 10),
+      attendanceEnabled,
+      session: session ? { id: session.id, time: session.time, location: session.location } : null,
+      members: memberRows,
+      counts,
+      intervalSessions: intervalSessions.map((s) => ({
+        id: s.id,
+        title: s.title,
+        date: s.date,
+        repDistanceM: s.repDistanceM,
+        entryCount: s._count.entries,
+      })),
+    });
+  } catch (error) {
+    console.error('Error building group day view:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 router.get('/:id/trend', authenticate, requireTeam, async (req, res) => {
   try {
     const group = await prisma.group.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });

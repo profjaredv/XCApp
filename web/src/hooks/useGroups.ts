@@ -44,6 +44,15 @@ export function useGroupMembers(groupId: string | null) {
   });
 }
 
+/** The group day view: members with today's attendance status and their last race. */
+export function useGroupDay(groupId: string | null, date: string) {
+  return useQuery({
+    queryKey: ['groupDay', groupId, date],
+    queryFn: () => groupService.getGroupDay(groupId as string, date),
+    enabled: !!groupId,
+  });
+}
+
 export function useAllGroupMembers(seasonId: string | null, groupIds: string[]) {
   return useQuery({
     queryKey: ['groupMembers', seasonId, groupIds],

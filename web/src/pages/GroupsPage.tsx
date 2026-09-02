@@ -25,7 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell, Search } from 'lucide-react';
+import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell, Search, CalendarCheck } from 'lucide-react';
 import { AthletePicker } from '@/components/groups/AthletePicker';
 import { DynamicGroups } from '@/components/groups/DynamicGroups';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
@@ -57,6 +57,8 @@ import { seasonBestTime, formatTime, type Group, type GroupType } from '@/api/gr
 import { gradeLabel } from '@/lib/seasonUtils';
 import { formatDateShort } from '@/lib/formatUtils';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 
 // Bulk assignment screen (T2, Team Management handoff): "Assigning 130
 // athletes one modal at a time is how a feature dies." The doc describes
@@ -160,6 +162,8 @@ const AthleteGroupsView: React.FC = () => {
 
 const CoachGroupsView: React.FC = () => {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const teamPath = useTeamPath();
   const { currentUser } = useAuth();
   const { seasons, activeYear } = useSeasonSelection();
   const selectedSeason = seasons.find((s) => s.year === activeYear) ?? null;
@@ -533,6 +537,7 @@ const CoachGroupsView: React.FC = () => {
                 onEdit={() => openEdit(g)}
                 onManageLeaders={() => setLeadersTarget(g)}
                 onDelete={() => handleDeleteGroup(g)}
+                onOpenDay={() => navigate(teamPath(`/group/${g.id}`))}
               />
             ))}
           </div>
@@ -685,6 +690,7 @@ const CoachGroupsView: React.FC = () => {
                 onArchive={handleArchiveToggle}
                 onDelete={handleDeleteGroup}
                 onManageLeaders={setLeadersTarget}
+                onOpenDay={(group) => navigate(teamPath(`/group/${group.id}`))}
               />
             ))}
           </div>
@@ -713,6 +719,7 @@ const CoachGroupsView: React.FC = () => {
                 onEdit={() => openEdit(g)}
                 onManageLeaders={() => setLeadersTarget(g)}
                 onDelete={() => handleDeleteGroup(g)}
+                onOpenDay={() => navigate(teamPath(`/group/${g.id}`))}
               />
             ))}
           </div>
@@ -837,7 +844,8 @@ const GenderColumn: React.FC<{
   onArchive: (group: Group) => void;
   onDelete: (group: Group) => void;
   onManageLeaders: (group: Group) => void;
-}> = ({ gender, athletes, groups, archivedGroups, displayedGroupFor, selectedAthletes, setSelectedAthletes, showUnassigned, onSendToXTraining, onEdit, onArchive, onDelete, onManageLeaders }) => {
+  onOpenDay: (group: Group) => void;
+}> = ({ gender, athletes, groups, archivedGroups, displayedGroupFor, selectedAthletes, setSelectedAthletes, showUnassigned, onSendToXTraining, onEdit, onArchive, onDelete, onManageLeaders, onOpenDay }) => {
   const toggle = (athleteId: string) => {
     setSelectedAthletes((prev) => {
       const next = new Set(prev);
@@ -888,6 +896,12 @@ const GenderColumn: React.FC<{
                   <Badge variant="secondary">{members.length}</Badge>
                   {col.group && (
                     <>
+                      {/* The day view, from the board a coach is already
+                          looking at — who is here, last times, today's
+                          sheet. */}
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onOpenDay(col.group!)} title="Today">
+                        <CalendarCheck className="h-3 w-3" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onManageLeaders(col.group!)} title="Manage leaders">
                         <UserCog className="h-3 w-3" />
                       </Button>
@@ -966,7 +980,8 @@ const GroupCard: React.FC<{
   onEdit: () => void;
   onManageLeaders: () => void;
   onDelete: () => void;
-}> = ({ group, onOpen, onEdit, onManageLeaders, onDelete }) => {
+  onOpenDay: () => void;
+}> = ({ group, onOpen, onEdit, onManageLeaders, onDelete, onOpenDay }) => {
   const stop = (fn: () => void) => (e: React.MouseEvent) => {
     e.stopPropagation();
     fn();
@@ -1004,11 +1019,17 @@ const GroupCard: React.FC<{
           </div>
         </CardTitle>
       </CardHeader>
-      <CardContent className="py-2">
+      <CardContent className="flex items-center justify-between gap-2 py-2">
         <p className="text-xs text-muted-foreground">
           {group.activeMemberCount} member{group.activeMemberCount === 1 ? '' : 's'}
           {group.leaders.length > 0 ? ` · led by ${group.leaders.map((l) => l.name || l.email).join(', ')}` : ''}
         </p>
+        {/* The card opens the roster; this opens the group's afternoon —
+            who is here, what they last ran, today's interval sheet. */}
+        <Button variant="outline" size="sm" className="h-7 shrink-0 px-2 text-xs" onClick={stop(onOpenDay)}>
+          <CalendarCheck className="mr-1 h-3.5 w-3.5" />
+          Today
+        </Button>
       </CardContent>
     </Card>
   );
