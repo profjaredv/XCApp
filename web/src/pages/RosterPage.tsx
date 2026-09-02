@@ -23,13 +23,15 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star, Eye, Upload, Loader2, Merge, ClipboardList } from 'lucide-react';
+import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star, Eye, Upload, Loader2, Merge, ClipboardList, Search, X } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { rosterService, type RosterAthlete, type RosterImportResult } from '@/api/rosterService';
 import { athleteService } from '@/api/athleteService';
 import { teamService } from '@/api/teamService';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
+import { useGroups, useAllGroupMembers } from '@/hooks/useGroups';
+import { matchesQuery } from '@/lib/athleteSearch';
 import { gradeLabel, deriveGraduationYear } from '@/lib/seasonUtils';
 import { PageHeader } from '@/components/PageHeader';
 import { useTeamPath } from '@/hooks/useTeamRoute';
@@ -77,6 +79,7 @@ const RosterPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { data: context } = useTeamContext();
   const { seasons, activeYear, setSelectedYear } = useSeasonSelection();
+  const [athleteQuery, setAthleteQuery] = useState('');
   const season = activeYear ?? undefined;
 
   const [showGraduated, setShowGraduated] = useState(false);
@@ -262,15 +265,59 @@ const RosterPage: React.FC = () => {
     onError: (err) => toast.error(getApiErrorMessage(err, 'Could not save class year')),
   });
 
+  // "What group am I in?" is the question athletes actually ask at
+  // practice, and answering it used to mean opening the roster, scrolling
+  // ninety names, opening a profile and scrolling again. Showing it on the
+  // row itself makes the roster the answer rather than a step toward it.
+  //
+  // Reuses the hooks the groups board already has rather than widening the
+  // roster payload — group membership changes on a different cadence from
+  // the roster, and keeping the queries separate means editing a group
+  // does not invalidate the roster.
+  const selectedSeason = seasons.find((s) => s.year === season) ?? null;
+  const seasonId = selectedSeason?.id ?? null;
+  const { data: teamGroups = [] } = useGroups(seasonId);
+  const groupIds = useMemo(() => teamGroups.map((g) => g.id), [teamGroups]);
+  const { data: membersByGroup = {} } = useAllGroupMembers(seasonId, groupIds);
+
+  const groupsByAthlete = useMemo(() => {
+    const map = new Map<string, Array<{ id: string; name: string; type: string }>>();
+    for (const group of teamGroups) {
+      if (group.archived) continue;
+      for (const member of membersByGroup[group.id] ?? []) {
+        const list = map.get(member.athleteId) ?? [];
+        list.push({ id: group.id, name: group.name, type: group.type });
+        map.set(member.athleteId, list);
+      }
+    }
+    // Training group first — it is the one a coach means by "your group".
+    for (const list of map.values()) {
+      list.sort((a, b) => (a.type === 'TRAINING' ? -1 : b.type === 'TRAINING' ? 1 : 0));
+    }
+    return map;
+  }, [teamGroups, membersByGroup]);
+
+  // Search matches the legal name as well as the preferred one: a coach
+  // looking up "Katherine" should find the athlete who goes by "Kate".
+  const visibleRoster = useMemo(
+    () =>
+      roster.filter(
+        (a) =>
+          matchesQuery(a.preferredName || a.name, athleteQuery) ||
+          matchesQuery(a.name, athleteQuery)
+      ),
+    [roster, athleteQuery]
+  );
+
   const byGrade = useMemo(() => {
     const groups = new Map<number | null, RosterAthlete[]>();
-    for (const athlete of roster) {
+    for (const athlete of visibleRoster) {
       const key = athlete.grade ?? null;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(athlete);
     }
     return [...groups.entries()].sort((a, b) => (b[0] ?? -1) - (a[0] ?? -1));
-  }, [roster]);
+  }, [visibleRoster]);
 
   const summary = context?.activeSeasonSummary;
   const isPreseason = season === context?.activeSeason && summary?.isPreseason;
@@ -449,6 +496,38 @@ const RosterPage: React.FC = () => {
         </Card>
       )}
 
+      {/* Roster search. The page is named Roster and lists every athlete on
+          the team, and until now had no way to find one — the single most
+          common thing a coach does here, standing at practice with a phone,
+          is look up one name. */}
+      {roster.length > 0 && (
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={athleteQuery}
+            onChange={(e) => setAthleteQuery(e.target.value)}
+            placeholder="Find an athlete…"
+            className="pl-9"
+          />
+          {athleteQuery.trim() && (
+            <button
+              type="button"
+              onClick={() => setAthleteQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {athleteQuery.trim() && visibleRoster.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No athlete matching “{athleteQuery.trim()}” on the {season} roster.
+        </p>
+      )}
+
       {isCoach && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card>
@@ -602,6 +681,27 @@ const RosterPage: React.FC = () => {
                       {athlete.graduationYear ? `Class of ${athlete.graduationYear}` : 'No class year'}
                       {athlete.raceCount > 0 ? ` • ${athlete.raceCount} races in ${season}` : ''}
                     </p>
+                    {/* The answer to "what group am I in?", on the row, so
+                        nobody has to open a profile to find it. Silent when
+                        there are no groups this season rather than showing
+                        an empty rail on every athlete. */}
+                    {(groupsByAthlete.get(athlete.id)?.length ?? 0) > 0 && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {groupsByAthlete.get(athlete.id)!.map((g) => (
+                          <Badge
+                            key={g.id}
+                            variant={g.type === 'TRAINING' ? 'secondary' : 'outline'}
+                            className="font-normal"
+                          >
+                            {g.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {teamGroups.length > 0 &&
+                      (groupsByAthlete.get(athlete.id)?.length ?? 0) === 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground italic">No group yet</p>
+                      )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {athlete.graduated && <Badge variant="secondary">Graduated</Badge>}
