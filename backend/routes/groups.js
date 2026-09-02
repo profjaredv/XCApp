@@ -9,6 +9,7 @@ const { normalizeGender } = require('../lib/gender');
 const { deriveGrade } = require('../lib/season');
 const { parseDistanceToMeters } = require('../lib/distance');
 const { buildAthleteSeasonSummary, summarizeGroup, paceSecPerMile, summarizeGroupAtRace } = require('../lib/groupAnalytics');
+const { RULES, findRule, evaluateRule, evaluateAll } = require('../lib/dynamicGroups');
 
 const GROUP_TYPES = new Set(['TRAINING', 'CAPTAIN', 'CUSTOM']);
 
@@ -174,6 +175,69 @@ router.get('/me', authenticate, requireTeam, requireLinkedAthlete, async (req, r
 // and substituting a different year's number there would be actively
 // misleading, so no fallback happens: an athlete with nothing in that
 // specific year just shows no data, honestly.
+// GET /api/groups/dynamic?season=&rule=&limit=
+//
+// Groups the data draws: the fastest 20, the biggest gains since last
+// meet, who is just outside the scoring seven. Computed on every request
+// from finished race results — see lib/dynamicGroups.js for why these are
+// never Group rows and never touch GroupMembership.
+//
+// Coach-tier only. These are whole-team rankings: an athlete seeing where
+// every one of their teammates sits is a different product decision from
+// an athlete seeing their own group, and not one to make by leaving a
+// route open.
+router.get('/dynamic', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+  try {
+    const { season: seasonRaw, rule: ruleKey, limit } = req.query;
+    const season = parseInt(seasonRaw, 10);
+    if (!Number.isFinite(season)) {
+      return res.status(400).json({ msg: 'A season year is required.' });
+    }
+
+    const rule = ruleKey ? findRule(ruleKey) : null;
+    if (ruleKey && !rule) {
+      return res.status(404).json({ msg: `No dynamic group called "${ruleKey}".` });
+    }
+
+    const results = await prisma.result.findMany({
+      where: {
+        status: 'FINISHED',
+        time: { gt: 0 },
+        race: { teamId: req.user.teamId, season },
+      },
+      select: {
+        time: true,
+        athleteId: true,
+        athlete: { select: { id: true, name: true, preferredName: true, gender: true, graduationYear: true } },
+        race: { select: { date: true, distance: true, distanceMeters: true } },
+      },
+    });
+
+    const rows = results
+      .filter((r) => r.athlete)
+      .map((r) => ({
+        athleteId: r.athleteId,
+        name: r.athlete.name,
+        preferredName: r.athlete.preferredName,
+        gender: normalizeGender(r.athlete.gender),
+        // Grade is always derived from graduationYear, never stored —
+        // see lib/season.js. A dynamic group labelling someone a freshman
+        // for the rest of their career would be the same bug the meet
+        // analysis screen had.
+        grade: deriveGrade(r.athlete.graduationYear, season),
+        timeSec: r.time,
+        distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
+        date: r.race.date,
+      }));
+
+    const groups = rule ? [evaluateRule(rule, rows, { limit })] : evaluateAll(rows, { limit });
+    res.json({ season, catalog: RULES.map((r) => ({ key: r.key, label: r.label, description: r.description })), groups });
+  } catch (error) {
+    console.error('Error building dynamic groups:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 router.get('/analytics', authenticate, requireTeam, async (req, res) => {
   const { seasonId, groupIds, dataYear: dataYearRaw } = req.query;
   if (!seasonId) {

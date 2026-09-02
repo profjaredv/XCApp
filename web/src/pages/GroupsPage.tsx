@@ -27,6 +27,7 @@ import {
 import { toast } from 'sonner';
 import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell, Search } from 'lucide-react';
 import { AthletePicker } from '@/components/groups/AthletePicker';
+import { DynamicGroups } from '@/components/groups/DynamicGroups';
 import { matchesQuery } from '@/lib/athleteSearch';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { seasonService } from '@/api/seasonService';
@@ -501,6 +502,11 @@ const CoachGroupsView: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Lists the data draws, above the groups a coach builds by hand:
+          fastest, biggest gains, who is next up for the scoring seven.
+          Nothing here is a membership — see components/groups/DynamicGroups.tsx. */}
+      <DynamicGroups season={activeYear ?? null} />
 
       {myLedGroups.length > 0 && (
         <div className="space-y-3">
