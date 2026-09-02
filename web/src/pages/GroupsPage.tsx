@@ -10,7 +10,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -23,7 +25,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell } from 'lucide-react';
+import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell, Search } from 'lucide-react';
+import { AthletePicker } from '@/components/groups/AthletePicker';
+import { matchesQuery } from '@/lib/athleteSearch';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { seasonService } from '@/api/seasonService';
 import {
@@ -64,6 +68,10 @@ import { useQueryClient } from '@tanstack/react-query';
 // isn't "one of the columns an athlete lives in exclusively").
 
 const UNASSIGNED = '__unassigned__';
+// A held value for the assign trigger so it always reads "Assign to
+// group…" rather than sticking on whatever was picked last — this control
+// performs an action, it does not represent a state.
+const ASSIGN_PLACEHOLDER = '__assign__';
 const MIXED_GENDER = '__mixed__';
 const NO_CAPTAIN = '__none__';
 
@@ -172,6 +180,7 @@ const CoachGroupsView: React.FC = () => {
   const { data: xTrainingRoster } = useXTrainingRoster(seasonId);
 
   const [selectedAthletes, setSelectedAthletes] = useState<Set<string>>(new Set());
+  const [athleteQuery, setAthleteQuery] = useState('');
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>({}); // athleteId -> groupId | UNASSIGNED
   const [showUnassigned, setShowUnassigned] = useState(true);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
@@ -242,6 +251,14 @@ const CoachGroupsView: React.FC = () => {
     [roster]
   );
 
+  // Filtered once here rather than inside each column, so both genders
+  // and every group narrow together and the empty state below can tell the
+  // difference between "no match anywhere" and "no match in this column".
+  const visibleAthletes = useMemo(
+    () => athletes.filter((a) => matchesQuery(a.name, athleteQuery)),
+    [athletes, athleteQuery]
+  );
+
   const displayedGroupFor = (athleteId: string) => pendingChanges[athleteId] ?? currentGroupByAthlete.get(athleteId) ?? UNASSIGNED;
 
   const trainingGroups = groups.filter((g) => g.type === 'TRAINING' && !g.archived);
@@ -277,6 +294,9 @@ const CoachGroupsView: React.FC = () => {
     }
   };
 
+  // Training assignment is exclusive: an athlete is in exactly one training
+  // group, so it goes through pendingChanges and the board re-renders as a
+  // preview the coach saves or discards.
   const handleAssignSelectedTo = (groupId: string) => {
     setPendingChanges((prev) => {
       const next = { ...prev };
@@ -284,6 +304,33 @@ const CoachGroupsView: React.FC = () => {
       return next;
     });
     setSelectedAthletes(new Set());
+  };
+
+  // Captain and custom membership is ADDITIVE — "Captain and Custom groups
+  // can run alongside a training group", per the New Group dialog's own
+  // description. So these cannot go through pendingChanges: that map is
+  // one-group-per-athlete and drives the training board, so routing a
+  // captain group through it would replace the athlete's training group
+  // and then make them vanish from the board entirely, since a captain
+  // group has no column.
+  //
+  // Writing immediately rather than staging is deliberate for the same
+  // reason: there is no board column to preview the change in, so a
+  // pending state would be invisible until Save and look like nothing
+  // happened.
+  const handleAddSelectedToGroup = async (groupId: string) => {
+    const group = groups.find((g) => g.id === groupId);
+    const ids = [...selectedAthletes];
+    setSelectedAthletes(new Set());
+    const results = await Promise.allSettled(
+      ids.map((athleteId) => addMember.mutateAsync({ groupId, athleteId }))
+    );
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed > 0) {
+      toast.error(`${failed} of ${ids.length} could not be added to ${group?.name ?? 'that group'}.`);
+    } else {
+      toast.success(`Added ${ids.length} to ${group?.name ?? 'the group'}.`);
+    }
   };
 
   const handleSave = async () => {
@@ -490,13 +537,47 @@ const CoachGroupsView: React.FC = () => {
       {selectedAthletes.size > 0 && (
         <div className="sticky top-0 z-10 flex items-center gap-3 bg-background border border-border rounded-lg px-4 py-2.5 shadow-md">
           <span className="text-sm font-medium">{selectedAthletes.size} selected</span>
-          <Select onValueChange={handleAssignSelectedTo}>
-            <SelectTrigger className="w-[220px] h-8"><SelectValue placeholder="Assign to group…" /></SelectTrigger>
+          {/* Captain and custom groups were missing here entirely — the
+              list only ever mapped trainingGroups, so the only way to put
+              someone in a captain group was to open that group's own
+              dialog and re-find them. Labelled sections because the two
+              halves do different things: the top moves an athlete between
+              training groups, the bottom adds them to a group they hold
+              alongside it. */}
+          <Select
+            value={ASSIGN_PLACEHOLDER}
+            onValueChange={(value) => {
+              if (value === ASSIGN_PLACEHOLDER) return;
+              if (value === UNASSIGNED || trainingGroups.some((g) => g.id === value)) {
+                handleAssignSelectedTo(value);
+              } else {
+                void handleAddSelectedToGroup(value);
+              }
+            }}
+          >
+            <SelectTrigger className="w-[240px] h-8"><SelectValue placeholder="Assign to group…" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-              {trainingGroups.map((g) => (
-                <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-              ))}
+              <SelectItem value={ASSIGN_PLACEHOLDER} disabled>Assign to group…</SelectItem>
+              <SelectGroup>
+                <SelectLabel>Move to training group</SelectLabel>
+                <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+                {trainingGroups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                ))}
+              </SelectGroup>
+              {otherGroups.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Also add to</SelectLabel>
+                  {otherGroups.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {g.type === 'CAPTAIN' ? 'captain' : 'custom'}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
             </SelectContent>
           </Select>
           <Button variant="ghost" size="sm" onClick={() => setSelectedAthletes(new Set())}>Clear</Button>
@@ -524,6 +605,39 @@ const CoachGroupsView: React.FC = () => {
         </div>
       )}
 
+      {/* Find an athlete without knowing which group they are in — on a
+          ninety-name board split across two columns and several groups,
+          scanning for one runner was the slowest thing on this page.
+          Filters rather than jumps: seeing WHICH group the match sits in
+          is usually the actual question. */}
+      {!loading && athletes.length > 0 && (
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={athleteQuery}
+            onChange={(e) => setAthleteQuery(e.target.value)}
+            placeholder="Find an athlete…"
+            className="pl-9"
+          />
+          {athleteQuery.trim() && (
+            <button
+              type="button"
+              onClick={() => setAthleteQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {!loading && athleteQuery.trim() && visibleAthletes.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No athlete matching “{athleteQuery.trim()}” on this season's roster.
+        </p>
+      )}
+
       {loading ? (
         <div className="text-muted-foreground">Loading roster…</div>
       ) : (
@@ -532,7 +646,7 @@ const CoachGroupsView: React.FC = () => {
             <GenderColumn
               key={gender}
               gender={gender}
-              athletes={athletes.filter((a) => a.gender === gender)}
+              athletes={visibleAthletes.filter((a) => a.gender === gender)}
               groups={trainingGroups.filter((g) => g.gender === gender || !g.gender)}
               archivedGroups={groups.filter((g) => g.type === 'TRAINING' && g.archived && (g.gender === gender || !g.gender))}
               displayedGroupFor={displayedGroupFor}
@@ -957,7 +1071,6 @@ const ManageMembersDialog: React.FC<{
   const { data: members = [], isLoading: membersLoading } = useGroupMembers(group?.id ?? null);
   const addMember = useAddMember(seasonId);
   const removeMember = useRemoveMember(seasonId);
-  const [selectedAthleteId, setSelectedAthleteId] = useState('');
   const [movingAthleteId, setMovingAthleteId] = useState<string | null>(null);
 
   if (!group) return null;
@@ -966,12 +1079,10 @@ const ManageMembersDialog: React.FC<{
   const available = roster.filter((a) => !memberIds.has(a.id));
   const moveTargets = allGroups.filter((g) => g.id !== group.id && !g.archived);
 
-  const handleAdd = async () => {
-    if (!selectedAthleteId) return;
+  const handleAdd = async (athleteId: string) => {
     try {
-      await addMember.mutateAsync({ groupId: group.id, athleteId: selectedAthleteId });
+      await addMember.mutateAsync({ groupId: group.id, athleteId });
       toast.success('Athlete added.');
-      setSelectedAthleteId('');
     } catch {
       toast.error('Could not add athlete.');
     }
@@ -1054,19 +1165,18 @@ const ManageMembersDialog: React.FC<{
             ))
           )}
           </div>
-          <div className="flex items-center gap-2 pt-2">
-            <Select value={selectedAthleteId} onValueChange={setSelectedAthleteId}>
-              <SelectTrigger className="flex-1"><SelectValue placeholder="Add an athlete…" /></SelectTrigger>
-              <SelectContent>
-                {available.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button onClick={handleAdd} disabled={!selectedAthleteId || addMember.isPending}>
-              {addMember.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Add
-            </Button>
+          {/* Was a plain Select listing the whole roster, so adding one
+              person to a group meant scrolling ninety names. Picking is
+              also now the click itself — the old two-step (choose, then
+              press Add) served no purpose once the list is searchable. */}
+          <div className="pt-2">
+            <p className="mb-2 text-sm font-medium">Add an athlete</p>
+            <AthletePicker
+              athletes={available}
+              onPick={handleAdd}
+              disabled={addMember.isPending}
+              emptyLabel="Everyone on the roster is already in this group."
+            />
           </div>
         </div>
         <DialogFooter>

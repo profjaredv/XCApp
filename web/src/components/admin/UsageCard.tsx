@@ -29,11 +29,11 @@ const ROLE_LABELS: Record<string, string> = {
   other: 'No team yet',
 };
 
-/** "/t/:id/roster" reads as "Athletes" to a human. Falls back to the raw
+/** "/t/:id/roster" reads as "Roster" to a human. Falls back to the raw
  *  route so a screen added later still shows up, just unlabelled. */
 const ROUTE_LABELS: Record<string, string> = {
   '/t/:id/today': 'Today',
-  '/t/:id/roster': 'Athletes',
+  '/t/:id/roster': 'Roster',
   '/t/:id/groups': 'Groups',
   '/t/:id/schedule': 'Schedule',
   '/t/:id/analytics': 'Season',

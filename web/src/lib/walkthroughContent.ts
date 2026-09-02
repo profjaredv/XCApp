@@ -21,7 +21,7 @@ export interface WalkthroughStep extends StepCopy {
 //
 // That is deliberate, and it is the fix for how this went wrong before. The
 // old tour sent coaches to an "Analytics" screen the sidebar calls
-// "Season", and a "Roster" it calls "Athletes"; four of the five ATHLETE
+// "Season"; four of the five ATHLETE
 // steps pointed at screens that are not in an athlete's sidebar at all
 // (Analytics, Results Grid, Pace Calculator, Roster). Every one of those
 // was right when written. Teaching someone vocabulary the app does not use
@@ -38,7 +38,7 @@ const COACH_STEPS: StepCopy[] = [
     navKey: 'athletes',
     description:
       'Your roster, season by season. Add athletes, invite them to their own login, mark captains, and merge duplicates when a scrape brings the same runner in twice.',
-    cta: 'Open Athletes',
+    cta: 'Open Roster',
   },
   {
     navKey: 'groups',

@@ -372,7 +372,7 @@ const RosterPage: React.FC = () => {
       <PageHeader
         section="athletes"
         icon={ClipboardList}
-        title="Athletes"
+        title="Roster"
         description="Manage who is on the team, season by season."
         actions={<>
           <Select

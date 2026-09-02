@@ -8,7 +8,7 @@ import {
 //
 // It exists as data because the feature tour kept drifting from it. The
 // tour used to name an "Analytics" screen the sidebar calls "Season", a
-// "Roster" the sidebar calls "Athletes", and — for athletes — four screens
+// the sidebar and the route now agree ("Roster", /roster), and — for athletes — four screens
 // that are not in their sidebar at all. Every one of those was correct when
 // it was written. Nothing tied them together, so nothing caught it when the
 // nav moved.
@@ -49,7 +49,7 @@ export interface NavEntry {
 export const NAV_ITEMS: NavEntry[] = [
   { key: 'today', label: 'Today', path: '/today', icon: Home, audience: ['coach', 'athlete'], section: 'spine' },
 
-  { key: 'athletes', label: 'Athletes', path: '/roster', icon: ClipboardList, audience: ['coach'], section: 'spine' },
+  { key: 'athletes', label: 'Roster', path: '/roster', icon: ClipboardList, audience: ['coach'], section: 'spine' },
   { key: 'groups', label: 'Groups', path: '/groups', icon: Users, audience: ['coach'], section: 'spine' },
   { key: 'schedule', label: 'Schedule', path: '/schedule', icon: CalendarDays, audience: ['coach'], section: 'spine' },
   { key: 'season', label: 'Season', path: '/analytics', icon: LayoutDashboard, audience: ['coach'], section: 'spine', custom: true },
