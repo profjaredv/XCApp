@@ -79,32 +79,52 @@ test('an athlete with no gender on file gets a list rather than disappearing', (
   assert.equal(unknown.members.length, 1);
 });
 
-test('most improved measures the first race against the best one since', () => {
+test('a gain is one race against the very next one, not the opener against the best', () => {
+  // The version this replaced measured first race vs best since, which
+  // rewards opening badly: 'slow-start' would have "gained" 200 seconds of
+  // race time by having one bad Saturday, while 'steady' — who beat their
+  // previous race at every meet — would have looked worse.
+  const rows = [
+    race('slow-start', '2026-09-05', 1300),
+    race('slow-start', '2026-09-12', 1250),
+    race('slow-start', '2026-09-19', 1240),
+    race('steady', '2026-09-05', 1200),
+    race('steady', '2026-09-12', 1130),
+    race('steady', '2026-09-19', 1100),
+  ];
+  const members = membersOf(evaluateRule(findRule('biggest-jump'), rows));
+  assert.deepEqual(members.map((m) => m.athleteId), ['steady', 'slow-start']);
+});
+
+test('biggest jump takes the best back-to-back pair anywhere in the season', () => {
   const rows = [
     race('a', '2026-09-05', 1200),
-    race('a', '2026-09-12', 1100),
-    race('a', '2026-09-19', 1150), // best is the middle race, not the last
-    race('b', '2026-09-05', 1200),
-    race('b', '2026-09-19', 1190),
+    race('a', '2026-09-12', 1190), // small gain
+    race('a', '2026-09-19', 1100), // the jump
+    race('a', '2026-09-26', 1105), // and then a slower one
   ];
-  const members = membersOf(evaluateRule(findRule('most-improved'), rows));
-  assert.deepEqual(members.map((m) => m.athleteId), ['a', 'b']);
-  assert.ok(members[0].value > members[1].value);
+  const [member] = membersOf(evaluateRule(findRule('biggest-jump'), rows));
+  assert.equal(member.date, '2026-09-19', 'reports the meet the jump happened at');
+  const pacePerMile = (t) => t / (FIVE_K / 1609.34);
+  assert.ok(Math.abs(member.value - (pacePerMile(1190) - pacePerMile(1100))) < 0.01);
 });
 
 test('nobody appears on an improvement list for getting slower', () => {
   const rows = [race('a', '2026-09-05', 1000), race('a', '2026-09-12', 1100)];
-  assert.deepEqual(membersOf(evaluateRule(findRule('most-improved'), rows)), []);
+  assert.deepEqual(membersOf(evaluateRule(findRule('biggest-jump'), rows)), []);
   assert.deepEqual(membersOf(evaluateRule(findRule('recent-gains'), rows)), []);
 });
 
 test('a single race is not an improvement', () => {
-  assert.deepEqual(membersOf(evaluateRule(findRule('most-improved'), [race('a', '2026-09-05', 1000)])), []);
+  assert.deepEqual(membersOf(evaluateRule(findRule('biggest-jump'), [race('a', '2026-09-05', 1000)])), []);
 });
 
-test('recent gains compares the last two races, which season-long improvement cannot', () => {
-  // 'a' is way up on the season but had a bad Saturday; 'b' is barely up
-  // on the season but ran their best race last weekend.
+test('the two gain lists differ only in which pair of races they compare', () => {
+  // 'a' had one enormous jump in September and then a bad Saturday; 'b'
+  // improved modestly, most recently. Both lists compare a race to the
+  // next one — biggest-jump looks anywhere in the season, recent-gains
+  // only at the latest pair — so they disagree about who is on the way up,
+  // which is the whole reason both exist.
   const rows = [
     race('a', '2026-09-05', 1300),
     race('a', '2026-09-12', 1000),
@@ -112,7 +132,7 @@ test('recent gains compares the last two races, which season-long improvement ca
     race('b', '2026-09-12', 1200),
     race('b', '2026-09-19', 1150),
   ];
-  assert.deepEqual(membersOf(evaluateRule(findRule('most-improved'), rows)).map((m) => m.athleteId), ['a', 'b']);
+  assert.deepEqual(membersOf(evaluateRule(findRule('biggest-jump'), rows)).map((m) => m.athleteId), ['a', 'b']);
   assert.deepEqual(membersOf(evaluateRule(findRule('recent-gains'), rows)).map((m) => m.athleteId), ['b']);
 });
 

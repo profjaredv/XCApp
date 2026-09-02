@@ -68,17 +68,38 @@ function ruleFastest(entries, { limit }) {
     .map(({ entry, value }, index) => member(entry, { rank: index + 1, value, unit: 'pace' }));
 }
 
-// Season-long improvement: first race of the season against the best one
-// since. Positive seconds only — an athlete who hasn't beaten their opener
+// A gain is always one race against the very next one.
+//
+// The first version of this measured an athlete's opener against their best
+// race since, which quietly rewards a slow start: an athlete who opened
+// badly and then ran three ordinary races "gained" more than one who
+// improved at every meet. Race-to-race is the comparison a coach is
+// actually making on the drive home, and it's the same shape as the
+// last-meet list below — the only difference is which pair of races.
+//
+// This one takes the biggest jump between any two back-to-back races in
+// the season, and says which meet it happened at.
+function biggestConsecutiveGain(entry) {
+  let best = null;
+  for (let i = 1; i < entry.races.length; i++) {
+    const gain = entry.races[i - 1].pace - entry.races[i].pace;
+    if (best === null || gain > best.value) best = { value: gain, date: entry.races[i].date };
+  }
+  return best;
+}
+
+// Positive seconds only — an athlete who has never beaten a previous race
 // isn't "improved by a negative amount", they're just not on this list.
-function ruleMostImproved(entries, { limit }) {
+function ruleBiggestJump(entries, { limit }) {
   return entries
     .filter((entry) => entry.races.length >= 2)
-    .map((entry) => ({ entry, value: entry.races[0].pace - bestPace(entry) }))
-    .filter(({ value }) => value > 0)
-    .sort((a, b) => b.value - a.value)
+    .map((entry) => ({ entry, gain: biggestConsecutiveGain(entry) }))
+    .filter(({ gain }) => gain && gain.value > 0)
+    .sort((a, b) => b.gain.value - a.gain.value)
     .slice(0, limit)
-    .map(({ entry, value }, index) => member(entry, { rank: index + 1, value, unit: 'gain' }));
+    .map(({ entry, gain }, index) =>
+      member(entry, { rank: index + 1, value: gain.value, unit: 'gain', date: gain.date })
+    );
 }
 
 // The week's gains: the most recent race against the one before it. This
@@ -130,23 +151,23 @@ const RULES = [
     key: 'fastest',
     label: 'Fastest',
     description: "Ranked by each athlete's best pace so far this season.",
-    metric: 'Best pace',
+    metric: 'Best pace this season',
     defaultLimit: 20,
     evaluate: ruleFastest,
   },
   {
-    key: 'most-improved',
-    label: 'Most improved',
-    description: 'Biggest gain from their first race of the season to their best one since.',
-    metric: 'Gained',
+    key: 'biggest-jump',
+    label: 'Biggest jump',
+    description: 'Largest gain from one race to the very next one, anywhere this season.',
+    metric: 'Gained race to race',
     defaultLimit: 10,
-    evaluate: ruleMostImproved,
+    evaluate: ruleBiggestJump,
   },
   {
     key: 'recent-gains',
     label: 'Biggest gains last meet',
     description: 'Who ran their most recent race faster than the one before it, and by how much.',
-    metric: 'Gained',
+    metric: 'Gained since the previous race',
     defaultLimit: 10,
     evaluate: ruleRecentGains,
   },
@@ -154,7 +175,7 @@ const RULES = [
     key: 'next-up',
     label: 'Next seven',
     description: 'Eighth place and back — who is closest to the scoring seven, and by how much.',
-    metric: 'Behind 7th',
+    metric: 'Seconds per mile behind 7th',
     defaultLimit: 7,
     evaluate: ruleNextUp,
   },

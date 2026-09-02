@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
-import { Sparkles } from 'lucide-react';
+import { ChevronDown, Sparkles } from 'lucide-react';
 import api from '@/api/api';
 import { formatPace } from '@/lib/formatUtils';
 import { gradeLabelShort } from '@/lib/seasonUtils';
 import { useTeamPath } from '@/hooks/useTeamRoute';
+import { useExpandedSections } from '@/hooks/useExpandedSections';
 
 // Groups the data draws: the fastest twenty, who gained the most since
 // last meet, who is sitting just outside the scoring seven.
@@ -62,18 +63,48 @@ function formatValue(member: DynamicMember): string {
   return formatSeconds(member.value);
 }
 
-const GroupList: React.FC<{ group: DynamicGroup }> = ({ group }) => {
+const GroupList: React.FC<{
+  group: DynamicGroup;
+  open: boolean;
+  onToggle: () => void;
+}> = ({ group, open, onToggle }) => {
   const teamPath = useTeamPath();
   const [listIndex, setListIndex] = useState(0);
   const list = group.lists[listIndex] ?? group.lists[0];
+  // Who is at the top, on the closed card. Four collapsed headings that
+  // say nothing would just be four more things to open.
+  const leader = list.members[0];
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">{group.label}</CardTitle>
-        <CardDescription>{group.description}</CardDescription>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={`dynamic-group-${group.key}`}
+        className="flex w-full items-start gap-3 p-6 text-left transition-colors hover:bg-accent/50"
+      >
+        <span className="min-w-0 flex-1">
+          <CardTitle className="text-lg">{group.label}</CardTitle>
+          <CardDescription className="mt-1">{group.description}</CardDescription>
+          {!open && leader && (
+            <span className="mt-2 block text-xs font-medium text-foreground/80">
+              {leader.name} · {formatValue(leader)}
+              {list.members.length > 1 ? ` · ${list.members.length} listed` : ''}
+            </span>
+          )}
+        </span>
+        <ChevronDown
+          className={`mt-1 h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 ${
+            open ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+
+      {open && (
+      <CardContent id={`dynamic-group-${group.key}`}>
         {group.lists.length > 1 && (
-          <div className="flex flex-wrap gap-2 pt-2">
+          <div className="mb-3 flex flex-wrap gap-2">
             {group.lists.map((l, index) => (
               <Button
                 key={l.label}
@@ -86,8 +117,6 @@ const GroupList: React.FC<{ group: DynamicGroup }> = ({ group }) => {
             ))}
           </div>
         )}
-      </CardHeader>
-      <CardContent>
         <div className="divide-y">
           {list.members.map((member) => (
             <div key={member.athleteId} className="flex items-center justify-between gap-3 py-2">
@@ -120,11 +149,16 @@ const GroupList: React.FC<{ group: DynamicGroup }> = ({ group }) => {
         </div>
         <p className="mt-3 text-xs text-muted-foreground">{group.metric}</p>
       </CardContent>
+      )}
     </Card>
   );
 };
 
 export const DynamicGroups: React.FC<{ season: number | null }> = ({ season }) => {
+  // Closed until a coach opens one, and which ones they opened is
+  // remembered per device — four twenty-name lists is most of a phone
+  // screen before the coach has reached the groups they actually manage.
+  const { isOpen, toggle } = useExpandedSections('xc_dynamic_groups_open');
   const { data, isLoading } = useQuery<{ groups: DynamicGroup[] }>({
     queryKey: ['dynamicGroups', season],
     queryFn: async () => {
@@ -166,7 +200,12 @@ export const DynamicGroups: React.FC<{ season: number | null }> = ({ season }) =
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {groups.map((group) => (
-          <GroupList key={group.key} group={group} />
+          <GroupList
+            key={group.key}
+            group={group}
+            open={isOpen(group.key)}
+            onToggle={() => toggle(group.key)}
+          />
         ))}
       </div>
     </div>

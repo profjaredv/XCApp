@@ -44,6 +44,18 @@ describe('dynamic groups', () => {
     expect(component).toContain('if (groups.length === 0) return null;');
   });
 
+  it('starts collapsed and remembers what the coach opened', () => {
+    // Four twenty-name lists is most of a phone screen before the coach
+    // reaches the groups they actually manage.
+    expect(component).toContain("useExpandedSections('xc_dynamic_groups_open')");
+    expect(component).toContain('aria-expanded={open}');
+    expect(component).toContain('{open && (');
+  });
+
+  it('says who is at the top while collapsed', () => {
+    expect(component).toContain('!open && leader');
+  });
+
   it('sits on the Groups page, above the groups a coach builds by hand', () => {
     const page = code(read('pages/GroupsPage.tsx'));
     const dynamicAt = page.indexOf('<DynamicGroups');
