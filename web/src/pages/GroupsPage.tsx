@@ -173,7 +173,7 @@ const CoachGroupsView: React.FC = () => {
 
   const { data: groups = [], isLoading: groupsLoading } = useGroups(seasonId);
   const groupIds = useMemo(() => groups.map((g) => g.id), [groups]);
-  const { data: membersByGroup = {}, isLoading: membersLoading } = useAllGroupMembers(seasonId, groupIds);
+  const { data: membersByGroup = {}, isFetched: membersFetched } = useAllGroupMembers(seasonId, groupIds);
   const { data: roster = [], isLoading: rosterLoading } = useRosterWithRaces(activeYear ?? undefined);
 
   const createGroup = useCreateGroup(seasonId);
@@ -486,7 +486,15 @@ const CoachGroupsView: React.FC = () => {
     );
   }
 
-  const loading = groupsLoading || membersLoading || rosterLoading;
+  // membersFetched, not isLoading. A query that is enabled but hasn't
+  // started fetching yet reports isLoading === false, which opened a window
+  // where the board rendered with no memberships at all — and an athlete
+  // with no membership renders as Unassigned, so for one paint (or for as
+  // long as the per-group member requests took) the whole roster appeared
+  // to have been emptied out of its groups. Nothing was wrong with the
+  // data; a refresh "fixed" it because the second load came from cache.
+  const membersPending = groupIds.length > 0 && !membersFetched;
+  const loading = groupsLoading || membersPending || rosterLoading;
 
   return (
     <div className="space-y-6">

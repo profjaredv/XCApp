@@ -69,6 +69,18 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
       resultMap.get(result.athleteId).push(result);
     });
 
+    // Career count, alongside the season's. The two answer different
+    // questions and confusing them is how a duplicate athlete hides: a row
+    // holding four seasons of races reads "0 races" on a screen scoped to
+    // this season, which is exactly the row a coach is looking for when
+    // they go to merge duplicates.
+    const careerCounts = await prisma.result.groupBy({
+      by: ['athleteId'],
+      where: { teamId, athleteId: { in: athletes.map((a) => a.id) } },
+      _count: { _all: true },
+    });
+    const careerCountByAthlete = new Map(careerCounts.map((r) => [r.athleteId, r._count._all]));
+
     // An explicit roster for this season, if the coach has one.
     const seasonRow = await prisma.season.findFirst({
       where: { teamId, year: seasonYear },
@@ -103,6 +115,7 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         grade,
         races,
         raceCount: races.length,
+        careerRaceCount: careerCountByAthlete.get(a.id) ?? 0,
         graduated: hasGraduated(a.graduationYear, seasonYear),
         onRoster: hasExplicitRoster
           ? Boolean(rosterEntry && rosterEntry.isActive)
@@ -224,7 +237,7 @@ router.get('/:athleteId/races', authenticate, requireTeam, async (req, res) => {
 // from — coaches think in grades ("she's a sophomore"), the data model thinks
 // in graduation years, so translate at the edge rather than storing the grade.
 router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
-  const { firstName, lastName, name, preferredName, graduationYear, grade, season, gender } = req.body;
+  const { firstName, lastName, name, preferredName, graduationYear, grade, season, gender, allowDuplicate } = req.body;
   const teamId = req.user.teamId;
 
   const fullName = (name || [firstName, lastName].filter(Boolean).join(' ')).trim();
@@ -238,9 +251,44 @@ router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req,
       ? parseInt(graduationYear, 10)
       : deriveGraduationYear(grade, seasonYear);
 
-    // No same-name rejection here (Build Spec Phase 2 step 5): a 120-person
-    // roster having two "Jack Smith"s is normal, and athletes(team_id, name)
-    // is no longer a unique constraint the database would enforce anyway.
+    // A 120-person roster having two "Jack Smith"s is normal, and
+    // athletes(team_id, name) is deliberately not unique (Build Spec Phase
+    // 2 step 5), so this can't be a hard rejection. But the common case is
+    // not twins — it is a returning athlete who didn't appear on the
+    // roster (their races are in a past season, so the default view filters
+    // them out), and the coach adds them by hand. That silently creates a
+    // second record: the new one goes in the group and shows no history,
+    // while ten seasons of races sit on a row nothing points at any more.
+    //
+    // So: say so, and let the coach decide. `allowDuplicate` is the client
+    // saying "yes, genuinely two people with this name".
+    if (!allowDuplicate) {
+      const sameName = await prisma.athlete.findMany({ where: { teamId } });
+      const normalized = normalizeAthleteName(fullName);
+      const matches = sameName.filter((a) => normalizeAthleteName(a.name) === normalized);
+      if (matches.length > 0) {
+        const raceCounts = await prisma.result.groupBy({
+          by: ['athleteId'],
+          where: { athleteId: { in: matches.map((a) => a.id) } },
+          _count: { _all: true },
+        });
+        const countByAthlete = new Map(raceCounts.map((r) => [r.athleteId, r._count._all]));
+        return res.status(409).json({
+          msg: `${fullName} is already on this team.`,
+          code: 'ATHLETE_EXISTS',
+          existing: matches.map((a) => ({
+            id: a.id,
+            name: a.name,
+            preferredName: a.preferredName,
+            graduationYear: a.graduationYear,
+            // Career, not this season — the whole point is that the
+            // existing record's history is in a season the coach isn't
+            // looking at.
+            careerRaceCount: countByAthlete.get(a.id) ?? 0,
+          })),
+        });
+      }
+    }
 
     const athlete = await prisma.athlete.create({
       data: {

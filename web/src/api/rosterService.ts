@@ -2,6 +2,19 @@ import api from './api';
 
 export type InviteStatus = 'not_invited' | 'pending' | 'accepted' | 'expired' | 'revoked';
 
+/** 409 body from POST /athletes when someone with this name is already on the team. */
+export interface ExistingAthleteConflict {
+  msg: string;
+  code: 'ATHLETE_EXISTS';
+  existing: Array<{
+    id: string;
+    name: string;
+    preferredName: string | null;
+    graduationYear: number | null;
+    careerRaceCount: number;
+  }>;
+}
+
 export interface RosterAthlete {
   id: string;
   name: string;
@@ -12,6 +25,8 @@ export interface RosterAthlete {
   grade: number | null;
   graduationYear: number | null;
   raceCount: number;
+  /** Every race on this record, across every season — the season count above answers a different question. */
+  careerRaceCount?: number;
   graduated: boolean;
   onRoster: boolean;
   /** Set once this row is linked to a Neon Auth account (accepted invite or approved claim). */
@@ -81,6 +96,8 @@ export const rosterService = {
     graduationYear?: number;
     gender?: string;
     season?: number;
+    /** Set only after a coach has seen the existing same-name record and said it's a different person. */
+    allowDuplicate?: boolean;
   }): Promise<RosterAthlete> {
     const response = await api.post<RosterAthlete>('/athletes', input);
     return response.data;
