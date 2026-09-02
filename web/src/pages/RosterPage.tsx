@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, CalendarPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star, Eye, Upload, Loader2, Merge, ClipboardList, Search, X } from 'lucide-react';
+import { UserPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star, Eye, Upload, Loader2, Merge, ClipboardList, Search, X } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { rosterService, type RosterAthlete, type RosterImportResult } from '@/api/rosterService';
 import { athleteService } from '@/api/athleteService';
@@ -85,7 +85,6 @@ const RosterPage: React.FC = () => {
 
   const [showGraduated, setShowGraduated] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [startSeasonOpen, setStartSeasonOpen] = useState(false);
   const [importRosterOpen, setImportRosterOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
 
@@ -146,24 +145,6 @@ const RosterPage: React.FC = () => {
         'Could not add athlete';
       toast.error(message);
     },
-  });
-
-  const nextSeason = (context?.activeSeason ?? new Date().getFullYear()) + 1;
-  // "Start next season" rolls the active roster forward (seniors graduate,
-  // everyone else moves up a grade) — that's only meaningful once the active
-  // season has actually happened. Without this, activeSeason+1 is available
-  // the instant a season is created, so starting 2026 immediately offered
-  // "Start 2027" before a single 2026 race had been run.
-  const canStartNextSeason = !context?.activeSeasonSummary?.isPreseason;
-  const startSeason = useMutation({
-    mutationFn: () => rosterService.startSeason(nextSeason),
-    onSuccess: (result) => {
-      toast.success(result.message);
-      setStartSeasonOpen(false);
-      setSelectedYear(result.season);
-      invalidate();
-    },
-    onError: () => toast.error('Could not start the new season'),
   });
 
   const removeFromRoster = useMutation({
@@ -440,19 +421,6 @@ const RosterPage: React.FC = () => {
               ))}
             </SelectContent>
           </Select>
-          <Button
-            variant="outline"
-            onClick={() => setStartSeasonOpen(true)}
-            disabled={!canStartNextSeason}
-            title={
-              canStartNextSeason
-                ? undefined
-                : `Available once ${context?.activeSeason} has race results — it's still preseason`
-            }
-          >
-            <CalendarPlus className="mr-2 h-4 w-4" />
-            Start {nextSeason}
-          </Button>
           {isCoach && (
             <Button
               variant="outline"
@@ -889,26 +857,6 @@ const RosterPage: React.FC = () => {
               disabled={!newName.trim() || addAthlete.isPending}
             >
               {addAthlete.isPending ? 'Adding…' : 'Add athlete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={startSeasonOpen} onOpenChange={setStartSeasonOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Start the {nextSeason} season</DialogTitle>
-            <DialogDescription>
-              Returning athletes move up a grade and carry over to {nextSeason}. Seniors graduate
-              off the active roster — their races, PRs and trends stay in the app permanently.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setStartSeasonOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => startSeason.mutate()} disabled={startSeason.isPending}>
-              {startSeason.isPending ? 'Starting…' : `Start ${nextSeason}`}
             </Button>
           </DialogFooter>
         </DialogContent>

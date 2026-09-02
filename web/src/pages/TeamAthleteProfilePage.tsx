@@ -17,6 +17,7 @@ import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
 import { AthleteExportButton } from '@/components/AthleteExportButton';
+import { TeamComparisonCard } from '@/components/analytics/TeamComparisonCard';
 import { formatDateShort } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import type { Athlete, Race, AthleteSeasonData } from '@/types/analytics';
@@ -110,7 +111,6 @@ const TeamAthleteProfilePage = () => {
   }, [seasonParam, smartDefaultSeason, setSeasonParam]);
 
   const selectedSeason = seasonParam ?? smartDefaultSeason ?? defaultSeason;
-  const setSelectedSeason = setSeasonParam;
 
   const handleSeasonModeChange = (newMode: 'current' | 'all' | 'historical') => {
     setSeasonMode(newMode as 'current' | 'all' | 'custom');
@@ -308,6 +308,24 @@ const TeamAthleteProfilePage = () => {
       {athleteId && (
         <div className="mb-6">
           <AthleteGroupsCard athleteId={athleteId} />
+        </div>
+      )}
+
+      {/* A pace with nothing beside it doesn't answer "is that good?" —
+          this is the season's group averages, which the team calculation
+          has always produced, finally put next to the athlete. Silent when
+          metrics haven't been run or the peer group is too small to have
+          an average. */}
+      {teamId && enhancedAthlete && (
+        <div className="mb-6">
+          <TeamComparisonCard
+            teamId={teamId}
+            season={selectedSeason}
+            gender={enhancedAthlete.gender}
+            grade={athleteIdentity.grade ?? enhancedAthlete.currentGrade}
+            avgPace={enhancedAthlete.avgPace}
+            totalRaces={enhancedAthlete.raceCount ?? 0}
+          />
         </div>
       )}
 

@@ -23,10 +23,11 @@ import { PaceZonesManager } from '@/components/settings/PaceZonesManager';
 import { DataExportCard } from '@/components/settings/DataExportCard';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { DataPracticesCard } from '@/components/settings/DataPracticesCard';
+import { SeasonRolloverCard } from '@/components/settings/SeasonRolloverCard';
 import { PageHeader } from '@/components/PageHeader';
 import { useExpandedSections } from '@/hooks/useExpandedSections';
 import { isFullCoach, canDeleteData, isImpersonatingAdmin } from '@/lib/teamRole';
-import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2 } from 'lucide-react';
+import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2, CalendarPlus } from 'lucide-react';
 
 interface Team {
   id: string;
@@ -311,6 +312,22 @@ const SimpleSettingsPage: React.FC = () => {
             onToggle={() => toggle('staff')}
           >
             {isMounted('staff') && <StaffManager />}
+          </SettingsSection>
+        )}
+
+        {/* Starting a season is once-a-year configuration, not something a
+            coach does while looking at today's roster — it lives here now. */}
+        {team && (isFullCoach(currentUser) || isImpersonatingAdmin(currentUser)) && (
+          <SettingsSection
+            id="season-rollover"
+            section="program"
+            title="Season rollover"
+            description="Start next season: returning athletes move up a grade, seniors graduate off the roster."
+            icon={CalendarPlus}
+            open={isOpen('season-rollover')}
+            onToggle={() => toggle('season-rollover')}
+          >
+            {isMounted('season-rollover') && <SeasonRolloverCard />}
           </SettingsSection>
         )}
 

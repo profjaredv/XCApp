@@ -319,9 +319,31 @@ const SchedulePage: React.FC = () => {
         </div>
       )}
 
+      {/* Seven columns need roughly 720px before a practice label stops
+          being three truncated characters, so on a phone this used to sit
+          inside a horizontal scroller — a coach had to swipe sideways to
+          find out what Thursday was. Below md the week stacks into one row
+          per day instead; the same DayCell renders both, so a day shows
+          the same things either way. */}
       {viewMode === 'week' && (
-        <div className="overflow-x-auto">
-          <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden border min-w-[720px]">
+        <>
+          <div className="md:hidden rounded-lg border overflow-hidden divide-y">
+            {weekDays.map((day) => (
+              <DayCell
+                key={toISODate(day)}
+                day={day}
+                faded={false}
+                isToday={isSameDay(day, today)}
+                plan={planByDate.get(toISODate(day)) ?? null}
+                dayMeets={meetsByDate.get(toISODate(day)) ?? []}
+                onSelectDay={() => setEditorDate(toISODate(day))}
+                onSelectMeet={(id) => navigate(teamPath(`/meet/${id}`))}
+                stacked
+              />
+            ))}
+          </div>
+
+          <div className="hidden md:grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden border">
             {weekDays.map((day) => (
               <div key={toISODate(day)} className="bg-muted text-xs font-medium text-muted-foreground text-center py-1.5">
                 {day.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
@@ -341,7 +363,7 @@ const SchedulePage: React.FC = () => {
               />
             ))}
           </div>
-        </div>
+        </>
       )}
 
       {viewMode === 'agenda' && (
@@ -480,7 +502,9 @@ const DayCell: React.FC<{
   onSelectDay: () => void;
   onSelectMeet: (meetId: string) => void;
   roomy?: boolean;
-}> = ({ day, faded, isToday, plan, dayMeets, onSelectDay, onSelectMeet, roomy }) => {
+  /** One full-width row per day instead of a grid cell — the phone layout of the week view. */
+  stacked?: boolean;
+}> = ({ day, faded, isToday, plan, dayMeets, onSelectDay, onSelectMeet, roomy, stacked }) => {
   const planLabel = plan ? plan.locationName ?? plan.run ?? plan.workoutTemplate?.name ?? plan.intervalSession?.title : null;
 
   const empty = !plan && dayMeets.length === 0;
@@ -490,20 +514,38 @@ const DayCell: React.FC<{
       type="button"
       onClick={onSelectDay}
       title="Add or edit this day's practice plan"
-      className={`group relative bg-background p-1.5 text-left flex flex-col gap-1 hover:bg-accent/50 transition-colors ${
-        roomy ? 'min-h-[180px]' : 'min-h-[84px]'
-      } ${faded ? 'opacity-40' : ''}`}
+      className={
+        stacked
+          ? 'group relative w-full bg-background px-3 py-2.5 text-left flex items-start gap-3 hover:bg-accent/50 transition-colors'
+          : `group relative bg-background p-1.5 text-left flex flex-col gap-1 hover:bg-accent/50 transition-colors ${
+              roomy ? 'min-h-[180px]' : 'min-h-[84px]'
+            } ${faded ? 'opacity-40' : ''}`
+      }
     >
-      <span
-        className={`text-xs w-5 h-5 inline-flex items-center justify-center ${
-          isToday ? 'rounded-full bg-primary text-primary-foreground font-semibold' : 'text-muted-foreground'
-        }`}
-      >
-        {day.getDate()}
-      </span>
+      {stacked ? (
+        <span
+          className={`shrink-0 w-14 pt-0.5 text-xs font-medium ${
+            isToday ? 'text-primary' : 'text-muted-foreground'
+          }`}
+        >
+          {day.toLocaleDateString(undefined, { weekday: 'short' })} {day.getDate()}
+        </span>
+      ) : (
+        <span
+          className={`text-xs w-5 h-5 inline-flex items-center justify-center ${
+            isToday ? 'rounded-full bg-primary text-primary-foreground font-semibold' : 'text-muted-foreground'
+          }`}
+        >
+          {day.getDate()}
+        </span>
+      )}
+      {/* `contents` keeps the grid layout exactly as it was: the day's
+          badges stay direct children of the cell's flex column. Stacked,
+          they become a second column beside the date. */}
+      <span className={stacked ? 'flex-1 min-w-0 flex flex-col items-start gap-1' : 'contents'}>
       {planLabel && (
         <span
-          className={`text-[11px] rounded px-1 py-0.5 truncate ${
+          className={`text-[11px] rounded px-1 py-0.5 truncate max-w-full ${
             plan?.published ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-800'
           }`}
         >
@@ -511,16 +553,20 @@ const DayCell: React.FC<{
         </span>
       )}
       {roomy && plan?.run && plan.run !== planLabel && (
-        <span className="text-[11px] text-muted-foreground truncate">{plan.run}</span>
+        <span className="text-[11px] text-muted-foreground truncate max-w-full">{plan.run}</span>
       )}
       {/* Empty-day affordance: "click to add" isn't obvious from a bare
           number in a grid cell, especially on touch where hover never
           fires — so this stays faintly visible always, not hover-only,
           and only brightens on hover for a little extra feedback. */}
       {empty && (
-        <span className="flex-1 flex items-center justify-center gap-1 text-muted-foreground/40 group-hover:text-muted-foreground/80 transition-colors">
-          <Plus className={roomy ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
-          {roomy && <span className="text-[11px]">Add practice</span>}
+        <span
+          className={`flex items-center gap-1 text-muted-foreground/40 group-hover:text-muted-foreground/80 transition-colors ${
+            stacked ? '' : 'flex-1 justify-center'
+          }`}
+        >
+          <Plus className={roomy || stacked ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+          {(roomy || stacked) && <span className="text-[11px]">Add practice</span>}
         </span>
       )}
       {dayMeets.map((m) => (
@@ -531,11 +577,12 @@ const DayCell: React.FC<{
             e.stopPropagation();
             onSelectMeet(m.id);
           }}
-          className="text-[11px] rounded px-1 py-0.5 truncate bg-secondary text-secondary-foreground hover:underline"
+          className="text-[11px] rounded px-1 py-0.5 truncate max-w-full bg-secondary text-secondary-foreground hover:underline"
         >
           {m.name}
         </span>
       ))}
+      </span>
     </button>
   );
 };
