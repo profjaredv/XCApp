@@ -6,6 +6,9 @@ const { FULL_COACH } = require('../lib/teamRoles');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
 const { MILE_IN_METERS } = require('../lib/distance');
+const { parseDistanceToMeters } = require('../lib/distance');
+const { buildCareerComparison } = require('../lib/careerComparison');
+const { normalizeGender } = require('../lib/gender');
 
 const router = express.Router();
 
@@ -218,6 +221,65 @@ router.post('/cache/clear', authenticate, requireTeam, requireRole(FULL_COACH), 
   } catch (error) {
     logger.error(`Error clearing cache: ${error.message}`);
     res.status(500).json({ success: false, message: 'Failed to clear cache' });
+  }
+});
+
+/**
+ * @route   GET /api/performance/athlete/:athleteId/career-comparison
+ *
+ * The four lines on Career Progress: this athlete, and what the team, the
+ * boys and the girls averaged in each season they raced. Computed from
+ * results directly rather than from stored season metrics, so it is
+ * correct before anyone has run the season calculation — a coach opening
+ * an athlete's profile shouldn't be told to go run analytics first.
+ */
+router.get('/athlete/:athleteId/career-comparison', authenticate, requireTeam, async (req, res) => {
+  try {
+    const { athleteId } = req.params;
+    const teamId = req.user.teamId;
+
+    const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId } });
+    if (!athlete) {
+      return res.status(404).json({ success: false, message: 'Athlete not found' });
+    }
+
+    // Only the seasons this athlete actually raced — the chart's x-axis is
+    // their career, not the program's.
+    const athleteRaces = await prisma.result.findMany({
+      where: { athleteId, status: 'FINISHED', time: { gt: 0 }, race: { teamId } },
+      select: { race: { select: { season: true } } },
+    });
+    const seasons = [...new Set(athleteRaces.map((r) => r.race.season).filter((s) => Number.isFinite(s)))];
+    if (seasons.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const results = await prisma.result.findMany({
+      where: {
+        status: 'FINISHED',
+        time: { gt: 0 },
+        race: { teamId, season: { in: seasons } },
+      },
+      select: {
+        time: true,
+        athleteId: true,
+        athlete: { select: { gender: true } },
+        race: { select: { season: true, distance: true, distanceMeters: true } },
+      },
+    });
+
+    const rows = results.map((r) => ({
+      athleteId: r.athleteId,
+      gender: normalizeGender(r.athlete && r.athlete.gender),
+      season: r.race.season,
+      timeSec: r.time,
+      distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
+    }));
+
+    res.json({ success: true, data: buildCareerComparison(rows, athleteId) });
+  } catch (error) {
+    logger.error(`Error building career comparison: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to build career comparison' });
   }
 });
 

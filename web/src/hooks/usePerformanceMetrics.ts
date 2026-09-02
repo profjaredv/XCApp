@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { performanceService, AthleteSeasonMetricsData } from '../api/performanceService';
+import { performanceService, AthleteSeasonMetricsData, CareerComparisonSeason } from '../api/performanceService';
 import type { TeamPerformanceResponse, AthletePerformanceResponse, MeetPerformanceResponse, TeamSeasonSeriesResponse, PerformanceResponse } from '../types/performance';
 
 type AthleteAllSeasonsResponse = PerformanceResponse<{ athleteId: string, seasons: AthleteSeasonMetricsData[] }>;
@@ -27,6 +27,17 @@ export const useAthleteAllSeasons = (athleteId: string, options = {}) => {
     queryKey: ['performance', 'athlete', athleteId, 'all-seasons'],
     queryFn: () => performanceService.getAthleteAllSeasons(athleteId),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    ...options
+  });
+};
+
+/** The team/boys/girls comparison lines on Career Progress. Computed from results, so it works before season metrics are calculated. */
+export const useCareerComparison = (athleteId: string, options = {}) => {
+  return useQuery<PerformanceResponse<CareerComparisonSeason[]>, Error>({
+    queryKey: ['performance', 'athlete', athleteId, 'career-comparison'],
+    queryFn: () => performanceService.getCareerComparison(athleteId),
+    staleTime: 5 * 60 * 1000,
+    enabled: !!athleteId,
     ...options
   });
 };

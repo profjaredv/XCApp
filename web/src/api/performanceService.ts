@@ -84,10 +84,25 @@ export interface AthleteSeasonMetricsData {
   best5kTime?: number;
 }
 
+export interface CareerComparisonSeason {
+  season: number;
+  athlete5K: number | null;
+  athletePace: number | null;
+  team5K: number | null;
+  teamPace: number | null;
+  boys5K: number | null;
+  boysPace: number | null;
+  girls5K: number | null;
+  girlsPace: number | null;
+  /** How many athletes each average stands on — one is not an average. */
+  counts: { team: number; boys: number; girls: number };
+}
+
 interface PerformanceService {
   getTeamMetrics(teamId: string, season: number): Promise<TeamPerformanceResponse>;
   getAthleteMetrics(athleteId: string, season: number): Promise<AthletePerformanceResponse>;
   getAthleteAllSeasons(athleteId: string): Promise<PerformanceResponse<{ athleteId: string, seasons: AthleteSeasonMetricsData[] }>>;
+  getCareerComparison(athleteId: string): Promise<PerformanceResponse<CareerComparisonSeason[]>>;
   getMeetMetrics(meetId: string, teamId: string): Promise<MeetPerformanceResponse>;
   getTeamSeasonSeries(teamId: string, season: number): Promise<TeamSeasonSeriesResponse>;
   recalculateMetrics(teamId: string, season: number): Promise<PerformanceResponse<{ success: boolean }>>;
@@ -115,6 +130,14 @@ export const performanceService: PerformanceService = {
     return response.data;
   },
   
+  /** The four Career Progress lines: this athlete, and the team/boys/girls averages for each season they raced. */
+  async getCareerComparison(athleteId: string) {
+    const response = await axiosInstance.get<PerformanceResponse<CareerComparisonSeason[]>>(
+      `/performance/athlete/${athleteId}/career-comparison`
+    );
+    return response.data;
+  },
+
   async getAthleteAllSeasons(athleteId: string) {
     const response = await axiosInstance.get<PerformanceResponse<{ athleteId: string, seasons: AthleteSeasonMetricsData[] }>>(
       `/performance/athlete/${athleteId}/all-seasons`

@@ -15,6 +15,29 @@ interface AthleteProgressData {
   boysPace: number | null;
   girls5K: number | null;
   girlsPace: number | null;
+  /** How many athletes each average stands on. One is not an average. */
+  counts?: { team: number; boys: number; girls: number };
+}
+
+// A comparison line is only drawn when there is something behind it.
+//
+// This chart used to render four <Line>s unconditionally, which meant a
+// legend advertising Boys Average, Girls Average and Team Average on a
+// chart showing one line — the comparison data was null for a year after
+// the endpoint it came from was removed. It also means a boys' team gets
+// no phantom "Girls Average" entry, and a squad of one gets no average
+// that is really just their own line drawn twice.
+const MIN_FOR_AVERAGE = 2;
+
+function hasSeries(data: AthleteProgressData[], key: keyof AthleteProgressData): boolean {
+  return data.some((row) => typeof row[key] === 'number' && (row[key] as number) > 0);
+}
+
+function groupHasEnough(data: AthleteProgressData[], group: 'team' | 'boys' | 'girls'): boolean {
+  // No counts at all (the fallback shape) — fall back to "is there a
+  // number", which is the old behaviour minus the phantom lines.
+  if (!data.some((row) => row.counts)) return true;
+  return data.some((row) => (row.counts?.[group] ?? 0) >= MIN_FOR_AVERAGE);
 }
 
 interface AthleteProgressChartProps {
@@ -30,6 +53,19 @@ const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({
   isLoading = false 
 }) => {
   const [activeTab, setActiveTab] = useState('5k-times');
+
+  const shows = (key: keyof AthleteProgressData, group: 'team' | 'boys' | 'girls') =>
+    hasSeries(data, key) && groupHasEnough(data, group);
+
+  const comparisons = {
+    team5K: shows('team5K', 'team'),
+    teamPace: shows('teamPace', 'team'),
+    boys5K: shows('boys5K', 'boys'),
+    boysPace: shows('boysPace', 'boys'),
+    girls5K: shows('girls5K', 'girls'),
+    girlsPace: shows('girlsPace', 'girls'),
+  };
+  const anyComparison = Object.values(comparisons).some(Boolean);
 
   if (isLoading) {
     return (
@@ -69,7 +105,9 @@ const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({
       <CardHeader>
         <CardTitle>Career Progress</CardTitle>
         <p className="text-sm text-muted-foreground">
-          {athleteName}'s performance compared to team, boys, and girls averages
+          {anyComparison
+            ? `${athleteName} against the season averages of everyone they raced with.`
+            : `${athleteName}'s times by season.`}
         </p>
       </CardHeader>
       <CardContent>
@@ -104,33 +142,39 @@ const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({
                   name={athleteName}
                   connectNulls={false}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="boys5K" 
-                  stroke="#dc2626" 
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  name="Boys Average"
-                  connectNulls={false}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="girls5K" 
-                  stroke="#f59e0b" 
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  name="Girls Average"
-                  connectNulls={false}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="team5K" 
-                  stroke="#16a34a" 
-                  strokeWidth={2}
-                  strokeDasharray="3 3"
-                  name="Team Average"
-                  connectNulls={false}
-                />
+                {comparisons.boys5K && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="boys5K" 
+                    stroke="#dc2626" 
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    name="Boys Average"
+                    connectNulls={false}
+                  />
+                )}
+                {comparisons.girls5K && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="girls5K" 
+                    stroke="#f59e0b" 
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    name="Girls Average"
+                    connectNulls={false}
+                  />
+                )}
+                {comparisons.team5K && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="team5K" 
+                    stroke="#16a34a" 
+                    strokeWidth={2}
+                    strokeDasharray="3 3"
+                    name="Team Average"
+                    connectNulls={false}
+                  />
+                )}
               </LineChart>
             </ResponsiveContainer>
           </TabsContent>
@@ -160,33 +204,39 @@ const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({
                   name={athleteName}
                   connectNulls={false}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="boysPace" 
-                  stroke="#dc2626" 
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  name="Boys Average"
-                  connectNulls={false}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="girlsPace" 
-                  stroke="#f59e0b" 
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  name="Girls Average"
-                  connectNulls={false}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="teamPace" 
-                  stroke="#16a34a" 
-                  strokeWidth={2}
-                  strokeDasharray="3 3"
-                  name="Team Average"
-                  connectNulls={false}
-                />
+                {comparisons.boysPace && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="boysPace" 
+                    stroke="#dc2626" 
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    name="Boys Average"
+                    connectNulls={false}
+                  />
+                )}
+                {comparisons.girlsPace && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="girlsPace" 
+                    stroke="#f59e0b" 
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    name="Girls Average"
+                    connectNulls={false}
+                  />
+                )}
+                {comparisons.teamPace && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="teamPace" 
+                    stroke="#16a34a" 
+                    strokeWidth={2}
+                    strokeDasharray="3 3"
+                    name="Team Average"
+                    connectNulls={false}
+                  />
+                )}
               </LineChart>
             </ResponsiveContainer>
           </TabsContent>

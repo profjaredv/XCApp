@@ -9,6 +9,7 @@ import AthleteProgressChart from './AthleteProgressChart';
 import { AthleteHighlightCard } from './AthleteHighlightCard';
 import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSummary';
 import { useAthleteSplitsAggregate } from '@/hooks/useSplits';
+import { useCareerComparison } from '@/hooks/usePerformanceMetrics';
 import { formatTime, formatPace } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { enrichRacesWithPRs, getPRBadgeStyle } from '@/utils/prTracking';
@@ -75,6 +76,10 @@ export const AthleteDetailModal = ({
   // the coach's roster profile page (see backend/lib/splitAggregates.js);
   // this modal just hadn't been wired to read the same query.
   const { data: splitsAggregate } = useAthleteSplitsAggregate(selectedAthlete?.id ?? null);
+
+  // The Career Progress comparison lines — see athleteProgressData below.
+  const { data: careerComparisonResponse } = useCareerComparison(selectedAthlete?.id ?? '');
+  const careerComparison = careerComparisonResponse?.data;
 
   // Deduplicate races by creating a unique key (before early return)
   const uniqueRaces = useMemo(() => {
@@ -214,24 +219,30 @@ export const AthleteDetailModal = ({
 
   if (!selectedAthlete || !enhancedSelectedAthlete) return null;
 
-  // Transform data for AthleteProgressChart. Team/gender comparison lines
-  // (team5K/boys5K/girls5K/etc.) used to come from GET /api/multi-season/
-  // trends, which silently dropped every state/championship race and took
-  // an unweighted mean — that endpoint and its frontend hook are gone (Part
-  // B, XCApp Pre-Season Fixes doc). Left null here: the athlete's own
-  // progress line still renders, just without a team/gender comparison —
-  // see /band-trends for the real, per-band replacement view.
-  const athleteProgressData = (seasonBreakdown || []).map(season => ({
-    season: season.season,
-    athlete5K: season.best5kTime || null,
-    athletePace: season.avgPace || null,
-    team5K: null,
-    teamPace: null,
-    boys5K: null,
-    boysPace: null,
-    girls5K: null,
-    girlsPace: null
-  }));
+  // Career Progress. The team/boys/girls comparison lines used to come
+  // from GET /api/multi-season/trends, which silently dropped every
+  // championship race and took an unweighted mean; when that endpoint was
+  // removed the lines were nulled out and the card's promise to compare
+  // against them was left in place, so it drew a legend for three series
+  // that never appeared. They come from /career-comparison now, which
+  // measures every line — including the athlete's own — from the same
+  // result rows, so nothing on the chart is computed a different way from
+  // what it sits next to. Falls back to the season breakdown while that
+  // request is in flight, so the athlete's line doesn't blink in.
+  const athleteProgressData =
+    careerComparison && careerComparison.length > 0
+      ? careerComparison
+      : (seasonBreakdown || []).map(season => ({
+          season: season.season,
+          athlete5K: season.best5kTime || null,
+          athletePace: season.avgPace || null,
+          team5K: null,
+          teamPace: null,
+          boys5K: null,
+          boysPace: null,
+          girls5K: null,
+          girlsPace: null,
+        }));
 
   // Add PR and SB data to career summary
   const enhancedCareerSummary = {
