@@ -31,6 +31,7 @@ import type { WorkoutTemplate, WorkoutTemplateInput } from '@/api/workoutTemplat
 import { PracticePlanPreview } from '@/components/practicePlans/PracticePlanPreview';
 import { formatDateShort } from '@/lib/formatUtils';
 import { toCsv } from '@/lib/csvParse';
+import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
 
 // Schedule rework: Practice Plans and Meets merged into one calendar, with
 // month/week/agenda views (all sharing the same DayCell rendering, agenda
@@ -102,6 +103,9 @@ function downloadCsv(filename: string, csvText: string) {
 const SchedulePage: React.FC = () => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
+  // Plenty of programs take roll on paper, or in whatever system their
+  // school already requires — see Settings → Features.
+  const attendanceEnabled = useFeatureEnabled('attendance');
   const { seasons, activeYear } = useSeasonSelection();
 
   const [viewMode, setViewMode] = useState<ViewMode>('month');
@@ -212,10 +216,12 @@ const SchedulePage: React.FC = () => {
         <Timer className="h-4 w-4 mr-2" />
         Interval Sessions
       </Button>
-      <Button variant="outline" onClick={() => navigate(teamPath('/attendance'))}>
-        <ClipboardCheck className="h-4 w-4 mr-2" />
-        Attendance
-      </Button>
+      {attendanceEnabled && (
+        <Button variant="outline" onClick={() => navigate(teamPath('/attendance'))}>
+          <ClipboardCheck className="h-4 w-4 mr-2" />
+          Attendance
+        </Button>
+      )}
       <Button variant="outline" onClick={handleExport} disabled={exportPlans.isPending}>
         {exportPlans.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
         Export

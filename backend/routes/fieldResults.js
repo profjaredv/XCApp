@@ -33,6 +33,7 @@ const router = express.Router();
 const { parse } = require('csv-parse/sync');
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/teamFeatures');
 const { FULL_COACH } = require('../lib/teamRoles');
 const { computeFieldStats } = require('../lib/fieldNormalization');
 const { parseFieldResultsCsv } = require('../lib/fieldResultsCsv');
@@ -105,7 +106,7 @@ async function recomputeRacePlacements(raceId) {
 // GET /api/field-results/races?season=YYYY
 // Every race the team has for a season, with its current field-data status
 // — the coach's "what still needs uploading" view. Aggregate fields only.
-router.get('/races', authenticate, requireTeam, async (req, res) => {
+router.get('/races', authenticate, requireFeature('fieldResults'), requireTeam, async (req, res) => {
   const teamId = req.user.teamId;
   const season = parseInt(req.query.season, 10);
 
@@ -191,7 +192,7 @@ router.get('/races', authenticate, requireTeam, async (req, res) => {
 // Varsity" no longer wipes out an already-uploaded "Girls Gold Varsity" on
 // the same race. Recomputes the race's aggregate field stats over its full,
 // combined FieldResult set (every division), not just this upload's rows.
-router.post('/:raceId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+router.post('/:raceId', authenticate, requireFeature('fieldResults'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const teamId = req.user.teamId;
   const { csvData } = req.body;
 
@@ -284,7 +285,7 @@ router.post('/:raceId', authenticate, requireTeam, requireRole(FULL_COACH), asyn
 // creates no FieldResult rows (there's no per-team roster of other schools'
 // finishers to own here, just borrowed arithmetic). A later real upload to
 // this race overwrites these with the team's own computed stats as normal.
-router.post('/:raceId/copy-from-meet', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+router.post('/:raceId/copy-from-meet', authenticate, requireFeature('fieldResults'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const teamId = req.user.teamId;
 
   try {
@@ -327,7 +328,7 @@ router.post('/:raceId/copy-from-meet', authenticate, requireTeam, requireRole(FU
 // race, etc.): clears this race's FieldResult rows and resets its
 // aggregate fields back to null (the pre-upload, "no field data yet"
 // state band analytics already handles gracefully).
-router.delete('/:raceId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+router.delete('/:raceId', authenticate, requireFeature('fieldResults'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const teamId = req.user.teamId;
 
   try {

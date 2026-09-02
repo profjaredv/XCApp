@@ -46,6 +46,7 @@ import { PracticePlanPreview } from '@/components/practicePlans/PracticePlanPrev
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
 import { useMyReflection, useSavePreRace, useSavePostRace, useSetSharing } from '@/hooks/useRaceReflections';
+import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
 
 const LOG_TYPES: { value: TrainingLogType; label: string }[] = [
   { value: 'easy', label: 'Easy run' },
@@ -88,6 +89,7 @@ const MyProgressPage: React.FC = () => {
 
 
   const [reflectionRaceId, setReflectionRaceId] = useState<string | null>(null);
+  const reflectionsEnabled = useFeatureEnabled('reflections');
   const reflectionRace = recentRaces.find((r) => r.raceId === reflectionRaceId);
 
   const { data: logs = [] } = useQuery({
@@ -447,6 +449,10 @@ const MyProgressPage: React.FC = () => {
         </Card>
       )}
 
+      {/* Some programs opt out of athlete-written reflections entirely —
+          Settings → Features. Existing entries are untouched and still in
+          the athlete's own export; they just stop being written to. */}
+      {reflectionsEnabled && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -479,6 +485,7 @@ const MyProgressPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+      )}
 
       <Dialog open={!!reflectionRaceId} onOpenChange={(open) => !open && setReflectionRaceId(null)}>
         <DialogContent className="max-w-lg">

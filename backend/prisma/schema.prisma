@@ -102,6 +102,13 @@ model Team {
   stripeSubscriptionId String?   @map("stripe_subscription_id")
   checkoutCompletedAt  DateTime? @map("checkout_completed_at")
 
+  // Which optional parts of the app this team uses — { attendance: false,
+  // ... }. Null means "never configured", which is every existing team and
+  // resolves to all-on; only keys the coach actually changed are stored, so
+  // a feature added to the catalog later starts enabled for everyone
+  // instead of silently disappearing. See lib/teamFeatures.js.
+  features             Json?
+
   coach                   User?                    @relation("TeamCoach", fields: [coachUid], references: [id])
   members                 User[]                   @relation("TeamUsers")
   teamMembers             TeamMember[]

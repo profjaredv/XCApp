@@ -5,6 +5,7 @@ const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require
 const { ANY_COACH } = require('../lib/teamRoles');
 const { getGroupOn } = require('../lib/groups');
 const { computeLockAt, isPreRaceLocked, decideCanViewReflection } = require('../lib/raceReflections');
+const { requireFeature } = require('../middleware/teamFeatures');
 
 // T5 (Team Management handoff): "the most emotionally valuable thing in
 // the app and the most sensitive." Every route here either scopes to the
@@ -21,7 +22,7 @@ async function raceLockState(raceId) {
 // GET /api/race-reflections/mine/:raceId — the athlete's own reflection
 // for a race (or defaults if they haven't written one yet), plus the
 // current lock state so the UI can show "goals lock once results are in."
-router.get('/mine/:raceId', authenticate, requireLinkedAthlete, async (req, res) => {
+router.get('/mine/:raceId', authenticate, requireFeature('reflections'), requireLinkedAthlete, async (req, res) => {
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
     if (!race) {
@@ -60,7 +61,7 @@ router.get('/mine/:raceId', authenticate, requireLinkedAthlete, async (req, res)
 
 // PUT /api/race-reflections/mine/:raceId/pre-race — rejected once the race
 // has started (server-side, never just hidden client-side).
-router.put('/mine/:raceId/pre-race', authenticate, requireLinkedAthlete, async (req, res) => {
+router.put('/mine/:raceId/pre-race', authenticate, requireFeature('reflections'), requireLinkedAthlete, async (req, res) => {
   const { processGoal, outcomeGoal, targetTimeSec, targetSplits, keyFocus } = req.body;
 
   try {
@@ -96,7 +97,7 @@ router.put('/mine/:raceId/pre-race', authenticate, requireLinkedAthlete, async (
 });
 
 // PUT /api/race-reflections/mine/:raceId/post-race — never locks.
-router.put('/mine/:raceId/post-race', authenticate, requireLinkedAthlete, async (req, res) => {
+router.put('/mine/:raceId/post-race', authenticate, requireFeature('reflections'), requireLinkedAthlete, async (req, res) => {
   const { feelingRating, effortRating, whatWorked, whatDidnt, postNotes } = req.body;
 
   if (feelingRating != null && (feelingRating < 1 || feelingRating > 10)) {
@@ -135,7 +136,7 @@ router.put('/mine/:raceId/post-race', authenticate, requireLinkedAthlete, async 
 
 // PUT /api/race-reflections/mine/:raceId/sharing — the visibility toggle
 // itself is never locked by race timing, only the pre-race content is.
-router.put('/mine/:raceId/sharing', authenticate, requireLinkedAthlete, async (req, res) => {
+router.put('/mine/:raceId/sharing', authenticate, requireFeature('reflections'), requireLinkedAthlete, async (req, res) => {
   const { sharedWithCoach } = req.body;
   if (typeof sharedWithCoach !== 'boolean') {
     return res.status(400).json({ msg: 'sharedWithCoach must be a boolean.' });
@@ -164,7 +165,7 @@ router.put('/mine/:raceId/sharing', authenticate, requireLinkedAthlete, async (r
 // list, so a captain (still just a TeamRole.ATHLETE) gets a flat 403 here
 // regardless of who they lead or which reflections are shared — they
 // never reach the per-row filter at all.
-router.get('/race/:raceId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.get('/race/:raceId', authenticate, requireFeature('reflections'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
     if (!race) {

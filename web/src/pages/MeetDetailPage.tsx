@@ -19,6 +19,7 @@ import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults } from '@/hooks/useMeetOps';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
+import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
 import { formatTimeSec, type MeetDetail, type ResultStatus, type RaceResultEntry } from '@/api/meetOpsService';
 import { rosterService } from '@/api/rosterService';
 import { formatTime, parseTimeToSeconds } from '@/lib/formatUtils';
@@ -253,7 +254,11 @@ const MeetDetailPage: React.FC = () => {
 };
 
 const ReflectionsView: React.FC<{ raceId: string }> = ({ raceId }) => {
-  const { data, isLoading } = useReflectionsForRace(raceId);
+  // A team can opt out of athlete-written reflections entirely (Settings →
+  // Features); the API refuses this call then, so don't make it.
+  const enabled = useFeatureEnabled('reflections');
+  const { data, isLoading } = useReflectionsForRace(raceId, { enabled });
+  if (!enabled) return null;
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (!data || data.length === 0) {
     return <p className="text-sm text-muted-foreground">No shared reflections for this race yet.</p>;

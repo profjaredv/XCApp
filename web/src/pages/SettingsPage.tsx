@@ -24,10 +24,11 @@ import { DataExportCard } from '@/components/settings/DataExportCard';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { DataPracticesCard } from '@/components/settings/DataPracticesCard';
 import { SeasonRolloverCard } from '@/components/settings/SeasonRolloverCard';
+import { TeamFeaturesCard } from '@/components/settings/TeamFeaturesCard';
 import { PageHeader } from '@/components/PageHeader';
 import { useExpandedSections } from '@/hooks/useExpandedSections';
 import { isFullCoach, canDeleteData, isImpersonatingAdmin } from '@/lib/teamRole';
-import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2, CalendarPlus } from 'lucide-react';
+import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2, CalendarPlus, ToggleLeft } from 'lucide-react';
 
 interface Team {
   id: string;
@@ -312,6 +313,23 @@ const SimpleSettingsPage: React.FC = () => {
             onToggle={() => toggle('staff')}
           >
             {isMounted('staff') && <StaffManager />}
+          </SettingsSection>
+        )}
+
+        {/* Not every program uses every screen — attendance is the one
+            coaches ask about, but equipment, field results and athlete
+            reflections are the same kind of optional. */}
+        {team && (isFullCoach(currentUser) || isImpersonatingAdmin(currentUser)) && (
+          <SettingsSection
+            id="features"
+            section="neutral"
+            title="Features"
+            description="Turn off the parts of LeadPack your team doesn't use."
+            icon={ToggleLeft}
+            open={isOpen('features')}
+            onToggle={() => toggle('features')}
+          >
+            {isMounted('features') && <TeamFeaturesCard />}
           </SettingsSection>
         )}
 

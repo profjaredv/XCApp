@@ -52,6 +52,7 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({
   const accent = accentFor(section);
   return (
     <Card
+      id={id}
       className={cn(
         'gap-0 overflow-hidden py-0 transition-shadow',
         // An expanded section spans the whole grid so its content gets full

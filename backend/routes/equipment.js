@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { FULL_COACH } = require('../lib/teamRoles');
+const { requireFeature } = require('../middleware/teamFeatures');
 
 // T6 (Team Management handoff): equipment and uniform checkout. The doc
 // never scopes this domain to VOLUNTEER_COACH (same reasoning as T4's
@@ -12,7 +13,7 @@ const VALID_TYPES = ['TOP', 'BOTTOM', 'SPIKES', 'OTHER'];
 const VALID_CONDITIONS = ['NEW', 'GOOD', 'FAIR', 'POOR', 'RETIRED'];
 
 // GET /api/equipment?type=
-router.get('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+router.get('/', authenticate, requireFeature('equipment'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { type } = req.query;
   try {
     const items = await prisma.equipment.findMany({
@@ -49,7 +50,7 @@ router.get('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, 
 // POST /api/equipment — add inventory ahead of a checkout (e.g. sizing a
 // new order). Checkout below can also create an item on the fly, so this
 // isn't a required step, just an available one.
-router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+router.post('/', authenticate, requireFeature('equipment'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { type, identifier, size, condition, notes } = req.body;
   if (!type || !VALID_TYPES.includes(type)) {
     return res.status(400).json({ msg: 'A valid type is required.' });
@@ -80,7 +81,7 @@ router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req,
 });
 
 // PUT /api/equipment/:id
-router.put('/:id', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+router.put('/:id', authenticate, requireFeature('equipment'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { size, condition, retired, notes } = req.body;
   try {
     const item = await prisma.equipment.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
@@ -110,7 +111,7 @@ router.put('/:id', authenticate, requireTeam, requireRole(FULL_COACH), async (re
 // always applied to the item (create or update) — the grid checkout flow
 // captures size and number together in one action, same as a coach
 // writing both on a paper sign-out sheet.
-router.post('/checkout', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+router.post('/checkout', authenticate, requireFeature('equipment'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { type, identifier, athleteId, seasonId, size, dueDate, conditionOut, notes } = req.body;
 
   if (!type || !VALID_TYPES.includes(type)) {
@@ -183,7 +184,7 @@ router.post('/checkout', authenticate, requireTeam, requireRole(FULL_COACH), asy
 });
 
 // POST /api/equipment/assignments/:assignmentId/return
-router.post('/assignments/:assignmentId/return', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+router.post('/assignments/:assignmentId/return', authenticate, requireFeature('equipment'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { conditionIn, notes } = req.body;
   try {
     const assignment = await prisma.equipmentAssignment.findFirst({
@@ -215,7 +216,7 @@ router.post('/assignments/:assignmentId/return', authenticate, requireTeam, requ
 // GET /api/equipment/outstanding?seasonId= — the season-end outstanding
 // report: every unreturned item, grouped by athlete. The feature that
 // justifies the whole build, per the doc.
-router.get('/outstanding', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+router.get('/outstanding', authenticate, requireFeature('equipment'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });

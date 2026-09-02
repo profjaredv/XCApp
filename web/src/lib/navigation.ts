@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { TeamFeatureKey } from './teamFeatureKeys';
 import {
   Home, ClipboardList, Users, CalendarDays, LayoutDashboard, TrendingUp,
   Database, Package, Upload, Settings, Gauge, Flag,
@@ -39,6 +40,12 @@ export interface NavEntry {
    * tour can point at it.
    */
   custom?: boolean;
+  /**
+   * Hidden when the team turned this feature off (see lib/teamFeatures.js
+   * on the backend). Only the app's edges carry one — an entry with no
+   * feature is part of what LeadPack is and can't be switched off.
+   */
+  feature?: TeamFeatureKey;
 }
 
 // Order matters: this is the order the sidebar shows, and the order the
@@ -56,8 +63,8 @@ export const NAV_ITEMS: NavEntry[] = [
   { key: 'program', label: 'Program', path: '/band-trends', icon: TrendingUp, audience: ['coach'], section: 'spine' },
 
   { key: 'data', label: 'Data & Import', path: '/data-management', icon: Database, audience: ['coach'], section: 'setup' },
-  { key: 'equipment', label: 'Equipment', path: '/equipment', icon: Package, audience: ['coach'], section: 'setup' },
-  { key: 'field-results', label: 'Field Results', path: '/field-results', icon: Upload, audience: ['coach'], section: 'setup' },
+  { key: 'equipment', label: 'Equipment', path: '/equipment', icon: Package, audience: ['coach'], section: 'setup', feature: 'equipment' },
+  { key: 'field-results', label: 'Field Results', path: '/field-results', icon: Upload, audience: ['coach'], section: 'setup', feature: 'fieldResults' },
   { key: 'settings', label: 'Settings', path: '/settings', icon: Settings, audience: ['coach'], section: 'setup' },
 
   { key: 'my-progress', label: 'My Progress', path: '/me', icon: Gauge, audience: ['athlete'], section: 'spine' },

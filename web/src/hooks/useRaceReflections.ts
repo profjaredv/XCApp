@@ -35,10 +35,12 @@ export function useSetSharing(raceId: string | null) {
   });
 }
 
-export function useReflectionsForRace(raceId: string | null) {
+export function useReflectionsForRace(raceId: string | null, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['raceReflections', raceId],
     queryFn: () => raceReflectionService.getForRace(raceId as string),
-    enabled: !!raceId,
+    // Callers can add their own condition — a team that turned reflections
+    // off would otherwise fire a request the API is going to refuse.
+    enabled: !!raceId && options?.enabled !== false,
   });
 }

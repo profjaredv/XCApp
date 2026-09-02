@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { resolveFeatures } = require('../lib/teamFeatures');
 const { ANY_COACH } = require('../lib/teamRoles');
 const { resolveTodaySeasonState, resolveActiveSeason } = require('../lib/season');
 const { mergeStaffRoster } = require('../lib/teamStaff');
@@ -122,6 +123,12 @@ router.get('/attention', authenticate, requireTeam, requireRole(ANY_COACH), asyn
     const tomorrow = addDays(today, 1);
     const weekAgo = addDays(today, -7);
 
+    // Today is a summary of the app, so it can only ever mention parts of
+    // the app this team actually uses — an overdue-uniform nag on a team
+    // that turned equipment off links to a screen they can't open.
+    const team = await prisma.team.findUnique({ where: { id: teamId }, select: { features: true } });
+    const features = resolveFeatures(team && team.features);
+
     const [racesNeedingSplits, tomorrowPlan, overdueEquipment] = await Promise.all([
       prisma.race.findMany({
         where: {
@@ -137,12 +144,14 @@ router.get('/attention', authenticate, requireTeam, requireRole(ANY_COACH), asyn
         where: { teamId, date: tomorrow, published: false },
         select: { id: true, date: true },
       }),
-      prisma.equipmentAssignment.findMany({
-        where: { equipment: { teamId }, returnedAt: null, dueDate: { lt: today } },
-        select: { id: true, dueDate: true, athlete: { select: { name: true, preferredName: true } }, equipment: { select: { type: true, identifier: true } } },
-        orderBy: { dueDate: 'asc' },
-        take: 5,
-      }),
+      features.equipment
+        ? prisma.equipmentAssignment.findMany({
+            where: { equipment: { teamId }, returnedAt: null, dueDate: { lt: today } },
+            select: { id: true, dueDate: true, athlete: { select: { name: true, preferredName: true } }, equipment: { select: { type: true, identifier: true } } },
+            orderBy: { dueDate: 'asc' },
+            take: 5,
+          })
+        : [],
     ]);
 
     const items = [];
@@ -262,6 +271,9 @@ router.get('/activity', authenticate, requireTeam, requireRole(ANY_COACH), async
     const windowStart = addDays(normalizeToday(), -14);
     const viewerRole = await resolveViewerRole(req);
 
+    const team = await prisma.team.findUnique({ where: { id: teamId }, select: { features: true } });
+    const features = resolveFeatures(team && team.features);
+
     const [logs, reflections] = await Promise.all([
       prisma.trainingLog.findMany({
         where: { athlete: { teamId }, sharedWithCoach: true, createdAt: { gte: windowStart } },
@@ -269,15 +281,17 @@ router.get('/activity', authenticate, requireTeam, requireRole(ANY_COACH), async
         orderBy: { createdAt: 'desc' },
         take: 20,
       }),
-      prisma.raceReflection.findMany({
-        where: {
-          athlete: { teamId },
-          sharedWithCoach: true,
-          OR: [{ preSubmittedAt: { gte: windowStart } }, { postSubmittedAt: { gte: windowStart } }],
-        },
-        include: { athlete: { select: { id: true, name: true, preferredName: true } }, race: { select: { id: true, name: true, date: true } } },
-        take: 20,
-      }),
+      features.reflections
+        ? prisma.raceReflection.findMany({
+            where: {
+              athlete: { teamId },
+              sharedWithCoach: true,
+              OR: [{ preSubmittedAt: { gte: windowStart } }, { postSubmittedAt: { gte: windowStart } }],
+            },
+            include: { athlete: { select: { id: true, name: true, preferredName: true } }, race: { select: { id: true, name: true, date: true } } },
+            take: 20,
+          })
+        : [],
     ]);
 
     async function volunteerLeadsAthlete(athleteId, onDate) {

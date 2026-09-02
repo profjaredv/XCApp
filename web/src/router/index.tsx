@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
 import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
+import { FeatureGate } from '../components/FeatureGate';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
@@ -201,11 +202,19 @@ export const router = createBrowserRouter([
               // phone screen space" reason.
               {
                 path: 'attendance',
-                element: <AttendancePage />,
+                element: (
+                  <FeatureGate feature="attendance">
+                    <AttendancePage />
+                  </FeatureGate>
+                ),
               },
               {
                 path: 'attendance/:sessionId',
-                element: <AttendanceSessionPage />,
+                element: (
+                  <FeatureGate feature="attendance">
+                    <AttendanceSessionPage />
+                  </FeatureGate>
+                ),
               },
               // Splits entry grid (C6) - standalone without Layout too,
               // opened full screen from a race's context menu. Its own
@@ -247,8 +256,15 @@ export const router = createBrowserRouter([
                     element: <BandTrendsPage />,
                   },
                   {
+                    // A team that doesn't upload full fields gets an
+                    // explanation here rather than a screen whose every
+                    // request 403s. Same for equipment below.
                     path: 'field-results',
-                    element: <FieldResultsPage />,
+                    element: (
+                      <FeatureGate feature="fieldResults">
+                        <FieldResultsPage />
+                      </FeatureGate>
+                    ),
                   },
                   {
                     path: 'groups',
@@ -278,7 +294,11 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'equipment',
-                    element: <EquipmentPage />,
+                    element: (
+                      <FeatureGate feature="equipment">
+                        <EquipmentPage />
+                      </FeatureGate>
+                    ),
                   },
                   {
                     path: 'roster',

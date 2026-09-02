@@ -9,6 +9,7 @@ const { decideCanHaveAccount } = require('../lib/minorPolicy');
 const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 const { sendEmail } = require('../lib/email');
 const { requireActivePlan } = require('../lib/entitlements');
+const { describeFeatures, applyFeatureUpdate, resolveFeatures } = require('../lib/teamFeatures');
 
 // www, not the apex — the apex leadpack.cc has no DNS record pointed at
 // the app, so bare-domain invite links 404 at the DNS level before ever
@@ -814,6 +815,60 @@ router.post('/approve-guardian-link', authenticate, requireTeam, requireRole(FUL
     res.json({ msg: `Guardian link ${action === 'approve' ? 'approved' : 'rejected'}.` });
   } catch (error) {
     console.error('Error resolving guardian link:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/team/features
+//
+// The catalog plus this team's state, in one payload, so the settings
+// screen renders labels and descriptions the backend owns rather than a
+// second copy of the list that can drift from the one that enforces it.
+// Readable by anyone on the team: the athlete app hides the same things
+// the coach turned off.
+router.get('/features', authenticate, requireTeam, async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({
+      where: { id: req.user.teamId },
+      select: { features: true },
+    });
+    if (!team) return res.status(404).json({ msg: 'Team not found' });
+
+    res.json({ features: describeFeatures(team.features), enabled: resolveFeatures(team.features) });
+  } catch (error) {
+    console.error('Error loading team features:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// PATCH /api/team/features
+//
+// Body is a partial map of { featureKey: boolean }. Unknown keys and
+// non-booleans are rejected outright rather than ignored — silently
+// accepting a request that changed nothing is how a settings screen ends
+// up lying about its own state.
+router.patch('/features', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({
+      where: { id: req.user.teamId },
+      select: { features: true },
+    });
+    if (!team) return res.status(404).json({ msg: 'Team not found' });
+
+    const { features, unknownKeys } = applyFeatureUpdate(team.features, req.body);
+    if (unknownKeys.length > 0) {
+      return res.status(400).json({ msg: `Not a feature that can be turned on or off: ${unknownKeys.join(', ')}` });
+    }
+
+    const updated = await prisma.team.update({
+      where: { id: req.user.teamId },
+      data: { features },
+      select: { features: true },
+    });
+
+    res.json({ features: describeFeatures(updated.features), enabled: resolveFeatures(updated.features) });
+  } catch (error) {
+    console.error('Error updating team features:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

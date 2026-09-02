@@ -19,6 +19,7 @@ import api from '../api/api';
 import { sectionForPath, isDrillInPath } from '../lib/sectionTheme';
 import { useNerdMode } from '../contexts/NerdModeContext';
 import { navFor, navEntry } from '../lib/navigation';
+import { useTeamFeatures } from '@/hooks/useTeamFeatures';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface SidebarProps {
@@ -206,6 +207,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   // still key off the same signal the server actually checks, not the
   // legacy role hint. Volunteer coaches get the coach spine minus Setup.
   const teamRole = currentUser?.teamRole;
+  const { data: features } = useTeamFeatures();
   const isVolunteerCoach = teamRole === 'VOLUNTEER_COACH';
   const isCoachSpine = teamRole === 'HEAD_COACH' || teamRole === 'COACH' || isVolunteerCoach;
 
@@ -273,9 +275,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
             <NavItem to={teamPath(navEntry('program').path)} icon={navEntry('program').icon} label={navEntry('program').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('program')} />
             {!isVolunteerCoach && (
               <CollapsibleSetupSection isCollapsed={isCollapsed}>
-                {navFor('coach', 'setup').map((item) => (
+                {navFor('coach', 'setup')
+                  // A screen the team turned off stays off the sidebar. The
+                  // API refuses it too (backend middleware/teamFeatures.js),
+                  // so this is tidiness rather than the rule.
+                  .filter((item) => !item.feature || features?.enabled?.[item.feature] !== false)
+                  .map((item) => (
                   <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey(item.key)} />
-                ))}
+                  ))}
                 {/* The feedback INBOX is the maintainer's, not a per-team
                     feature — filing a report is still open to everyone via
                     the floating FeedbackWidget on every screen. The backend

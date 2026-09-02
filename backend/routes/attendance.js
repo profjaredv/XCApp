@@ -4,6 +4,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { ANY_COACH } = require('../lib/teamRoles');
 const { deriveGrade, isEnrolled } = require('../lib/season');
+const { requireFeature } = require('../middleware/teamFeatures');
 
 // Attendance tracking — a digitized version of the physical clipboard a
 // team already uses: a roster sorted by grade then last name (the
@@ -107,7 +108,7 @@ async function findOrCreateSessionForDate(teamId, seasonId, date, createdById, a
 
 // GET /api/attendance?seasonId= — every session for a season, most
 // recent first, with per-status counts for the list view.
-router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.get('/', authenticate, requireFeature('attendance'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId } = req.query;
   if (!seasonId) {
     return res.status(400).json({ msg: 'seasonId is required.' });
@@ -144,7 +145,7 @@ router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, r
 // existing session (200) instead of erroring or creating a duplicate; the
 // unique constraint on AttendanceSession makes a true duplicate
 // impossible even under a concurrent double-submit.
-router.post('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.post('/', authenticate, requireFeature('attendance'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId, date, time, locationId } = req.body;
   if (!seasonId || !date) {
     return res.status(400).json({ msg: 'seasonId and date are required.' });
@@ -210,7 +211,7 @@ router.post('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, 
 // findOrCreateSessionForDate, each with full grade-resolved records — so the
 // frontend never has to make five separate requests, or worry about two
 // coaches opening the same brand-new week at once creating duplicate days.
-router.get('/week', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.get('/week', authenticate, requireFeature('attendance'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { seasonId, weekStart } = req.query;
   if (!seasonId || !weekStart) {
     return res.status(400).json({ msg: 'seasonId and weekStart are required.' });
@@ -262,7 +263,7 @@ router.get('/week', authenticate, requireTeam, requireRole(ANY_COACH), async (re
 // their name/grade (derived the same way the roster page does — SeasonRoster.grade
 // if the coach has corrected it, else from graduationYear) for the
 // frontend to group by grade / sort by last name.
-router.get('/:sessionId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.get('/:sessionId', authenticate, requireFeature('attendance'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const session = await prisma.attendanceSession.findFirst({
       where: { id: req.params.sessionId, teamId: req.user.teamId },
@@ -292,7 +293,7 @@ router.get('/:sessionId', authenticate, requireTeam, requireRole(ANY_COACH), asy
 // the location doesn't have to also resend the date/time, and two coaches
 // touching different session-level fields at once can't clobber each
 // other — same lesson as practice plans/splits/results this session.
-router.patch('/:sessionId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.patch('/:sessionId', authenticate, requireFeature('attendance'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { date, time, locationId } = req.body;
 
   try {
@@ -323,7 +324,7 @@ router.patch('/:sessionId', authenticate, requireTeam, requireRole(ANY_COACH), a
 });
 
 // DELETE /api/attendance/:sessionId
-router.delete('/:sessionId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.delete('/:sessionId', authenticate, requireFeature('attendance'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const existing = await prisma.attendanceSession.findFirst({ where: { id: req.params.sessionId, teamId: req.user.teamId } });
     if (!existing) {
@@ -340,7 +341,7 @@ router.delete('/:sessionId', authenticate, requireTeam, requireRole(ANY_COACH), 
 // POST /api/attendance/:sessionId/records — adds one athlete not in the
 // original roster snapshot (e.g. a walk-on that day). Defaults to blank
 // (ABSENT), same as every other record.
-router.post('/:sessionId/records', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.post('/:sessionId/records', authenticate, requireFeature('attendance'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { athleteId } = req.body;
   if (!athleteId) {
     return res.status(400).json({ msg: 'athleteId is required.' });
@@ -375,7 +376,7 @@ router.post('/:sessionId/records', authenticate, requireTeam, requireRole(ANY_CO
 // there's nothing here that could ever resend or clobber another
 // athlete's row, or another field of this one, the way a full-roster
 // resend (the meet-results bug fixed earlier this session) could.
-router.patch('/:sessionId/records/:athleteId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.patch('/:sessionId/records/:athleteId', authenticate, requireFeature('attendance'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { status, notes } = req.body;
   if (status !== undefined && !['PRESENT', 'ABSENT', 'EXCUSED', 'LATE'].includes(status)) {
     return res.status(400).json({ msg: 'status must be one of PRESENT, ABSENT, EXCUSED, LATE.' });
@@ -408,7 +409,7 @@ router.patch('/:sessionId/records/:athleteId', authenticate, requireTeam, requir
 // DELETE /api/attendance/:sessionId/records/:athleteId — removes one
 // athlete added by mistake (a genuine slip, not "mark as absent" — use
 // PATCH status=ABSENT for that; this deletes the row entirely).
-router.delete('/:sessionId/records/:athleteId', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.delete('/:sessionId/records/:athleteId', authenticate, requireFeature('attendance'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
     const session = await prisma.attendanceSession.findFirst({ where: { id: req.params.sessionId, teamId: req.user.teamId } });
     if (!session) {

@@ -408,7 +408,9 @@ const CoachToday: React.FC<{ teamPath: (p: string) => string }> = ({ teamPath })
             <Link to={teamPath('/band-trends')}>View Program</Link>
           </Button>
           <Button asChild>
-            <Link to={teamPath('/roster')}>Start a new season</Link>
+            {/* Season rollover moved to Settings — see
+                components/settings/SeasonRolloverCard.tsx. */}
+            <Link to={teamPath('/settings#season-rollover')}>Start a new season</Link>
           </Button>
         </CardContent>
       </Card>

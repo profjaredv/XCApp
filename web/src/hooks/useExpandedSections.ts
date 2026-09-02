@@ -24,6 +24,23 @@ export function useExpandedSections(storageKey: string) {
   });
   const [everOpened, setEverOpened] = useState<Set<string>>(() => new Set(open));
 
+  // Deep links. Elsewhere in the app a link can point straight at one
+  // section (Today's "Start a new season" → /settings#season-rollover);
+  // landing on a page of collapsed cards with the right one still shut
+  // makes that link a dead end. Opening it is not enough either — the
+  // browser already gave up on scrolling to an element that didn't exist
+  // at load — so this scrolls once the section has actually rendered.
+  useEffect(() => {
+    const target = window.location.hash.replace('#', '');
+    if (!target) return;
+    setOpen((current) => (current.has(target) ? current : new Set(current).add(target)));
+    setEverOpened((current) => (current.has(target) ? current : new Set(current).add(target)));
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(target)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify([...open]));
