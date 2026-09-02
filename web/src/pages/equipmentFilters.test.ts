@@ -39,6 +39,20 @@ describe('equipment athlete filters', () => {
     expect(matchesQuery('Margaret Mays Maggie', 'margaret')).toBe(true);
   });
 
+  it('lists outstanding items as rows, not a card per athlete', () => {
+    // Thirty outstanding jerseys was thirty card headers and borders to
+    // scroll past to do the one thing the tab is for.
+    const report = page.slice(page.indexOf('const OutstandingReport'), page.indexOf('const InventoryList'));
+    expect(report).not.toContain('<Card');
+    expect(report).toContain('Check in');
+  });
+
+  it('only spins the row being checked in', () => {
+    const report = page.slice(page.indexOf('const OutstandingReport'), page.indexOf('const InventoryList'));
+    expect(report).toContain('returningId === item.assignmentId');
+    expect(report).not.toContain('disabled={returnItem.isPending}');
+  });
+
   it('says which filter emptied the list', () => {
     expect(page).toContain('No athlete matching');
     expect(page).toContain('No athletes match those filters.');

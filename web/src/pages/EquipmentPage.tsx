@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -347,11 +346,23 @@ const CheckoutCell: React.FC<{
   );
 };
 
+// Season-end collection: who still has what, and a button to take it back.
+//
+// This was a card per athlete, which on a team with thirty outstanding
+// jerseys was thirty headers, thirty borders and a lot of scrolling to do
+// the one thing the screen is for. It is one list now, the same shape as
+// the inventory tab below: a thin heading row per athlete, then one row per
+// item with its own Check in button. Same information, roughly a third of
+// the height.
 const OutstandingReport: React.FC<{ seasonId: string }> = ({ seasonId }) => {
   const { data = [], isLoading } = useOutstandingEquipment(seasonId);
   const returnItem = useReturnEquipment();
   const [genderFilter, setGenderFilter] = useState(ALL);
   const [athleteQuery, setAthleteQuery] = useState('');
+  // Which row is saving. The mutation's own isPending would grey out every
+  // button on the screen, so checking in one jersey would look like it had
+  // frozen the other twenty-nine.
+  const [returningId, setReturningId] = useState<string | null>(null);
 
   const visible = useMemo(
     () =>
@@ -362,55 +373,85 @@ const OutstandingReport: React.FC<{ seasonId: string }> = ({ seasonId }) => {
     [data, genderFilter, athleteQuery]
   );
 
+  const outstandingCount = visible.reduce((sum, group) => sum + group.items.length, 0);
+
   const handleReturn = async (assignmentId: string, identifier: string) => {
+    setReturningId(assignmentId);
     try {
       await returnItem.mutateAsync({ assignmentId, input: {} });
-      toast.success(`${identifier} marked returned.`);
+      toast.success(`${identifier} checked in.`);
     } catch {
-      toast.error('Could not mark that item returned.');
+      toast.error('Could not check that item in.');
+    } finally {
+      setReturningId(null);
     }
   };
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
-  if (data.length === 0) return <p className="text-sm text-muted-foreground">Nothing outstanding — everything's been returned.</p>;
+  if (data.length === 0) {
+    return <p className="text-sm text-muted-foreground">Nothing outstanding — everything's been returned.</p>;
+  }
 
   return (
     <div className="space-y-3">
-      <AthleteFilters
-        gender={genderFilter}
-        onGenderChange={setGenderFilter}
-        query={athleteQuery}
-        onQueryChange={setAthleteQuery}
-      />
-      {visible.length === 0 && (
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <AthleteFilters
+          gender={genderFilter}
+          onGenderChange={setGenderFilter}
+          query={athleteQuery}
+          onQueryChange={setAthleteQuery}
+        />
+        <p className="text-sm text-muted-foreground">
+          {outstandingCount} item{outstandingCount === 1 ? '' : 's'} out with{' '}
+          {visible.length} athlete{visible.length === 1 ? '' : 's'}
+        </p>
+      </div>
+
+      {visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nobody outstanding matches those filters.</p>
-      )}
-      {visible.map((group) => (
-        <Card key={group.athleteId}>
-          <CardHeader className="py-3">
-            <CardTitle className="text-sm flex items-center justify-between">
-              <span>{group.athleteName}</span>
-              <Badge variant="secondary">{group.items.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="py-2 space-y-1">
-            {group.items.map((item) => (
-              <div key={item.assignmentId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
-                <div>
-                  <span className="font-medium">{TYPE_LABEL[item.type]} {item.identifier}</span>
-                  <span className="text-muted-foreground ml-2">
-                    checked out {formatDateShort(item.checkedOutAt)}
-                    {item.dueDate ? ` · due ${formatDateShort(item.dueDate)}` : ''}
-                  </span>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => handleReturn(item.assignmentId, item.identifier)} disabled={returnItem.isPending}>
-                  Mark returned
-                </Button>
+      ) : (
+        <div className="divide-y rounded-md border">
+          {visible.map((group) => (
+            <div key={group.athleteId}>
+              <div className="flex items-center justify-between gap-2 bg-muted/50 px-3 py-1.5">
+                <span className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {group.athleteName}
+                </span>
+                <span className="text-xs text-muted-foreground">{group.items.length}</span>
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      ))}
+              {group.items.map((item) => (
+                <div
+                  key={item.assignmentId}
+                  className="flex items-center justify-between gap-3 border-t px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0">
+                    <span className="font-medium">
+                      {TYPE_LABEL[item.type]} {item.identifier}
+                    </span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      out {formatDateShort(item.checkedOutAt)}
+                      {item.dueDate ? ` · due ${formatDateShort(item.dueDate)}` : ''}
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 px-2 text-xs"
+                    onClick={() => handleReturn(item.assignmentId, item.identifier)}
+                    disabled={returningId === item.assignmentId}
+                  >
+                    {returningId === item.assignmentId ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      'Check in'
+                    )}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
