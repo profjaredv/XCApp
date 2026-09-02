@@ -20,6 +20,9 @@ export interface EquipmentItem {
 export interface OutstandingGroup {
   athleteId: string;
   athleteName: string;
+  /** Roster name, when the team calls them something else — both are searched. */
+  fullName?: string;
+  gender?: 'M' | 'F' | null;
   items: Array<{ assignmentId: string; type: EquipmentType; identifier: string; checkedOutAt: string; dueDate: string | null }>;
 }
 

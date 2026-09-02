@@ -28,6 +28,8 @@ import { toast } from 'sonner';
 import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell, Search } from 'lucide-react';
 import { AthletePicker } from '@/components/groups/AthletePicker';
 import { DynamicGroups } from '@/components/groups/DynamicGroups';
+import { CollapsibleSection } from '@/components/CollapsibleSection';
+import { useExpandedSections } from '@/hooks/useExpandedSections';
 import { matchesQuery } from '@/lib/athleteSearch';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { seasonService } from '@/api/seasonService';
@@ -179,6 +181,12 @@ const CoachGroupsView: React.FC = () => {
   const copyFromSeason = useCopyGroupsFromSeason(seasonId);
   const { data: captains = [] } = useSeasonCaptains(seasonId);
   const { data: xTrainingRoster } = useXTrainingRoster(seasonId);
+
+  // Which sections are open, remembered per device. The board and the
+  // groups a coach leads start open — they are why this screen exists —
+  // and everything below them starts shut, which is most of a phone screen
+  // saved before the coach has scrolled to what they came for.
+  const { isOpen, toggle } = useExpandedSections('xc_groups_open_sections', ['board', 'my-groups']);
 
   const [selectedAthletes, setSelectedAthletes] = useState<Set<string>>(new Set());
   const [athleteQuery, setAthleteQuery] = useState('');
@@ -509,8 +517,13 @@ const CoachGroupsView: React.FC = () => {
       <DynamicGroups season={activeYear ?? null} />
 
       {myLedGroups.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold">My Groups</h2>
+        <CollapsibleSection
+          id="my-groups"
+          title="My Groups"
+          count={myLedGroups.length}
+          open={isOpen('my-groups')}
+          onToggle={() => toggle('my-groups')}
+        >
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {myLedGroups.map((g) => (
               <GroupCard
@@ -523,7 +536,7 @@ const CoachGroupsView: React.FC = () => {
               />
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
       <button
@@ -611,68 +624,81 @@ const CoachGroupsView: React.FC = () => {
         </div>
       )}
 
-      {/* Find an athlete without knowing which group they are in — on a
-          ninety-name board split across two columns and several groups,
-          scanning for one runner was the slowest thing on this page.
-          Filters rather than jumps: seeing WHICH group the match sits in
-          is usually the actual question. */}
-      {!loading && athletes.length > 0 && (
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={athleteQuery}
-            onChange={(e) => setAthleteQuery(e.target.value)}
-            placeholder="Find an athlete…"
-            className="pl-9"
-          />
-          {athleteQuery.trim() && (
-            <button
-              type="button"
-              onClick={() => setAthleteQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              aria-label="Clear search"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      )}
-
-      {!loading && athleteQuery.trim() && visibleAthletes.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          No athlete matching “{athleteQuery.trim()}” on this season's roster.
-        </p>
-      )}
-
-      {loading ? (
-        <div className="text-muted-foreground">Loading roster…</div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {(['M', 'F'] as const).map((gender) => (
-            <GenderColumn
-              key={gender}
-              gender={gender}
-              athletes={visibleAthletes.filter((a) => a.gender === gender)}
-              groups={trainingGroups.filter((g) => g.gender === gender || !g.gender)}
-              archivedGroups={groups.filter((g) => g.type === 'TRAINING' && g.archived && (g.gender === gender || !g.gender))}
-              displayedGroupFor={displayedGroupFor}
-              selectedAthletes={selectedAthletes}
-              setSelectedAthletes={setSelectedAthletes}
-              showUnassigned={showUnassigned}
-              onSendToXTraining={setXTrainingSendTarget}
-              onEdit={openEdit}
-              onArchive={handleArchiveToggle}
-              onDelete={handleDeleteGroup}
-              onManageLeaders={setLeadersTarget}
+      <CollapsibleSection
+        id="board"
+        title="Training groups"
+        count={trainingGroups.length}
+        open={isOpen('board')}
+        onToggle={() => toggle('board')}
+      >
+        <div className="space-y-4">
+        {/* Find an athlete without knowing which group they are in — on a
+            ninety-name board split across two columns and several groups,
+            scanning for one runner was the slowest thing on this page.
+            Filters rather than jumps: seeing WHICH group the match sits in
+            is usually the actual question. */}
+        {!loading && athletes.length > 0 && (
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={athleteQuery}
+              onChange={(e) => setAthleteQuery(e.target.value)}
+              placeholder="Find an athlete…"
+              className="pl-9"
             />
-          ))}
-        </div>
-      )}
+            {athleteQuery.trim() && (
+              <button
+                type="button"
+                onClick={() => setAthleteQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Captain &amp; Custom Groups</h2>
+        {!loading && athleteQuery.trim() && visibleAthletes.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No athlete matching “{athleteQuery.trim()}” on this season's roster.
+          </p>
+        )}
+
+        {loading ? (
+          <div className="text-muted-foreground">Loading roster…</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {(['M', 'F'] as const).map((gender) => (
+              <GenderColumn
+                key={gender}
+                gender={gender}
+                athletes={visibleAthletes.filter((a) => a.gender === gender)}
+                groups={trainingGroups.filter((g) => g.gender === gender || !g.gender)}
+                archivedGroups={groups.filter((g) => g.type === 'TRAINING' && g.archived && (g.gender === gender || !g.gender))}
+                displayedGroupFor={displayedGroupFor}
+                selectedAthletes={selectedAthletes}
+                setSelectedAthletes={setSelectedAthletes}
+                showUnassigned={showUnassigned}
+                onSendToXTraining={setXTrainingSendTarget}
+                onEdit={openEdit}
+                onArchive={handleArchiveToggle}
+                onDelete={handleDeleteGroup}
+                onManageLeaders={setLeadersTarget}
+              />
+            ))}
+          </div>
+        )}
         </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        id="captain-custom"
+        title="Captain & Custom Groups"
+        count={otherGroups.length}
+        open={isOpen('captain-custom')}
+        onToggle={() => toggle('captain-custom')}
+      >
         {otherGroups.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             None yet — use "New Group" above and pick Captain or Custom as the type.
@@ -691,7 +717,7 @@ const CoachGroupsView: React.FC = () => {
             ))}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
       <Dialog open={newGroupOpen} onOpenChange={setNewGroupOpen}>
         <DialogContent>

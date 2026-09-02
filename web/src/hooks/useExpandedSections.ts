@@ -11,15 +11,22 @@ import { useCallback, useEffect, useState } from 'react';
 //     in-progress form; keeping it alive costs nothing after the first
 //     open, and a section never opened is still never mounted, so the
 //     page still loads without firing seven screens' worth of queries.
-export function useExpandedSections(storageKey: string) {
+//   - `defaultOpen` is only consulted the FIRST time, when nothing has
+//     been stored yet. Settings wants everything shut (it's a menu); a
+//     working screen like the groups board wants its main sections open on
+//     first visit and shut only if the coach shuts them. Once a coach has
+//     touched anything, their choice is the whole answer — a section they
+//     deliberately closed must not reappear open because it was on this
+//     list.
+export function useExpandedSections(storageKey: string, defaultOpen: string[] = []) {
   const [open, setOpen] = useState<Set<string>>(() => {
     try {
       const raw = window.localStorage.getItem(storageKey);
-      return new Set<string>(raw ? JSON.parse(raw) : []);
+      return new Set<string>(raw ? JSON.parse(raw) : defaultOpen);
     } catch {
-      // Storage blocked or holding something unparseable. Starting closed
-      // is a fine outcome; failing to render the page is not.
-      return new Set<string>();
+      // Storage blocked or holding something unparseable. Falling back to
+      // the defaults is a fine outcome; failing to render the page is not.
+      return new Set<string>(defaultOpen);
     }
   });
   const [everOpened, setEverOpened] = useState<Set<string>>(() => new Set(open));

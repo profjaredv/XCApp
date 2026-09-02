@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
 import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Loader2, Package } from 'lucide-react';
+import { Loader2, Package, Search, X } from 'lucide-react';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useRosterWithRaces, useGroups, useGroupMembers } from '@/hooks/useGroups';
 import {
@@ -32,6 +32,7 @@ import {
   type EquipmentItem,
 } from '@/api/equipmentService';
 import { formatDateShort } from '@/lib/formatUtils';
+import { matchesQuery } from '@/lib/athleteSearch';
 
 // T6 (Team Management handoff): "fully separable, build whenever there's
 // a gap." A grid checkout (athlete rows x Top/Bottom/Spikes/Other columns,
@@ -48,6 +49,54 @@ const TYPE_LABEL: Record<EquipmentType, string> = {
 };
 
 const SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+
+const ALL = 'ALL';
+
+// Handing out uniforms is a boys-then-girls job — different jerseys, often
+// a different afternoon — and on a hundred-name roster the coach is either
+// working one squad at a time or hunting for the one athlete standing in
+// front of them. Both tabs that list athletes get the same two controls,
+// so they behave the same way on each.
+const AthleteFilters: React.FC<{
+  gender: string;
+  onGenderChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  /** Hidden where the underlying data has no gender to filter on. */
+  showGender?: boolean;
+}> = ({ gender, onGenderChange, query, onQueryChange, showGender = true }) => (
+  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+    <div className="relative w-full sm:w-[220px]">
+      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={query}
+        onChange={(e) => onQueryChange(e.target.value)}
+        placeholder="Find an athlete…"
+        className="h-9 pl-9"
+      />
+      {query.trim() && (
+        <button
+          type="button"
+          onClick={() => onQueryChange('')}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          aria-label="Clear search"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+    {showGender && (
+      <Select value={gender} onValueChange={onGenderChange}>
+        <SelectTrigger className="h-9 w-full sm:w-[140px]"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>Boys & girls</SelectItem>
+          <SelectItem value="M">Boys</SelectItem>
+          <SelectItem value="F">Girls</SelectItem>
+        </SelectContent>
+      </Select>
+    )}
+  </div>
+);
 
 const EquipmentPage: React.FC = () => {
   const { seasons, activeYear } = useSeasonSelection();
@@ -105,8 +154,10 @@ const CheckoutGrid: React.FC<{ seasonId: string; year: number }> = ({ seasonId, 
   const { data: roster = [] } = useRosterWithRaces(year);
   const { data: items = [], isLoading } = useEquipmentList();
   const { data: groups = [] } = useGroups(seasonId);
-  const [groupFilter, setGroupFilter] = useState('ALL');
-  const { data: groupMembers = [] } = useGroupMembers(groupFilter !== 'ALL' ? groupFilter : null);
+  const [groupFilter, setGroupFilter] = useState(ALL);
+  const [genderFilter, setGenderFilter] = useState(ALL);
+  const [athleteQuery, setAthleteQuery] = useState('');
+  const { data: groupMembers = [] } = useGroupMembers(groupFilter !== ALL ? groupFilter : null);
 
   // athleteId -> type -> the item currently checked out to them in that
   // category. Assumes at most one item per athlete per category at a
@@ -124,11 +175,19 @@ const CheckoutGrid: React.FC<{ seasonId: string; year: number }> = ({ seasonId, 
     return map;
   }, [items]);
 
+  // The three filters compose: a coach narrowing to the girls' varsity
+  // group and then typing a name expects both to hold, not the last one
+  // they touched to replace the others.
   const visibleRoster = useMemo(() => {
-    if (groupFilter === 'ALL') return roster;
-    const memberIds = new Set(groupMembers.map((m) => m.athleteId));
-    return roster.filter((a) => memberIds.has(a.id));
-  }, [roster, groupFilter, groupMembers]);
+    const memberIds = groupFilter === ALL ? null : new Set(groupMembers.map((m) => m.athleteId));
+    return roster.filter((a) => {
+      if (memberIds && !memberIds.has(a.id)) return false;
+      if (genderFilter !== ALL && a.gender !== genderFilter) return false;
+      // Both names, so searching the name on the roster finds an athlete
+      // the team calls something else, and vice versa.
+      return matchesQuery(`${a.name} ${a.preferredName ?? ''}`, athleteQuery);
+    });
+  }, [roster, groupFilter, groupMembers, genderFilter, athleteQuery]);
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (roster.length === 0) {
@@ -142,19 +201,31 @@ const CheckoutGrid: React.FC<{ seasonId: string; year: number }> = ({ seasonId, 
           <Package className="h-5 w-5" />
           Equipment checkout
         </CardTitle>
-        <Select value={groupFilter} onValueChange={setGroupFilter}>
-          <SelectTrigger className="w-full sm:w-[200px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All athletes</SelectItem>
-            {groups.filter((g) => !g.archived).map((g) => (
-              <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <AthleteFilters
+            gender={genderFilter}
+            onGenderChange={setGenderFilter}
+            query={athleteQuery}
+            onQueryChange={setAthleteQuery}
+          />
+          <Select value={groupFilter} onValueChange={setGroupFilter}>
+            <SelectTrigger className="h-9 w-full sm:w-[180px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Every group</SelectItem>
+              {groups.filter((g) => !g.archived).map((g) => (
+                <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         {visibleRoster.length === 0 ? (
-          <p className="text-sm text-muted-foreground px-4 py-3">No athletes in that group.</p>
+          <p className="text-sm text-muted-foreground px-4 py-3">
+            {athleteQuery.trim()
+              ? `No athlete matching “${athleteQuery.trim()}” in this list.`
+              : 'No athletes match those filters.'}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <Table>
@@ -279,6 +350,17 @@ const CheckoutCell: React.FC<{
 const OutstandingReport: React.FC<{ seasonId: string }> = ({ seasonId }) => {
   const { data = [], isLoading } = useOutstandingEquipment(seasonId);
   const returnItem = useReturnEquipment();
+  const [genderFilter, setGenderFilter] = useState(ALL);
+  const [athleteQuery, setAthleteQuery] = useState('');
+
+  const visible = useMemo(
+    () =>
+      data.filter((group) => {
+        if (genderFilter !== ALL && group.gender !== genderFilter) return false;
+        return matchesQuery(`${group.athleteName} ${group.fullName ?? ''}`, athleteQuery);
+      }),
+    [data, genderFilter, athleteQuery]
+  );
 
   const handleReturn = async (assignmentId: string, identifier: string) => {
     try {
@@ -294,7 +376,16 @@ const OutstandingReport: React.FC<{ seasonId: string }> = ({ seasonId }) => {
 
   return (
     <div className="space-y-3">
-      {data.map((group) => (
+      <AthleteFilters
+        gender={genderFilter}
+        onGenderChange={setGenderFilter}
+        query={athleteQuery}
+        onQueryChange={setAthleteQuery}
+      />
+      {visible.length === 0 && (
+        <p className="text-sm text-muted-foreground">Nobody outstanding matches those filters.</p>
+      )}
+      {visible.map((group) => (
         <Card key={group.athleteId}>
           <CardHeader className="py-3">
             <CardTitle className="text-sm flex items-center justify-between">

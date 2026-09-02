@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { FULL_COACH } = require('../lib/teamRoles');
+const { normalizeGender } = require('../lib/gender');
 const { requireFeature } = require('../middleware/teamFeatures');
 
 // T6 (Team Management handoff): equipment and uniform checkout. The doc
@@ -166,7 +167,9 @@ router.post('/checkout', authenticate, requireFeature('equipment'), requireTeam,
         conditionOut: conditionOut && VALID_CONDITIONS.includes(conditionOut) ? conditionOut : item.condition,
         notes: notes || null,
       },
-      include: { equipment: true, athlete: { select: { id: true, name: true, preferredName: true } } },
+      // gender comes back so the report can be filtered the same way the
+      // checkout grid is — collecting uniforms is a boys-then-girls job.
+      include: { equipment: true, athlete: { select: { id: true, name: true, preferredName: true, gender: true } } },
     });
 
     res.status(201).json(assignment);
@@ -237,7 +240,13 @@ router.get('/outstanding', authenticate, requireFeature('equipment'), requireTea
     const byAthlete = new Map();
     for (const a of outstanding) {
       if (!byAthlete.has(a.athleteId)) {
-        byAthlete.set(a.athleteId, { athleteId: a.athleteId, athleteName: a.athlete.preferredName || a.athlete.name, items: [] });
+        byAthlete.set(a.athleteId, {
+          athleteId: a.athleteId,
+          athleteName: a.athlete.preferredName || a.athlete.name,
+          fullName: a.athlete.name,
+          gender: normalizeGender(a.athlete.gender),
+          items: [],
+        });
       }
       byAthlete.get(a.athleteId).items.push({
         assignmentId: a.id,
