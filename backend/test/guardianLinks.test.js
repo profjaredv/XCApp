@@ -94,3 +94,59 @@ test('approval stays per child', () => {
   assert.match(TEAM, /linkId, action/);
   assert.doesNotMatch(TEAM, /linkIds/, 'approving in bulk would remove that choice');
 });
+
+// --- parents who never had a join code -------------------------------------
+//
+// The live failure: a parent signed up, searched for her school, named her
+// child, and the request landed in the PLATFORM queue. The super admin
+// could only decline it; the coach who should decide never learned it
+// existed; the parent heard nothing. The guardian flow keys on the join
+// code, which she did not have.
+
+test('the coach can see parent requests aimed at their own team', () => {
+  assert.match(
+    TEAM,
+    /router\.get\('\/parent-requests',\s*authenticate,\s*requireTeam,\s*requireRole\(FULL_COACH\)/
+  );
+  // wantsTeamId is what ties a platform request to a coach who may answer
+  // it — a parent belongs to no team, so nothing else does.
+  assert.match(TEAM, /role: 'parent', status: 'pending', wantsTeamId: req\.user\.teamId/);
+});
+
+test('linking scopes athlete ids to the coach’s own team', () => {
+  // Without this a body-supplied id from another team could create a link.
+  const link = TEAM.slice(
+    TEAM.indexOf("router.post('/parent-requests/:id/link'"),
+    TEAM.indexOf("router.post('/parent-requests/:id/decline'")
+  );
+  assert.ok(link.length > 0);
+  assert.match(link, /where: \{ id: \{ in: ids \}, teamId: req\.user\.teamId \}/);
+});
+
+test('linking creates the guardian link already approved', () => {
+  // The coach naming the athlete IS the approval. Leaving it pending would
+  // make the same coach answer the same question twice, on a second queue.
+  const link = TEAM.slice(
+    TEAM.indexOf("router.post('/parent-requests/:id/link'"),
+    TEAM.indexOf("router.post('/parent-requests/:id/decline'")
+  );
+  assert.match(link, /status: 'approved'/);
+  assert.match(link, /guardianLink\.upsert/);
+  // Link and request resolution share a transaction: a link created
+  // against a request still showing pending would be actioned twice.
+  assert.match(link, /prisma\.\$transaction/);
+  assert.match(link, /teamRequest\.update/);
+});
+
+test('one parent can be linked to several children here too', () => {
+  const link = TEAM.slice(TEAM.indexOf("router.post('/parent-requests/:id/link'"));
+  assert.match(link, /athleteIds/);
+  assert.match(link, /athletes\.map/);
+});
+
+test('the platform dashboard no longer sends coaches to a page that was renamed', () => {
+  // The instruction said "the Athletes page" after that nav entry became
+  // "Roster" — a stale pointer created by the rename itself.
+  const ADMIN_PAGE = read('web', 'src', 'pages', 'AdminDashboardPage.tsx');
+  assert.doesNotMatch(ADMIN_PAGE, /Athletes page/);
+});

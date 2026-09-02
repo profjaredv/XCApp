@@ -44,6 +44,15 @@ export interface GuardianLookup {
   athletes: GuardianLookupAthlete[];
 }
 
+export interface ParentRequest {
+  id: string;
+  email: string;
+  name: string | null;
+  /** What the parent typed — in practice their child's name. */
+  message: string;
+  createdAt: string;
+}
+
 export interface PendingGuardianLink {
   id: string;
   status: string;
@@ -142,6 +151,30 @@ export const teamService = {
       joinCode,
       athleteIds,
     });
+    return response.data;
+  },
+
+  /** Parents who asked for this team but had no join code, so they filed
+   *  a platform request instead of a guardian link. The coach finishes it
+   *  by naming the athlete. */
+  async parentRequests(): Promise<ParentRequest[]> {
+    const response = await axiosInstance.get<ParentRequest[]>('/team/parent-requests');
+    return response.data;
+  },
+
+  async linkParentRequest(id: string, athleteIds: string[]): Promise<{ msg: string; linked: string[] }> {
+    const response = await axiosInstance.post<{ msg: string; linked: string[] }>(
+      `/team/parent-requests/${id}/link`,
+      { athleteIds }
+    );
+    return response.data;
+  },
+
+  async declineParentRequest(id: string): Promise<{ msg: string }> {
+    const response = await axiosInstance.post<{ msg: string }>(
+      `/team/parent-requests/${id}/decline`,
+      {}
+    );
     return response.data;
   },
 

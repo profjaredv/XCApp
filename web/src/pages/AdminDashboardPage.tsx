@@ -304,8 +304,8 @@ const AdminDashboardPage: React.FC = () => {
                   {request.teamName && <p className="mt-1 text-sm font-medium">{request.teamName}</p>}
                   {request.role === 'parent' && (
                     <p className="mt-1 text-sm text-amber-700 dark:text-amber-500">
-                      Parent access is granted by a coach on the Athletes page, not from here.
-                      Close this once they've been linked.
+                      This now appears on the coach's Roster page, where they can match the
+                      parent to an athlete. Nothing to do here.
                     </p>
                   )}
                   <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{request.message}</p>

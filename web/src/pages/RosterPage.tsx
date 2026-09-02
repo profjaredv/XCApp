@@ -39,6 +39,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { PendingClaimsCard } from '@/components/PendingClaimsCard';
 import { PendingGuardianLinksCard } from '@/components/PendingGuardianLinksCard';
+import { PendingParentRequestsCard } from '@/components/PendingParentRequestsCard';
 import { setPreviewAthlete } from '@/lib/impersonation';
 
 // The roster is the thing a coach actually manages day to day: who is on the
@@ -568,6 +569,7 @@ const RosterPage: React.FC = () => {
 
           <PendingClaimsCard onClaimProcessed={invalidate} />
           <PendingGuardianLinksCard />
+          <PendingParentRequestsCard roster={roster} />
         </div>
       )}
 

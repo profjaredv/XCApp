@@ -613,6 +613,132 @@ router.get('/pending-guardian-links', authenticate, requireTeam, requireRole(FUL
   }
 });
 
+// GET /api/team/parent-requests
+//
+// Parents who asked for access to THIS team but never had a join code.
+//
+// The guardian flow keys on the join code, which is the right boundary
+// when a parent has one. A parent who does not — who found the team by
+// searching for their school during sign-up — files a TeamRequest instead
+// and lands in the platform queue, where a super admin can only decline
+// it and the coach who should decide never learns it exists.
+//
+// This is the other half: the parent named their team and typed their
+// child's name, so the coach has everything needed to finish it. Matching
+// that name to a roster row is a judgement only the coach can make, which
+// is exactly why it belongs here and not in an automatic match.
+router.get('/parent-requests', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const requests = await prisma.teamRequest.findMany({
+      where: { role: 'parent', status: 'pending', wantsTeamId: req.user.teamId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        // What the parent typed — in practice their child's name.
+        message: true,
+        createdAt: true,
+      },
+    });
+    res.json(requests);
+  } catch (error) {
+    console.error('Error in GET /team/parent-requests:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/team/parent-requests/:id/link
+//
+// The coach says which athlete this parent belongs to. Creates the
+// GuardianLink already approved — the approval IS this action, so asking
+// again on the guardian queue would be the same coach answering the same
+// question twice.
+router.post('/parent-requests/:id/link', authenticate, requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
+  const { athleteIds } = req.body || {};
+  const ids = Array.isArray(athleteIds) ? athleteIds : [];
+
+  if (ids.length === 0) {
+    return res.status(400).json({ msg: 'Pick at least one athlete.' });
+  }
+
+  try {
+    const request = await prisma.teamRequest.findFirst({
+      where: { id: req.params.id, role: 'parent', wantsTeamId: req.user.teamId },
+    });
+    if (!request) return res.status(404).json({ msg: 'Request not found.' });
+    if (request.status !== 'pending') {
+      return res.status(409).json({ msg: `This request was already ${request.status}.` });
+    }
+
+    // Scoped to the coach's own team, so a body-supplied id from another
+    // team cannot create a link here.
+    const athletes = await prisma.athlete.findMany({
+      where: { id: { in: ids }, teamId: req.user.teamId },
+      select: { id: true, name: true, preferredName: true },
+    });
+    if (athletes.length === 0) {
+      return res.status(404).json({ msg: 'None of those athletes are on your team.' });
+    }
+
+    await prisma.$transaction([
+      ...athletes.map((athlete) =>
+        prisma.guardianLink.upsert({
+          where: { userId_athleteId: { userId: request.userId, athleteId: athlete.id } },
+          update: {
+            status: 'approved',
+            resolvedAt: new Date(),
+            resolvedById: req.user.id,
+          },
+          create: {
+            userId: request.userId,
+            athleteId: athlete.id,
+            status: 'approved',
+            resolvedAt: new Date(),
+            resolvedById: req.user.id,
+          },
+        })
+      ),
+      prisma.teamRequest.update({
+        where: { id: request.id },
+        data: {
+          status: 'approved',
+          resolvedAt: new Date(),
+          resolvedById: req.user.id,
+        },
+      }),
+    ]);
+
+    res.json({
+      msg: 'Parent linked.',
+      linked: athletes.map((a) => a.preferredName || a.name),
+    });
+  } catch (error) {
+    console.error('Error in POST /team/parent-requests/:id/link:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/team/parent-requests/:id/decline
+router.post('/parent-requests/:id/decline', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const request = await prisma.teamRequest.findFirst({
+      where: { id: req.params.id, role: 'parent', status: 'pending', wantsTeamId: req.user.teamId },
+    });
+    if (!request) return res.status(404).json({ msg: 'Request not found.' });
+
+    await prisma.teamRequest.update({
+      where: { id: request.id },
+      data: { status: 'declined', resolvedAt: new Date(), resolvedById: req.user.id },
+    });
+    res.json({ msg: 'Request declined.' });
+  } catch (error) {
+    console.error('Error in POST /team/parent-requests/:id/decline:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // GET /api/team/guardian-links?status=pending
 //
 // The queue a coach approves from. Its absence was a real gap rather than
