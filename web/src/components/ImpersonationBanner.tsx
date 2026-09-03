@@ -1,6 +1,7 @@
 import { Shield, Eye, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { getAdminTeamName, clearAdminTeam, getPreviewAthleteName, clearPreviewAthlete } from '../lib/impersonation';
+import { useTeamPath } from '../hooks/useTeamRoute';
 
 // Always visible, never dismissible without actually exiting — the whole
 // point is that it must never be possible to forget you're acting as
@@ -11,6 +12,7 @@ import { getAdminTeamName, clearAdminTeam, getPreviewAthleteName, clearPreviewAt
 // this is just which one wins if that ever changes).
 export const ImpersonationBanner = () => {
   const { currentUser } = useAuth();
+  const teamPath = useTeamPath();
 
   if (currentUser?.isImpersonating) {
     const teamName = getAdminTeamName() ?? currentUser.team?.name ?? 'this team';
@@ -40,7 +42,13 @@ export const ImpersonationBanner = () => {
           Previewing as <span className="font-semibold">{athleteName}</span> — actions here affect their real data
         </span>
         <button
-          onClick={() => clearPreviewAthlete()}
+          // Preview always starts on /me (the athlete's own view). A
+          // bare reload there would land the coach back on /me too —
+          // now under their own account, which has no linked athlete —
+          // and show them "Your profile isn't linked yet" instead of
+          // exiting anywhere useful. Send them to Roster, where every
+          // preview today actually starts.
+          onClick={() => clearPreviewAthlete(teamPath('/roster'))}
           className="flex items-center gap-1 rounded-md bg-white/15 hover:bg-white/25 px-2.5 py-1 transition-colors"
         >
           <X className="h-3.5 w-3.5" />

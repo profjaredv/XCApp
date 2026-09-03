@@ -30,14 +30,18 @@ export function getAdminTeamName(): string | null {
 export function setAdminTeam(teamId: string, teamName: string, athleticTeamId: string) {
   sessionStorage.setItem(ADMIN_TEAM_ID_KEY, teamId);
   sessionStorage.setItem(ADMIN_TEAM_NAME_KEY, teamName);
-  clearPreviewAthlete(false);
+  // No destination — clear the preview flag without navigating; the
+  // href assignment below is this function's own navigation.
+  clearPreviewAthlete();
   window.location.href = `/t/${athleticTeamId}`;
 }
 
 export function clearAdminTeam(reload = true) {
   sessionStorage.removeItem(ADMIN_TEAM_ID_KEY);
   sessionStorage.removeItem(ADMIN_TEAM_NAME_KEY);
-  clearPreviewAthlete(false);
+  // No destination — clear the preview flag without navigating; the
+  // conditional reload below is this function's own.
+  clearPreviewAthlete();
   // Reload the current URL rather than navigating somewhere new — once the
   // X-Admin-Team-Id header stops being sent, /users/me reverts to the
   // admin's own real team, and TeamRouteGuard (router/TeamRouteGuard.tsx)
@@ -62,8 +66,16 @@ export function setPreviewAthlete(athleteId: string, athleteName: string, teamPa
   window.location.href = teamPath('/me');
 }
 
-export function clearPreviewAthlete(reload = true) {
+// Pass `destination` to navigate there right after clearing — this is
+// what "Exit preview" (ImpersonationBanner) uses. Entering preview always
+// lands on /me (the athlete's own view), so a bare reload of "wherever
+// the tab currently is" reloaded /me too, now under the coach's own
+// account, which has no linked athlete — that showed a COACH "Your
+// profile isn't linked yet" on every single exit. Omit `destination` when
+// a caller (setAdminTeam/clearAdminTeam, below) is already mid-navigation
+// and just needs the flag cleared before its own redirect fires.
+export function clearPreviewAthlete(destination?: string) {
   sessionStorage.removeItem(PREVIEW_ATHLETE_ID_KEY);
   sessionStorage.removeItem(PREVIEW_ATHLETE_NAME_KEY);
-  if (reload) window.location.reload();
+  if (destination) window.location.href = destination;
 }

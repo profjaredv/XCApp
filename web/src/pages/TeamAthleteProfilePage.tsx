@@ -412,7 +412,14 @@ const TeamAthleteProfilePage = () => {
           careerSummary={careerSummary}
           seasonBreakdown={seasonBreakdown}
           allSeasonsRaces={allSeasonsRaces}
-          onClose={() => {}} // No-op since this is a dedicated page
+          // This page renders the modal as its whole body (no separate
+          // "page behind it" to fall back to visually — the modal's own
+          // fixed inset-0 overlay covers the "Back to Team" header above).
+          // A no-op here left the X and the backdrop click doing nothing:
+          // the only way off this screen was the browser's own back
+          // button. Route both to the same place "Back to Team" already
+          // goes.
+          onClose={handleBack}
         />
       )}
     </div>
