@@ -12,19 +12,20 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { ChevronLeft, ChevronRight, ClipboardCheck, Loader2, Timer, Users } from 'lucide-react';
-import { useGroupDay } from '@/hooks/useGroups';
+import { ChevronLeft, ChevronRight, ClipboardCheck, Dumbbell, Loader2, Timer, Users } from 'lucide-react';
+import { useGroupDay, useXTrainingRoster, useRemoveMember } from '@/hooks/useGroups';
 import { useCreateAttendanceSession, useUpdateAttendanceRecord } from '@/hooks/useAttendance';
 import { useCreateIntervalSession } from '@/hooks/useIntervalSessions';
 import { usePaceZones } from '@/hooks/usePaceZones';
 import { selectableZones, findZoneByKey } from '@/lib/paceZoneLookup';
 import type { IntervalZoneKey } from '@/api/intervalSessionService';
 import { AttendanceStatusPicker } from '@/components/attendance/StatusCell';
+import { XTrainingSendDialog } from '@/components/groups/XTrainingSendDialog';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { formatTime, formatPace, formatDateShort, todayIso } from '@/lib/formatUtils';
 import { gradeLabelShort } from '@/lib/seasonUtils';
 import type { AttendanceStatus } from '@/api/attendanceService';
-import type { GroupDayMember } from '@/api/groupService';
+import type { GroupDayMember, XTrainingMember } from '@/api/groupService';
 
 // A group, on a given afternoon.
 //
@@ -38,6 +39,14 @@ import type { GroupDayMember } from '@/api/groupService';
 // per team+season+date); scoping it per group would let two groups
 // practising at the same time record contradictory answers about the same
 // athlete. So marking someone present here marks them present, full stop.
+//
+// Cross training is the other thing decided standing on this field, so its
+// trigger lives on this same row (previously only reachable from the
+// Groups board). It's connected to attendance one way, deliberately not
+// both: sending someone to cross training auto-marks them EXCUSED for
+// today (if attendance is already being taken) so they're accounted for
+// instead of reading as a no-show — but returning them early does not
+// retroactively touch whatever attendance already recorded for that day.
 
 function addDays(iso: string, days: number): string {
   const date = new Date(`${iso}T00:00:00`);
@@ -56,7 +65,14 @@ const MemberRow: React.FC<{
   onStatus: (status: AttendanceStatus) => void;
   saving: boolean;
   athleteHref: string;
-}> = ({ member, attendanceReady, onStatus, saving, athleteHref }) => (
+  /** Set when this athlete has an active cross-training stint right now — still a member of
+   * this training group (cross training runs alongside it, see backend/lib/groups.js), just
+   * not doing today's regular session. */
+  xTraining: XTrainingMember | null;
+  onSendToXTraining: () => void;
+  onReturnFromXTraining: () => void;
+  returning: boolean;
+}> = ({ member, attendanceReady, onStatus, saving, athleteHref, xTraining, onSendToXTraining, onReturnFromXTraining, returning }) => (
   <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-2">
@@ -81,14 +97,38 @@ const MemberRow: React.FC<{
       ) : (
         <p className="mt-0.5 text-xs text-muted-foreground italic">No race yet</p>
       )}
+      {xTraining && (
+        <p className="mt-1 flex items-center gap-1 text-xs font-medium text-orange-600 dark:text-orange-400">
+          <Dumbbell className="h-3 w-3" />
+          Cross training · back {formatDateShort(xTraining.until)}
+        </p>
+      )}
     </div>
-    {attendanceReady && (
-      <AttendanceStatusPicker
-        status={(member.status ?? 'ABSENT') as AttendanceStatus}
-        onChange={onStatus}
-        disabled={saving}
-      />
-    )}
+    <div className="flex items-center gap-2">
+      {xTraining ? (
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onReturnFromXTraining} disabled={returning}>
+          {returning && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+          Return to training
+        </Button>
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          title="Send to Cross Training"
+          onClick={onSendToXTraining}
+        >
+          <Dumbbell className="h-3.5 w-3.5" />
+        </Button>
+      )}
+      {attendanceReady && (
+        <AttendanceStatusPicker
+          status={(member.status ?? 'ABSENT') as AttendanceStatus}
+          onChange={onStatus}
+          disabled={saving}
+        />
+      )}
+    </div>
   </div>
 );
 
@@ -108,11 +148,24 @@ const GroupDayPage: React.FC = () => {
   const { data: teamZones = [] } = usePaceZones();
   const zoneOptions = selectableZones(teamZones);
 
+  // Cross training is a separate group (GroupType.X_TRAINING) that runs
+  // alongside this one, not a column inside it — see backend/lib/groups.js.
+  // Fetched team-wide per season, same as the Groups board's own "Cross
+  // Training today" box, and narrowed to this group's members below.
+  const { data: xTrainingRoster } = useXTrainingRoster(seasonId);
+  const removeMember = useRemoveMember(seasonId);
+  const xTrainingByAthleteId = useMemo(
+    () => new Map((xTrainingRoster?.members ?? []).map((m) => [m.athleteId, m])),
+    [xTrainingRoster]
+  );
+
   const [intervalOpen, setIntervalOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [repDistanceM, setRepDistanceM] = useState('800');
   const [zone, setZone] = useState<IntervalZoneKey>('mcm-vo2');
   const [savingAthleteId, setSavingAthleteId] = useState<string | null>(null);
+  const [xTrainingSendTarget, setXTrainingSendTarget] = useState<{ id: string; name: string } | null>(null);
+  const [returningAthleteId, setReturningAthleteId] = useState<string | null>(null);
 
   const here = useMemo(
     () => (day?.members ?? []).filter((m) => m.status === 'PRESENT' || m.status === 'LATE'),
@@ -141,6 +194,40 @@ const GroupDayPage: React.FC = () => {
       toast.error('Could not save that.');
     } finally {
       setSavingAthleteId(null);
+    }
+  };
+
+  // "Connected to attendance": sending someone to cross training is a
+  // separate GroupMembership (see backend POST /groups/x-training), not an
+  // attendance mark, so without this an athlete cross-training today would
+  // sit "not marked" or get flagged ABSENT on the same board a coach is
+  // using to take attendance — indistinguishable from actually skipping
+  // practice. Excused, not absent: they're accounted for, just not doing
+  // today's regular session. Only fires when attendance is already being
+  // taken today; if nobody's started it yet there's no record to set.
+  const handleXTrainingSent = async (athleteId: string) => {
+    if (!day?.session) return;
+    try {
+      await updateRecord.mutateAsync({ sessionId: day.session.id, athleteId, input: { status: 'EXCUSED' } });
+      refreshDay();
+    } catch {
+      // The cross-training send itself already succeeded and already
+      // toasted — a failure here is "attendance didn't update," worth its
+      // own, separate message rather than looking like the send failed.
+      toast.error('Sent to Cross Training, but could not update today\'s attendance — mark it manually.');
+    }
+  };
+
+  const handleReturnFromXTraining = async (athleteId: string, name: string) => {
+    if (!xTrainingRoster?.group) return;
+    setReturningAthleteId(athleteId);
+    try {
+      await removeMember.mutateAsync({ groupId: xTrainingRoster.group.id, athleteId });
+      toast.success(`${name} returned to training.`);
+    } catch {
+      toast.error('Could not return that athlete to training.');
+    } finally {
+      setReturningAthleteId(null);
     }
   };
 
@@ -289,6 +376,10 @@ const GroupDayPage: React.FC = () => {
                   saving={savingAthleteId === member.athleteId}
                   onStatus={(status) => handleStatus(member.athleteId, status)}
                   athleteHref={teamPath(`/team/athlete/${member.athleteId}`)}
+                  xTraining={xTrainingByAthleteId.get(member.athleteId) ?? null}
+                  onSendToXTraining={() => setXTrainingSendTarget({ id: member.athleteId, name: member.name })}
+                  onReturnFromXTraining={() => handleReturnFromXTraining(member.athleteId, member.name)}
+                  returning={returningAthleteId === member.athleteId}
                 />
               ))}
             </div>
@@ -386,6 +477,13 @@ const GroupDayPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <XTrainingSendDialog
+        athlete={xTrainingSendTarget}
+        seasonId={seasonId}
+        onClose={() => setXTrainingSendTarget(null)}
+        onSent={handleXTrainingSent}
+      />
     </div>
   );
 };
