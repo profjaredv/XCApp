@@ -17,22 +17,40 @@ const page = code(read('pages/StrategyPage.tsx'));
 const postseason = code(read('pages/PostSeasonPage.tsx'));
 
 describe('strategy session', () => {
-  it('separates what is already in them from what perfect pacing would be worth', () => {
-    expect(page).toContain("measured: 'Already in you'");
-    expect(page).toContain("ceiling: 'Ceiling'");
-    expect(page).toContain('a ceiling is what perfect pacing would be worth, not');
+  it('labels findings in words a sixteen-year-old reads without translating', () => {
+    // "Already in you" and "Ceiling" were accurate and meant nothing.
+    expect(page).toContain('"You\'ve done this"');
+    expect(page).toContain("ceiling: 'If you paced it perfectly'");
+    expect(page).not.toContain("'Already in you'");
   });
 
-  it('reads the totals from the server rather than adding levers up itself', () => {
+  it('puts the splits to run at the top, before the reasoning', () => {
+    // This is the part that goes to the start line.
+    expect(page).toContain('Run these splits');
+    expect(page).toContain('strategy.plan.splits.map');
+    const splitsAt = page.indexOf('Run these splits');
+    const findingsAt = page.indexOf('Where the time is');
+    expect(splitsAt).toBeGreaterThan(-1);
+    expect(splitsAt).toBeLessThan(findingsAt);
+  });
+
+  it('gives one thing to do on race day', () => {
+    expect(page).toContain('On race day');
+    expect(page).toContain('strategy.instruction');
+  });
+
+  it('reads its numbers from the server rather than working them out itself', () => {
     // One set of rules, in lib/raceStrategy.js, tested without a browser.
+    // The pacing ceiling is stated inside the finding that owns it now,
+    // rather than as a second page-level total nobody could place.
     expect(page).toContain('strategy.measuredTotalSec');
-    expect(page).toContain('strategy.ceilingTotalSec');
-    expect(page).not.toMatch(/levers\.reduce/);
+    expect(page).toContain('strategy.plan.splits');
+    expect(page).not.toMatch(/levers\.reduce|\.reduce\(\(sum/);
   });
 
   it('says the numbers come from their own races', () => {
-    expect(page).toContain("own results — no predictions, no model");
-    expect(page).toContain('The races this is built from');
+    expect(page).toContain('races {data.athlete.name} has already run');
+    expect(page).toContain('Races this is based on');
   });
 
   it('lets the goal and the distance change', () => {

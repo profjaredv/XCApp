@@ -1,23 +1,34 @@
 // "How do I take 20 seconds off my next race?"
 //
 // A strategy session, built only from the athlete's own races. Every number
-// here is arithmetic on times they have already run — nothing is predicted,
-// nothing is modelled, and no coefficient is invented to make an estimate
-// look precise. That constraint is the point: a coach standing next to an
-// athlete has to be able to say where a number came from, and "the app
-// estimated it" is not an answer either of them can use.
+// here is worked out from times they have already run — nothing is
+// predicted, nothing is modelled, and no coefficient is invented to make an
+// estimate look precise.
 //
-// Three rules the levers below all follow:
+// WHO READS THIS: a sixteen-year-old, on their phone, the week of a race.
+// That governs every string in this file. Rules for the copy:
 //
-//   1. Every lever is a gap between two things the athlete actually did.
+//   - Say the number first, in the title. "You fade 36 seconds per mile"
+//     beats "Pacing analysis".
+//   - Say what to DO. A finding with no instruction is a stat, and they
+//     have plenty of stats.
+//   - Short sentences. No "arithmetic", no "lever", no "ceiling" as a bare
+//     noun, no "execution". If a coach wouldn't say it standing on a
+//     start line, it doesn't go here.
+//   - Seconds, not seconds-per-mile, wherever the race distance lets us
+//     convert. "62 seconds" is a time they can picture; "62s/mi" is a unit
+//     they have to do maths on.
+//
+// And the honesty rules that came first and still hold:
+//
+//   1. Every finding is a gap between two things the athlete actually did.
 //      Their best race against their typical one. Their last mile against
-//      their first. This season against last. Those gaps are facts.
-//   2. A ceiling is labelled a ceiling. Closing at first-mile pace is
-//      arithmetic, not a plan — nobody holds it — so it is reported as the
-//      most that pacing could be worth, never as a target.
-//   3. What is missing is said out loud. No splits entered means the
-//      pacing lever cannot be computed at all, and a screen that quietly
-//      omits it teaches an athlete their pacing is fine.
+//      their first.
+//   2. A ceiling is labelled as one. Holding first-mile pace to the finish
+//      is arithmetic, not a plan, so it is never given as a target.
+//   3. What is missing is said out loud. No splits means the pacing
+//      finding cannot be computed, and a screen that quietly omits it
+//      teaches an athlete their pacing is fine.
 
 const MILE_IN_METERS = 1609.34;
 
@@ -39,16 +50,98 @@ function formatTime(seconds) {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 
+
+// Where a race gets split, by distance. These are the marks an athlete
+// actually hears called out: laps on a track, miles on a course.
+const SPLIT_PLANS = [
+  { meters: 1600, tolerance: 60, marks: [400, 800, 1200], unit: 'm' },
+  { meters: 3200, tolerance: 60, marks: [800, 1600, 2400], unit: 'm' },
+  { meters: 3000, tolerance: 60, marks: [1000, 2000], unit: 'm' },
+  { meters: 5000, tolerance: 120, marks: [MILE_IN_METERS, MILE_IN_METERS * 2, MILE_IN_METERS * 3], unit: 'mi' },
+  { meters: 8000, tolerance: 200, marks: [MILE_IN_METERS, MILE_IN_METERS * 2, MILE_IN_METERS * 3, MILE_IN_METERS * 4], unit: 'mi' },
+];
+
+function markLabel(meters, unit, index) {
+  if (unit === 'mi') return `Mile ${index + 1}`;
+  return `${Math.round(meters)}m`;
+}
+
+/**
+ * The splits to run for a goal time.
+ *
+ * Even pace, deliberately. An even-split plan is the target time divided by
+ * the distance and nothing else — no fast-start allowance, no negative-split
+ * curve, because any shape other than even would be a coaching opinion
+ * dressed up as this athlete's own data.
+ */
+function buildRacePlan(targetTimeSec, distanceMeters) {
+  if (!(targetTimeSec > 0) || !(distanceMeters > 0)) return null;
+  const plan = SPLIT_PLANS.find((p) => Math.abs(distanceMeters - p.meters) <= p.tolerance);
+  const marks = plan ? plan.marks : [distanceMeters / 3, (distanceMeters * 2) / 3];
+  const unit = plan ? plan.unit : 'm';
+
+  const splits = marks.map((markMeters, index) => {
+    const cumulativeSec = targetTimeSec * (markMeters / distanceMeters);
+    const previous = index === 0 ? 0 : targetTimeSec * (marks[index - 1] / distanceMeters);
+    return {
+      label: markLabel(markMeters, unit, index),
+      meters: markMeters,
+      cumulativeSec,
+      segmentSec: cumulativeSec - previous,
+    };
+  });
+
+  const lastMark = marks[marks.length - 1];
+  splits.push({
+    label: 'Finish',
+    meters: distanceMeters,
+    cumulativeSec: targetTimeSec,
+    segmentSec: targetTimeSec - targetTimeSec * (lastMark / distanceMeters),
+  });
+
+  return { targetTimeSec, distanceMeters, splits };
+}
+
+/**
+ * One instruction for race day, from this athlete's own pattern.
+ *
+ * Not generic advice: each branch is a thing their splits or their results
+ * actually show. Where nothing shows, it says to go get the data rather
+ * than making something up.
+ */
+function raceDayInstruction(splitAggregate, firstSplitTargetSec) {
+  if (!splitAggregate) {
+    return 'Get someone to call out your time at every mile this race. Without splits, nobody can tell whether you are losing the time early or late.';
+  }
+  const segments = (splitAggregate.segmentAverages || []).filter((s) => s.avgPaceSecPerMile > 0);
+  if (segments.length < 2) {
+    return 'Get someone to call out your time at every mile this race. One race of splits is enough to see where the time goes.';
+  }
+
+  const first = segments[0];
+  const last = segments[segments.length - 1];
+  const fade = last.avgPaceSecPerMile - first.avgPaceSecPerMile;
+  const target = firstSplitTargetSec != null ? ` Hit ${formatTime(firstSplitTargetSec)} at the first mark, not faster.` : '';
+
+  if (fade < NOISE_SEC_PER_MILE) {
+    return `Your pacing is already even, so run these splits and hold on.${target}`;
+  }
+  const startFast = first.avgPaceSecPerMile - (splitAggregate.overallAveragePaceSecPerMile ?? first.avgPaceSecPerMile);
+  if (startFast < -NOISE_SEC_PER_MILE) {
+    return `You normally start about ${Math.abs(Math.round(startFast))} seconds a mile quicker than you finish the race at, and it costs you at the end. Go out at goal pace instead.${target}`;
+  }
+  return `You lose most of your time in the back half, so the first mark is the one that matters. Do not beat it.${target}`;
+}
+
 function lever(id, title, detail, seconds, confidence, evidence) {
   return { id, title, detail, seconds, confidence, evidence };
 }
 
 /**
- * The gap between their best race and their typical one, over the target
- * distance.
+ * The gap between their best race and their typical one.
  *
- * This is the strongest lever in the file and the least speculative: it is
- * a time they have already run. "You have been 26 seconds faster than your
+ * The strongest finding in the file and the least speculative: it is a time
+ * they have already run. "You have already been 26 seconds faster than your
  * normal race" is not a projection, it is a fact with a date on it.
  */
 function bestVsTypical(races, distanceMeters) {
@@ -61,28 +154,33 @@ function bestVsTypical(races, distanceMeters) {
   if (gapPerMile < NOISE_SEC_PER_MILE) return null;
 
   const miles = distanceMeters / MILE_IN_METERS;
-  const seconds = gapPerMile * miles;
+  const seconds = Math.round(gapPerMile * miles);
   const bestRace = races.find((r) => r.paceSecPerMile === bestPace);
 
   return lever(
     'best-vs-typical',
-    'Run the race you have already run.',
-    `Your best pace this season is ${Math.round(gapPerMile)}s/mi quicker than your typical race${
-      bestRace ? ` — that was ${bestRace.raceName}` : ''
-    }. Over this distance that gap is worth ${Math.round(seconds)} seconds, and it needs nothing you have not already done once.`,
-    Math.round(seconds),
+    `You have already run ${seconds} seconds faster than your normal race.`,
+    `Your best race this season was ${bestRace ? bestRace.raceName : 'earlier this season'}${
+      bestRace && bestRace.timeSec ? ` (${formatTime(bestRace.timeSec)})` : ''
+    }. Every other race has been slower than that. Run that race again and the ${seconds} seconds are there. You do not need to be fitter — you have done it once already.`,
+    seconds,
     'measured',
-    { bestPaceSecPerMile: bestPace, typicalPaceSecPerMile: typicalPace, raceCount: paces.length, bestRace: bestRace?.raceName ?? null }
+    {
+      bestPaceSecPerMile: bestPace,
+      typicalPaceSecPerMile: typicalPace,
+      raceCount: paces.length,
+      bestRace: bestRace?.raceName ?? null,
+    }
   );
 }
 
 /**
- * Pacing: what fading costs, from their own splits.
+ * What fading costs, from their own splits.
  *
- * Reported as a ceiling, deliberately. The arithmetic — "hold your first
- * mile's pace to the finish" — is not something any runner does, and
- * dressing it up with a fudge factor would make it look like a prediction
- * rather than the boundary it is.
+ * Reported as a ceiling, deliberately. "Hold your first mile's pace to the
+ * finish" is not something any runner does, and dressing it up with a fudge
+ * factor would turn a boundary into a promise. What they can act on is the
+ * first split, which is in the race plan.
  */
 function pacingCeiling(splitAggregate) {
   if (!splitAggregate) return null;
@@ -92,13 +190,15 @@ function pacingCeiling(splitAggregate) {
   const first = segments[0];
   const last = segments[segments.length - 1];
   const fadePerMile = last.avgPaceSecPerMile - first.avgPaceSecPerMile;
+  const raceWord = `${splitAggregate.raceCount} race${splitAggregate.raceCount === 1 ? '' : 's'}`;
+
   if (fadePerMile < NOISE_SEC_PER_MILE) {
     return lever(
       'pacing',
-      'Your pacing is already even.',
-      `Across ${splitAggregate.raceCount} race${splitAggregate.raceCount === 1 ? '' : 's'} with splits, your last segment averages within ${Math.abs(
+      'You run the whole race at about the same speed.',
+      `Across ${raceWord} with splits, your last ${last.label.toLowerCase()} is within ${Math.abs(
         Math.round(fadePerMile)
-      )}s/mi of your first. There is nothing to reclaim here — the time is somewhere else.`,
+      )} seconds a mile of your first. That is good pacing. The time you are looking for is somewhere else.`,
       0,
       'measured',
       { firstPaceSecPerMile: first.avgPaceSecPerMile, lastPaceSecPerMile: last.avgPaceSecPerMile }
@@ -117,12 +217,10 @@ function pacingCeiling(splitAggregate) {
 
   return lever(
     'pacing',
-    'You are finishing slower than you start.',
-    `Your ${last.label.toLowerCase()} averages ${Math.round(fadePerMile)}s/mi slower than your ${first.label.toLowerCase()}, across ${
-      splitAggregate.raceCount
-    } race${splitAggregate.raceCount === 1 ? '' : 's'} with splits. Holding your opening pace all the way would be about ${Math.round(
+    `You slow down ${Math.round(fadePerMile)} seconds a mile by the end of the race.`,
+    `Across ${raceWord} with splits, your ${last.label.toLowerCase()} is that much slower than your ${first.label.toLowerCase()}. If you held your opening speed the whole way you would save about ${Math.round(
       ceilingSeconds
-    )} seconds — that is the ceiling, not a target. Nobody holds mile-one pace to the finish; the useful version is going out a few seconds slower and losing less at the end.`,
+    )} seconds. Nobody holds it perfectly, so treat that as the size of the problem, not the plan. The plan is the splits at the top of this page: go out at goal pace and you will have more left at the end.`,
     Math.round(ceilingSeconds),
     'ceiling',
     {
@@ -139,8 +237,8 @@ function pacingCeiling(splitAggregate) {
  * The trend they are already on.
  *
  * First race of the season against most recent. Not extrapolated — an
- * athlete improving 8s a race is not going to improve 8s a race forever,
- * and saying so would be inventing a curve.
+ * athlete improving 8 seconds a race is not going to improve 8 seconds a
+ * race forever, and saying so would be inventing a curve.
  */
 function seasonTrend(races, distanceMeters) {
   const dated = races
@@ -159,8 +257,8 @@ function seasonTrend(races, distanceMeters) {
   if (gainPerMile > 0) {
     return lever(
       'trend',
-      'You are already getting faster.',
-      `From ${first.raceName} to ${latest.raceName} you have taken ${seconds} seconds off at this distance. Keeping that going is its own answer — this is the one lever that needs no change of plan.`,
+      `You are ${seconds} seconds faster than your first race of the season.`,
+      `${first.raceName} to ${latest.raceName}. Whatever you have been doing in training is working. Keep doing it — this part needs no change at all.`,
       null,
       'context',
       { firstRace: first.raceName, latestRace: latest.raceName, gainSecPerMile: parseFloat(gainPerMile.toFixed(1)) }
@@ -169,15 +267,15 @@ function seasonTrend(races, distanceMeters) {
 
   return lever(
     'trend',
-    'Your recent races are slower than your early ones.',
-    `${latest.raceName} was ${Math.abs(seconds)} seconds slower than ${first.raceName} at this distance. Courses and weather differ, so this is worth a conversation before it is worth a training change.`,
+    `Your last race was ${Math.abs(seconds)} seconds slower than your first one.`,
+    `${latest.raceName} against ${first.raceName}. Courses and weather are not the same every week, so this is worth talking to your coach about before changing anything.`,
     null,
     'context',
     { firstRace: first.raceName, latestRace: latest.raceName, gainSecPerMile: parseFloat(gainPerMile.toFixed(1)) }
   );
 }
 
-/** Consistency: how much their races scatter, which is a lever by itself. */
+/** How much their races swing, which is a finding by itself. */
 function consistency(races, distanceMeters) {
   const paces = races.map((r) => r.paceSecPerMile).filter((p) => p > 0);
   if (paces.length < MIN_RACES_FOR_TYPICAL) return null;
@@ -186,23 +284,23 @@ function consistency(races, distanceMeters) {
   const miles = distanceMeters / MILE_IN_METERS;
   return lever(
     'consistency',
-    `Your races vary by ${Math.round(spread * miles)} seconds.`,
-    `Best to worst, at this distance. A wide spread usually means the race plan changes race to race — same effort, different opening pace. Narrowing it is worth more than it sounds, because the floor comes up even when the ceiling doesn't.`,
+    `Your best and worst races are ${Math.round(spread * miles)} seconds apart.`,
+    'Same distance, same season, same you. A swing that big is usually how the race is started, not how fit you were that day. Run the same opening split every time and the bad days get a lot closer to the good ones.',
     null,
     'context',
     { spreadSecPerMile: parseFloat(spread.toFixed(1)), raceCount: paces.length }
   );
 }
 
-/** What the app cannot see, and what would fix it. */
+/** What the app cannot see, and how to fix it. */
 function gaps(races, splitAggregate) {
   const out = [];
   if (!splitAggregate) {
     out.push(
       lever(
         'gap-splits',
-        'No splits entered for these races.',
-        'Pacing is the biggest single lever in a cross country race and it cannot be computed from a finish time. One race with mile splits is enough to see whether the time is being lost early or late.',
+        'Nobody is taking your splits.',
+        'Pacing is the biggest single thing you control in a race, and a finish time cannot show it. Ask a coach, a parent or a teammate to call out your time at every mile. One race is enough to see whether you are losing the time early or late.',
         null,
         'gap',
         {}
@@ -213,8 +311,8 @@ function gaps(races, splitAggregate) {
     out.push(
       lever(
         'gap-races',
-        `Only ${races.length} race${races.length === 1 ? '' : 's'} at this distance.`,
-        'Most of what this screen can say comes from comparing races against each other. After three at the same distance it has something to work with.',
+        `You have only run this distance ${races.length} time${races.length === 1 ? '' : 's'}.`,
+        'Most of this page comes from comparing your races against each other. After three or four at the same distance there is enough to tell a good day from your real level.',
         null,
         'gap',
         { raceCount: races.length }
@@ -242,7 +340,7 @@ function buildStrategy({ races, splitAggregate, distanceMeters, targetSec = 20 }
     consistency(usable, meters),
   ].filter(Boolean);
 
-  // Only measured levers count toward the goal. A ceiling is not seconds
+  // Only measured findings count toward the goal. A ceiling is not seconds
   // in the bank and context is not seconds at all — adding either would
   // turn an honest total into a promise.
   const measured = levers.filter((l) => l.confidence === 'measured' && l.seconds > 0);
@@ -250,19 +348,28 @@ function buildStrategy({ races, splitAggregate, distanceMeters, targetSec = 20 }
   const ceilings = levers.filter((l) => l.confidence === 'ceiling' && l.seconds > 0);
 
   const best = usable.length > 0 ? usable.reduce((a, b) => (a.timeSec < b.timeSec ? a : b)) : null;
+  const targetTimeSec = best ? Math.max(0, best.timeSec - targetSec) : null;
+
+  // The splits to actually run, and one thing to do about them. This is
+  // the part an athlete takes to the start line; everything above is why.
+  const plan = targetTimeSec ? buildRacePlan(targetTimeSec, meters) : null;
+  const instruction = raceDayInstruction(splitAggregate, plan?.splits?.[0]?.cumulativeSec ?? null);
 
   return {
     targetSec,
     distanceMeters: meters,
     raceCount: usable.length,
     bestTimeSec: best?.timeSec ?? null,
+    bestRaceName: best?.raceName ?? null,
     /** What the target would look like off their best — the number they came for. */
-    targetTimeSec: best ? Math.max(0, best.timeSec - targetSec) : null,
-    targetTimeLabel: best ? formatTime(Math.max(0, best.timeSec - targetSec)) : null,
+    targetTimeSec,
+    targetTimeLabel: targetTimeSec != null ? formatTime(targetTimeSec) : null,
     measuredTotalSec: measuredTotal,
     ceilingTotalSec: ceilings.reduce((sum, l) => sum + l.seconds, 0),
     /** True when their own range already covers the goal — no new fitness required. */
     withinReach: measuredTotal >= targetSec,
+    plan,
+    instruction,
     levers,
     gaps: gaps(usable, splitAggregate),
   };
@@ -270,6 +377,8 @@ function buildStrategy({ races, splitAggregate, distanceMeters, targetSec = 20 }
 
 module.exports = {
   MILE_IN_METERS,
+  buildRacePlan,
+  raceDayInstruction,
   MIN_RACES_FOR_TYPICAL,
   NOISE_SEC_PER_MILE,
   median,

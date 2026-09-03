@@ -31,11 +31,14 @@ import { formatTime, formatDateShort } from '@/lib/formatUtils';
 
 const TARGET_OPTIONS = [10, 20, 30, 60];
 
+// Written for the person reading it: a sixteen-year-old on their phone the
+// week of a race. "Already in you" and "Ceiling" were accurate and meant
+// nothing to them.
 const CONFIDENCE_LABEL: Record<LeverConfidence, string> = {
-  measured: 'Already in you',
-  ceiling: 'Ceiling',
-  context: 'Worth knowing',
-  gap: 'Not yet known',
+  measured: "You've done this",
+  ceiling: 'If you paced it perfectly',
+  context: 'Good to know',
+  gap: 'Missing',
 };
 
 const CONFIDENCE_TONE: Record<LeverConfidence, string> = {
@@ -117,7 +120,7 @@ const StrategyPage: React.FC = () => {
           Strategy session
         </h1>
         <p className="text-muted-foreground">
-          {data.athlete.name} — where the next {targetSec} seconds are, from races already run.
+          {data.athlete.name} — where the next {targetSec} seconds come from.
         </p>
       </div>
 
@@ -154,35 +157,54 @@ const StrategyPage: React.FC = () => {
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">
             {strategy.bestTimeSec != null && strategy.targetTimeLabel
-              ? `${formatTime(strategy.bestTimeSec)} → ${strategy.targetTimeLabel}`
-              : 'The goal'}
+              ? `Your goal: ${strategy.targetTimeLabel}`
+              : 'Your goal'}
           </CardTitle>
           <CardDescription>
             {strategy.raceCount === 0
-              ? 'No finished races at this distance yet.'
-              : strategy.withinReach
-                ? `Your own races already account for ${strategy.measuredTotalSec} seconds — more than the ${targetSec} you're after. This is a race-execution question, not a fitness one.`
-                : `Your own races account for ${strategy.measuredTotalSec} of the ${targetSec} seconds. The rest has to come from pacing or from training between now and then.`}
+              ? 'You have no finished races at this distance yet.'
+              : `That is ${targetSec} seconds off your best (${formatTime(strategy.bestTimeSec ?? 0)}${
+                  strategy.bestRaceName ? `, at ${strategy.bestRaceName}` : ''
+                }).`}
           </CardDescription>
         </CardHeader>
         {strategy.raceCount > 0 && (
-          <CardContent className="pt-0">
-            <div className="flex flex-wrap gap-4 text-sm">
-              <span>
-                <strong className="tabular-nums">{strategy.measuredTotalSec}s</strong>{' '}
-                <span className="text-muted-foreground">already in you</span>
-              </span>
-              {strategy.ceilingTotalSec > 0 && (
-                <span>
-                  <strong className="tabular-nums">{strategy.ceilingTotalSec}s</strong>{' '}
-                  <span className="text-muted-foreground">pacing ceiling</span>
-                </span>
-              )}
-              <span>
-                <strong className="tabular-nums">{strategy.raceCount}</strong>{' '}
-                <span className="text-muted-foreground">races at this distance</span>
-              </span>
+          <CardContent className="space-y-4 pt-0">
+            {/* The splits, first and biggest. This is the part that goes to
+                the start line; everything below it is the reasoning. */}
+            {strategy.plan && (
+              <div>
+                <p className="mb-2 text-sm font-medium">Run these splits</p>
+                <div className="flex flex-wrap gap-2">
+                  {strategy.plan.splits.map((split) => (
+                    <div
+                      key={split.label}
+                      className={cn(
+                        'rounded-lg border px-3 py-2',
+                        split.label === 'Finish' && 'border-primary bg-primary/5'
+                      )}
+                    >
+                      <p className="text-xs text-muted-foreground">{split.label}</p>
+                      <p className="text-xl font-bold tabular-nums">{formatTime(split.cumulativeSec)}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Even pace the whole way. Times are what the clock should say as you go past.
+                </p>
+              </div>
+            )}
+
+            <div className="rounded-lg bg-muted/50 p-3">
+              <p className="text-sm font-medium">On race day</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">{strategy.instruction}</p>
             </div>
+
+            <p className="text-sm">
+              {strategy.withinReach
+                ? `You have already been ${strategy.measuredTotalSec} seconds quicker than your normal race this season, so the speed is there. This is about how you run the race, not how fit you are.`
+                : `Your races so far cover ${strategy.measuredTotalSec} of the ${targetSec} seconds. The rest comes from pacing it better and from training between now and then.`}
+            </p>
           </CardContent>
         )}
       </Card>
@@ -190,10 +212,10 @@ const StrategyPage: React.FC = () => {
       {strategy.levers.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Where it is</CardTitle>
+            <CardTitle className="text-lg">Where the time is</CardTitle>
             <CardDescription>
-              Only "already in you" counts toward the goal — a ceiling is what perfect pacing would be worth, not
-              seconds in the bank.
+              Only the "you've done this" ones count toward the goal. The pacing number is how big the problem is, not
+              seconds you can bank.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -209,7 +231,7 @@ const StrategyPage: React.FC = () => {
       {strategy.gaps.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">What would sharpen this</CardTitle>
+            <CardTitle className="text-lg">What would make this better</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="divide-y">
@@ -224,7 +246,7 @@ const StrategyPage: React.FC = () => {
       {data.races && data.races.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">The races this is built from</CardTitle>
+            <CardTitle className="text-lg">Races this is based on</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y border-t">
@@ -243,8 +265,8 @@ const StrategyPage: React.FC = () => {
       )}
 
       <p className="text-xs text-muted-foreground">
-        Every number here is arithmetic on {data.athlete.name}'s own results — no predictions, no model. Courses and
-        weather differ, so treat a few seconds either way as noise.{' '}
+        Every number here comes from races {data.athlete.name} has already run. Nothing is predicted. Courses and
+        weather are never the same twice, so a few seconds either way is normal.{' '}
         <button type="button" className="underline" onClick={() => navigate(teamPath(`/team/athlete/${athleteId}`))}>
           See the full profile
         </button>

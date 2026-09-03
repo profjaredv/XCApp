@@ -12,6 +12,19 @@ export interface StrategyLever {
   evidence: Record<string, unknown>;
 }
 
+export interface PlanSplit {
+  label: string;
+  meters: number;
+  cumulativeSec: number;
+  segmentSec: number;
+}
+
+export interface RacePlan {
+  targetTimeSec: number;
+  distanceMeters: number;
+  splits: PlanSplit[];
+}
+
 export interface Strategy {
   targetSec: number;
   distanceMeters: number;
@@ -23,6 +36,11 @@ export interface Strategy {
   measuredTotalSec: number;
   ceilingTotalSec: number;
   withinReach: boolean;
+  bestRaceName: string | null;
+  /** The splits to actually run for the goal time. Even pace — any other shape would be an opinion. */
+  plan: RacePlan | null;
+  /** One thing to do on race day, from this athlete's own pattern. */
+  instruction: string;
   levers: StrategyLever[];
   gaps: StrategyLever[];
 }
