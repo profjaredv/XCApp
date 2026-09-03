@@ -47,6 +47,29 @@ export interface ProgramSeasonEntry {
   };
 }
 
+export type PostseasonLevel = 'LEAGUE' | 'DISTRICT' | 'REGIONAL' | 'STATE' | 'NATIONAL';
+
+export interface ProgramPostseasonSeason {
+  season: number;
+  counts: Record<PostseasonLevel, { total: number; men: number; women: number }>;
+  /** The furthest rung anyone reached, or null when nothing is marked. */
+  furthestLevel: PostseasonLevel | null;
+  /** False means no race that season carries a level — not that nobody qualified. */
+  marked: boolean;
+}
+
+export interface ProgramBest {
+  value: number;
+  season: number;
+  label: string;
+  direction: 'higher' | 'lower';
+  unit: string;
+  seasonsCompared: number;
+  /** A best out of one season is the only reading there is, not a record. */
+  isRecord: boolean;
+  isCurrent: boolean;
+}
+
 /** One sentence of story mode, with the number it rests on. See backend/lib/programStory.js. */
 export interface ProgramStoryBeat {
   id: string;
@@ -72,6 +95,9 @@ export interface ProgramAnalyticsData {
   success: boolean;
   seasons: ProgramSeasonEntry[];
   attrition: ProgramAttrition;
+  postseason: ProgramPostseasonSeason[];
+  /** The program's own best season per metric — the only yardstick this app has. */
+  bests: Partial<Record<string, ProgramBest>>;
   story: ProgramStoryBeat[];
 }
 

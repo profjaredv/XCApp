@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { meetOpsService, type RaceResultEntry } from '../api/meetOpsService';
+import { meetOpsService, type RaceResultEntry, type PostseasonLevel } from '../api/meetOpsService';
 import { invalidateAfterDataChange } from './useDataManagement';
 
 export function useMeets(seasonId: string | null) {
@@ -24,6 +24,19 @@ export function useCreateMeet(seasonId: string | null) {
     mutationFn: (input: { name: string; date: string; location?: string; isHome?: boolean | null }) =>
       meetOpsService.createMeet({ seasonId: seasonId as string, ...input }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', seasonId] }),
+  });
+}
+
+/** Sets the postseason level for every race in a meet. */
+export function useSetPostseasonLevel(meetId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (level: PostseasonLevel | null) => meetOpsService.setPostseasonLevel(meetId as string, level),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetOps'] });
+      // The Program screen counts who reached each round from these marks.
+      queryClient.invalidateQueries({ queryKey: ['programAnalytics'] });
+    },
   });
 }
 

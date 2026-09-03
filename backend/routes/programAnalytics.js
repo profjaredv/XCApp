@@ -14,7 +14,8 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam } = require('../middleware/auth');
 const { computeAttritionCurve } = require('../lib/programAnalytics');
-const { getBenchmark } = require('../lib/programBenchmarks');
+const { getBenchmark, buildSelfBenchmarks } = require('../lib/programBenchmarks');
+const { countPostseason } = require('../lib/postseason');
 const { buildSeasonShapes } = require('../lib/programSeasons');
 const { buildProgramStory } = require('../lib/programStory');
 const { parseDistanceToMeters } = require('../lib/distance');
@@ -38,6 +39,8 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         success: true,
         seasons: [],
         attrition: { windows: ATTRITION_WINDOWS, retention: {}, cohortSizes: {}, leftCensored: 0, earliestSeason: null },
+        postseason: [],
+        bests: {},
         story: buildProgramStory([], null, [], new Map()),
       });
     }
@@ -67,7 +70,17 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
           athleteId: true,
           time: true,
           athlete: { select: { gender: true } },
-          race: { select: { id: true, name: true, date: true, season: true, distance: true, distanceMeters: true } },
+          race: {
+            select: {
+              id: true,
+              name: true,
+              date: true,
+              season: true,
+              distance: true,
+              distanceMeters: true,
+              postseasonLevel: true,
+            },
+          },
         },
       }),
     ]);
@@ -132,11 +145,33 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
     // join two arrays by year to render a single chart.
     const merged = bySeason.map((s) => ({ ...s, ...shapeBySeason.get(s.season) }));
 
+    // How far the program got each year. Distinct athletes per level, from
+    // races a coach marked — an unmarked race is not "didn't qualify", and
+    // the payload says which seasons have been marked at all so the screen
+    // can tell those two apart.
+    const postseason = countPostseason(
+      results
+        .filter((r) => r.athlete && r.race.postseasonLevel)
+        .map((r) => ({
+          athleteId: r.athleteId,
+          gender: normalizeGender(r.athlete.gender),
+          season: r.race.season,
+          level: r.race.postseasonLevel,
+        })),
+      years
+    );
+
+    // The program's own best season, per metric — the only honest
+    // yardstick available, since no league/state reference data exists.
+    const bests = buildSelfBenchmarks(merged);
+
     res.json({
       success: true,
       seasons: merged,
       attrition,
-      story: buildProgramStory(shapes, attrition, bySeason, participants),
+      postseason,
+      bests,
+      story: buildProgramStory(shapes, attrition, bySeason, participants, { postseason, bests }),
     });
   } catch (err) {
     console.error('Error computing program analytics:', err.message);

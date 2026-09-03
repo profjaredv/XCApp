@@ -43,7 +43,22 @@ const WINDOW_LABELS: Record<number, string> = {
 };
 
 export function ProgramOverviewSection({ data }: ProgramOverviewSectionProps) {
-  const { seasons, attrition } = data;
+  const { seasons, attrition, bests } = data;
+
+  // The program's own best, on the card for the metric it belongs to.
+  // There is no league or state reference data in this app, so a team's
+  // own history is the only honest yardstick — and a "best" out of one
+  // season is the only reading there is, not a record, so it isn't shown.
+  const bestNote = (key: string) => {
+    const best = bests?.[key];
+    if (!best?.isRecord) return null;
+    return (
+      <p className="mt-2 text-xs text-muted-foreground">
+        {best.isCurrent ? 'Best on file — this season.' : `Best on file: ${best.season}.`} Across{' '}
+        {best.seasonsCompared} seasons with a number for it.
+      </p>
+    );
+  };
 
   const participantsData = seasons.map((s) => ({
     season: s.season,
@@ -140,6 +155,7 @@ export function ProgramOverviewSection({ data }: ProgramOverviewSectionProps) {
                 </BarChart>
               </ResponsiveContainer>
             )}
+            {bestNote('rosterSize')}
           </CardContent>
         </Card>
 
@@ -177,6 +193,7 @@ export function ProgramOverviewSection({ data }: ProgramOverviewSectionProps) {
                 </BarChart>
               </ResponsiveContainer>
             )}
+            {bestNote('raceMiles')}
           </CardContent>
         </Card>
 
@@ -251,6 +268,7 @@ export function ProgramOverviewSection({ data }: ProgramOverviewSectionProps) {
                 </LineChart>
               </ResponsiveContainer>
             )}
+            {bestNote('medianPaceMen')}
           </CardContent>
         </Card>
 
@@ -356,10 +374,12 @@ export function ProgramOverviewSection({ data }: ProgramOverviewSectionProps) {
       {!hasAnyBenchmark && (
         <Alert>
           <Info className="h-4 w-4" />
-          <AlertTitle>No league/state/national benchmark data</AlertTitle>
+          <AlertTitle>Measured against your own history</AlertTitle>
           <AlertDescription>
-            There's no external reference data configured for this team yet, so the numbers above are shown on their own rather than
-            against a league, state, or national average. This will fill in automatically once a benchmark data source is available.
+            There is no league, state or national reference dataset in the app, and inventing one would be worse than
+            having none — so these numbers are compared against this program's own best season instead. Uploading full
+            field results is what would make an outside comparison real: it puts your athletes against everyone else
+            who ran the race, not just each other.
           </AlertDescription>
         </Alert>
       )}

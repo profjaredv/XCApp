@@ -221,6 +221,86 @@ function packBeat(shapes, gender, label) {
   );
 }
 
+
+function postseasonBeat(shapes, postseason) {
+  const rows = postseason || [];
+  const latest = rows[rows.length - 1];
+  if (!latest) return null;
+
+  if (!latest.marked) {
+    // Nothing marked is not the same as nobody qualifying, and saying
+    // "0 athletes reached districts" for a team that won them would be
+    // the worst thing this screen could do.
+    const everMarked = rows.some((r) => r.marked);
+    return beat(
+      'gap-postseason',
+      'gap',
+      'No postseason races marked yet.',
+      everMarked
+        ? `Earlier seasons are marked, but ${latest.season} isn't — open a meet and set its level to count who reached districts and state.`
+        : 'Districts and state look like every other meet until someone says otherwise. Open a championship meet and set its level, and this screen starts tracking how far the program gets each year.',
+      { season: latest.season }
+    );
+  }
+
+  const order = ['NATIONAL', 'STATE', 'REGIONAL', 'DISTRICT', 'LEAGUE'];
+  const labels = {
+    NATIONAL: 'nationals',
+    STATE: 'the state meet',
+    REGIONAL: 'regionals',
+    DISTRICT: 'districts',
+    LEAGUE: 'the league meet',
+  };
+  const furthest = latest.furthestLevel;
+  const count = latest.counts[furthest];
+
+  // Everything below the furthest level, so "12 to districts, 4 to state"
+  // reads as the ladder it is rather than one number in isolation.
+  const rungs = order
+    .filter((level) => latest.counts[level].total > 0 && level !== furthest)
+    .map((level) => `${latest.counts[level].total} to ${labels[level]}`);
+
+  let detail = `${count.men} boy${count.men === 1 ? '' : 's'} and ${count.women} girl${
+    count.women === 1 ? '' : 's'
+  }.`;
+  if (rungs.length > 0) detail += ` Also ${rungs.join(', ')}.`;
+
+  const previous = [...rows].slice(0, -1).reverse().find((r) => r.marked && r.counts[furthest]);
+  if (previous) {
+    const before = previous.counts[furthest].total;
+    if (before === count.total) {
+      detail += ` Same as ${previous.season}.`;
+    } else if (before === 0) {
+      detail += ` Nobody got that far in ${previous.season}.`;
+    } else {
+      detail += ` ${previous.season} sent ${before}.`;
+    }
+  }
+
+  return beat(
+    'postseason',
+    'depth',
+    `${count.total} athlete${count.total === 1 ? '' : 's'} reached ${labels[furthest]} in ${latest.season}.`,
+    detail,
+    { season: latest.season, level: furthest, total: count.total, men: count.men, women: count.women }
+  );
+}
+
+function bestSeasonBeat(shapes, bests) {
+  const entries = Object.values(bests || {}).filter((b) => b.isRecord && b.isCurrent);
+  if (entries.length === 0) return null;
+  // Only worth a sentence when this season actually holds a record. A
+  // list of records set years ago is history, not news about this year.
+  const named = entries.map((b) => b.label.toLowerCase());
+  return beat(
+    'best-season',
+    'growth',
+    `This season is the program's best on file for ${named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`}.`,
+    `Measured against the ${entries[0].seasonsCompared} seasons that have a number for it. There is no league or state reference data in the app, so a program's own history is the yardstick.`,
+    { metrics: named, seasonsCompared: entries[0].seasonsCompared }
+  );
+}
+
 // What the app cannot tell them, and why. This exists because the
 // alternative — a chart that is simply empty — reads as "your program has
 // no field standing" rather than "nobody has uploaded a full field yet".
@@ -274,7 +354,7 @@ function gapBeats(shapes, seasonsMeta) {
  * @param seasonsMeta the route's per-season payload (topField, metricsCalculated)
  * @param participants Map<year, { total, men, women }>
  */
-function buildProgramStory(shapes, attrition, seasonsMeta, participants) {
+function buildProgramStory(shapes, attrition, seasonsMeta, participants, extras = {}) {
   if (!shapes || shapes.length === 0) {
     return [
       beat(
@@ -296,6 +376,8 @@ function buildProgramStory(shapes, attrition, seasonsMeta, participants) {
     paceBeat(shapes, 'women', 'Girls'),
     packBeat(shapes, 'men', 'Boys'),
     packBeat(shapes, 'women', 'Girls'),
+    postseasonBeat(shapes, extras.postseason),
+    bestSeasonBeat(shapes, extras.bests),
     ...gapBeats(shapes, seasonsMeta || []),
   ].filter(Boolean);
 }

@@ -721,6 +721,8 @@ model Race {
   // excludes isManual races; deleting one is only ever a direct,
   // deliberate action (DELETE /races/:raceId, manual-only).
   isManual           Boolean  @default(false) @map("is_manual")
+  // Null for a regular-season race. Coach-set — see PostseasonLevel.
+  postseasonLevel    PostseasonLevel? @map("postseason_level")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -741,6 +743,7 @@ model Race {
   @@unique([teamId, name, date, distance])
   @@index([teamId])
   @@index([teamId, season])
+  @@index([teamId, season, postseasonLevel])
   @@index([athleticMeetId])
   @@index([courseId])
   @@index([meetId])
@@ -987,6 +990,23 @@ model SeasonRoster {
 // own instruction ("three tables means three assignment screens and three
 // copies of the same bug").
 // ---------------------------------------------------------------------------
+
+// How far into the postseason a race was. Null = regular season, which is
+// most races. Set by a coach, never inferred: lib/postseason.js can suggest
+// a level from a meet name, but "Penn State Invitational" contains the word
+// state and is not a state meet, so a suggestion is offered and a person
+// confirms it. See that file's header for why that distinction matters.
+//
+// Names vary by state — Ohio runs District/Regional/State, Texas runs
+// District/Region/State, California runs League/Section/State — so these
+// are the rungs of a ladder rather than any one state's vocabulary.
+enum PostseasonLevel {
+  LEAGUE
+  DISTRICT
+  REGIONAL
+  STATE
+  NATIONAL
+}
 
 enum GroupType {
   TRAINING // coach-led, ability-based, gender-split

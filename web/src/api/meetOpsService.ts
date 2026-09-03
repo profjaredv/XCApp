@@ -31,6 +31,8 @@ export interface MeetRace {
   isManual?: boolean;
 }
 
+export type PostseasonLevel = 'LEAGUE' | 'DISTRICT' | 'REGIONAL' | 'STATE' | 'NATIONAL';
+
 export interface MeetDetail {
   id: string;
   name: string;
@@ -40,6 +42,11 @@ export interface MeetDetail {
   races: MeetRace[];
   /** The season year this meet belongs to — needed to fetch the roster for results entry. */
   seasonYear: number | null;
+  /** Stored per race; null here also when the meet's races disagree (see postseasonMixed). */
+  postseasonLevel: PostseasonLevel | null;
+  postseasonMixed?: boolean;
+  /** Read from the meet's name. Offered, never applied — "Penn State Invitational" isn't a state meet. */
+  suggestedPostseasonLevel: PostseasonLevel | null;
 }
 
 export type ResultStatus = 'FINISHED' | 'DNF' | 'DNS' | 'DQ';
@@ -160,6 +167,15 @@ export interface ParsedResultsPreview {
 }
 
 export const meetOpsService = {
+  /** Marks every race in this meet as league/district/regional/state/national, or clears it. */
+  async setPostseasonLevel(meetId: string, level: PostseasonLevel | null) {
+    const response = await api.patch<{ meetId: string; level: PostseasonLevel | null; raceCount: number }>(
+      `/meet-ops/${meetId}/postseason`,
+      { level }
+    );
+    return response.data;
+  },
+
   async listMeets(seasonId: string): Promise<MeetSummary[]> {
     const response = await api.get<MeetSummary[]>('/meet-ops', { params: { seasonId } });
     return response.data;

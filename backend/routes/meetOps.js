@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete } = require('../middleware/auth');
+const { isValidLevel, suggestLevel, LEVELS } = require('../lib/postseason');
 const { ANY_TEAM_MEMBER, FULL_COACH } = require('../lib/teamRoles');
 const { buildMeetMappingProposal } = require('../lib/meetMapping');
 const { parseTeamCalendar } = require('../lib/icalMeets');
@@ -790,7 +791,18 @@ router.get('/:meetId', authenticate, requireTeam, requireRole(FULL_COACH), async
     if (!meet) {
       return res.status(404).json({ msg: 'Meet not found.' });
     }
-    res.json({ ...meet, seasonYear: meet.season?.year ?? null });
+    // The races carry the level; the meet reports it. Mixed is possible
+    // if someone marked one race and not another — reported honestly as
+    // null rather than picking a winner.
+    const levels = [...new Set(meet.races.map((r) => r.postseasonLevel ?? null))];
+    res.json({
+      ...meet,
+      seasonYear: meet.season?.year ?? null,
+      postseasonLevel: levels.length === 1 ? levels[0] : null,
+      postseasonMixed: levels.length > 1,
+      // Offered, never applied — see lib/postseason.js.
+      suggestedPostseasonLevel: suggestLevel(meet.name),
+    });
   } catch (error) {
     console.error('Error fetching meet:', error.message);
     res.status(500).json({ msg: 'Server error' });
@@ -814,6 +826,51 @@ router.put('/:meetId', authenticate, requireTeam, requireRole(FULL_COACH), async
     res.json(updated);
   } catch (error) {
     console.error('Error updating meet:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// PATCH /api/meet-ops/:meetId/postseason
+//
+// Marks every race in a meet as league / district / regional / state /
+// national, or clears it back to regular season. Meet-level because that
+// is how the day works — boys varsity and girls varsity at the district
+// meet are both the district meet — while the level itself is stored per
+// Race, since results hang off Race and a scraped race often has no Meet
+// row at all.
+//
+// Nothing here infers. lib/postseason.js can suggest a level from the
+// meet's name and GET /:meetId returns that suggestion, but the column is
+// only ever written by this route, from a coach's choice. "Penn State
+// Invitational" is why.
+router.patch('/:meetId/postseason', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  const { level } = req.body;
+  const normalized = level === null || level === '' ? null : level;
+
+  if (!isValidLevel(normalized)) {
+    return res.status(400).json({ msg: `level must be null or one of: ${LEVELS.join(', ')}.` });
+  }
+
+  try {
+    const meet = await prisma.meet.findFirst({
+      where: { id: req.params.meetId, teamId: req.user.teamId },
+      include: { races: { select: { id: true } } },
+    });
+    if (!meet) {
+      return res.status(404).json({ msg: 'Meet not found.' });
+    }
+    if (meet.races.length === 0) {
+      return res.status(400).json({ msg: 'This meet has no races to mark yet.' });
+    }
+
+    await prisma.race.updateMany({
+      where: { id: { in: meet.races.map((r) => r.id) }, teamId: req.user.teamId },
+      data: { postseasonLevel: normalized },
+    });
+
+    res.json({ meetId: meet.id, level: normalized, raceCount: meet.races.length });
+  } catch (error) {
+    console.error('Error setting postseason level:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

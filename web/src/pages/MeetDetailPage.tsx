@@ -16,11 +16,11 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Upload, Timer as TimerIcon } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
-import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults } from '@/hooks/useMeetOps';
+import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults, useSetPostseasonLevel } from '@/hooks/useMeetOps';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
-import { formatTimeSec, type MeetDetail, type ResultStatus, type RaceResultEntry } from '@/api/meetOpsService';
+import { formatTimeSec, type MeetDetail, type ResultStatus, type RaceResultEntry, type PostseasonLevel } from '@/api/meetOpsService';
 import { rosterService } from '@/api/rosterService';
 import { formatTime, parseTimeToSeconds } from '@/lib/formatUtils';
 
@@ -38,12 +38,27 @@ const STATUS_OPTIONS: ResultStatus[] = ['FINISHED', 'DNF', 'DNS', 'DQ'];
 // plus athletes' shared race plans (RaceReflection — pre-race goals and
 // post-race reflection). Entries, meet-day logistics, and the printable
 // roster all moved out — see routes/meetOps.js's header comment.
+// The postseason ladder. Names vary by state — Ohio runs
+// District/Regional/State, Texas runs District/Region/State, California
+// runs League/Section/State — so these are rungs, not any one state's
+// vocabulary.
+const REGULAR_SEASON = '__regular__';
+const POSTSEASON_LEVELS: PostseasonLevel[] = ['LEAGUE', 'DISTRICT', 'REGIONAL', 'STATE', 'NATIONAL'];
+const POSTSEASON_LABELS: Record<PostseasonLevel, string> = {
+  LEAGUE: 'League / conference',
+  DISTRICT: 'District / sectional',
+  REGIONAL: 'Regional',
+  STATE: 'State',
+  NATIONAL: 'National',
+};
+
 const MeetDetailPage: React.FC = () => {
   const { meetId } = useParams<{ meetId: string }>();
   const navigate = useNavigate();
   const teamPath = useTeamPath();
   const { data: meet, isLoading } = useMeet(meetId ?? null);
   const updateMeet = useUpdateMeet(meetId ?? null);
+  const setPostseason = useSetPostseasonLevel(meetId ?? null);
 
   const deleteRace = useDeleteRace();
 
@@ -141,6 +156,53 @@ const MeetDetailPage: React.FC = () => {
             <div>
               <Label>Location</Label>
               <Input className="mt-1" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Optional" />
+            </div>
+            <div>
+              <Label>Post season</Label>
+              {/* Nothing infers this. lib/postseason.js reads the meet's
+                  name and suggests, and a coach confirms — "Penn State
+                  Invitational" contains the word state and is not a state
+                  meet, and a wrong mark writes a program's postseason
+                  history without anyone noticing. */}
+              <Select
+                value={meet.postseasonLevel ?? REGULAR_SEASON}
+                onValueChange={(value) =>
+                  setPostseason.mutate(value === REGULAR_SEASON ? null : (value as PostseasonLevel), {
+                    onSuccess: (result) =>
+                      toast.success(
+                        result.level
+                          ? `Marked ${result.raceCount} race${result.raceCount === 1 ? '' : 's'} as ${POSTSEASON_LABELS[result.level]}.`
+                          : 'Marked as regular season.'
+                      ),
+                    onError: () => toast.error('Could not save that.'),
+                  })
+                }
+                disabled={setPostseason.isPending || meet.races.length === 0}
+              >
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={REGULAR_SEASON}>Regular season</SelectItem>
+                  {POSTSEASON_LEVELS.map((level) => (
+                    <SelectItem key={level} value={level}>{POSTSEASON_LABELS[level]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {meet.races.length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">Add a race first — the level is stored on the races.</p>
+              ) : meet.postseasonMixed ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This meet's races are marked differently from each other. Choosing a level sets all of them.
+                </p>
+              ) : !meet.postseasonLevel && meet.suggestedPostseasonLevel ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Looks like {POSTSEASON_LABELS[meet.suggestedPostseasonLevel].toLowerCase()} from the name — set it if
+                  that's right.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Counts toward how far the program got each year, on the Program screen.
+                </p>
+              )}
             </div>
             <div>
               <Label>Home or away</Label>
