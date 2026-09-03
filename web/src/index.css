@@ -96,10 +96,10 @@
 }
 
 :root {
-  /* See index.html's color-scheme meta tag for why: dark mode isn't
-     actually wired up in this app yet (nothing ever adds .dark), so this
-     stops browsers from auto-repainting the page dark on their own — that
-     produced exactly the mismatched-contrast bug this was added to fix. */
+  /* See index.html's color-scheme meta tag for the pre-JS default this
+     matches. .dark below overrides this once the class is applied
+     (contexts/ThemeProvider.tsx) — deliberately, from the toggle, never
+     from the browser/OS's own "force dark" heuristics on their own. */
   color-scheme: light;
   --radius: 0.75rem;
   --background: oklch(0.99 0.004 152);
@@ -164,6 +164,10 @@
 }
 
 .dark {
+  /* Native form controls and scrollbars switch to their dark rendering
+     too, not just this app's own tokens — without this they stayed light
+     while everything around them went dark. */
+  color-scheme: dark;
   --background: oklch(0.16 0.02 152);
   --foreground: oklch(0.96 0.01 152);
   --card: oklch(0.22 0.025 152);

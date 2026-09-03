@@ -11,6 +11,7 @@ import { authClient } from './lib/auth';
 import { router } from './router';
 import { AuthProvider } from './components/AuthProvider';
 import { NerdModeProvider } from './contexts/NerdModeProvider';
+import { ThemeProvider } from './contexts/ThemeProvider';
 import { installErrorBuffer } from './lib/errorBuffer';
 import { registerServiceWorker } from './registerServiceWorker';
 import './index.css';
@@ -61,13 +62,15 @@ createRoot(document.getElementById('root')!).render(
     >
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          {/* Above the router on purpose: nerd mode has to reach the
+          {/* Above the router on purpose: both of these have to reach the
               standalone full-screen routes (live timer, interval sessions,
               splits entry) that render outside <Layout>, and /profile,
               which sits outside the team-scoped subtree. */}
-          <NerdModeProvider>
-            <RouterProvider router={router} />
-          </NerdModeProvider>
+          <ThemeProvider>
+            <NerdModeProvider>
+              <RouterProvider router={router} />
+            </NerdModeProvider>
+          </ThemeProvider>
         </AuthProvider>
       </QueryClientProvider>
     </NeonAuthUIProvider>

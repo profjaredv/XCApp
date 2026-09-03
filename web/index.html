@@ -4,15 +4,32 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- The app doesn't actually wire up dark mode yet (index.css defines a
-         .dark palette, but nothing in the app ever adds that class) — most
-         components hardcode light-theme colors directly. Without this, a
-         browser/OS "force dark mode on every site" setting repaints those
-         unstyled regions on its own heuristics, badly: gradients and
-         semi-transparent overlays come out with mismatched, low-contrast
-         text. Declaring color-scheme: light opts the page out of that
-         auto-repainting until real dark mode support exists. -->
+    <!-- Dark mode is a deliberate, opt-in choice now (the sidebar's Dark
+         mode toggle; see contexts/ThemeProvider.tsx) — .dark only ever gets
+         added by that provider, never by the browser/OS's own "force dark
+         on every site" setting. Declaring color-scheme: light here is the
+         pre-JS default so that OS setting can't auto-repaint unstyled
+         native controls (form inputs, scrollbars) before the script below
+         runs; index.css's `.dark { color-scheme: dark }` takes over once
+         the class is applied. -->
     <meta name="color-scheme" content="light" />
+    <!-- Applies a stored dark-mode choice before the stylesheet or React
+         ever loads, so a reload doesn't flash light for someone who picked
+         dark. Synchronous and inline on purpose — a deferred/module script
+         would run after first paint. Keep this key in sync with
+         THEME_STORAGE_KEY in contexts/ThemeContext.ts. -->
+    <script>
+      (function () {
+        try {
+          if (window.localStorage.getItem('xc_theme') === 'dark') {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {
+          // Private browsing, or storage blocked — ThemeProvider falls
+          // back the same way; nothing to do here.
+        }
+      })();
+    </script>
     <!-- These predate the service worker and are now belt-and-braces at
          most: caching is owned by sw.js (see the VitePWA block in
          vite.config.ts), which precaches the hashed build assets and
