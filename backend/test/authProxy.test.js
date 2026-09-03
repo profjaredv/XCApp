@@ -45,6 +45,32 @@ test('filterRequestHeaders drops the headers that describe this one hop', () => 
   assert.equal(headers.get('user-agent'), 'Safari');
 });
 
+test('filterRequestHeaders strips the x-forwarded-*/forwarded/via family', () => {
+  // Railway's own edge stamps the incoming request with these, describing
+  // how the browser reached OUR server. Neon Auth's server is itself
+  // proxy-aware and reads X-Forwarded-Host to determine its own hostname —
+  // forwarding these through made it see this app's domain and reject the
+  // request as INVALID_HOSTNAME.
+  const headers = filterRequestHeaders({
+    'x-forwarded-host': 'www.leadpack.cc',
+    'x-forwarded-proto': 'https',
+    'x-forwarded-for': '1.2.3.4',
+    'x-forwarded-port': '443',
+    forwarded: 'for=1.2.3.4;host=www.leadpack.cc;proto=https',
+    via: '1.1 railway',
+    'x-real-ip': '1.2.3.4',
+    cookie: 'session=abc',
+  });
+  assert.equal(headers.has('x-forwarded-host'), false);
+  assert.equal(headers.has('x-forwarded-proto'), false);
+  assert.equal(headers.has('x-forwarded-for'), false);
+  assert.equal(headers.has('x-forwarded-port'), false);
+  assert.equal(headers.has('forwarded'), false);
+  assert.equal(headers.has('via'), false);
+  assert.equal(headers.has('x-real-ip'), false);
+  assert.equal(headers.get('cookie'), 'session=abc');
+});
+
 test('filterRequestHeaders skips null/undefined values without throwing', () => {
   const headers = filterRequestHeaders({ 'x-forwarded-for': undefined, accept: 'application/json' });
   assert.equal(headers.has('x-forwarded-for'), false);
