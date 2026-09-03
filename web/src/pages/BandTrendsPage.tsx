@@ -11,6 +11,7 @@ import type { BandStats } from '@/hooks/useBandAnalytics';
 import { useQueryParam } from '@/hooks/useQueryState';
 import { useProgramAnalytics } from '@/hooks/useProgramAnalytics';
 import { ProgramOverviewSection } from '@/components/analytics/ProgramOverviewSection';
+import { ProgramStory } from '@/components/analytics/ProgramStory';
 
 // Band Analytics (XCApp Pre-Season Fixes + Phase 3 doc, Part B). "One
 // screen a coach looks at in November with a cup of coffee, not a
@@ -135,6 +136,9 @@ const BandTrendsPage = () => {
       </div>
 
       {isLoadingProgram && <p className="text-sm text-muted-foreground">Loading program overview...</p>}
+      {/* The reading first, the evidence under it. A coach who wants the
+          charts scrolls past; one who wants the answer doesn't have to. */}
+      {programData?.story && <ProgramStory story={programData.story} />}
       {programData && <ProgramOverviewSection data={programData} />}
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">

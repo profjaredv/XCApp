@@ -26,8 +26,10 @@
 function computeAttritionCurve(rosterRows, windows) {
   const byAthlete = new Map();
   let maxYear = -Infinity;
+  let minYear = Infinity;
   for (const row of rosterRows) {
     if (row.year > maxYear) maxYear = row.year;
+    if (row.year < minYear) minYear = row.year;
     if (!byAthlete.has(row.athleteId)) byAthlete.set(row.athleteId, []);
     byAthlete.get(row.athleteId).push(row);
   }
@@ -41,9 +43,26 @@ function computeAttritionCurve(rosterRows, windows) {
   const retention = {};
   const cohortSizes = {};
 
+  // Left censoring, counted rather than corrected. An athlete first SEEN
+  // in the earliest loaded season may have been on the team for three
+  // years already — the data just doesn't go back that far, so "joined"
+  // and "first appears" are the same event here and only one of them is
+  // true. Where a grade is on file the graduation guard below bounds the
+  // damage (a junior can't be counted past the window they'd graduate
+  // in); where it isn't, nothing can.
+  //
+  // Dropping them was the other option and it is worse: a team whose
+  // import starts at the program's actual beginning would lose its entire
+  // first cohort, and a team with no grades on file would lose the chart
+  // outright. So they stay in, and the count comes back alongside the
+  // numbers so the screen can say what it is unsure about. It is a
+  // property of the data, not of a window — counted once, over athletes.
+  const leftCensored = athletes.filter((a) => a.firstYear === minYear).length;
+
   for (const w of windows) {
     let eligible = 0;
     let retained = 0;
+
     for (const a of athletes) {
       const targetYear = a.firstYear + w;
       if (rosterRows.length === 0 || targetYear > maxYear) continue; // not enough elapsed seasons to observe this window yet
@@ -58,7 +77,7 @@ function computeAttritionCurve(rosterRows, windows) {
     retention[w] = eligible > 0 ? parseFloat(((retained / eligible) * 100).toFixed(1)) : null;
   }
 
-  return { windows, retention, cohortSizes };
+  return { windows, retention, cohortSizes, leftCensored, earliestSeason: Number.isFinite(minYear) ? minYear : null };
 }
 
 module.exports = { computeAttritionCurve };

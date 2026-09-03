@@ -15,6 +15,10 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam } = require('../middleware/auth');
 const { computeAttritionCurve } = require('../lib/programAnalytics');
 const { getBenchmark } = require('../lib/programBenchmarks');
+const { buildSeasonShapes } = require('../lib/programSeasons');
+const { buildProgramStory } = require('../lib/programStory');
+const { parseDistanceToMeters } = require('../lib/distance');
+const { normalizeGender } = require('../lib/gender');
 
 const ATTRITION_WINDOWS = [1, 2, 3, 4];
 
@@ -33,21 +37,38 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
       return res.json({
         success: true,
         seasons: [],
-        attrition: { windows: ATTRITION_WINDOWS, retention: {}, cohortSizes: {} },
+        attrition: { windows: ATTRITION_WINDOWS, retention: {}, cohortSizes: {}, leftCensored: 0, earliestSeason: null },
+        story: buildProgramStory([], null, [], new Map()),
       });
     }
 
     const seasonIds = seasons.map((s) => s.id);
     const seasonYearById = new Map(seasons.map((s) => [s.id, s.year]));
 
-    const [rosterRows, teamMetrics] = await Promise.all([
+    const years = seasons.map((s) => s.year);
+
+    const [rosterRows, teamMetrics, results] = await Promise.all([
       prisma.seasonRoster.findMany({
         where: { seasonId: { in: seasonIds }, isActive: true },
         select: { athleteId: true, grade: true, seasonId: true, athlete: { select: { gender: true } } },
       }),
       prisma.teamSeasonMetrics.findMany({
-        where: { teamId, season: { in: seasons.map((s) => s.year) } },
+        where: { teamId, season: { in: years } },
         select: { season: true, totalMiles: true, fieldStanding: true },
+      }),
+      // Live, from results. Everything derived below — meets, miles,
+      // median pace, pack spread — used to come from TeamSeasonMetrics,
+      // which only exists for seasons somebody remembered to run
+      // "Recalculate Metrics" on. A screen about a program's history
+      // cannot depend on a manual step nobody was told to take.
+      prisma.result.findMany({
+        where: { status: 'FINISHED', time: { gt: 0 }, race: { teamId, season: { in: years } } },
+        select: {
+          athleteId: true,
+          time: true,
+          athlete: { select: { gender: true } },
+          race: { select: { id: true, name: true, date: true, season: true, distance: true, distanceMeters: true } },
+        },
       }),
     ]);
 
@@ -83,7 +104,40 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
     }));
     const attrition = computeAttritionCurve(attritionInput, ATTRITION_WINDOWS);
 
-    res.json({ success: true, seasons: bySeason, attrition });
+    const resultRows = results
+      .filter((r) => r.athlete)
+      .map((r) => ({
+        athleteId: r.athleteId,
+        gender: normalizeGender(r.athlete.gender),
+        season: r.race.season,
+        raceId: r.race.id,
+        raceName: r.race.name,
+        date: r.race.date,
+        timeSec: r.time,
+        distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
+      }));
+
+    const rosterByYear = new Map();
+    for (const row of rosterRows) {
+      const year = seasonYearById.get(row.seasonId);
+      if (!rosterByYear.has(year)) rosterByYear.set(year, new Set());
+      rosterByYear.get(year).add(row.athleteId);
+    }
+
+    const shapes = buildSeasonShapes(resultRows, rosterByYear, years);
+    const shapeBySeason = new Map(shapes.map((shape) => [shape.season, shape]));
+    const participants = new Map(bySeason.map((s) => [s.season, s.participants]));
+
+    // One row per season carrying both halves, so the client never has to
+    // join two arrays by year to render a single chart.
+    const merged = bySeason.map((s) => ({ ...s, ...shapeBySeason.get(s.season) }));
+
+    res.json({
+      success: true,
+      seasons: merged,
+      attrition,
+      story: buildProgramStory(shapes, attrition, bySeason, participants),
+    });
   } catch (err) {
     console.error('Error computing program analytics:', err.message);
     res.status(500).json({ success: false, message: 'Server error' });
