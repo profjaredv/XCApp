@@ -22,7 +22,25 @@ const NEON_AUTH_UPSTREAM_URL = process.env.NEON_AUTH_UPSTREAM_URL;
 // forwarding them verbatim would either be meaningless on the new hop
 // (Host) or wrong once the body has passed through fetch/Express again
 // (Content-Length, Content-Encoding).
-const STRIP_REQUEST_HEADERS = new Set(['host', 'content-length', 'connection']);
+//
+// The x-forwarded-*/forwarded/via family is the important one here, not
+// just hygiene: Railway's own edge sits in front of this server and stamps
+// the INCOMING request with X-Forwarded-Host: <this app's domain> (plus
+// -Proto, -For, etc). Neon Auth's own server is itself proxy-aware and
+// reads X-Forwarded-Host to figure out its own "real" hostname — so
+// forwarding that header through unchanged made Neon Auth think THIS
+// app's domain was ITS hostname and reject the request with
+// INVALID_HOSTNAME. Those headers describe how the browser reached us;
+// they must never leak into the separate request we make to Neon.
+const STRIP_REQUEST_HEADERS = new Set([
+  'host',
+  'content-length',
+  'connection',
+  'forwarded',
+  'via',
+  'x-real-ip',
+]);
+const FORWARDED_HEADER_PREFIX = 'x-forwarded-';
 const STRIP_RESPONSE_HEADERS = new Set([
   'set-cookie',
   'content-encoding',
@@ -43,7 +61,8 @@ function buildUpstreamUrl(upstreamBase, subPath) {
 function filterRequestHeaders(rawHeaders) {
   const headers = new Headers();
   for (const [key, value] of Object.entries(rawHeaders)) {
-    if (value == null || STRIP_REQUEST_HEADERS.has(key.toLowerCase())) continue;
+    const lower = key.toLowerCase();
+    if (value == null || STRIP_REQUEST_HEADERS.has(lower) || lower.startsWith(FORWARDED_HEADER_PREFIX)) continue;
     headers.set(key, Array.isArray(value) ? value.join(', ') : String(value));
   }
   return headers;
