@@ -61,4 +61,29 @@ describe('group day view', () => {
     expect(page).toContain('addDays(date, -1)');
     expect(page).toContain('Back to today');
   });
+
+  it('sends an athlete to cross training from this same row, not only the Groups board', () => {
+    expect(page).toContain("from '@/components/groups/XTrainingSendDialog'");
+    expect(page).toContain('onSendToXTraining');
+    expect(page).toContain('xTrainingByAthleteId');
+  });
+
+  it('marks an athlete already cross-training instead of showing a send button', () => {
+    expect(page).toContain('xTraining ?');
+    expect(page).toContain('Return to training');
+    expect(page).toContain('onReturnFromXTraining');
+  });
+
+  it('excuses today\'s attendance when sending someone to cross training, but only if attendance is already being taken', () => {
+    const handler = page.slice(page.indexOf('const handleXTrainingSent'), page.indexOf('const handleReturnFromXTraining'));
+    expect(handler).toContain('if (!day?.session) return');
+    expect(handler).toContain("status: 'EXCUSED'");
+  });
+
+  it('does not touch attendance when returning someone from cross training early', () => {
+    // Returning is a group-membership change only — whatever attendance
+    // already recorded for that day stays exactly as a coach marked it.
+    const handler = page.slice(page.indexOf('const handleReturnFromXTraining'), page.indexOf('const handleCreateInterval'));
+    expect(handler).not.toContain('updateRecord');
+  });
 });

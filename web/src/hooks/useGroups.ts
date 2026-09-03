@@ -202,6 +202,11 @@ export function useSendToXTraining(seasonId: string | null) {
       // Doesn't touch the athlete's TRAINING membership, but the board's
       // member counts/leader badges live in the same groups list.
       queryClient.invalidateQueries({ queryKey: ['groups', seasonId] });
+      // The Day view (GroupDayPage) shows the same "who's in cross
+      // training right now" fact per-row, keyed by [groupId, date] rather
+      // than seasonId — broad predicate match rather than trying to
+      // reconstruct the specific key this mutation doesn't otherwise need.
+      queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'groupDay' });
     },
   });
 }

@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -28,6 +27,7 @@ import { toast } from 'sonner';
 import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell, Search, CalendarCheck } from 'lucide-react';
 import { AthletePicker } from '@/components/groups/AthletePicker';
 import { DynamicGroups } from '@/components/groups/DynamicGroups';
+import { XTrainingSendDialog } from '@/components/groups/XTrainingSendDialog';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
 import { useExpandedSections } from '@/hooks/useExpandedSections';
 import { matchesQuery } from '@/lib/athleteSearch';
@@ -51,7 +51,6 @@ import {
   useAddMember,
   useRemoveMember,
   useXTrainingRoster,
-  useSendToXTraining,
 } from '@/hooks/useGroups';
 import { seasonBestTime, formatTime, type Group, type GroupType } from '@/api/groupService';
 import { gradeLabel } from '@/lib/seasonUtils';
@@ -1242,95 +1241,6 @@ const ManageMembersDialog: React.FC<{
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Done</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
-const X_TRAINING_DAY_OPTIONS = [
-  { value: '1', label: 'Today only' },
-  { value: '2', label: 'Next 2 days' },
-  { value: '3', label: 'Next 3 days' },
-  { value: '5', label: 'Next 5 days' },
-  { value: '7', label: 'Next 7 days (1 week)' },
-  { value: '14', label: 'Next 14 days (2 weeks)' },
-];
-
-// The "click XTraining" flow: the coach leading this athlete's training
-// group sends them to cross-training, today or for the next N days, with
-// a reason — a bounded GroupMembership that expires on its own (see
-// backend POST /groups/x-training). Authorization is enforced server-side
-// against the athlete's current training group, not checked here — a
-// volunteer coach who isn't its leader just gets a 403 toast back.
-const XTrainingSendDialog: React.FC<{
-  athlete: AthleteRow | null;
-  seasonId: string | null;
-  onClose: () => void;
-}> = ({ athlete, seasonId, onClose }) => {
-  const [days, setDays] = useState('1');
-  const [reason, setReason] = useState('');
-  const sendToXTraining = useSendToXTraining(seasonId);
-
-  if (!athlete) return null;
-
-  const handleClose = () => {
-    onClose();
-    setDays('1');
-    setReason('');
-  };
-
-  const handleSend = async () => {
-    if (!reason.trim()) return;
-    try {
-      await sendToXTraining.mutateAsync({ athleteId: athlete.id, days: Number(days), reason: reason.trim() });
-      toast.success(`${athlete.name} sent to Cross Training.`);
-      handleClose();
-    } catch (err) {
-      const message = (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ?? 'Could not send to Cross Training.';
-      toast.error(message);
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Send {athlete.name} to Cross Training</DialogTitle>
-          <DialogDescription>
-            Their training group membership is untouched — this runs alongside it and reverts on its own when the
-            window above ends.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label>Duration</Label>
-            <Select value={days} onValueChange={setDays}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {X_TRAINING_DAY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Reason</Label>
-            <Textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              rows={3}
-              placeholder="e.g. shin splints, coach's call to cross-train ahead of Saturday's meet"
-              className="mt-1"
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>Cancel</Button>
-          <Button onClick={handleSend} disabled={!reason.trim() || sendToXTraining.isPending}>
-            {sendToXTraining.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Send
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -79,6 +79,13 @@ const main = async () => {
     // every request.
     app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), require('./lib/stripeWebhook').handleStripeWebhook);
 
+    // Neon Auth reverse proxy (see lib/authProxy.js for why this exists —
+    // in short, Safari on iPad/iOS blocks the session cookie Neon Auth
+    // tries to set from a cross-site fetch, so this makes it same-origin
+    // instead). Raw body, same reasoning as the Stripe webhook above: pass
+    // it through byte-for-byte rather than parsing and re-serializing it.
+    app.use('/api/auth-proxy', express.raw({ type: () => true, limit: '1mb' }), require('./lib/authProxy').authProxyHandler);
+
     app.use(express.json({ limit: '1mb' }));
 
     // These routes let an authenticated-but-unprivileged account change its
@@ -170,9 +177,12 @@ const main = async () => {
     });
 
     // Use routes
-    // Note: there is no /api/auth route anymore — Neon Auth (Stack) handles
-    // sign-up/sign-in entirely client-side; the backend only verifies the
-    // resulting access token (see middleware/auth.js).
+    // Note: there's no /api/auth route with its own sign-in/sign-up logic
+    // here — Neon Auth (Better Auth) still handles that entirely, and the
+    // backend still only verifies the resulting access token (see
+    // middleware/auth.js). /api/auth-proxy above forwards to Neon Auth
+    // unchanged; it's plumbing for cookie same-origin-ness, not a
+    // reimplementation of auth.
     app.use('/api/team-directory', teamDirectoryRoutes);
     app.use('/api/team-requests', teamRequestRoutes);
     app.use('/api/profile', profileRoutes);
