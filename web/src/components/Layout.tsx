@@ -130,6 +130,17 @@ const ANALYTICS_TABS: { tab: string; label: string }[] = [
   { tab: 'coach', label: 'Coach Insights' },
 ];
 
+// Post Season mirrors Season: the same four sub-views its own page tabs
+// between, so a coach reaches "who ran at state" the same way they reach
+// "who ran this season". Values must match PostSeasonPage's TabsTrigger
+// values exactly (tab state there is a ?tab= URL param).
+const POSTSEASON_TABS: { tab: string; label: string }[] = [
+  { tab: 'overview', label: 'Overview' },
+  { tab: 'athletes', label: 'Athletes' },
+  { tab: 'races', label: 'Races' },
+  { tab: 'tag', label: 'Tag Meets' },
+];
+
 // "Season" used to be a single link straight to the Analytics dashboard
 // tab — on mobile that meant landing on a heavy header + tab-switcher just
 // to reach, say, Meets. Clicking it now expands in place (mirrors
@@ -138,20 +149,25 @@ const ANALYTICS_TABS: { tab: string; label: string }[] = [
 // without the intermediate stop. Auto-expands (and highlights the current
 // sub-tab) whenever already on the Analytics page, so the sidebar doubles
 // as a "where am I" indicator instead of just going quiet once you're in.
-const SeasonNavSection: React.FC<{
+const TabbedNavSection: React.FC<{
+  label: string;
+  path: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  tabs: { tab: string; label: string }[];
+  defaultTab: string;
+  section: SectionKey;
   isCollapsed: boolean;
-  teamPath: (p: string) => string;
   onLinkClick: () => void;
-}> = ({ isCollapsed, teamPath, onLinkClick }) => {
+}> = ({ label, path, icon: Icon, tabs, defaultTab, section, isCollapsed, onLinkClick }) => {
   const location = useLocation();
-  const analyticsPath = teamPath('/analytics');
+  const analyticsPath = path;
   const isOnAnalytics = location.pathname === analyticsPath;
-  const activeTab = isOnAnalytics ? new URLSearchParams(location.search).get('tab') ?? 'dashboard' : null;
+  const activeTab = isOnAnalytics ? new URLSearchParams(location.search).get('tab') ?? defaultTab : null;
   const [manualOpen, setManualOpen] = useState(false);
   const open = isOnAnalytics || manualOpen;
 
   if (isCollapsed) {
-    return <NavItem to={analyticsPath} icon={LayoutDashboard} label="Season" isCollapsed={isCollapsed} onClick={onLinkClick} section="season" />;
+    return <NavItem to={analyticsPath} icon={Icon} label={label} isCollapsed={isCollapsed} onClick={onLinkClick} section={section} />;
   }
 
   return (
@@ -163,14 +179,14 @@ const SeasonNavSection: React.FC<{
         }`}
       >
         <span className="flex items-center gap-3">
-          <LayoutDashboard className="h-5 w-5" strokeWidth={2.5} />
-          <span className="text-sm">Season</span>
+          <Icon className="h-5 w-5" strokeWidth={2.5} />
+          <span className="text-sm">{label}</span>
         </span>
         <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div className="mt-1 space-y-0.5 pl-8">
-          {ANALYTICS_TABS.map((t) => (
+          {tabs.map((t) => (
             <Link
               key={t.tab}
               to={`${analyticsPath}?tab=${t.tab}`}
@@ -271,7 +287,28 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
               .map((item) => (
                 <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey(item.key)} />
               ))}
-            <SeasonNavSection isCollapsed={isCollapsed} teamPath={teamPath} onLinkClick={handleLinkClick} />
+            <TabbedNavSection
+              label="Season"
+              path={teamPath('/analytics')}
+              icon={LayoutDashboard}
+              tabs={ANALYTICS_TABS}
+              defaultTab="dashboard"
+              section="season"
+              isCollapsed={isCollapsed}
+              onLinkClick={handleLinkClick}
+            />
+            {/* A peer of Season, not a corner of Program: the postseason is
+                its own set of races and its own set of athletes. */}
+            <TabbedNavSection
+              label={navEntry('postseason').label}
+              path={teamPath(navEntry('postseason').path)}
+              icon={navEntry('postseason').icon}
+              tabs={POSTSEASON_TABS}
+              defaultTab="overview"
+              section={sectionForNavKey('postseason')}
+              isCollapsed={isCollapsed}
+              onLinkClick={handleLinkClick}
+            />
             <NavItem to={teamPath(navEntry('program').path)} icon={navEntry('program').icon} label={navEntry('program').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('program')} />
             {!isVolunteerCoach && (
               <CollapsibleSetupSection isCollapsed={isCollapsed}>

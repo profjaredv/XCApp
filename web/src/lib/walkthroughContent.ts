@@ -59,6 +59,12 @@ const COACH_STEPS: StepCopy[] = [
     cta: 'Open Season',
   },
   {
+    navKey: 'postseason',
+    description:
+      'The same questions, asked only of the races at the end of the year: who got out of districts, who ran at state, and whether they ran their best race when it counted. Tag your championship meets here and it fills in.',
+    cta: 'Open Post Season',
+  },
+  {
     navKey: 'program',
     description:
       'The long view — how each ability band has moved across seasons, so you can see whether the program is improving, not just this year’s team.',

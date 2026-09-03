@@ -114,6 +114,9 @@ const NAV_SECTION: Record<string, SectionKey> = {
   groups: 'groups',
   schedule: 'meets',
   season: 'season',
+  // The postseason is meet-shaped — it is a handful of races, not a
+  // multi-year program view.
+  postseason: 'meets',
   program: 'program',
   'my-progress': 'training',
   'my-group': 'groups',

@@ -2,7 +2,7 @@ import type { ComponentType } from 'react';
 import type { TeamFeatureKey } from './teamFeatureKeys';
 import {
   Home, ClipboardList, Users, CalendarDays, LayoutDashboard, TrendingUp,
-  Database, Package, Upload, Settings, Gauge, Flag,
+  Database, Package, Upload, Settings, Gauge, Flag, Trophy,
 } from 'lucide-react';
 
 // The sidebar spine, as data.
@@ -60,6 +60,7 @@ export const NAV_ITEMS: NavEntry[] = [
   { key: 'groups', label: 'Groups', path: '/groups', icon: Users, audience: ['coach'], section: 'spine' },
   { key: 'schedule', label: 'Schedule', path: '/schedule', icon: CalendarDays, audience: ['coach'], section: 'spine' },
   { key: 'season', label: 'Season', path: '/analytics', icon: LayoutDashboard, audience: ['coach'], section: 'spine', custom: true },
+  { key: 'postseason', label: 'Post Season', path: '/postseason', icon: Trophy, audience: ['coach'], section: 'spine', custom: true },
   { key: 'program', label: 'Program', path: '/band-trends', icon: TrendingUp, audience: ['coach'], section: 'spine' },
 
   { key: 'data', label: 'Data & Import', path: '/data-management', icon: Database, audience: ['coach'], section: 'setup' },

@@ -4,6 +4,7 @@ import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, Ana
 import CheckoutPage from '../pages/CheckoutPage';
 import { FeatureGate } from '../components/FeatureGate';
 import GroupDayPage from '../pages/GroupDayPage';
+import PostSeasonPage from '../pages/PostSeasonPage';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
@@ -255,6 +256,12 @@ export const router = createBrowserRouter([
                   {
                     path: 'band-trends',
                     element: <BandTrendsPage />,
+                  },
+                  {
+                    // The Season screens, asked only of the races at the
+                    // end of the year. Tabs live in ?tab= like Season's.
+                    path: 'postseason',
+                    element: <PostSeasonPage />,
                   },
                   {
                     // A team that doesn't upload full fields gets an
