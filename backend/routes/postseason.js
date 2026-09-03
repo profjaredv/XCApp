@@ -67,8 +67,12 @@ router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, r
         },
         orderBy: { date: 'asc' },
       }),
-      // Every meet this season, so the tagging screen can show what is
-      // still untagged rather than making a coach hunt for it.
+      // Every meet this season. Note this is only half the worklist —
+      // most historical races have no Meet row at all (the season scraper
+      // writes Race rows and leaves meetId null; Meet rows come from the
+      // calendar import or from a coach creating one), so a meet-only
+      // worklist is empty for exactly the imported seasons a coach most
+      // wants to tag. The races themselves fill the rest in below.
       prisma.meet.findMany({
         where: { teamId, season: { year: season } },
         select: { id: true, name: true, date: true, races: { select: { id: true, postseasonLevel: true } } },
@@ -181,11 +185,17 @@ router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, r
       };
     }
 
-    // The tagging worklist. Every meet, its current level, and what its
-    // name looks like — offered, never applied.
-    const meetRows = meets.map((meet) => {
+    // The tagging worklist: everything in this season a coach can put a
+    // level on, whether or not it has a Meet row. A scraped season is
+    // races with meetId null — tagging by meet alone leaves those
+    // untaggable, which is the case a coach hits first, since the seasons
+    // worth tagging are usually the imported ones.
+    const racesWithMeet = new Set(meets.flatMap((meet) => meet.races.map((r) => r.id)));
+
+    const meetItems = meets.map((meet) => {
       const levels = [...new Set(meet.races.map((r) => r.postseasonLevel ?? null))];
       return {
+        kind: 'meet',
         id: meet.id,
         name: meet.name,
         date: meet.date,
@@ -195,6 +205,38 @@ router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, r
         suggestedLevel: suggestLevel(meet.name),
       };
     });
+
+    // Loose races grouped by (name, date): the scraper writes one Race per
+    // distance/heat, so "Districts" is commonly two or three rows that are
+    // one afternoon to a coach and should be tagged as one thing.
+    const looseByDay = new Map();
+    for (const race of races) {
+      if (racesWithMeet.has(race.id)) continue;
+      const day = new Date(race.date).toISOString().slice(0, 10);
+      const key = `${race.name}::${day}`;
+      if (!looseByDay.has(key)) looseByDay.set(key, { name: race.name, date: race.date, races: [] });
+      looseByDay.get(key).races.push(race);
+    }
+
+    const looseItems = [...looseByDay.values()].map((group) => {
+      const levels = [...new Set(group.races.map((r) => r.postseasonLevel ?? null))];
+      return {
+        kind: 'races',
+        // The race ids this row stands for — the tag write takes them
+        // directly, so nothing has to invent a Meet row just to store a
+        // level on races that never had one.
+        id: group.races.map((r) => r.id).join(','),
+        raceIds: group.races.map((r) => r.id),
+        name: group.name,
+        date: group.date,
+        raceCount: group.races.length,
+        level: levels.length === 1 ? levels[0] : null,
+        mixed: levels.length > 1,
+        suggestedLevel: suggestLevel(group.name),
+      };
+    });
+
+    const meetRows = [...meetItems, ...looseItems].sort((a, b) => new Date(a.date) - new Date(b.date));
 
     res.json({
       season,
@@ -227,11 +269,15 @@ router.get('/', authenticate, requireTeam, requireRole(ANY_COACH), async (req, r
 router.patch('/tags', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { tags } = req.body;
   if (!Array.isArray(tags) || tags.length === 0) {
-    return res.status(400).json({ msg: 'tags must be a non-empty array of { meetId, level }.' });
+    return res.status(400).json({ msg: 'tags must be a non-empty array of { meetId | raceIds, level }.' });
   }
   for (const tag of tags) {
-    if (!tag || typeof tag.meetId !== 'string') {
-      return res.status(400).json({ msg: 'Every tag needs a meetId.' });
+    // A tag names either a meet or a set of races. Both exist because
+    // most imported races have no Meet row — see the worklist above.
+    const hasMeet = tag && typeof tag.meetId === 'string';
+    const hasRaces = tag && Array.isArray(tag.raceIds) && tag.raceIds.length > 0;
+    if (!hasMeet && !hasRaces) {
+      return res.status(400).json({ msg: 'Every tag needs a meetId or raceIds.' });
     }
     const level = tag.level === '' ? null : tag.level ?? null;
     if (!isValidLevel(level)) {
@@ -241,16 +287,28 @@ router.patch('/tags', authenticate, requireTeam, requireRole(FULL_COACH), async 
 
   try {
     const teamId = req.user.teamId;
-    const meetIds = [...new Set(tags.map((t) => t.meetId))];
-    const meets = await prisma.meet.findMany({
-      where: { id: { in: meetIds }, teamId },
-      select: { id: true, races: { select: { id: true, season: true } } },
-    });
-    const meetById = new Map(meets.map((m) => [m.id, m]));
+    const meetIds = [...new Set(tags.filter((t) => t.meetId).map((t) => t.meetId))];
+    const looseRaceIds = [...new Set(tags.flatMap((t) => t.raceIds ?? []))];
 
-    const missing = meetIds.filter((id) => !meetById.has(id));
-    if (missing.length > 0) {
+    const [meets, looseRaces] = await Promise.all([
+      meetIds.length > 0
+        ? prisma.meet.findMany({
+            where: { id: { in: meetIds }, teamId },
+            select: { id: true, races: { select: { id: true, season: true } } },
+          })
+        : [],
+      looseRaceIds.length > 0
+        ? prisma.race.findMany({ where: { id: { in: looseRaceIds }, teamId }, select: { id: true, season: true } })
+        : [],
+    ]);
+    const meetById = new Map(meets.map((m) => [m.id, m]));
+    const raceById = new Map(looseRaces.map((r) => [r.id, r]));
+
+    if (meetIds.some((id) => !meetById.has(id))) {
       return res.status(404).json({ msg: 'One or more meets were not found on this team.' });
+    }
+    if (looseRaceIds.some((id) => !raceById.has(id))) {
+      return res.status(404).json({ msg: 'One or more races were not found on this team.' });
     }
 
     const seasonsTouched = new Set();
@@ -258,10 +316,10 @@ router.patch('/tags', authenticate, requireTeam, requireRole(FULL_COACH), async 
 
     await prisma.$transaction(async (tx) => {
       for (const tag of tags) {
-        const meet = meetById.get(tag.meetId);
-        const raceIds = meet.races.map((r) => r.id);
+        const rows = tag.meetId ? meetById.get(tag.meetId).races : (tag.raceIds ?? []).map((id) => raceById.get(id));
+        const raceIds = rows.map((r) => r.id);
         if (raceIds.length === 0) continue;
-        for (const race of meet.races) seasonsTouched.add(race.season);
+        for (const race of rows) seasonsTouched.add(race.season);
         const level = tag.level === '' ? null : tag.level ?? null;
         const updated = await tx.race.updateMany({
           where: { id: { in: raceIds }, teamId },
@@ -280,7 +338,7 @@ router.patch('/tags', authenticate, requireTeam, requireRole(FULL_COACH), async 
     }
 
     res.json({
-      meetsUpdated: meetIds.length,
+      meetsUpdated: meetIds.length + looseRaceIds.length,
       racesUpdated,
       seasonsRecalculated: [...seasonsTouched].sort((a, b) => a - b),
     });

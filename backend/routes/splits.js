@@ -5,6 +5,9 @@ const { authenticate, requireTeam, requireRole } = require('../middleware/auth')
 const { FULL_COACH } = require('../lib/teamRoles');
 const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, planSplitBatchWrite } = require('../lib/splitMath');
 const { normalizeDistanceMeters, aggregateSplitsByDistance } = require('../lib/splitAggregates');
+// Shared with routes/analytics.js's strategy session — one shape, one set
+// of answers about how an athlete paces themselves.
+const { buildAthleteSplitRows } = require('../lib/splitRows');
 
 // C5 (LeadPack Master Build Handoff): rewritten against the marker-based
 // Split model. The authorization pattern from the old RaceSplit-based file
@@ -63,34 +66,6 @@ function buildRaceView(race, results, previousByAthleteId) {
     markers,
     results: rows,
   };
-}
-
-// One row per (resultId), shaped identically for GET /athlete/:athleteId
-// and the /aggregate route below — the aggregate route needs exactly this
-// per-race shape to feed lib/splitAggregates.js, so both build it here
-// instead of the aggregate route re-deriving it from raw Result rows.
-function buildAthleteSplitRows(results) {
-  return results.map((r) => {
-    const splitInputs = r.splits.map((s) => ({ sequence: s.sequence, markerMeters: s.markerMeters, elapsedSec: s.elapsedSec }));
-    const segs = r.race.distanceMeters ? segments(splitInputs, r.time, r.race.distanceMeters) : [];
-    return {
-      resultId: r.id,
-      raceId: r.race.id,
-      raceName: r.race.name,
-      date: r.race.date,
-      distanceMeters: r.race.distanceMeters,
-      // Carried through for lib/splitAggregates.js, which buckets by
-      // distance AND scheme: two 5Ks marked in miles vs kilometres have
-      // segments that are not comparable, and averaging them positionally
-      // is wrong. Without this field every race defaulted to MILE and the
-      // bucketing had no effect at all.
-      splitMarkerScheme: r.race.splitMarkerScheme,
-      finishSec: r.time,
-      segments: segs,
-      analysis: splitAnalysis(segs),
-      overallPaceSecPerMile: r.race.distanceMeters ? overallPaceSecPerMile(r.time, r.race.distanceMeters) : null,
-    };
-  });
 }
 
 // GET /api/splits/race/:raceId — results in finish order, splits and

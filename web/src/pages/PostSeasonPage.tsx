@@ -80,7 +80,9 @@ const PostSeasonPage: React.FC = () => {
   const handleSave = async () => {
     const tags = (data?.meets ?? [])
       .filter((m) => Object.prototype.hasOwnProperty.call(pending, m.id) && pending[m.id] !== m.level)
-      .map((m) => ({ meetId: m.id, level: pending[m.id] }));
+      // A row is either a real Meet or a day's worth of loose races. Most
+      // imported races have no Meet row at all, which is why both exist.
+      .map((m) => (m.kind === 'meet' ? { meetId: m.id, level: pending[m.id] } : { raceIds: m.raceIds, level: pending[m.id] }));
     if (tags.length === 0) return;
     try {
       const result = await saveTags.mutateAsync(tags);
@@ -325,7 +327,7 @@ const PostSeasonPage: React.FC = () => {
             <CardContent className="p-0">
               {!data || data.meets.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No meets on file for this season yet.
+                  Nothing on file for this season yet — import it from Athletic.net first.
                 </p>
               ) : (
                 <div className="divide-y border-t">

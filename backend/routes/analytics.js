@@ -13,6 +13,10 @@ const {
   computePRs,
 } = require('../lib/athleteJourney');
 const { decideCanViewAthleteJourney } = require('../lib/athleteJourneyPermissions');
+const { buildAthleteSplitRows } = require('../lib/splitRows');
+const { aggregateSplitsByDistance, normalizeDistanceMeters } = require('../lib/splitAggregates');
+const { buildStrategy } = require('../lib/raceStrategy');
+const { parseDistanceToMeters } = require('../lib/distance');
 
 
 const normalizeGender = (value) => {
@@ -286,6 +290,112 @@ router.get('/athletes/:athleteId', authenticate, requireTeam, async (req, res) =
     res.json({ athlete, results, stats });
   } catch (err) {
     console.error('Error fetching athlete analytics:', err.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/analytics/athlete/:athleteId/strategy?targetSec=20&season=YYYY
+//
+// "How do I take 20 seconds off my next race?" — the same question a coach
+// and an athlete ask each other in the car park, answered from the races
+// that athlete has already run. See lib/raceStrategy.js: every number is a
+// gap between two things they actually did, a ceiling is labelled a
+// ceiling, and what the app cannot see is said out loud.
+//
+// Same three-way permission as the journey route below (self, team coach,
+// approved guardian) — it is the same class of data about the same person,
+// and an athlete asking this about their own racing is the main case.
+router.get('/athlete/:athleteId/strategy', authenticate, async (req, res) => {
+  const { athleteId } = req.params;
+
+  try {
+    const athlete = await prisma.athlete.findUnique({
+      where: { id: athleteId },
+      select: { id: true, name: true, preferredName: true, teamId: true },
+    });
+    if (!athlete) {
+      return res.status(404).json({ msg: 'Athlete not found' });
+    }
+
+    const isSelf = req.user.linkedAthlete?.id === athleteId;
+    const isTeamCoach = req.user.teamId === athlete.teamId && ANY_COACH.includes(req.user.teamRole);
+
+    let hasApprovedGuardianLink = false;
+    if (!isSelf && !isTeamCoach) {
+      const link = await prisma.guardianLink.findUnique({
+        where: { userId_athleteId: { userId: req.user.id, athleteId } },
+      });
+      hasApprovedGuardianLink = Boolean(link && link.status === 'approved');
+    }
+    if (!decideCanViewAthleteJourney({ isSelf, isTeamCoach, hasApprovedGuardianLink })) {
+      return res.status(403).json({ msg: 'Not authorized to view this athlete.' });
+    }
+
+    const targetSec = Math.min(300, Math.max(1, parseInt(req.query.targetSec, 10) || 20));
+    const requestedSeason = parseInt(req.query.season, 10);
+
+    const results = await prisma.result.findMany({
+      where: {
+        athleteId,
+        status: 'FINISHED',
+        time: { gt: 0 },
+        ...(Number.isFinite(requestedSeason) ? { race: { season: requestedSeason } } : {}),
+      },
+      include: { race: true, splits: true },
+      orderBy: { race: { date: 'desc' } },
+    });
+
+    const rows = results.map((r) => {
+      const meters = r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance);
+      return {
+        raceId: r.race.id,
+        raceName: r.race.name,
+        date: r.race.date,
+        season: r.race.season,
+        timeSec: r.time,
+        distanceMeters: meters,
+        paceSecPerMile: paceSecPerMile(r.time, meters),
+      };
+    });
+
+    // One distance at a time. A 5K and a two-mile are different races and
+    // averaging across them would price a lever in seconds that don't
+    // exist — so the session runs on the distance this athlete races most.
+    const byBucket = new Map();
+    for (const row of rows) {
+      if (!(row.distanceMeters > 0)) continue;
+      const bucket = normalizeDistanceMeters(row.distanceMeters);
+      if (!byBucket.has(bucket)) byBucket.set(bucket, []);
+      byBucket.get(bucket).push(row);
+    }
+    const buckets = [...byBucket.entries()].sort((a, b) => b[1].length - a[1].length);
+
+    if (buckets.length === 0) {
+      return res.json({
+        athlete: { id: athlete.id, name: athlete.preferredName || athlete.name },
+        strategy: buildStrategy({ races: [], splitAggregate: null, targetSec }),
+        distances: [],
+      });
+    }
+
+    const requestedDistance = parseInt(req.query.distanceMeters, 10);
+    const chosen = buckets.find(([bucket]) => bucket === requestedDistance) ?? buckets[0];
+    const [distanceMeters, bucketRaces] = chosen;
+
+    const splitRows = buildAthleteSplitRows(results);
+    const aggregates = aggregateSplitsByDistance(splitRows);
+    const splitAggregate = aggregates.find((a) => a.distanceBucketMeters === distanceMeters) ?? null;
+
+    res.json({
+      athlete: { id: athlete.id, name: athlete.preferredName || athlete.name },
+      strategy: buildStrategy({ races: bucketRaces, splitAggregate, distanceMeters, targetSec }),
+      races: bucketRaces.sort((a, b) => new Date(b.date) - new Date(a.date)),
+      // Every distance they race, so the screen can offer a switch rather
+      // than silently answering about the wrong one.
+      distances: buckets.map(([bucket, list]) => ({ distanceMeters: bucket, raceCount: list.length })),
+    });
+  } catch (err) {
+    console.error('Error building race strategy:', err.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

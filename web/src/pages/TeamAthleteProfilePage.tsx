@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChevronLeft, Flag } from 'lucide-react';
+import { ChevronLeft, Flag, Target } from 'lucide-react';
 import { useAthleteSplitsAggregate } from '@/hooks/useSplits';
 import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSummary';
 import { useAthletePerformance, useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
@@ -297,6 +297,13 @@ const TeamAthleteProfilePage = () => {
         <div className="flex items-center gap-4">
           <Button variant="outline" asChild>
             <Link to={teamPath(`/athlete/${athleteId}/journey`)}>View Journey</Link>
+          </Button>
+          {/* The car-park conversation, with their own races behind it. */}
+          <Button variant="outline" asChild>
+            <Link to={teamPath(`/athlete/${athleteId}/strategy`)}>
+              <Target className="mr-2 h-4 w-4" />
+              Strategy session
+            </Link>
           </Button>
           <SeasonModeSelector
             mode={seasonMode as SeasonMode}

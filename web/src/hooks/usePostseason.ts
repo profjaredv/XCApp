@@ -12,7 +12,8 @@ export function usePostseason(season: number | undefined) {
 export function useSavePostseasonTags() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (tags: Array<{ meetId: string; level: PostseasonLevel | null }>) => postseasonService.saveTags(tags),
+    mutationFn: (tags: Array<{ meetId?: string; raceIds?: string[]; level: PostseasonLevel | null }>) =>
+      postseasonService.saveTags(tags),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['postseason'] });
       // Program counts who reached each round from these tags, and the

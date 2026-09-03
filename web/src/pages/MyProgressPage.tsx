@@ -36,7 +36,7 @@ import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
 import { ImportWorkoutsDialog } from '@/components/training/ImportWorkoutsDialog';
 import { WhoCanSeeMyStuff } from '@/components/privacy/WhoCanSeeMyStuff';
 import { AthleteExportButton } from '@/components/AthleteExportButton';
-import { Download } from 'lucide-react';
+import { Download, Target } from 'lucide-react';
 import { formatTime, parseTimeToSeconds, formatDateShort, todayIso as todayIsoLocal } from '@/lib/formatUtils';
 import { useTodayIso } from '@/hooks/useTodayIso';
 import { useAthleteSplits, useAthleteSplitsAggregate } from '@/hooks/useSplits';
@@ -242,6 +242,29 @@ const MyProgressPage: React.FC = () => {
       {linkedAthlete && <AthleteGroupsCard athleteId={linkedAthlete.id} />}
 
       <TrainingPacesCard recentRaces={recentRaces} />
+
+      {/* The question an athlete actually asks: where do the next twenty
+          seconds come from. Answered from their own races — see
+          backend/lib/raceStrategy.js. */}
+      {linkedAthlete && recentRaces.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Target className="h-5 w-5" />
+              Take 20 seconds off your next race
+            </CardTitle>
+            <CardDescription>
+              Where the time actually is, worked out from the races you have already run — your best race against
+              your typical one, and what your splits say about how you finish.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link to={teamPath(`/athlete/${linkedAthlete.id}/strategy`)}>Open strategy session</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* An athlete's own copy of their own data. The same promise the team
           gets in Settings, at the scope that is theirs — results, splits,

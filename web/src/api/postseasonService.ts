@@ -63,12 +63,16 @@ export interface PostseasonRace {
 }
 
 export interface PostseasonMeetTag {
+  /** 'meet' has a Meet row; 'races' is a day's races grouped by name — most imported races have no Meet. */
+  kind: 'meet' | 'races';
   id: string;
+  /** Present for kind 'races': the race ids this row stands for. */
+  raceIds?: string[];
   name: string;
   date: string;
   raceCount: number;
   level: PostseasonLevel | null;
-  /** The meet's races carry different levels — choosing one sets them all. */
+  /** The row's races carry different levels — choosing one sets them all. */
   mixed: boolean;
   /** Read from the name. Offered, never applied. */
   suggestedLevel: PostseasonLevel | null;
@@ -93,8 +97,8 @@ export const postseasonService = {
     return response.data;
   },
 
-  /** Tag several meets at once; the server recalculates every season touched. */
-  async saveTags(tags: Array<{ meetId: string; level: PostseasonLevel | null }>) {
+  /** Tag several meets (or loose races) at once; the server recalculates every season touched. */
+  async saveTags(tags: Array<{ meetId?: string; raceIds?: string[]; level: PostseasonLevel | null }>) {
     const response = await api.patch<{ meetsUpdated: number; racesUpdated: number; seasonsRecalculated: number[] }>(
       '/analytics/postseason/tags',
       { tags }
