@@ -5,6 +5,7 @@ import CheckoutPage from '../pages/CheckoutPage';
 import { FeatureGate } from '../components/FeatureGate';
 import GroupDayPage from '../pages/GroupDayPage';
 import PostSeasonPage from '../pages/PostSeasonPage';
+import StrategyPage from '../pages/StrategyPage';
 import UpgradeRolePage from '../pages/UpgradeRolePage';
 import ResultsGridPage from '../pages/ResultsGridPage';
 import ToolsPage from '../pages/ToolsPage';
@@ -372,6 +373,13 @@ export const router = createBrowserRouter([
                     // RaceVisualization/IntervalSessions standalone pattern.
                     path: 'athlete/:athleteId/journey',
                     element: <AthleteJourneyPage />,
+                  },
+                  {
+                    // "Where are the next 20 seconds?" — reachable by the
+                    // athlete themselves, their coach, or an approved
+                    // guardian. The API enforces that, not this route.
+                    path: 'athlete/:athleteId/strategy',
+                    element: <StrategyPage />,
                   },
                   {
                     path: 'team/athlete/:athleteId',
