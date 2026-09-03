@@ -10,24 +10,33 @@ import { useStrategy } from '@/hooks/useStrategy';
 import type { LeverConfidence, StrategyLever } from '@/api/strategyService';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { formatTime, formatDateShort } from '@/lib/formatUtils';
+import { RACE_TACTICS } from '@/content/raceTactics';
 
 // "How do I take 20 seconds off my next race?"
 //
 // The conversation a coach and an athlete have in the car park, answered
-// from the races that athlete has already run. Everything on this screen is
-// arithmetic on their own results — see backend/lib/raceStrategy.js — and
-// the labels matter as much as the numbers:
+// from the races that athlete has already run. Everything above the tactics
+// section is arithmetic on their own results — see backend/lib/
+// raceStrategy.js — and the labels matter as much as the numbers:
 //
-//   Already in you   a gap between their best race and their typical one.
-//                    Not a projection; a time they have run, with a date.
-//   Ceiling          what perfect pacing would be worth. Reported because
-//                    it sizes the problem, labelled because nobody holds
-//                    mile-one pace to the finish.
-//   Worth knowing    context with no number attached, which is honest
-//                    rather than padding the total.
+//   You've done this          a gap between their best race and their
+//                              typical one. Not a projection; a time they
+//                              have run, with a date.
+//   If you paced it perfectly what perfect pacing would be worth. Reported
+//                              because it sizes the problem, labelled
+//                              because nobody holds mile-one pace to the
+//                              finish.
+//   Good to know               context with no number attached, which is
+//                              honest rather than padding the total.
 //
 // Only the first kind counts toward the goal. Adding a ceiling to it would
 // turn an honest answer into a promise.
+//
+// Race Tactics, below, is a different kind of honest: it is not this
+// athlete's data at all, it is common proven coaching cues (content/
+// raceTactics.ts) that apply whether or not they have three races on file
+// yet. It must never be presented as if it came from their results — see
+// the disclaimer line wherever it renders.
 
 const TARGET_OPTIONS = [10, 20, 30, 60];
 
@@ -242,6 +251,31 @@ const StrategyPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Not this athlete's data — common coaching cues, in race order.
+          Kept visually distinct from the findings above (no seconds badge,
+          no confidence label) so it never reads as something derived from
+          their own results. See content/raceTactics.ts. */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg">Race tactics</CardTitle>
+          <CardDescription>
+            General racing tactics — not from {data.athlete.name}'s data. Things to think about at each part of the
+            race, in order.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="divide-y">
+            {RACE_TACTICS.map((tactic) => (
+              <div key={tactic.id} className="py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tactic.phase}</p>
+                <p className="mt-0.5 font-medium">{tactic.cue}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">{tactic.detail}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {data.races && data.races.length > 0 && (
         <Card>
