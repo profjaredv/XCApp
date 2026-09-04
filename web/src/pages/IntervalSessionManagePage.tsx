@@ -1,11 +1,11 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Trash2, UserPlus, Archive, Loader2, X, Check, Printer } from 'lucide-react';
+import { Trash2, UserPlus, Archive, Loader2, X, Check, Printer, Play, RotateCcw } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
@@ -45,6 +45,18 @@ function cellKey(entryId: string, rep: number) {
 
 function repField(rep: number): 'rep1' | 'rep2' | 'rep3' | 'rep4' | 'rep5' | 'rep6' {
   return `rep${rep}` as 'rep1' | 'rep2' | 'rep3' | 'rep4' | 'rep5' | 'rep6';
+}
+
+// Tenths, not whole seconds — a stopwatch that only visibly changes once a
+// second reads as stuck. What actually gets saved (handleRecordTap, below)
+// rounds to a whole second regardless, same precision SplitCell's manual
+// typing has always produced — this is a display-only difference.
+function formatElapsed(ms: number): string {
+  const totalDeci = Math.max(0, Math.floor(ms / 100));
+  const mins = Math.floor(totalDeci / 600);
+  const secs = Math.floor((totalDeci % 600) / 10);
+  const deci = totalDeci % 10;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${deci}`;
 }
 
 // Explicit per-rep construction rather than a computed { [repField(rep)]: value }
@@ -135,6 +147,96 @@ const EntryRow: React.FC<{
   );
 };
 
+// "Start the set, then tap a name and it records the time." The
+// alternative to typing mm:ss into each cell by hand (EntryRow, above) —
+// built for a coach standing at the track with the group all running the
+// same rep at once, watch in hand. One rep at a time, same as the manual
+// grid's mobile view: the whole point is a single Start button and a wall
+// of names, not a table to navigate.
+//
+// Deliberately simpler than RaceLiveTimerPage's two-phase capture/assign:
+// there, WHO crossed the line isn't known yet, only the order. Here every
+// runner is already a named entry on this sheet, so the tap itself both
+// identifies them and stops their clock — no separate assignment step.
+const IntervalTimerPanel: React.FC<{
+  entries: IntervalSessionEntry[];
+  activeRep: number;
+  setActiveRep: (rep: number) => void;
+  phase: 'idle' | 'running';
+  elapsedMs: number;
+  onStart: () => void;
+  onReset: () => void;
+  onRecord: (entry: IntervalSessionEntry) => void;
+  onClear: (entry: IntervalSessionEntry) => void;
+  targetFor: (entry: IntervalSessionEntry) => { fastSec: number; slowSec: number } | null;
+}> = ({ entries, activeRep, setActiveRep, phase, elapsedMs, onStart, onReset, onRecord, onClear, targetFor }) => {
+  const rep = activeRep + 1;
+
+  return (
+    <div className="space-y-4">
+      <SegmentedPills
+        caption="Rep"
+        segments={REPS.map((r) => ({ value: String(r - 1), label: String(r) }))}
+        value={String(activeRep)}
+        onChange={(v) => setActiveRep(Number(v))}
+      />
+
+      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border bg-muted/40 py-8">
+        <span className="font-mono text-5xl font-bold tabular-nums tracking-tight text-primary">
+          {formatElapsed(elapsedMs)}
+        </span>
+        {phase === 'idle' ? (
+          <Button size="lg" className="h-12 px-8" onClick={onStart}>
+            <Play className="mr-2 h-5 w-5" />
+            Start rep {rep}
+          </Button>
+        ) : (
+          <Button size="lg" variant="outline" className="h-12 px-8" onClick={onReset}>
+            <RotateCcw className="mr-2 h-5 w-5" />
+            Reset
+          </Button>
+        )}
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        {phase === 'running'
+          ? `Tap a name the moment they finish rep ${rep}. Tap it again to clear a mistake.`
+          : `Start the clock, then tap each name as they finish rep ${rep}.`}
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {entries.map((entry) => {
+          const recorded = entry[repField(rep)];
+          const target = recorded == null ? targetFor(entry) : null;
+          const tappable = recorded != null || phase === 'running';
+          return (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => (recorded != null ? onClear(entry) : onRecord(entry))}
+              disabled={!tappable}
+              className={`flex min-h-16 flex-col items-center justify-center rounded-lg border px-2 py-3 text-center transition-colors ${
+                recorded != null
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border bg-background hover:bg-accent disabled:opacity-40 disabled:pointer-events-none'
+              }`}
+            >
+              <span className="text-sm font-medium">{compactName(entry.athleteName)}</span>
+              {recorded != null ? (
+                <span className="mt-0.5 font-mono text-xs text-primary">{formatTime(recorded)} · tap to clear</span>
+              ) : target ? (
+                <span className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                  {formatRepTargetRange(target.fastSec, target.slowSec)}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const IntervalSessionManagePage: React.FC = () => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
@@ -158,6 +260,30 @@ const IntervalSessionManagePage: React.FC = () => {
   const registerRef = useCallback((key: string, el: HTMLInputElement | null) => {
     cellRefs.current.set(key, el);
   }, []);
+
+  // Timer mode's stopwatch. Independent of which panel is currently
+  // rendered — switching back to Manual and then back to Timer does not
+  // reset a clock that's mid-run, same as any other stopwatch.
+  const [timerMode, setTimerMode] = useState(false);
+  const [timerPhase, setTimerPhase] = useState<'idle' | 'running'>('idle');
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const startRef = useRef(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
+
+  const handleTimerStart = () => {
+    startRef.current = performance.now();
+    setElapsedMs(0);
+    setTimerPhase('running');
+    intervalRef.current = setInterval(() => setElapsedMs(performance.now() - startRef.current), 100);
+  };
+
+  const handleTimerReset = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    setElapsedMs(0);
+    setTimerPhase('idle');
+  };
 
   const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
   const enteredIds = useMemo(() => new Set((session?.entries ?? []).map((e) => e.athleteId)), [session?.entries]);
@@ -382,47 +508,74 @@ const IntervalSessionManagePage: React.FC = () => {
                   </div>
                 )}
                 <SegmentedPills
-                  className="pb-3 md:hidden"
-                  caption="Rep"
-                  segments={REPS.map((rep) => ({ value: String(rep - 1), label: String(rep) }))}
-                  value={String(activeRep)}
-                  onChange={(v) => setActiveRep(Number(v))}
+                  className="pb-3"
+                  caption="Mode"
+                  segments={[
+                    { value: 'manual', label: 'Manual' },
+                    { value: 'timer', label: 'Timer' },
+                  ]}
+                  value={timerMode ? 'timer' : 'manual'}
+                  onChange={(v) => setTimerMode(v === 'timer')}
                 />
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Athlete</TableHead>
-                        <TableHead className="text-center whitespace-nowrap">Target</TableHead>
-                        {REPS.map((rep) => (
-                          <TableHead
-                            key={rep}
-                            className={`text-center ${rep - 1 === activeRep ? '' : 'hidden md:table-cell'}`}
-                          >
-                            Rep {rep}
-                          </TableHead>
-                        ))}
-                        <TableHead />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {sortedEntries.map((entry) => (
-                        <EntryRow
-                          key={entry.id}
-                          entry={entry}
-                          target={suggestedRepTarget(recentRaceByAthlete?.get(entry.athleteId), sessionZone, session.repDistanceM)}
-                          activeRep={activeRep}
-                          registerRef={registerRef}
-                          onComplete={handleComplete}
-                          onClear={handleClear}
-                          onNavigate={handleNavigate}
-                          removing={removeEntry.isPending}
-                          onRemove={() => removeEntry.mutate(entry.id)}
-                        />
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                {timerMode ? (
+                  <IntervalTimerPanel
+                    entries={sortedEntries}
+                    activeRep={activeRep}
+                    setActiveRep={setActiveRep}
+                    phase={timerPhase}
+                    elapsedMs={elapsedMs}
+                    onStart={handleTimerStart}
+                    onReset={handleTimerReset}
+                    onRecord={(entry) => handleComplete(cellKey(entry.id, activeRep + 1), Math.round(elapsedMs / 1000))}
+                    onClear={(entry) => handleClear(cellKey(entry.id, activeRep + 1))}
+                    targetFor={(entry) => suggestedRepTarget(recentRaceByAthlete?.get(entry.athleteId), sessionZone, session.repDistanceM)}
+                  />
+                ) : (
+                  <>
+                    <SegmentedPills
+                      className="pb-3 md:hidden"
+                      caption="Rep"
+                      segments={REPS.map((rep) => ({ value: String(rep - 1), label: String(rep) }))}
+                      value={String(activeRep)}
+                      onChange={(v) => setActiveRep(Number(v))}
+                    />
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Athlete</TableHead>
+                            <TableHead className="text-center whitespace-nowrap">Target</TableHead>
+                            {REPS.map((rep) => (
+                              <TableHead
+                                key={rep}
+                                className={`text-center ${rep - 1 === activeRep ? '' : 'hidden md:table-cell'}`}
+                              >
+                                Rep {rep}
+                              </TableHead>
+                            ))}
+                            <TableHead />
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {sortedEntries.map((entry) => (
+                            <EntryRow
+                              key={entry.id}
+                              entry={entry}
+                              target={suggestedRepTarget(recentRaceByAthlete?.get(entry.athleteId), sessionZone, session.repDistanceM)}
+                              activeRep={activeRep}
+                              registerRef={registerRef}
+                              onComplete={handleComplete}
+                              onClear={handleClear}
+                              onNavigate={handleNavigate}
+                              removing={removeEntry.isPending}
+                              onRemove={() => removeEntry.mutate(entry.id)}
+                            />
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
+                )}
               </>
             )}
             <div className="flex items-center gap-2 pt-3">
