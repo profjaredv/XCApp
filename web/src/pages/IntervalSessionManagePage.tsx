@@ -338,10 +338,17 @@ const IntervalSessionManagePage: React.FC = () => {
 
   const entryById = useMemo(() => new Map(sortedEntries.map((e) => [e.id, e])), [sortedEntries]);
 
+  // Manual mode's SplitCell shows whatever was typed regardless of this
+  // save's outcome, so a failure here was previously silent — invisible
+  // there, but not in Timer mode, where a tap has no local state of its
+  // own to fall back on and a failed save must say so.
   const handleComplete = useCallback(
     (key: string, elapsedSec: number) => {
       const [entryId, repStr] = key.split(':');
-      updateEntry.mutate({ entryId, input: repInput(Number(repStr), elapsedSec) });
+      updateEntry.mutate(
+        { entryId, input: repInput(Number(repStr), elapsedSec) },
+        { onError: () => toast.error('Could not save that time — try again.') }
+      );
     },
     [updateEntry]
   );
@@ -352,7 +359,10 @@ const IntervalSessionManagePage: React.FC = () => {
       const rep = Number(repStr);
       const entry = entryById.get(entryId);
       if (!entry || entry[repField(rep)] == null) return;
-      updateEntry.mutate({ entryId, input: repInput(rep, null) });
+      updateEntry.mutate(
+        { entryId, input: repInput(rep, null) },
+        { onError: () => toast.error('Could not clear that time — try again.') }
+      );
     },
     [entryById, updateEntry]
   );

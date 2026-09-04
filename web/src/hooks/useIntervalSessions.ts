@@ -95,12 +95,23 @@ export function useAddIntervalEntry(seasonId: string | null) {
   });
 }
 
+// Same reason as useAddIntervalEntry above, and just as invisible a bug
+// until something reads the query cache directly: SplitCell (manual entry)
+// keeps its own local digits state, so it never noticed the specific
+// session query was going stale after a save. Timer mode's tap buttons
+// have no such local state — they render straight from session.entries —
+// so this exact staleness read as "tapping doesn't register" even though
+// every save was reaching the server fine.
 export function useUpdateIntervalEntry(seasonId: string | null) {
   const invalidate = useInvalidateSessions(seasonId);
+  const invalidateSession = useInvalidateSingleSession();
   return useMutation({
     mutationFn: ({ entryId, input }: { entryId: string; input: RepUpdateInput }) =>
       intervalSessionService.updateEntry(entryId, input),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      invalidateSession();
+    },
   });
 }
 
