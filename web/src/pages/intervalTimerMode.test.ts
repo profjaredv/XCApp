@@ -58,4 +58,38 @@ describe('interval session timer mode', () => {
     expect(page).toContain('activeRep={activeRep}');
     expect(page).toContain('setActiveRep={setActiveRep}');
   });
+
+  it('paints a tap instantly, before the server confirms it', () => {
+    // The follow-up fix: even with the stale-query bug (fixed separately)
+    // gone, invalidate-then-refetch is still a real network round trip —
+    // a coach tapping and seeing nothing for half a second reads as "that
+    // didn't work." pendingCells is set synchronously, in the same
+    // handler that kicks off the mutation, not in a .then().
+    expect(page).toContain('const [pendingCells, setPendingCells] = useState<Record<string, number | null>>({})');
+    const handleComplete = page.slice(page.indexOf('const handleComplete = useCallback'), page.indexOf('const handleClear = useCallback'));
+    expect(handleComplete.indexOf('setPendingCells')).toBeLessThan(handleComplete.indexOf('updateEntry.mutate'));
+  });
+
+  it('reconciles the optimistic value on success and failure alike, never leaving it stuck pending', () => {
+    const handleComplete = page.slice(page.indexOf('const handleComplete = useCallback'), page.indexOf('const handleClear = useCallback'));
+    expect(handleComplete).toContain('onSuccess: () => clearPending(key)');
+    expect(handleComplete).toContain('onError: () => {');
+    expect(handleComplete).toContain('clearPending(key)');
+  });
+
+  it('feeds the same optimistic values to both Manual and Timer panels, from one merged source', () => {
+    expect(page).toContain('const effectiveEntries = useMemo(');
+    expect(page).toContain('entries={effectiveEntries}');
+    expect(page).toContain('{effectiveEntries.map((entry) => (');
+    // entryById drives handleClear's guard — if it read the unmerged list,
+    // clearing a value the user just tapped (but the server hasn't
+    // confirmed) would silently no-op.
+    expect(page).toContain('const entryById = useMemo(() => new Map(effectiveEntries.map(');
+  });
+
+  it('shows a distinct saving-vs-saved style, never a plain unrecorded look, for a pending tap', () => {
+    const panel = page.slice(page.indexOf('const IntervalTimerPanel'), page.indexOf('const IntervalSessionManagePage'));
+    expect(panel).toContain('pendingKeys.has(cellKey(entry.id, rep))');
+    expect(panel).toContain("pending ? 'saving…' : 'tap to clear'");
+  });
 });

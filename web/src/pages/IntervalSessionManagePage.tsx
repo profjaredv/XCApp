@@ -169,7 +169,12 @@ const IntervalTimerPanel: React.FC<{
   onRecord: (entry: IntervalSessionEntry) => void;
   onClear: (entry: IntervalSessionEntry) => void;
   targetFor: (entry: IntervalSessionEntry) => { fastSec: number; slowSec: number } | null;
-}> = ({ entries, activeRep, setActiveRep, phase, elapsedMs, onStart, onReset, onRecord, onClear, targetFor }) => {
+  /** cellKey(entryId, rep) for every tap whose save hasn't been confirmed
+   * by the server yet — entries here already show the tapped value (it's
+   * baked into `entries` itself, not held back), just faded until it's
+   * confirmed rather than assumed. */
+  pendingKeys: Set<string>;
+}> = ({ entries, activeRep, setActiveRep, phase, elapsedMs, onStart, onReset, onRecord, onClear, targetFor, pendingKeys }) => {
   const rep = activeRep + 1;
 
   return (
@@ -209,6 +214,11 @@ const IntervalTimerPanel: React.FC<{
           const recorded = entry[repField(rep)];
           const target = recorded == null ? targetFor(entry) : null;
           const tappable = recorded != null || phase === 'running';
+          // Applied the instant the tap happens (handleComplete/handleClear
+          // in the page set this before the mutation even starts) — the
+          // grey/solid distinction below is only ever "saving" vs "saved",
+          // never "did this register at all."
+          const pending = pendingKeys.has(cellKey(entry.id, rep));
           return (
             <button
               key={entry.id}
@@ -217,13 +227,17 @@ const IntervalTimerPanel: React.FC<{
               disabled={!tappable}
               className={`flex min-h-16 flex-col items-center justify-center rounded-lg border px-2 py-3 text-center transition-colors ${
                 recorded != null
-                  ? 'border-primary bg-primary/10'
+                  ? pending
+                    ? 'border-muted-foreground/30 bg-muted text-muted-foreground'
+                    : 'border-primary bg-primary/10'
                   : 'border-border bg-background hover:bg-accent disabled:opacity-40 disabled:pointer-events-none'
               }`}
             >
               <span className="text-sm font-medium">{compactName(entry.athleteName)}</span>
               {recorded != null ? (
-                <span className="mt-0.5 font-mono text-xs text-primary">{formatTime(recorded)} · tap to clear</span>
+                <span className={`mt-0.5 font-mono text-xs ${pending ? 'text-muted-foreground' : 'text-primary'}`}>
+                  {formatTime(recorded)} · {pending ? 'saving…' : 'tap to clear'}
+                </span>
               ) : target ? (
                 <span className="mt-0.5 font-mono text-[11px] text-muted-foreground">
                   {formatRepTargetRange(target.fastSec, target.slowSec)}
@@ -336,7 +350,39 @@ const IntervalSessionManagePage: React.FC = () => {
     return withPace.map((w) => w.entry);
   }, [session?.entries, rosterById]);
 
-  const entryById = useMemo(() => new Map(sortedEntries.map((e) => [e.id, e])), [sortedEntries]);
+  // Painted the instant a tap (or a typed 4-digit entry) completes, before
+  // the mutation even starts — cellKey -> the value now showing on screen,
+  // which may not be confirmed by the server yet. The half-second-plus gap
+  // between tap and this page's own invalidate-then-refetch (the fix right
+  // before this one) read as "did that even register," so the tap itself
+  // is now what paints the cell; the network round trip only ever
+  // reconciles it afterward (clears the pending flag on success, reverts
+  // to whatever's actually in the cache on failure — see IntervalTimerPanel's
+  // `pending` styling for the saving-vs-saved distinction this enables).
+  const [pendingCells, setPendingCells] = useState<Record<string, number | null>>({});
+  const clearPending = useCallback((key: string) => {
+    setPendingCells((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const effectiveEntries = useMemo(() => {
+    if (Object.keys(pendingCells).length === 0) return sortedEntries;
+    return sortedEntries.map((entry) => {
+      let patched: IntervalSessionEntry | null = null;
+      for (const r of REPS) {
+        const key = cellKey(entry.id, r);
+        if (key in pendingCells) patched = { ...(patched ?? entry), [repField(r)]: pendingCells[key] };
+      }
+      return patched ?? entry;
+    });
+  }, [sortedEntries, pendingCells]);
+
+  const entryById = useMemo(() => new Map(effectiveEntries.map((e) => [e.id, e])), [effectiveEntries]);
+  const pendingKeys = useMemo(() => new Set(Object.keys(pendingCells)), [pendingCells]);
 
   // Manual mode's SplitCell shows whatever was typed regardless of this
   // save's outcome, so a failure here was previously silent — invisible
@@ -345,12 +391,19 @@ const IntervalSessionManagePage: React.FC = () => {
   const handleComplete = useCallback(
     (key: string, elapsedSec: number) => {
       const [entryId, repStr] = key.split(':');
+      setPendingCells((prev) => ({ ...prev, [key]: elapsedSec }));
       updateEntry.mutate(
         { entryId, input: repInput(Number(repStr), elapsedSec) },
-        { onError: () => toast.error('Could not save that time — try again.') }
+        {
+          onSuccess: () => clearPending(key),
+          onError: () => {
+            clearPending(key);
+            toast.error('Could not save that time — try again.');
+          },
+        }
       );
     },
-    [updateEntry]
+    [updateEntry, clearPending]
   );
 
   const handleClear = useCallback(
@@ -359,12 +412,19 @@ const IntervalSessionManagePage: React.FC = () => {
       const rep = Number(repStr);
       const entry = entryById.get(entryId);
       if (!entry || entry[repField(rep)] == null) return;
+      setPendingCells((prev) => ({ ...prev, [key]: null }));
       updateEntry.mutate(
         { entryId, input: repInput(rep, null) },
-        { onError: () => toast.error('Could not clear that time — try again.') }
+        {
+          onSuccess: () => clearPending(key),
+          onError: () => {
+            clearPending(key);
+            toast.error('Could not clear that time — try again.');
+          },
+        }
       );
     },
-    [entryById, updateEntry]
+    [entryById, updateEntry, clearPending]
   );
 
   // Column-major: for a fixed rep (column), "down" moves to the next
@@ -529,7 +589,8 @@ const IntervalSessionManagePage: React.FC = () => {
                 />
                 {timerMode ? (
                   <IntervalTimerPanel
-                    entries={sortedEntries}
+                    entries={effectiveEntries}
+                    pendingKeys={pendingKeys}
                     activeRep={activeRep}
                     setActiveRep={setActiveRep}
                     phase={timerPhase}
@@ -567,7 +628,7 @@ const IntervalSessionManagePage: React.FC = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {sortedEntries.map((entry) => (
+                          {effectiveEntries.map((entry) => (
                             <EntryRow
                               key={entry.id}
                               entry={entry}
@@ -641,7 +702,7 @@ const IntervalSessionManagePage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {sortedEntries.map((entry) => {
+            {effectiveEntries.map((entry) => {
               const target = suggestedRepTarget(recentRaceByAthlete?.get(entry.athleteId), sessionZone, session.repDistanceM);
               return (
                 <tr key={entry.id}>
