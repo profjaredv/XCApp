@@ -120,12 +120,6 @@ const CLASSIFICATION = {
     what: 'Reusable workout definitions.',
     why: 'A plan, written before anyone runs it.',
   },
-  TimerSession: {
-    class: CLASSES.OPERATIONAL,
-    what: 'A stopwatch session in progress at a meet or workout.',
-    why: 'Scratch state while timing. Finished times become Results or IntervalSessionEntries.',
-  },
-
   // --- Directory: publishable by the school -------------------------------
   Athlete: {
     class: CLASSES.DIRECTORY,

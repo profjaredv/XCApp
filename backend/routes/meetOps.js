@@ -22,9 +22,12 @@ const { normalizeAthleteName } = require('../lib/athleteMatching');
 // Coach-facing entry/seed-time/bib editing, meet-day logistics, and the
 // printable roster were removed: results sync (routes/meets.js) already
 // supplies what's needed once a race is scraped, and a coach no longer
-// hand-manages entries here. MeetEntry rows are still read (never
-// written) to power the athlete-facing "you are entered" status below and
-// in routes/today.js — that's the one thing this simplification kept.
+// hand-manages the full entry workflow here. MeetEntry rows are read (to
+// power the athlete-facing "you are entered" status below and in
+// routes/today.js) and, since the Live Timer rewrite, written again — but
+// only the bare ENTERED/not-ENTERED fact (see GET/POST/DELETE
+// /races/:raceId/entrants below), never bib numbers, seed times, or the
+// other EntryStatus values that full workflow used.
 // B4 (LeadPack Master Build Handoff): athletes get a "Meets" nav item
 // pointing at this same list, read-only. Volunteer coaches get the full
 // PROGRAM section of the nav spine (everything but Setup), which includes
@@ -687,94 +690,88 @@ router.post('/races/:raceId/results', authenticate, requireTeam, requireRole(FUL
   }
 });
 
-// POST /api/meet-ops/races/:raceId/timer-sessions — start a Live Timer
-// draft. The frontend creates this on the FIRST capture, not on "Start
-// Timer" itself, so an aborted/never-captured session doesn't leave
-// clutter behind — see TimerSession's schema comment for why this exists
-// at all (resuming after a coach gets pulled away mid-assignment).
-router.post('/races/:raceId/timer-sessions', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
-  const { captures, assignments } = req.body;
+// GET /api/meet-ops/races/:raceId/entrants — who's declared to run this
+// race, for the Live Timer's tap grid (and anywhere else that needs "the
+// field," not the whole team roster). Reuses MeetEntry/EntryStatus — the
+// entry/bib/seed-time management UI this once powered was removed (see
+// this file's header comment), but the table itself was never dropped,
+// and an "entrant" is exactly a MeetEntry row with status ENTERED. Other
+// statuses (SCRATCHED, ALTERNATE, ...) are left alone by the routes below
+// and simply don't show up here.
+router.get('/races/:raceId/entrants', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
     if (!race) {
       return res.status(404).json({ msg: 'Race not found.' });
     }
-    const session = await prisma.timerSession.create({
-      data: {
-        raceId: race.id,
-        teamId: req.user.teamId,
-        createdById: req.user.id,
-        captures: Array.isArray(captures) ? captures.map(Number).filter(Number.isFinite) : [],
-        assignments: assignments && typeof assignments === 'object' ? assignments : {},
-      },
+    const entries = await prisma.meetEntry.findMany({
+      where: { raceId: race.id, status: 'ENTERED' },
+      include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true } } },
     });
-    res.status(201).json(session);
+    const entrants = entries
+      .map((e) => ({
+        athleteId: e.athleteId,
+        name: e.athlete.preferredName || e.athlete.name,
+        gender: e.athlete.gender,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json(entrants);
   } catch (error) {
-    console.error('Error creating timer session:', error.message);
+    console.error('Error fetching race entrants:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
-// GET /api/meet-ops/races/:raceId/timer-sessions — unfinished drafts for
-// this race, newest first. Multiple concurrent drafts are normal (two
-// coaches timing two heats of the same race), not an error state.
-router.get('/races/:raceId/timer-sessions', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+// POST /api/meet-ops/races/:raceId/entrants — declare one athlete as
+// running this race, before the fact. Upsert rather than plain create:
+// re-adding someone previously removed (or, if this team ever used the
+// old entry UI, previously SCRATCHED/ALTERNATE) just flips them back to
+// ENTERED rather than colliding with the (raceId, athleteId) unique index.
+router.post('/races/:raceId/entrants', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  const { athleteId } = req.body;
+  if (!athleteId) {
+    return res.status(400).json({ msg: 'athleteId is required.' });
+  }
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
     if (!race) {
       return res.status(404).json({ msg: 'Race not found.' });
     }
-    const sessions = await prisma.timerSession.findMany({
-      where: { raceId: race.id, teamId: req.user.teamId },
-      orderBy: { updatedAt: 'desc' },
+    const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId: req.user.teamId } });
+    if (!athlete) {
+      return res.status(404).json({ msg: 'Athlete not found.' });
+    }
+    await prisma.meetEntry.upsert({
+      where: { raceId_athleteId: { raceId: race.id, athleteId } },
+      update: { status: 'ENTERED', updatedById: req.user.id },
+      create: { raceId: race.id, athleteId, status: 'ENTERED', updatedById: req.user.id },
     });
-    res.json(sessions);
+    res.status(201).json({ athleteId, name: athlete.preferredName || athlete.name, gender: athlete.gender });
   } catch (error) {
-    console.error('Error listing timer sessions:', error.message);
+    console.error('Error adding race entrant:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
-// PATCH /api/meet-ops/timer-sessions/:sessionId — whole-replace captures/
-// assignments. Called after every discrete capture/assign/clear/remove
-// action, never on a timer tick — only the discrete actions are worth
-// persisting, not the running clock itself (see the schema comment on
-// why a resumed session never lands back in a "still running" state).
-router.patch('/timer-sessions/:sessionId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
-  const { captures, assignments } = req.body;
+// DELETE /api/meet-ops/races/:raceId/entrants/:athleteId — no longer
+// running this race. A hard delete, not a SCRATCHED status: this
+// lightweight entrant list carries no injury/academic/excused history to
+// preserve, unlike the fuller entry management this replaced. Leaves any
+// already-recorded Result alone — removing someone from the declared
+// field doesn't erase a time they already ran.
+router.delete('/races/:raceId/entrants/:athleteId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
-    const session = await prisma.timerSession.findFirst({ where: { id: req.params.sessionId, teamId: req.user.teamId } });
-    if (!session) {
-      return res.status(404).json({ msg: 'Timer session not found.' });
+    const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });
+    if (!race) {
+      return res.status(404).json({ msg: 'Race not found.' });
     }
-    const updated = await prisma.timerSession.update({
-      where: { id: session.id },
-      data: {
-        ...(Array.isArray(captures) ? { captures: captures.map(Number).filter(Number.isFinite) } : {}),
-        ...(assignments && typeof assignments === 'object' ? { assignments } : {}),
-      },
-    });
-    res.json(updated);
-  } catch (error) {
-    console.error('Error updating timer session:', error.message);
-    res.status(500).json({ msg: 'Server error' });
-  }
-});
-
-// DELETE /api/meet-ops/timer-sessions/:sessionId — discard a draft, or
-// clean it up once its captures have been assigned and saved as real
-// Results elsewhere (the frontend calls this right after a successful
-// save, same as it does when a coach explicitly discards a session).
-router.delete('/timer-sessions/:sessionId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
-  try {
-    const session = await prisma.timerSession.findFirst({ where: { id: req.params.sessionId, teamId: req.user.teamId } });
-    if (!session) {
-      return res.status(404).json({ msg: 'Timer session not found.' });
+    const deleted = await prisma.meetEntry.deleteMany({ where: { raceId: race.id, athleteId: req.params.athleteId } });
+    if (deleted.count === 0) {
+      return res.status(404).json({ msg: 'That athlete is not entered in this race.' });
     }
-    await prisma.timerSession.delete({ where: { id: session.id } });
     res.json({ success: true });
   } catch (error) {
-    console.error('Error deleting timer session:', error.message);
+    console.error('Error removing race entrant:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

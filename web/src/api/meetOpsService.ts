@@ -78,18 +78,14 @@ export interface RaceResultEntry {
   status?: ResultStatus;
 }
 
-// An unfinished Live Timer session — captured finish times not yet
-// assigned to athletes and saved as real Results. See the backend's
-// TimerSession schema comment for why this is persisted at all.
-export interface TimerSessionDraft {
-  id: string;
-  raceId: string;
-  /** Elapsed seconds since the session's own start, in capture order. */
-  captures: number[];
-  /** Capture index (as a string key) -> athleteId. */
-  assignments: Record<string, string>;
-  createdAt: string;
-  updatedAt: string;
+// Who's declared to run a race, before the fact — the Live Timer's tap
+// grid reads this instead of the whole team roster. Backed by MeetEntry
+// (status ENTERED); see GET/POST/DELETE /races/:raceId/entrants in
+// backend/routes/meetOps.js for why that table, not a new one.
+export interface RaceEntrant {
+  athleteId: string;
+  name: string;
+  gender: string | null;
 }
 
 export interface MyMeetCard {
@@ -222,24 +218,20 @@ export const meetOpsService = {
     return response.data;
   },
 
-  /** Unfinished Live Timer drafts for a race — newest first. Multiple concurrent drafts are normal, not an error state. */
-  async listTimerSessions(raceId: string): Promise<TimerSessionDraft[]> {
-    const response = await api.get<TimerSessionDraft[]>(`/meet-ops/races/${raceId}/timer-sessions`);
+  /** Who's declared to run this race — the Live Timer's tap grid, not the whole team roster. */
+  async listEntrants(raceId: string): Promise<RaceEntrant[]> {
+    const response = await api.get<RaceEntrant[]>(`/meet-ops/races/${raceId}/entrants`);
     return response.data;
   },
 
-  async createTimerSession(raceId: string, input: { captures: number[]; assignments: Record<string, string> }): Promise<TimerSessionDraft> {
-    const response = await api.post<TimerSessionDraft>(`/meet-ops/races/${raceId}/timer-sessions`, input);
+  async addEntrant(raceId: string, athleteId: string): Promise<RaceEntrant> {
+    const response = await api.post<RaceEntrant>(`/meet-ops/races/${raceId}/entrants`, { athleteId });
     return response.data;
   },
 
-  async updateTimerSession(sessionId: string, input: { captures: number[]; assignments: Record<string, string> }): Promise<TimerSessionDraft> {
-    const response = await api.patch<TimerSessionDraft>(`/meet-ops/timer-sessions/${sessionId}`, input);
-    return response.data;
-  },
-
-  async deleteTimerSession(sessionId: string): Promise<void> {
-    await api.delete(`/meet-ops/timer-sessions/${sessionId}`);
+  /** Removes them from the declared field — does not touch any Result they already have. */
+  async removeEntrant(raceId: string, athleteId: string): Promise<void> {
+    await api.delete(`/meet-ops/races/${raceId}/entrants/${athleteId}`);
   },
 
   async updateMeet(meetId: string, input: Partial<{ name: string; date: string; location: string; isHome: boolean | null }>): Promise<MeetDetail> {

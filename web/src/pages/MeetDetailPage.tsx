@@ -14,10 +14,11 @@ import {
 } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Upload, Timer as TimerIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Upload, Timer as TimerIcon, Users } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults, useSetPostseasonLevel } from '@/hooks/useMeetOps';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
+import { ManageEntrantsDialog } from '@/components/meets/ManageEntrantsDialog';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
 import { formatTimeSec, type MeetDetail, type ResultStatus, type RaceResultEntry, type PostseasonLevel } from '@/api/meetOpsService';
@@ -70,6 +71,7 @@ const MeetDetailPage: React.FC = () => {
   const [addRaceOpen, setAddRaceOpen] = useState(false);
   const [enterResultsOpen, setEnterResultsOpen] = useState(false);
   const [importResultsOpen, setImportResultsOpen] = useState(false);
+  const [entrantsOpen, setEntrantsOpen] = useState(false);
 
   useEffect(() => {
     if (!meet) return;
@@ -261,6 +263,12 @@ const MeetDetailPage: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   {selectedRaceId && (
+                    <Button variant="outline" onClick={() => setEntrantsOpen(true)}>
+                      <Users className="h-4 w-4 mr-2" />
+                      Entrants
+                    </Button>
+                  )}
+                  {selectedRaceId && (
                     <Button variant="outline" onClick={() => navigate(teamPath(`/race/${selectedRaceId}/timer`))}>
                       <TimerIcon className="h-4 w-4 mr-2" />
                       Live Timer
@@ -293,6 +301,15 @@ const MeetDetailPage: React.FC = () => {
       </Card>
 
       <AddRaceDialog meet={meet} open={addRaceOpen} onOpenChange={setAddRaceOpen} />
+      {selectedRaceId && (
+        <ManageEntrantsDialog
+          raceId={selectedRaceId}
+          raceName={selectedRace?.name ?? ''}
+          seasonYear={meet.seasonYear}
+          open={entrantsOpen}
+          onOpenChange={setEntrantsOpen}
+        />
+      )}
       {selectedRaceId && (
         <EnterRaceResultsDialog
           raceId={selectedRaceId}
