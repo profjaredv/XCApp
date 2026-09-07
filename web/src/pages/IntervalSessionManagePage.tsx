@@ -154,10 +154,10 @@ const EntryRow: React.FC<{
 // grid's mobile view: the whole point is a single Start button and a wall
 // of names, not a table to navigate.
 //
-// Deliberately simpler than RaceLiveTimerPage's two-phase capture/assign:
-// there, WHO crossed the line isn't known yet, only the order. Here every
-// runner is already a named entry on this sheet, so the tap itself both
-// identifies them and stops their clock — no separate assignment step.
+// The same pattern RaceLiveTimerPage now uses for races, once a race has
+// entrants (backend MeetEntry) declared: every runner is already a named
+// entry on the sheet, so the tap itself both identifies them and stops
+// their clock — no separate capture-then-assign step needed either place.
 const IntervalTimerPanel: React.FC<{
   entries: IntervalSessionEntry[];
   activeRep: number;

@@ -100,7 +100,6 @@ const TEAM_EXPORT = [
   { key: 'raceReflections', model: 'raceReflection', where: via('athlete'), label: 'Race reflections' },
   { key: 'meetGroups', model: 'meetGroup', where: direct, label: 'Meet groups' },
   { key: 'meetGroupRaces', model: 'meetGroupRace', where: via('meetGroup'), label: 'Meet group races' },
-  { key: 'timerSessions', model: 'timerSession', where: direct, label: 'Live timer sessions' },
 
   // --- training ---
   { key: 'groups', model: 'group', where: direct, label: 'Training groups' },

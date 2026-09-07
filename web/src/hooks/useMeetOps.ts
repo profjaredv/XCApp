@@ -82,16 +82,6 @@ export function useDeleteRace() {
   });
 }
 
-// Unfinished Live Timer drafts for a race — RaceLiveTimerPage offers to
-// resume one instead of silently starting fresh over lost captures.
-export function useTimerSessions(raceId: string | null) {
-  return useQuery({
-    queryKey: ['meetOps', 'timerSessions', raceId],
-    queryFn: () => meetOpsService.listTimerSessions(raceId as string),
-    enabled: !!raceId,
-  });
-}
-
 export function useRaceResults(raceId: string | null) {
   return useQuery({
     queryKey: ['meetOps', 'raceResults', raceId],
@@ -100,16 +90,29 @@ export function useRaceResults(raceId: string | null) {
   });
 }
 
-// Only wraps the user-facing "Resume" screen's Discard action in a proper
-// mutation (for its pending state) — the actual autosave-as-you-go
-// create/update calls happen as plain best-effort service calls straight
-// from RaceLiveTimerPage, not react-query mutations, since nothing in the
-// UI needs to show them as pending.
-export function useDeleteTimerSession(raceId: string | null) {
+// Who's declared to run a race — the Live Timer's tap grid and the
+// entrants-management dialog both read this.
+export function useRaceEntrants(raceId: string | null) {
+  return useQuery({
+    queryKey: ['meetOps', 'raceEntrants', raceId],
+    queryFn: () => meetOpsService.listEntrants(raceId as string),
+    enabled: !!raceId,
+  });
+}
+
+export function useAddEntrant(raceId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (sessionId: string) => meetOpsService.deleteTimerSession(sessionId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', 'timerSessions', raceId] }),
+    mutationFn: (athleteId: string) => meetOpsService.addEntrant(raceId as string, athleteId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', 'raceEntrants', raceId] }),
+  });
+}
+
+export function useRemoveEntrant(raceId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (athleteId: string) => meetOpsService.removeEntrant(raceId as string, athleteId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', 'raceEntrants', raceId] }),
   });
 }
 
