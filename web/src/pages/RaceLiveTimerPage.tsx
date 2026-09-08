@@ -359,7 +359,15 @@ const RaceLiveTimerPage: React.FC = () => {
                 below); a confirmed save turns solid primary, deliberately
                 a different color family from "not yet" so the two can't be
                 confused at a glance. */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 min-[700px]:grid-cols-4">
+            {/* md, not the arbitrary min-[700px] this started as: Tailwind
+                only guarantees correct cascade order between its own named
+                breakpoints. An arbitrary breakpoint's media block can land
+                earlier in the compiled CSS than sm's — which is exactly
+                what happened here, so sm:grid-cols-3 (later in the
+                stylesheet, same specificity) kept winning the tie at any
+                width past 700px, including a full-size iPad. md is 768px —
+                every iPad except mini in portrait (744px) clears it. */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
               {sortedEntrants.map((entrant) => {
                 const recorded = timeFor(entrant.athleteId);
                 const pending = entrant.athleteId in pendingByAthlete;

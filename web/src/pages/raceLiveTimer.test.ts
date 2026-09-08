@@ -93,7 +93,18 @@ describe('race live timer', () => {
   });
 
   it('shows four columns on an iPad in portrait to cut down on scrolling a big field', () => {
-    expect(page).toContain('grid-cols-2 gap-2 sm:grid-cols-3 min-[700px]:grid-cols-4');
+    expect(page).toContain('grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4');
+  });
+
+  it('uses a named breakpoint, not an arbitrary one, for the 4-column jump', () => {
+    // An arbitrary min-[Npx] breakpoint's media block isn't guaranteed to
+    // land after sm's in the compiled CSS — it landed BEFORE here, so
+    // sm:grid-cols-3 (same specificity, later in the stylesheet) kept
+    // winning the cascade tie past 700px and iPads stayed stuck at 3
+    // columns despite the class being "correct." Named breakpoints
+    // (sm/md/lg) are the only ones Tailwind guarantees to compile in
+    // ascending order.
+    expect(page).not.toContain('min-[700px]');
   });
 
   it('shows the entrant count within the race name, both in the header and the "Runner not listed" section', () => {
