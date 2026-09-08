@@ -21,8 +21,12 @@ const meetDetail = code(read('pages/MeetDetailPage.tsx'));
 
 describe('race live timer', () => {
   it('has no old two-phase capture/assign state left — a single stopwatch instead', () => {
+    // "captures" itself now legitimately appears (unassignedCaptures, the
+    // "Runner not listed" fallback below) — checking for the OLD shape
+    // specifically, not the bare word.
     expect(page).not.toContain("'idle' | 'running' | 'paused' | 'review'");
-    expect(page).not.toContain('captures');
+    expect(page).not.toContain('captures: number[]');
+    expect(page).not.toContain('assignments: Record<string, string>');
     expect(page).not.toContain('SlideToConfirm');
     expect(page).toContain("useState<'idle' | 'running'>('idle')");
   });
@@ -86,6 +90,47 @@ describe('race live timer', () => {
 
   it('renders the grid from the sorted list, not the raw entrants order', () => {
     expect(page).not.toContain('{entrants.map((entrant) => {');
+  });
+});
+
+describe('runner not listed', () => {
+  it('is reclickable — no per-press disabled state beyond needing the clock running', () => {
+    const handler = page.slice(page.indexOf('const handleLogUnnamed'), page.indexOf('const handleDiscardUnnamed'));
+    expect(handler).toContain("if (phase !== 'running') return");
+    // Every press appends; nothing here marks a "used" state on the button.
+    expect(handler).toContain('setUnassignedCaptures((prev) => [');
+    expect(page).toContain('onClick={handleLogUnnamed}');
+    expect(page).toContain("disabled={phase !== 'running'}");
+  });
+
+  it('logs the time with no name attached, distinct from a normal entrant tap', () => {
+    expect(page).toContain('interface UnassignedCapture');
+    expect(page).toContain('timeSec: Math.round(elapsedMs / 1000)');
+  });
+
+  it('persists unnamed captures per race so a reload cannot lose one still waiting on a name', () => {
+    expect(page).toContain('UNASSIGNED_STORAGE_KEY');
+    expect(page).toContain('window.localStorage.getItem(UNASSIGNED_STORAGE_KEY(raceId))');
+    expect(page).toContain('window.localStorage.setItem(UNASSIGNED_STORAGE_KEY(raceId)');
+  });
+
+  it('assigning a name writes a real Result through the same submit path as every other tap', () => {
+    const handler = page.slice(page.indexOf('const handleAssignUnnamed'), page.indexOf('const claimedByOtherCaptures'));
+    expect(handler).toContain('submitResults.mutate([{ athleteId, time: capture.timeSec }]');
+    expect(handler).toContain('onSuccess: () => {');
+    expect(handler).toContain('onError: () => {');
+  });
+
+  it('can assign to any roster athlete without a time, not only entrants — covers "not listed" and "listed but unfindable" alike', () => {
+    expect(page).toContain('const assignableRoster = useMemo(');
+    const block = page.slice(page.indexOf('const assignableRoster = useMemo'), page.indexOf('const raceName ='));
+    expect(block).toContain('timeFor(a.id) == null');
+    expect(block).not.toContain('enteredIds.has');
+  });
+
+  it('cannot double-claim the same athlete across two unnamed rows at once', () => {
+    expect(page).toContain('const claimedByOtherCaptures = useMemo(');
+    expect(page).toContain('!claimedByOtherCaptures.has(a.id)');
   });
 });
 
