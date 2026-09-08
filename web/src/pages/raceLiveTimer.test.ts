@@ -183,6 +183,29 @@ describe('race entrants', () => {
     // this athlete has a pace to compare — anyone with a.pace == null
     // falls through every branch to the final `return true`.
     expect(filterBlock).toContain('paceThresholdSec != null && a.pace != null');
-    expect(dialog).toContain("a.pace != null ? formatTime(a.pace) : 'no time on record'");
+    expect(dialog).toContain("a.pace != null ? formatTime(a.pace) : 'no time yet'");
+  });
+
+  it('never lets the pace fallback text squeeze an athlete\'s name out of the bulk grid row', () => {
+    // Both trailing spans (grade, pace) used to be pinned shrink-0 — on a
+    // narrow 2-3 column layout, "no time on record" (much longer than a
+    // formatted time like "6:15") could claim the whole row and push the
+    // flex-1 name span to zero width. The name now has a guaranteed
+    // minimum width, and the pace span is capped and shrinkable instead of
+    // being allowed unbounded growth.
+    const bulkRow = dialog.slice(dialog.indexOf('<Checkbox checked={selected.has(a.id)}'), dialog.indexOf('</label>'));
+    expect(bulkRow).toContain('min-w-[3.5rem] flex-1 truncate');
+    expect(bulkRow).toContain('max-w-[6rem] shrink truncate');
+    expect(bulkRow).not.toContain('shrink-0 font-mono text-xs text-muted-foreground');
+  });
+
+  it('shows each entrant\'s mile PR or average 5K pace, matched to the race they\'re actually entered in', () => {
+    expect(dialog).toContain("from '@/api/groupService'");
+    expect(dialog).toContain('entrantPaceStat');
+    expect(dialog).toContain('raceDistanceMeters');
+    const entrantsRow = dialog.slice(dialog.indexOf('entrants.map((entrant) => {'), dialog.indexOf('Add from roster'));
+    expect(entrantsRow).toContain('entrantPaceStat(athlete, raceDistanceMeters)');
+    expect(entrantsRow).toContain('min-w-0 flex-1 truncate');
+    expect(entrantsRow).toContain('`${stat.label} ${formatTime(stat.seconds)}`');
   });
 });

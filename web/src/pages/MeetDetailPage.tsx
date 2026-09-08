@@ -306,6 +306,7 @@ const MeetDetailPage: React.FC = () => {
           raceId={selectedRaceId}
           raceName={selectedRace?.name ?? ''}
           seasonYear={meet.seasonYear}
+          raceDistanceMeters={selectedRace?.distanceMeters ?? null}
           open={entrantsOpen}
           onOpenChange={setEntrantsOpen}
         />

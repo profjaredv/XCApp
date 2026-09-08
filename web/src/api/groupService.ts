@@ -370,6 +370,64 @@ export function fastestFirstPaceSecPerMile(athlete: RosterAthleteWithRaces): num
   return fiveKPaces.length > 0 ? Math.min(...fiveKPaces) : bestPaceSecPerMile(athlete);
 }
 
+/** Fastest recorded time at (approximately) a mile, in seconds — a real PR
+ * at the exact distance, not a pace conversion. For an entrants list on a
+ * mile race: what has this athlete actually run at this distance. */
+export function fastestMileTime(athlete: RosterAthleteWithRaces): number | null {
+  const times = athlete.races
+    .filter(
+      (r): r is { time: number; race: { date: string; distanceMeters: number } } =>
+        typeof r.time === 'number' &&
+        r.time > 0 &&
+        typeof r.race.distanceMeters === 'number' &&
+        Math.abs(r.race.distanceMeters - 1609.34) < 100
+    )
+    .map((r) => r.time);
+  return times.length > 0 ? Math.min(...times) : null;
+}
+
+/** Average (not fastest — see fastestFirstPaceSecPerMile for that) pace per
+ * mile across an athlete's 5K races. For an entrants list on a 5K race:
+ * what this athlete usually runs is a more useful expectation on race day
+ * than their single best-ever effort. */
+export function average5kPaceSecPerMile(athlete: RosterAthleteWithRaces): number | null {
+  const paces = athlete.races
+    .filter(
+      (r): r is { time: number; race: { date: string; distanceMeters: number } } =>
+        typeof r.time === 'number' &&
+        r.time > 0 &&
+        typeof r.race.distanceMeters === 'number' &&
+        Math.abs(r.race.distanceMeters - 5000) < 100
+    )
+    .map((r) => r.time / (r.race.distanceMeters / 1609.34));
+  return paces.length > 0 ? paces.reduce((sum, p) => sum + p, 0) / paces.length : null;
+}
+
+export interface EntrantPaceStat {
+  label: string;
+  seconds: number;
+}
+
+/** Whichever stat matches this race's own distance — a mile race shows the
+ * mile PR (real time at that exact distance); everything else (almost
+ * always 5K, cross country's standard) shows average 5K pace instead of a
+ * fastest-ever number, since "how do they usually run this distance" is
+ * the more useful read on an entrants list than a single best day. Null
+ * when the race has no distance on record, or this athlete has no
+ * qualifying race for the bucket the distance falls into. */
+export function entrantPaceStat(
+  athlete: RosterAthleteWithRaces,
+  raceDistanceMeters: number | null
+): EntrantPaceStat | null {
+  if (raceDistanceMeters == null) return null;
+  if (Math.abs(raceDistanceMeters - 1609.34) < 100) {
+    const time = fastestMileTime(athlete);
+    return time != null ? { label: 'Mile PR', seconds: time } : null;
+  }
+  const avgPace = average5kPaceSecPerMile(athlete);
+  return avgPace != null ? { label: '5K avg', seconds: avgPace } : null;
+}
+
 export function formatTime(seconds: number | null): string {
   if (seconds == null) return '—';
   const mins = Math.floor(seconds / 60);

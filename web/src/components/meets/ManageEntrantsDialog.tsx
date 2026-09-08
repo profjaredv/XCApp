@@ -8,7 +8,7 @@ import { Loader2, Search, X } from 'lucide-react';
 import { AthletePicker } from '@/components/groups/AthletePicker';
 import { useRaceEntrants, useAddEntrant, useRemoveEntrant } from '@/hooks/useMeetOps';
 import { useRosterWithRaces } from '@/hooks/useGroups';
-import { bestPaceSecPerMile, formatTime } from '@/api/groupService';
+import { bestPaceSecPerMile, entrantPaceStat, formatTime } from '@/api/groupService';
 import { matchesQuery } from '@/lib/athleteSearch';
 import { parseTimeToSeconds } from '@/lib/formatUtils';
 
@@ -26,9 +26,13 @@ export const ManageEntrantsDialog: React.FC<{
   raceId: string;
   raceName: string;
   seasonYear: number | null;
+  /** Matches each entrant's mile PR or average 5K pace to what this race
+   * actually is — see entrantPaceStat in groupService.ts. Null shows no
+   * stat rather than guessing. */
+  raceDistanceMeters: number | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}> = ({ raceId, raceName, seasonYear, open, onOpenChange }) => {
+}> = ({ raceId, raceName, seasonYear, raceDistanceMeters, open, onOpenChange }) => {
   const { data: roster = [], isLoading: rosterLoading } = useRosterWithRaces(seasonYear ?? undefined);
   const { data: entrants = [], isLoading: entrantsLoading } = useRaceEntrants(open ? raceId : null);
   const addEntrant = useAddEntrant(raceId);
@@ -40,6 +44,8 @@ export const ManageEntrantsDialog: React.FC<{
   const [paceDirection, setPaceDirection] = useState<PaceDirection>('faster');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkAdding, setBulkAdding] = useState(false);
+
+  const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
 
   const enteredIds = useMemo(() => new Set(entrants.map((e) => e.athleteId)), [entrants]);
   const available = useMemo(
@@ -147,9 +153,15 @@ export const ManageEntrantsDialog: React.FC<{
             ) : entrants.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nobody entered yet — add from the roster below.</p>
             ) : (
-              entrants.map((entrant) => (
+              entrants.map((entrant) => {
+                const athlete = rosterById.get(entrant.athleteId);
+                const stat = athlete ? entrantPaceStat(athlete, raceDistanceMeters) : null;
+                return (
                 <div key={entrant.athleteId} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
-                  <span>{entrant.name}</span>
+                  <span className="min-w-0 flex-1 truncate">{entrant.name}</span>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                    {stat ? `${stat.label} ${formatTime(stat.seconds)}` : 'no time on record'}
+                  </span>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -160,7 +172,8 @@ export const ManageEntrantsDialog: React.FC<{
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
           {/* A nudge, not a block — JV/lower-level races routinely run
@@ -252,13 +265,20 @@ export const ManageEntrantsDialog: React.FC<{
                       className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60"
                     >
                       <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelected(a.id)} />
-                      <span className="min-w-0 flex-1 truncate">{a.preferredName || a.name}</span>
+                      {/* min-w guarantees the name stays visible even when
+                          the row is tight — previously both trailing spans
+                          were pinned shrink-0, so the (longer) "no time on
+                          record" fallback could claim the whole row on a
+                          2-3 column layout and squeeze this to zero width. */}
+                      <span className="min-w-[3.5rem] flex-1 truncate">{a.preferredName || a.name}</span>
                       {a.grade != null && <span className="shrink-0 text-xs text-muted-foreground">Gr {a.grade}</span>}
                       {/* Never excluded by the pace filter above, so this is
                           the only place a coach learns why — no time to
-                          compare, not "doesn't qualify." */}
-                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                        {a.pace != null ? formatTime(a.pace) : 'no time on record'}
+                          compare, not "doesn't qualify." Capped and
+                          truncatable (not shrink-0) so a long fallback
+                          can't be the thing that starves the name above. */}
+                      <span className="max-w-[6rem] shrink truncate font-mono text-xs text-muted-foreground">
+                        {a.pace != null ? formatTime(a.pace) : 'no time yet'}
                       </span>
                     </label>
                   ))}
