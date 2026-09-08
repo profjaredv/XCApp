@@ -6,7 +6,7 @@ const { isValidLevel, suggestLevel, LEVELS } = require('../lib/postseason');
 const { ANY_TEAM_MEMBER, FULL_COACH } = require('../lib/teamRoles');
 const { buildMeetMappingProposal } = require('../lib/meetMapping');
 const { parseTeamCalendar } = require('../lib/icalMeets');
-const { decideResultWrite } = require('../lib/raceResults');
+const { decideResultWrite, flattenMeetResults } = require('../lib/raceResults');
 const { parseResultsText, resolveRows } = require('../lib/resultImport');
 const { normalizeAthleteName } = require('../lib/athleteMatching');
 const { groupEntrantsByRace } = require('../lib/meetEntries');
@@ -806,6 +806,43 @@ router.get('/:meetId/entrants', authenticate, requireTeam, requireRole(FULL_COAC
     res.json({ races: groupEntrantsByRace(meet.races, flatEntries) });
   } catch (error) {
     console.error('Error fetching meet entrants:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/meet-ops/:meetId/results — every result across every race in
+// this meet, joined with athlete name/grade/gender, flattened into one
+// list. Built for "export everything from this meet at once" — the
+// existing per-race /races/:raceId/results (bare {athleteId,time,status})
+// is meant only to pre-fill EnterRaceResultsDialog, which already has a
+// roster loaded to cross-reference; a CSV export doesn't, so this one
+// does the join itself.
+router.get('/:meetId/results', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const meet = await prisma.meet.findFirst({
+      where: { id: req.params.meetId, teamId: req.user.teamId },
+      include: { races: { select: { id: true, name: true } } },
+    });
+    if (!meet) {
+      return res.status(404).json({ msg: 'Meet not found.' });
+    }
+    const raceIds = meet.races.map((r) => r.id);
+    const results = await prisma.result.findMany({
+      where: { raceId: { in: raceIds }, teamId: req.user.teamId },
+      include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true } } },
+    });
+    const flat = results.map((r) => ({
+      raceId: r.raceId,
+      athleteId: r.athleteId,
+      name: r.athlete.preferredName || r.athlete.name,
+      grade: r.grade,
+      gender: r.athlete.gender,
+      time: r.time,
+      status: r.status,
+    }));
+    res.json({ meetName: meet.name, results: flattenMeetResults(meet.races, flat) });
+  } catch (error) {
+    console.error('Error fetching meet results:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

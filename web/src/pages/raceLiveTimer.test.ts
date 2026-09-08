@@ -18,6 +18,7 @@ const code = (src: string) =>
 const page = code(read('pages/RaceLiveTimerPage.tsx'));
 const dialog = code(read('components/meets/ManageEntrantsDialog.tsx'));
 const meetDetail = code(read('pages/MeetDetailPage.tsx'));
+const resultsGrid = code(read('pages/ResultsGridPage.tsx'));
 
 describe('race live timer', () => {
   it('has no old two-phase capture/assign state left — a single stopwatch instead', () => {
@@ -282,5 +283,32 @@ describe('race entrants', () => {
     expect(entrantsRow).toContain('entrantPaceStat(athlete, raceDistanceMeters)');
     expect(entrantsRow).toContain('min-w-0 flex-1 truncate');
     expect(entrantsRow).toContain('`${stat.label} ${formatTime(stat.seconds)}`');
+  });
+});
+
+describe('meet results export', () => {
+  it('combines every race in the meet into one CSV, joined with athlete info the per-race results endpoint deliberately omits', () => {
+    expect(meetDetail).toContain('meetOpsService.getMeetResults(meet.id)');
+    expect(meetDetail).toContain("from '@/lib/csvParse'");
+    const handler = meetDetail.slice(meetDetail.indexOf('const handleExportCsv ='), meetDetail.indexOf('return (\n    <div className="space-y-6">'));
+    expect(handler).toContain("'Race', 'Name', 'Grade', 'Gender', 'Time', 'Status'");
+    expect(handler).toContain('downloadCsv(');
+  });
+
+  it('only offers the export once there is at least one race to combine', () => {
+    const button = meetDetail.slice(meetDetail.indexOf('onClick={handleExportCsv}') - 100, meetDetail.indexOf('onClick={handleExportCsv}') + 50);
+    expect(button).toContain('meet.races.length > 0');
+  });
+
+  it('exports exactly the filtered/sorted rows on screen, not the whole unfiltered season', () => {
+    expect(resultsGrid).toContain("from '@/lib/csvParse'");
+    const handler = resultsGrid.slice(resultsGrid.indexOf('const handleExportCsv ='), resultsGrid.indexOf('const handleSort ='));
+    expect(handler).toContain('processedAthletes.map(');
+    expect(handler).not.toContain('gridData.athletes.map(');
+  });
+
+  it('disambiguates a race name that recurs across the season instead of letting columns collide', () => {
+    const handler = resultsGrid.slice(resultsGrid.indexOf('const handleExportCsv ='), resultsGrid.indexOf('const handleSort ='));
+    expect(handler).toContain('dedupeColumnLabels(gridData.races)');
   });
 });

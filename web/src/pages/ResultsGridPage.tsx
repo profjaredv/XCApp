@@ -5,9 +5,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
+import { ChevronDown, ChevronUp, ArrowUpDown, Download } from 'lucide-react';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
+import { toCsv, downloadCsv, dedupeColumnLabels } from '@/lib/csvParse';
 
 interface GridData {
   races: string[];
@@ -131,6 +132,30 @@ const ResultsGridPage: React.FC = () => {
     return result;
   }, [gridData, selectedGrades, selectedGenders, sortField, sortDirection, sortRaceIndex, availableGenders.length]);
   
+  // Exports exactly what's on screen — the current grade/gender filters
+  // and sort — not the whole season unfiltered, so a coach who narrowed
+  // this down to "9th grade boys" gets a CSV of just that, not everyone.
+  const handleExportCsv = () => {
+    if (!gridData) return;
+    const raceColumns = dedupeColumnLabels(gridData.races);
+    const csv = toCsv(
+      ['Athlete', 'Grade', 'Gender', ...raceColumns],
+      processedAthletes.map((athlete) => {
+        const row: Record<string, string> = {
+          Athlete: athlete.name,
+          Grade: athlete.grade ? gradeLabelShort(athlete.grade) : '',
+          Gender: athlete.gender ?? '',
+        };
+        raceColumns.forEach((column, index) => {
+          const time = athlete.results[index];
+          row[column] = time ? formatTime(time) : '';
+        });
+        return row;
+      })
+    );
+    downloadCsv(`results-grid-${selectedSeason ?? 'season'}.csv`, csv);
+  };
+
   // Function to toggle sort direction or set a new sort field
   const handleSort = (field: SortField, raceIndex: RaceIndex = null) => {
     if (sortField === field && raceIndex === sortRaceIndex) {
@@ -233,24 +258,30 @@ const ResultsGridPage: React.FC = () => {
     <Card>
       <CardHeader>
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center flex-wrap gap-2">
             <CardTitle>Results Grid</CardTitle>
-            {seasons.length > 0 && (
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-muted-foreground">Season:</span>
-                <select
-                  className="border border-input bg-background text-foreground rounded-md px-2 py-1 text-sm"
-                  value={selectedSeason || ''}
-                  onChange={(e) => setSelectedSeason(parseInt(e.target.value))}
-                >
-                  {seasons.map((season) => (
-                    <option key={season} value={season}>
-                      {season}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={processedAthletes.length === 0}>
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </Button>
+              {seasons.length > 0 && (
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-muted-foreground">Season:</span>
+                  <select
+                    className="border border-input bg-background text-foreground rounded-md px-2 py-1 text-sm"
+                    value={selectedSeason || ''}
+                    onChange={(e) => setSelectedSeason(parseInt(e.target.value))}
+                  >
+                    {seasons.map((season) => (
+                      <option key={season} value={season}>
+                        {season}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
           </div>
           
           {/* Grade Filter */}

@@ -107,3 +107,36 @@ export function toCsv(headers: string[], rows: Record<string, string>[]): string
   });
   return lines.join('\n');
 }
+
+/** Makes a list of column labels unique by appending "(2)", "(3)", ... to
+ * each repeat, in order — for exporting a header-keyed CSV (toCsv above
+ * looks columns up by header text) from a source where the same label can
+ * legitimately recur, e.g. Results Grid's race names: "Varsity Boys" runs
+ * again every meet all season. Without this, two identical headers passed
+ * to toCsv would collide and one column's values would silently overwrite
+ * the other's. Callers should match the returned array back up by
+ * position, not by re-deriving a name from the original label. */
+export function dedupeColumnLabels(labels: string[]): string[] {
+  const seen = new Map<string, number>();
+  return labels.map((label) => {
+    const count = (seen.get(label) ?? 0) + 1;
+    seen.set(label, count);
+    return count > 1 ? `${label} (${count})` : label;
+  });
+}
+
+/** Triggers a browser download of CSV text — the same blob-URL-and-click
+ * pattern duplicated across Schedule/Attendance/Splits' own export
+ * buttons, pulled in here as the one other export needs (meet results,
+ * MeetDetailPage) since a third and fourth copy is one too many. */
+export function downloadCsv(filename: string, csvText: string): void {
+  const blob = new Blob([csvText], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
