@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Play, RotateCcw, UserPlus, X } from 'lucide-react';
+import { Play, RotateCcw, UserPlus, UserX, X } from 'lucide-react';
 import { useRaceResults, useSubmitRaceResults, useRaceEntrants, useAddEntrant } from '@/hooks/useMeetOps';
 import { useRosterWithRaces } from '@/hooks/useGroups';
 import { AthletePicker } from '@/components/groups/AthletePicker';
@@ -28,6 +28,28 @@ import { firstNameOf, lastNameOf } from '@/lib/athleteSearch';
 // directly (the same batch endpoint EnterRaceResultsDialog uses), so
 // there's nothing left to draft or resume. Closing this page mid-race
 // loses nothing — every tap already saved.
+//
+// "Runner not listed" (below) is the one deliberate exception: a runner
+// who's in the race but isn't an entrant and can't be found/identified in
+// the moment a coach needs to log their time. Reclickable with no name
+// attached — logs the elapsed time now, name TBD — because the whole
+// point is not losing the time while someone figures out who that was.
+// Unlike a normal tap, this genuinely has nowhere durable to write yet
+// (Result.athleteId is required — see schema.prisma), so it's held in
+// local state, backed by localStorage per race so a reload doesn't lose
+// it, until assigned to a real athlete (at which point it becomes a
+// normal Result, same save() path as everything else on this page).
+
+const UNASSIGNED_STORAGE_KEY = (raceId: string) => `xc_unassigned_captures_${raceId}`;
+
+interface UnassignedCapture {
+  id: string;
+  timeSec: number;
+  /** Set while this capture's assign save is in flight — the row stays
+   * visible with the picked name until it's confirmed, same "saving…"
+   * convention as everywhere else on this page. */
+  assignedTo?: { athleteId: string; name: string };
+}
 
 function formatElapsed(ms: number): string {
   const totalDeci = Math.max(0, Math.floor(ms / 100));
@@ -61,6 +83,34 @@ const RaceLiveTimerPage: React.FC = () => {
   const startRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [entrantsDialogOpen, setEntrantsDialogOpen] = useState(false);
+
+  // "Runner not listed" — see the file header comment. Restored from
+  // localStorage on mount (per race) so a reload mid-race doesn't drop an
+  // unnamed time nobody's assigned yet; an in-flight "assignedTo" from a
+  // previous session is deliberately not restored — a stuck "saving…"
+  // across a reload should just revert to "pick a name," not stay stuck.
+  const [unassignedCaptures, setUnassignedCaptures] = useState<UnassignedCapture[]>(() => {
+    if (!raceId) return [];
+    try {
+      const raw = window.localStorage.getItem(UNASSIGNED_STORAGE_KEY(raceId));
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed)
+        ? parsed.map((c: { id: string; timeSec: number }) => ({ id: c.id, timeSec: c.timeSec }))
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (!raceId) return;
+    try {
+      const toStore = unassignedCaptures.map(({ id, timeSec }) => ({ id, timeSec }));
+      window.localStorage.setItem(UNASSIGNED_STORAGE_KEY(raceId), JSON.stringify(toStore));
+    } catch {
+      // Private browsing, or storage blocked — the capture still lives in
+      // this tab's state either way, just won't survive a reload.
+    }
+  }, [raceId, unassignedCaptures]);
 
   // Same optimistic-paint fix as Interval Sessions' Timer mode: a tap
   // saves through a real network round trip (invalidate + refetch), and
@@ -117,6 +167,45 @@ const RaceLiveTimerPage: React.FC = () => {
   const handleRecord = (athleteId: string) => save(athleteId, Math.round(elapsedMs / 1000));
   const handleClear = (athleteId: string) => save(athleteId, null);
 
+  // Reclickable on purpose — no per-press disabled state, no capture ever
+  // "consumes" the button. One press per runner who crosses and can't be
+  // identified in the moment; each becomes its own row to name afterward.
+  const handleLogUnnamed = () => {
+    if (phase !== 'running') return;
+    setUnassignedCaptures((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, timeSec: Math.round(elapsedMs / 1000) },
+    ]);
+  };
+
+  const handleDiscardUnnamed = (captureId: string) => {
+    setUnassignedCaptures((prev) => prev.filter((c) => c.id !== captureId));
+  };
+
+  // Same optimistic pattern as save() above, plus bookkeeping to remove
+  // the row once it's genuinely become a real Result — not reusing save()
+  // directly since nothing else on this page needs to react to "this
+  // specific capture is now spoken for" the way this does.
+  const handleAssignUnnamed = (captureId: string, athleteId: string, athleteName: string) => {
+    const capture = unassignedCaptures.find((c) => c.id === captureId);
+    if (!capture) return;
+    setUnassignedCaptures((prev) =>
+      prev.map((c) => (c.id === captureId ? { ...c, assignedTo: { athleteId, name: athleteName } } : c))
+    );
+    setPendingByAthlete((prev) => ({ ...prev, [athleteId]: capture.timeSec }));
+    submitResults.mutate([{ athleteId, time: capture.timeSec }], {
+      onSuccess: () => {
+        clearPending(athleteId);
+        setUnassignedCaptures((prev) => prev.filter((c) => c.id !== captureId));
+      },
+      onError: () => {
+        clearPending(athleteId);
+        setUnassignedCaptures((prev) => prev.map((c) => (c.id === captureId ? { ...c, assignedTo: undefined } : c)));
+        toast.error('Could not save that time — try again.');
+      },
+    });
+  };
+
   // Fastest-first by default: on a 60-person heat, scanning for one name
   // is the whole bottleneck, and pace order puts the runners most likely
   // to finish (and need tapping) first at the top. Sorting only ever
@@ -163,6 +252,24 @@ const RaceLiveTimerPage: React.FC = () => {
     }
   };
 
+  // Who an unassigned capture can be named to — the whole roster, not
+  // just entrants: "not listed OR can't find" covers both someone who was
+  // never declared and an entrant the coach just couldn't spot in time.
+  // Excludes anyone who already has a time, and anyone another unassigned
+  // row is already mid-assigning to, so the same person can't end up
+  // double-claimed.
+  const claimedByOtherCaptures = useMemo(
+    () => new Set(unassignedCaptures.filter((c) => c.assignedTo).map((c) => c.assignedTo!.athleteId)),
+    [unassignedCaptures]
+  );
+  const assignableRoster = useMemo(
+    () =>
+      roster
+        .filter((a) => timeFor(a.id) == null && !claimedByOtherCaptures.has(a.id))
+        .map((a) => ({ id: a.id, name: a.preferredName || a.name, grade: a.grade })),
+    [roster, timeFor, claimedByOtherCaptures]
+  );
+
   const raceName = raceResults?.race.name ?? 'Race';
   const recordedCount = entrants.filter((e) => timeFor(e.athleteId) != null).length;
 
@@ -208,6 +315,20 @@ const RaceLiveTimerPage: React.FC = () => {
                 </Button>
               )}
             </div>
+
+            {/* Reclickable, no name attached — for a runner who's in the
+                race but isn't on the list below and can't be found fast
+                enough to tap correctly. Logs the time now; who it was
+                gets sorted out in "Unnamed times" below. */}
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleLogUnnamed}
+              disabled={phase !== 'running'}
+            >
+              <UserX className="mr-2 h-4 w-4" />
+              Runner not listed — log time only
+            </Button>
 
             <p className="text-sm text-muted-foreground">
               {phase === 'running'
@@ -257,6 +378,47 @@ const RaceLiveTimerPage: React.FC = () => {
                 );
               })}
             </div>
+
+            {/* Times logged with "Runner not listed," waiting on a name.
+                Each row is its own pick-a-name — assigning one writes a
+                real Result the same way any other tap does. */}
+            {unassignedCaptures.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+                <p className="text-sm font-medium">
+                  Unnamed time{unassignedCaptures.length === 1 ? '' : 's'} ({unassignedCaptures.length})
+                </p>
+                {unassignedCaptures.map((capture) => (
+                  <div key={capture.id} className="space-y-1.5 rounded-md border bg-background p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-sm font-medium">{formatTime(capture.timeSec)}</span>
+                      {capture.assignedTo ? (
+                        <span className="text-xs text-muted-foreground">Saving {capture.assignedTo.name}…</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => handleDiscardUnnamed(capture.id)}
+                          aria-label="Discard this time"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    {!capture.assignedTo && (
+                      <AthletePicker
+                        athletes={assignableRoster}
+                        onPick={(athleteId) => {
+                          const athlete = assignableRoster.find((a) => a.id === athleteId);
+                          if (athlete) handleAssignUnnamed(capture.id, athleteId, athlete.name);
+                        }}
+                        placeholder="Whose time was this?"
+                        emptyLabel="Everyone on the roster already has a time."
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Someone unexpected ran — a walk-on, an athlete who wasn't on
                 the declared list. Adds them as an entrant immediately, so
