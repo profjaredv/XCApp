@@ -15,6 +15,31 @@ import { toast } from 'sonner';
 // next natural pause.
 export function registerServiceWorker() {
   const updateSW = registerSW({
+    onRegisteredSW(_swScriptUrl, registration) {
+      if (!registration) return;
+      // Workbox only checks for a new service worker on registration —
+      // effectively "on page load" — which is exactly what a home-screen
+      // PWA on iOS almost never does again. iOS suspends and resumes the
+      // app across launches instead of reloading it, so a coach can open
+      // an iPad PWA days after a new version shipped and never get the
+      // check that would surface it, even though the same build shows up
+      // immediately in a normal browser tab (which re-checks on every
+      // navigation). Re-running the check whenever the app comes back to
+      // the foreground is what iOS actually gives us in place of that.
+      const checkForUpdate = () => registration.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkForUpdate();
+      });
+      // pageshow with persisted:true fires on iOS Safari's back-forward
+      // cache restore, a resume path visibilitychange doesn't always
+      // cover on its own.
+      window.addEventListener('pageshow', (e) => {
+        if (e.persisted) checkForUpdate();
+      });
+      // Belt-and-braces for a coach who leaves the app foregrounded for a
+      // whole long meet without ever backgrounding it.
+      setInterval(checkForUpdate, 60 * 60 * 1000);
+    },
     onNeedRefresh() {
       toast('A new version of LeadPack XC is ready.', {
         description: 'Finish what you are doing first — this reloads the app.',
