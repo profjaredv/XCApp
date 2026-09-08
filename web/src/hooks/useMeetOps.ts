@@ -104,7 +104,13 @@ export function useAddEntrant(raceId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (athleteId: string) => meetOpsService.addEntrant(raceId as string, athleteId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', 'raceEntrants', raceId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetOps', 'raceEntrants', raceId] });
+      // Broad match (no meetId suffix) — this race belongs to some meet's
+      // "who isn't entered anywhere yet" check, and this hook doesn't know
+      // which meetId that is from a raceId alone.
+      queryClient.invalidateQueries({ queryKey: ['meetOps', 'meetEntrants'] });
+    },
   });
 }
 
@@ -112,7 +118,36 @@ export function useRemoveEntrant(raceId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (athleteId: string) => meetOpsService.removeEntrant(raceId as string, athleteId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meetOps', 'raceEntrants', raceId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetOps', 'raceEntrants', raceId] });
+      queryClient.invalidateQueries({ queryKey: ['meetOps', 'meetEntrants'] });
+    },
+  });
+}
+
+// Every race's entrants at once, for the meet detail page's "who's not
+// entered anywhere at this meet yet" check — see MeetEntrants.
+export function useMeetEntrants(meetId: string | null) {
+  return useQuery({
+    queryKey: ['meetOps', 'meetEntrants', meetId],
+    queryFn: () => meetOpsService.getMeetEntrants(meetId as string),
+    enabled: !!meetId,
+  });
+}
+
+// Adds to whichever race the coach picks at click time, unlike
+// useAddEntrant above (fixed to one race for the whole component's
+// lifetime) — the missing-roster list on the meet detail page needs a
+// per-row "add to race X" action where X varies row to row.
+export function useAddEntrantToRace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ raceId, athleteId }: { raceId: string; athleteId: string }) =>
+      meetOpsService.addEntrant(raceId, athleteId),
+    onSuccess: (_result, { raceId }) => {
+      queryClient.invalidateQueries({ queryKey: ['meetOps', 'raceEntrants', raceId] });
+      queryClient.invalidateQueries({ queryKey: ['meetOps', 'meetEntrants'] });
+    },
   });
 }
 

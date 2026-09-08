@@ -19,6 +19,7 @@ import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults, useSetPostseasonLevel } from '@/hooks/useMeetOps';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { ManageEntrantsDialog } from '@/components/meets/ManageEntrantsDialog';
+import { MissingEntrantsCard } from '@/components/meets/MissingEntrantsCard';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
 import { formatTimeSec, type MeetDetail, type ResultStatus, type RaceResultEntry, type PostseasonLevel } from '@/api/meetOpsService';
@@ -299,6 +300,8 @@ const MeetDetailPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      <MissingEntrantsCard meetId={meet.id} seasonYear={meet.seasonYear} />
 
       <AddRaceDialog meet={meet} open={addRaceOpen} onOpenChange={setAddRaceOpen} />
       {selectedRaceId && (

@@ -9,6 +9,7 @@ const { parseTeamCalendar } = require('../lib/icalMeets');
 const { decideResultWrite } = require('../lib/raceResults');
 const { parseResultsText, resolveRows } = require('../lib/resultImport');
 const { normalizeAthleteName } = require('../lib/athleteMatching');
+const { groupEntrantsByRace } = require('../lib/meetEntries');
 
 // T4 (Team Management handoff), simplified per the Schedule rework: meet
 // operations — the Meet parent entity (name/date/location/home-or-away)
@@ -772,6 +773,39 @@ router.delete('/races/:raceId/entrants/:athleteId', authenticate, requireTeam, r
     res.json({ success: true });
   } catch (error) {
     console.error('Error removing race entrant:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/meet-ops/:meetId/entrants — every entrant across every race in
+// this meet, grouped by race, in one request. Built for "who on the
+// roster isn't entered in ANY race here yet" — checking race-by-race
+// can't answer that (someone entered in Varsity Boys but not JV Boys still
+// needs the other race checked), and firing one request per race just to
+// answer it doesn't scale past a couple of races.
+router.get('/:meetId/entrants', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const meet = await prisma.meet.findFirst({
+      where: { id: req.params.meetId, teamId: req.user.teamId },
+      include: { races: { select: { id: true, name: true } } },
+    });
+    if (!meet) {
+      return res.status(404).json({ msg: 'Meet not found.' });
+    }
+    const raceIds = meet.races.map((r) => r.id);
+    const entries = await prisma.meetEntry.findMany({
+      where: { raceId: { in: raceIds }, status: 'ENTERED' },
+      include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true } } },
+    });
+    const flatEntries = entries.map((e) => ({
+      raceId: e.raceId,
+      athleteId: e.athleteId,
+      name: e.athlete.preferredName || e.athlete.name,
+      gender: e.athlete.gender,
+    }));
+    res.json({ races: groupEntrantsByRace(meet.races, flatEntries) });
+  } catch (error) {
+    console.error('Error fetching meet entrants:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

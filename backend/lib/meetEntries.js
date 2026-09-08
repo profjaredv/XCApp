@@ -21,4 +21,24 @@ function decideEntryCapWarning(enteredCount, cap = DEFAULT_ENTRY_CAP) {
 
 const VALID_ENTRY_STATUSES = ['ENTERED', 'ALTERNATE', 'NOT_ENTERED', 'SCRATCHED', 'INJURED', 'ACADEMIC', 'EXCUSED'];
 
-module.exports = { seasonBestSec, decideEntryCapWarning, DEFAULT_ENTRY_CAP, VALID_ENTRY_STATUSES };
+// GET /:meetId/entrants — every entrant across every race in a meet, in
+// one shot, for "who on the roster isn't entered anywhere at this meet
+// yet." `races` is [{id, name}] (a meet's own races, in any order);
+// `entries` is every ENTERED MeetEntry across those races, already joined
+// to {athleteId, name, gender}. A race with no entrants yet still comes
+// back with an empty array — never omitted — so the caller can render
+// every race, not just the ones somebody's been added to.
+function groupEntrantsByRace(races, entries) {
+  const byRaceId = new Map(races.map((r) => [r.id, []]));
+  for (const entry of entries) {
+    const bucket = byRaceId.get(entry.raceId);
+    if (bucket) bucket.push({ athleteId: entry.athleteId, name: entry.name, gender: entry.gender });
+  }
+  return races.map((r) => ({
+    id: r.id,
+    name: r.name,
+    entrants: byRaceId.get(r.id).sort((a, b) => a.name.localeCompare(b.name)),
+  }));
+}
+
+module.exports = { seasonBestSec, decideEntryCapWarning, DEFAULT_ENTRY_CAP, VALID_ENTRY_STATUSES, groupEntrantsByRace };
