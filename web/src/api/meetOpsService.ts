@@ -88,6 +88,14 @@ export interface RaceEntrant {
   gender: string | null;
 }
 
+// Every race in a meet, each with its own entrants — for "who isn't
+// entered in ANY race at this meet yet" (ManageEntrantsDialog's per-race
+// view can't answer that on its own). A race with nobody entered still
+// comes back with an empty entrants array.
+export interface MeetEntrants {
+  races: Array<{ id: string; name: string; entrants: RaceEntrant[] }>;
+}
+
 export interface MyMeetCard {
   meet: { id: string; name: string; date: string; location: string | null; isHome: boolean | null } | null;
   race: { id: string; name: string; distance: string | null } | null;
@@ -232,6 +240,12 @@ export const meetOpsService = {
   /** Removes them from the declared field — does not touch any Result they already have. */
   async removeEntrant(raceId: string, athleteId: string): Promise<void> {
     await api.delete(`/meet-ops/races/${raceId}/entrants/${athleteId}`);
+  },
+
+  /** Every race's entrants at once — the "who's not entered anywhere at this meet yet" check. */
+  async getMeetEntrants(meetId: string): Promise<MeetEntrants> {
+    const response = await api.get<MeetEntrants>(`/meet-ops/${meetId}/entrants`);
+    return response.data;
   },
 
   async updateMeet(meetId: string, input: Partial<{ name: string; date: string; location: string; isHome: boolean | null }>): Promise<MeetDetail> {
