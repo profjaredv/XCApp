@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -8,8 +7,10 @@ import { toast } from 'sonner';
 import { Loader2, Search, X } from 'lucide-react';
 import { AthletePicker } from '@/components/groups/AthletePicker';
 import { useRaceEntrants, useAddEntrant, useRemoveEntrant } from '@/hooks/useMeetOps';
-import { rosterService } from '@/api/rosterService';
+import { useRosterWithRaces } from '@/hooks/useGroups';
+import { bestPaceSecPerMile, formatTime } from '@/api/groupService';
 import { matchesQuery } from '@/lib/athleteSearch';
+import { parseTimeToSeconds } from '@/lib/formatUtils';
 
 // "Add entrants to a manual race" — who's declared to run it, before the
 // fact. The point isn't meet-day logistics (that whole workflow — bibs,
@@ -19,6 +20,7 @@ import { matchesQuery } from '@/lib/athleteSearch';
 // RaceLiveTimerPage.tsx, which reads this same list.
 const VARSITY_ENTRY_CAP = 7;
 type GenderFilter = 'ALL' | 'M' | 'F';
+type PaceDirection = 'faster' | 'slower';
 
 export const ManageEntrantsDialog: React.FC<{
   raceId: string;
@@ -27,37 +29,53 @@ export const ManageEntrantsDialog: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }> = ({ raceId, raceName, seasonYear, open, onOpenChange }) => {
-  const { data: roster = [], isLoading: rosterLoading } = useQuery({
-    queryKey: ['roster', seasonYear],
-    queryFn: () => rosterService.getRoster(seasonYear ?? undefined),
-    enabled: open && seasonYear != null,
-  });
+  const { data: roster = [], isLoading: rosterLoading } = useRosterWithRaces(seasonYear ?? undefined);
   const { data: entrants = [], isLoading: entrantsLoading } = useRaceEntrants(open ? raceId : null);
   const addEntrant = useAddEntrant(raceId);
   const removeEntrant = useRemoveEntrant(raceId);
 
   const [bulkQuery, setBulkQuery] = useState('');
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('ALL');
+  const [paceInput, setPaceInput] = useState('');
+  const [paceDirection, setPaceDirection] = useState<PaceDirection>('faster');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkAdding, setBulkAdding] = useState(false);
 
   const enteredIds = useMemo(() => new Set(entrants.map((e) => e.athleteId)), [entrants]);
-  const available = useMemo(() => roster.filter((a) => !enteredIds.has(a.id)), [roster, enteredIds]);
+  const available = useMemo(
+    () => roster.filter((a) => !enteredIds.has(a.id)).map((a) => ({ ...a, pace: bestPaceSecPerMile(a) })),
+    [roster, enteredIds]
+  );
   const availableForPicker = useMemo(
     () => available.map((a) => ({ id: a.id, name: a.preferredName || a.name, grade: a.grade })),
     [available]
   );
 
+  // "6:15" -> 375, blank/unparseable -> null (no pace filter applied).
+  const paceThresholdSec = useMemo(() => {
+    const parsed = parseTimeToSeconds(paceInput);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [paceInput]);
+
   // The checkbox grid's own filtered view — separate from availableForPicker
-  // above (the single-add AthletePicker keeps its own search box).
+  // above (the single-add AthletePicker keeps its own search box). These
+  // internal groups are organized by pace, so this is the filter a coach
+  // actually reaches for — "boys faster than 6:15" — not just a name
+  // search. An athlete with no time on record NEVER gets filtered out by
+  // pace (there's nothing to compare, not a reason to hide them) — the
+  // grid below marks them "no time on record" instead, so a coach still
+  // sees and can add someone who just hasn't raced yet.
   const filteredForBulk = useMemo(
     () =>
-      available.filter(
-        (a) =>
-          matchesQuery(a.preferredName || a.name, bulkQuery) &&
-          (genderFilter === 'ALL' || a.gender === genderFilter)
-      ),
-    [available, bulkQuery, genderFilter]
+      available.filter((a) => {
+        if (!matchesQuery(a.preferredName || a.name, bulkQuery)) return false;
+        if (genderFilter !== 'ALL' && a.gender !== genderFilter) return false;
+        if (paceThresholdSec != null && a.pace != null) {
+          return paceDirection === 'faster' ? a.pace < paceThresholdSec : a.pace > paceThresholdSec;
+        }
+        return true;
+      }),
+    [available, bulkQuery, genderFilter, paceThresholdSec, paceDirection]
   );
 
   const toggleSelected = (athleteId: string) => {
@@ -182,9 +200,38 @@ export const ManageEntrantsDialog: React.FC<{
                 ))}
               </div>
             </div>
+            {/* These internal groups are organized by pace — "boys faster
+                than 6:15" is the filter a coach actually reaches for.
+                Someone with no time on record is never hidden by this
+                (nothing to compare), just labelled below instead. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                {(['faster', 'slower'] as PaceDirection[]).map((d) => (
+                  <Button
+                    key={d}
+                    type="button"
+                    size="sm"
+                    variant={paceDirection === d ? 'secondary' : 'outline'}
+                    onClick={() => setPaceDirection(d)}
+                  >
+                    {d === 'faster' ? 'Faster than' : 'Slower than'}
+                  </Button>
+                ))}
+              </div>
+              <Input
+                value={paceInput}
+                onChange={(e) => setPaceInput(e.target.value)}
+                placeholder="6:15"
+                className="w-24 font-mono"
+              />
+              <span className="text-xs text-muted-foreground">per mile</span>
+              {paceInput.trim() && paceThresholdSec == null && (
+                <span className="text-xs text-destructive">Use mm:ss, e.g. 6:15</span>
+              )}
+            </div>
             <div className="flex items-center gap-2 text-xs">
               <button type="button" className="text-primary underline" onClick={selectAllFiltered} disabled={filteredForBulk.length === 0}>
-                Select all{bulkQuery.trim() || genderFilter !== 'ALL' ? ' shown' : ''} ({filteredForBulk.length})
+                Select all{bulkQuery.trim() || genderFilter !== 'ALL' || paceThresholdSec != null ? ' shown' : ''} ({filteredForBulk.length})
               </button>
               {selected.size > 0 && (
                 <button type="button" className="text-muted-foreground underline" onClick={clearSelected}>
@@ -207,6 +254,12 @@ export const ManageEntrantsDialog: React.FC<{
                       <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelected(a.id)} />
                       <span className="min-w-0 flex-1 truncate">{a.preferredName || a.name}</span>
                       {a.grade != null && <span className="shrink-0 text-xs text-muted-foreground">Gr {a.grade}</span>}
+                      {/* Never excluded by the pace filter above, so this is
+                          the only place a coach learns why — no time to
+                          compare, not "doesn't qualify." */}
+                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                        {a.pace != null ? formatTime(a.pace) : 'no time on record'}
+                      </span>
                     </label>
                   ))}
                 </div>
