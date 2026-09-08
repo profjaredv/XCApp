@@ -91,6 +91,38 @@ describe('race live timer', () => {
   it('renders the grid from the sorted list, not the raw entrants order', () => {
     expect(page).not.toContain('{entrants.map((entrant) => {');
   });
+
+  it('shows four columns on an iPad in portrait to cut down on scrolling a big field', () => {
+    expect(page).toContain('grid-cols-2 gap-2 sm:grid-cols-3 min-[700px]:grid-cols-4');
+  });
+
+  it('shows the entrant count within the race name, both in the header and the "Runner not listed" section', () => {
+    expect(page).toContain('`${raceName} (${entrants.length})`');
+  });
+
+  it('gives the not-yet-tapped tile a solid, high-contrast look rather than a light bordered box, for outdoor readability', () => {
+    const grid = page.slice(page.indexOf('sortedEntrants.map((entrant) => {'), page.indexOf('{/* Times logged with "Runner not listed,"'));
+    expect(grid).toContain('border-foreground bg-foreground text-background');
+  });
+
+  it('turns a tap gray while the save is in flight, distinct from the not-yet-tapped state', () => {
+    const grid = page.slice(page.indexOf('sortedEntrants.map((entrant) => {'), page.indexOf('{/* Times logged with "Runner not listed,"'));
+    expect(grid).toContain('border-muted-foreground/40 bg-muted text-muted-foreground');
+  });
+
+  it('gives a confirmed, saved tap its own distinct color family — not a re-use of the not-yet-tapped or pending colors', () => {
+    const grid = page.slice(page.indexOf('sortedEntrants.map((entrant) => {'), page.indexOf('{/* Times logged with "Runner not listed,"'));
+    expect(grid).toContain('border-primary bg-primary text-primary-foreground');
+  });
+
+  it('makes "Runner not listed" a solid button, not the low-contrast outline variant', () => {
+    // code() strips the block comment right above this button, so anchor
+    // on the onClick itself and look at the surrounding markup instead.
+    const anchor = page.indexOf('onClick={handleLogUnnamed}');
+    const button = page.slice(Math.max(0, anchor - 200), anchor + 250);
+    expect(button).not.toContain('variant="outline"');
+    expect(button).toContain('Runner not listed — log time only');
+  });
 });
 
 describe('runner not listed', () => {
@@ -150,6 +182,14 @@ describe('race entrants', () => {
   it('is reachable from the meet detail page, next to the other per-race actions', () => {
     expect(meetDetail).toContain("from '@/components/meets/ManageEntrantsDialog'");
     expect(meetDetail).toContain('setEntrantsOpen(true)');
+  });
+
+  it('shows each race\'s entrant count right in its name in the race picker, reusing the meet-wide entrants query', () => {
+    expect(meetDetail).toContain('useMeetEntrants');
+    expect(meetDetail).toContain('entrantCountByRace');
+    const selectItem = meetDetail.slice(meetDetail.indexOf('meet.races.map((r) => {'), meetDetail.indexOf('})}'));
+    expect(selectItem).toContain('entrantCountByRace.get(r.id)');
+    expect(selectItem).toContain('count != null');
   });
 
   it('populates a whole heat with checkboxes and one bulk add, not one click per athlete', () => {
