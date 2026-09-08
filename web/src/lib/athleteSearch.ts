@@ -16,3 +16,19 @@ export function matchesQuery(name: string, query: string): boolean {
   const haystack = name.toLowerCase();
   return q.split(/\s+/).every((term) => haystack.includes(term));
 }
+
+/** First whitespace-separated token of a display name — for sorting a big
+ * field by first name (Live Timer). A multi-word first name ("Mary Kate")
+ * isn't split any further; there's no reliable way to tell a compound
+ * first name from a middle name from plain text, and this only has to be
+ * a sort key, not a parsed identity. */
+export function firstNameOf(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name;
+}
+
+/** Last whitespace-separated token of a display name — same caveat as
+ * firstNameOf about multi-word surnames ("Van Der Berg" sorts on "Berg"). */
+export function lastNameOf(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return parts[parts.length - 1] ?? name;
+}

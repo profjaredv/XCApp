@@ -5,11 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from 'sonner';
 import { Play, RotateCcw, UserPlus, X } from 'lucide-react';
 import { useRaceResults, useSubmitRaceResults, useRaceEntrants, useAddEntrant } from '@/hooks/useMeetOps';
+import { useRosterWithRaces } from '@/hooks/useGroups';
 import { AthletePicker } from '@/components/groups/AthletePicker';
 import { ManageEntrantsDialog } from '@/components/meets/ManageEntrantsDialog';
 import { FieldHeader } from '@/components/field/FieldHeader';
-import { rosterService } from '@/api/rosterService';
-import { useQuery } from '@tanstack/react-query';
+import { SegmentedPills } from '@/components/field/SegmentedPills';
+import { fastestFirstPaceSecPerMile } from '@/api/groupService';
+import { firstNameOf, lastNameOf } from '@/lib/athleteSearch';
 
 // The Live Timer, rewritten to match Interval Sessions' Timer mode: start
 // one stopwatch, tap a name the moment they finish, done — see
@@ -51,13 +53,10 @@ const RaceLiveTimerPage: React.FC = () => {
   const { data: entrants = [], isLoading: entrantsLoading } = useRaceEntrants(raceId ?? null);
   const addEntrant = useAddEntrant(raceId ?? null);
 
-  const { data: roster = [] } = useQuery({
-    queryKey: ['roster', seasonYear],
-    queryFn: () => rosterService.getRoster(seasonYear ?? undefined),
-    enabled: seasonYear != null,
-  });
+  const { data: roster = [] } = useRosterWithRaces(seasonYear ?? undefined);
 
   const [phase, setPhase] = useState<'idle' | 'running'>('idle');
+  const [sortMode, setSortMode] = useState<'fastest' | 'first' | 'last'>('fastest');
   const [elapsedMs, setElapsedMs] = useState(0);
   const startRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -117,6 +116,35 @@ const RaceLiveTimerPage: React.FC = () => {
 
   const handleRecord = (athleteId: string) => save(athleteId, Math.round(elapsedMs / 1000));
   const handleClear = (athleteId: string) => save(athleteId, null);
+
+  // Fastest-first by default: on a 60-person heat, scanning for one name
+  // is the whole bottleneck, and pace order puts the runners most likely
+  // to finish (and need tapping) first at the top. Sorting only ever
+  // reorders this array — recorded/pending state is keyed by athleteId
+  // (timeFor, pendingByAthlete above), never by position, so switching
+  // sort mode can't un-mark someone already tapped.
+  const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
+  const sortedEntrants = useMemo(() => {
+    const withKeys = entrants.map((entrant) => {
+      const athlete = rosterById.get(entrant.athleteId);
+      return {
+        entrant,
+        pace: athlete ? fastestFirstPaceSecPerMile(athlete) : null,
+        first: firstNameOf(entrant.name),
+        last: lastNameOf(entrant.name),
+      };
+    });
+    withKeys.sort((a, b) => {
+      if (sortMode === 'first') return a.first.localeCompare(b.first) || a.entrant.name.localeCompare(b.entrant.name);
+      if (sortMode === 'last') return a.last.localeCompare(b.last) || a.entrant.name.localeCompare(b.entrant.name);
+      // 'fastest' — no pace on record sorts to the end, ties by name.
+      if (a.pace == null && b.pace == null) return a.entrant.name.localeCompare(b.entrant.name);
+      if (a.pace == null) return 1;
+      if (b.pace == null) return -1;
+      return a.pace - b.pace;
+    });
+    return withKeys.map((w) => w.entrant);
+  }, [entrants, rosterById, sortMode]);
 
   const enteredIds = useMemo(() => new Set(entrants.map((e) => e.athleteId)), [entrants]);
   const availableToAdd = useMemo(
@@ -187,8 +215,21 @@ const RaceLiveTimerPage: React.FC = () => {
                 : 'Start the clock, then tap each name as they finish.'}
             </p>
 
+            {entrants.length > 1 && (
+              <SegmentedPills
+                caption="Sort"
+                segments={[
+                  { value: 'fastest', label: 'Fastest' },
+                  { value: 'first', label: 'First name' },
+                  { value: 'last', label: 'Last name' },
+                ]}
+                value={sortMode}
+                onChange={(v) => setSortMode(v as 'fastest' | 'first' | 'last')}
+              />
+            )}
+
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {entrants.map((entrant) => {
+              {sortedEntrants.map((entrant) => {
                 const recorded = timeFor(entrant.athleteId);
                 const pending = entrant.athleteId in pendingByAthlete;
                 const tappable = recorded != null || phase === 'running';

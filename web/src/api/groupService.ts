@@ -350,6 +350,26 @@ export function bestPaceSecPerMile(athlete: RosterAthleteWithRaces): number | nu
   return paces.length > 0 ? Math.min(...paces) : null;
 }
 
+/** Fastest 5K pace, or — for an athlete with no 5K on record yet — their best pace at any
+ * distance (bestPaceSecPerMile). A short unfamiliar distance can produce a faster
+ * per-mile pace than someone's real primary-distance effort just from needing less
+ * endurance, which would rank them ahead of runners racing their actual best events —
+ * preferring the 5K (cross country's standard distance) avoids that when the data exists.
+ * Built for the Live Timer's default "fastest first" sort on a big field (see
+ * RaceLiveTimerPage.tsx), where scanning for one name among sixty is the whole point. */
+export function fastestFirstPaceSecPerMile(athlete: RosterAthleteWithRaces): number | null {
+  const fiveKPaces = athlete.races
+    .filter(
+      (r): r is { time: number; race: { date: string; distanceMeters: number } } =>
+        typeof r.time === 'number' &&
+        r.time > 0 &&
+        typeof r.race.distanceMeters === 'number' &&
+        Math.abs(r.race.distanceMeters - 5000) < 100
+    )
+    .map((r) => r.time / (r.race.distanceMeters / 1609.34));
+  return fiveKPaces.length > 0 ? Math.min(...fiveKPaces) : bestPaceSecPerMile(athlete);
+}
+
 export function formatTime(seconds: number | null): string {
   if (seconds == null) return '—';
   const mins = Math.floor(seconds / 60);

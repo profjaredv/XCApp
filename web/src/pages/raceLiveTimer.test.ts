@@ -61,6 +61,32 @@ describe('race live timer', () => {
     expect(page).not.toContain('useDeleteTimerSession');
     expect(page).not.toContain('TimerSessionDraft');
   });
+
+  it('defaults to fastest-first, with first/last name as alternatives, for finding one name in a big field', () => {
+    expect(page).toContain("useState<'fastest' | 'first' | 'last'>('fastest')");
+    expect(page).toContain("{ value: 'fastest', label: 'Fastest' }");
+    expect(page).toContain("{ value: 'first', label: 'First name' }");
+    expect(page).toContain("{ value: 'last', label: 'Last name' }");
+  });
+
+  it('ranks fastest-first by the shared 5K-preferred pace helper, not a duplicate of it', () => {
+    expect(page).toContain("from '@/api/groupService'");
+    expect(page).toContain('fastestFirstPaceSecPerMile(athlete)');
+  });
+
+  it('sorts without touching recorded/pending state, so re-sorting cannot un-mark a tapped name', () => {
+    // timeFor and pendingByAthlete are both keyed by athleteId and read
+    // from sortedEntrants the same as entrants — sorting only reorders the
+    // array sortedEntrants is built from, never rewrites those maps.
+    const sortBlock = page.slice(page.indexOf('const sortedEntrants = useMemo'), page.indexOf('const enteredIds ='));
+    expect(sortBlock).not.toContain('setPendingByAthlete');
+    expect(sortBlock).not.toContain('clearPending');
+    expect(page).toContain('sortedEntrants.map((entrant) =>');
+  });
+
+  it('renders the grid from the sorted list, not the raw entrants order', () => {
+    expect(page).not.toContain('{entrants.map((entrant) => {');
+  });
 });
 
 describe('race entrants', () => {
@@ -79,5 +105,25 @@ describe('race entrants', () => {
   it('is reachable from the meet detail page, next to the other per-race actions', () => {
     expect(meetDetail).toContain("from '@/components/meets/ManageEntrantsDialog'");
     expect(meetDetail).toContain('setEntrantsOpen(true)');
+  });
+
+  it('populates a whole heat with checkboxes and one bulk add, not one click per athlete', () => {
+    expect(dialog).toContain("from '@/components/ui/checkbox'");
+    expect(dialog).toContain('checked={selected.has(a.id)}');
+    expect(dialog).toContain('onCheckedChange={() => toggleSelected(a.id)}');
+    expect(dialog).toContain('Promise.allSettled(ids.map((athleteId) => addEntrant.mutateAsync(athleteId)))');
+  });
+
+  it('still offers a single-name quick add for the straggler after a heat is already set up', () => {
+    const bulkSectionEnd = dialog.indexOf('Add one more');
+    expect(bulkSectionEnd).toBeGreaterThan(-1);
+    const afterBulk = dialog.slice(bulkSectionEnd);
+    expect(afterBulk).toContain('<AthletePicker');
+    expect(afterBulk).toContain('onPick={handleAdd}');
+  });
+
+  it('can narrow the bulk grid by name and by gender for a big roster', () => {
+    expect(dialog).toContain('matchesQuery(a.preferredName || a.name, bulkQuery)');
+    expect(dialog).toContain("genderFilter === 'ALL' || a.gender === genderFilter");
   });
 });
