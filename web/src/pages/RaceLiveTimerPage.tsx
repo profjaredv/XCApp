@@ -276,7 +276,7 @@ const RaceLiveTimerPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       <FieldHeader
-        title={raceName}
+        title={entrants.length > 0 ? `${raceName} (${entrants.length})` : raceName}
         subtitle={entrants.length > 0 ? `${recordedCount} of ${entrants.length} recorded` : undefined}
         actions={[{ icon: X, label: 'Close', onClick: () => navigate(-1), variant: 'ghost' }]}
       />
@@ -319,9 +319,10 @@ const RaceLiveTimerPage: React.FC = () => {
             {/* Reclickable, no name attached — for a runner who's in the
                 race but isn't on the list below and can't be found fast
                 enough to tap correctly. Logs the time now; who it was
-                gets sorted out in "Unnamed times" below. */}
+                gets sorted out in "Unnamed times" below. Solid (default
+                variant), not outline — outline reads as barely-there next
+                to the sun on a track. */}
             <Button
-              variant="outline"
               className="w-full"
               onClick={handleLogUnnamed}
               disabled={phase !== 'running'}
@@ -349,7 +350,16 @@ const RaceLiveTimerPage: React.FC = () => {
               />
             )}
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {/* Three visually distinct states, high-contrast enough to read
+                outdoors — a light bordered tile blended into the page in
+                daylight. Not-yet-tapped is a solid dark button (this is
+                the state that's up almost the whole race, so it's the one
+                that most needs to actually look tappable); a tap goes gray
+                mid-save (the same "pressed" feedback pattern as the pill
+                below); a confirmed save turns solid primary, deliberately
+                a different color family from "not yet" so the two can't be
+                confused at a glance. */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 min-[700px]:grid-cols-4">
               {sortedEntrants.map((entrant) => {
                 const recorded = timeFor(entrant.athleteId);
                 const pending = entrant.athleteId in pendingByAthlete;
@@ -360,17 +370,17 @@ const RaceLiveTimerPage: React.FC = () => {
                     type="button"
                     onClick={() => (recorded != null ? handleClear(entrant.athleteId) : handleRecord(entrant.athleteId))}
                     disabled={!tappable}
-                    className={`flex min-h-16 flex-col items-center justify-center rounded-lg border px-2 py-3 text-center transition-colors ${
+                    className={`flex min-h-16 flex-col items-center justify-center rounded-lg border-2 px-2 py-3 text-center font-medium transition-colors ${
                       recorded != null
                         ? pending
-                          ? 'border-muted-foreground/30 bg-muted text-muted-foreground'
-                          : 'border-primary bg-primary/10'
-                        : 'border-border bg-background hover:bg-accent disabled:opacity-40 disabled:pointer-events-none'
+                          ? 'border-muted-foreground/40 bg-muted text-muted-foreground'
+                          : 'border-primary bg-primary text-primary-foreground'
+                        : 'border-foreground bg-foreground text-background hover:opacity-90 disabled:opacity-40 disabled:pointer-events-none'
                     }`}
                   >
-                    <span className="text-sm font-medium">{entrant.name}</span>
+                    <span className="text-sm">{entrant.name}</span>
                     {recorded != null && (
-                      <span className={`mt-0.5 font-mono text-xs ${pending ? 'text-muted-foreground' : 'text-primary'}`}>
+                      <span className="mt-0.5 font-mono text-xs opacity-90">
                         {formatTime(recorded)} · {pending ? 'saving…' : 'tap to clear'}
                       </span>
                     )}

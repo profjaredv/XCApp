@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Upload, Timer as TimerIcon, Users } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
-import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults, useSetPostseasonLevel } from '@/hooks/useMeetOps';
+import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults, useSetPostseasonLevel, useMeetEntrants } from '@/hooks/useMeetOps';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { ManageEntrantsDialog } from '@/components/meets/ManageEntrantsDialog';
 import { MissingEntrantsCard } from '@/components/meets/MissingEntrantsCard';
@@ -61,6 +61,15 @@ const MeetDetailPage: React.FC = () => {
   const { data: meet, isLoading } = useMeet(meetId ?? null);
   const updateMeet = useUpdateMeet(meetId ?? null);
   const setPostseason = useSetPostseasonLevel(meetId ?? null);
+  // Same query MissingEntrantsCard reads below — react-query dedupes by
+  // key, so this doesn't cost a second request. Just the counts, for the
+  // race picker label ("Varsity Boys (12)") — a coach picking a race off
+  // this dropdown shouldn't have to open it to find out how big the field is.
+  const { data: meetEntrants } = useMeetEntrants(meetId ?? null);
+  const entrantCountByRace = useMemo(
+    () => new Map((meetEntrants?.races ?? []).map((r) => [r.id, r.entrants.length])),
+    [meetEntrants]
+  );
 
   const deleteRace = useDeleteRace();
 
@@ -251,9 +260,14 @@ const MeetDetailPage: React.FC = () => {
                   <Select value={selectedRaceId ?? undefined} onValueChange={setSelectedRaceId}>
                     <SelectTrigger className="w-[280px]"><SelectValue placeholder="Choose a race…" /></SelectTrigger>
                     <SelectContent>
-                      {meet.races.map((r) => (
-                        <SelectItem key={r.id} value={r.id}>{r.name}{r.isManual ? ' (Manual)' : ''}</SelectItem>
-                      ))}
+                      {meet.races.map((r) => {
+                        const count = entrantCountByRace.get(r.id);
+                        return (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name}{count != null ? ` (${count})` : ''}{r.isManual ? ' (Manual)' : ''}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                   {selectedRace?.isManual && (
