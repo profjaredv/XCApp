@@ -184,12 +184,36 @@ describe('race entrants', () => {
     expect(meetDetail).toContain('setEntrantsOpen(true)');
   });
 
-  it('shows each race\'s entrant count right in its name in the race picker, reusing the meet-wide entrants query', () => {
+  it('shows each race\'s entrant count next to its name, reusing the meet-wide entrants query', () => {
     expect(meetDetail).toContain('useMeetEntrants');
     expect(meetDetail).toContain('entrantCountByRace');
-    const selectItem = meetDetail.slice(meetDetail.indexOf('meet.races.map((r) => {'), meetDetail.indexOf('})}'));
-    expect(selectItem).toContain('entrantCountByRace.get(r.id)');
-    expect(selectItem).toContain('count != null');
+    const raceRow = meetDetail.slice(meetDetail.indexOf('meet.races.map((r) => {'), meetDetail.indexOf('<ReflectionsView raceId={r.id} />'));
+    expect(raceRow).toContain('entrantCountByRace.get(r.id)');
+    expect(raceRow).toContain('count != null');
+  });
+
+  it('lists every race as its own row with its own buttons, not one race behind a dropdown', () => {
+    // A dropdown hid every race but the one selected — a coach with
+    // several races at a meet (varsity/JV x boys/girls, easily) wants to
+    // see the whole list and reach any of them without a menu in the way.
+    expect(meetDetail).not.toContain('<Select value={selectedRaceId');
+    expect(meetDetail).not.toContain('Choose a race…');
+    const raceRow = meetDetail.slice(meetDetail.indexOf('meet.races.map((r) => {'), meetDetail.indexOf('<ReflectionsView raceId={r.id} />'));
+    expect(raceRow).toContain("onClick={() => navigate(teamPath(`/race/${r.id}/timer`))}");
+    expect(raceRow).toContain('setEntrantsOpen(true)');
+    expect(raceRow).toContain('setImportResultsOpen(true)');
+    expect(raceRow).toContain('setEnterResultsOpen(true)');
+    expect(raceRow).toContain("onClick={() => navigate(teamPath(`/race/${r.id}/splits`))}");
+  });
+
+  it('deletes the race a row\'s own delete button targets, not whichever race a dialog last touched', () => {
+    expect(meetDetail).toContain('const handleDeleteRace = async (raceId: string) => {');
+    expect(meetDetail).toContain('onClick={() => handleDeleteRace(r.id)}');
+  });
+
+  it('shows each race\'s shared reflections under its own row, not just whichever one was last selected', () => {
+    const raceRow = meetDetail.slice(meetDetail.indexOf('meet.races.map((r) => {'), meetDetail.indexOf('<ReflectionsView raceId={r.id} />') + 40);
+    expect(raceRow).toContain('<ReflectionsView raceId={r.id} />');
   });
 
   it('populates a whole heat with checkboxes and one bulk add, not one click per athlete', () => {
