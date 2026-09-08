@@ -444,6 +444,7 @@ const RaceLiveTimerPage: React.FC = () => {
         raceId={raceId ?? ''}
         raceName={raceName}
         seasonYear={seasonYear}
+        raceDistanceMeters={raceResults?.race.distanceMeters ?? null}
         open={entrantsDialogOpen}
         onOpenChange={setEntrantsDialogOpen}
       />
