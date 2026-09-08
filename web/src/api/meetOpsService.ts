@@ -96,6 +96,27 @@ export interface MeetEntrants {
   races: Array<{ id: string; name: string; entrants: RaceEntrant[] }>;
 }
 
+// One row of a meet-wide combined results export — every race's results
+// flattened into one list, joined with the athlete info a CSV needs
+// (unlike RaceResultsDetail.results above, which is bare {athleteId,
+// time, status} since EnterRaceResultsDialog already has a roster loaded
+// to cross-reference against).
+export interface MeetResultRow {
+  raceId: string;
+  raceName: string;
+  athleteId: string;
+  name: string;
+  grade: number | null;
+  gender: string | null;
+  time: number | null;
+  status: ResultStatus;
+}
+
+export interface MeetResultsExport {
+  meetName: string;
+  results: MeetResultRow[];
+}
+
 export interface MyMeetCard {
   meet: { id: string; name: string; date: string; location: string | null; isHome: boolean | null } | null;
   race: { id: string; name: string; distance: string | null } | null;
@@ -245,6 +266,12 @@ export const meetOpsService = {
   /** Every race's entrants at once — the "who's not entered anywhere at this meet yet" check. */
   async getMeetEntrants(meetId: string): Promise<MeetEntrants> {
     const response = await api.get<MeetEntrants>(`/meet-ops/${meetId}/entrants`);
+    return response.data;
+  },
+
+  /** Every race's results at once, joined with athlete info — the meet-wide CSV export. */
+  async getMeetResults(meetId: string): Promise<MeetResultsExport> {
+    const response = await api.get<MeetResultsExport>(`/meet-ops/${meetId}/results`);
     return response.data;
   },
 

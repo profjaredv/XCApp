@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Upload, Timer as TimerIcon, Users } from 'lucide-react';
+import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Download, Upload, Timer as TimerIcon, Users } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults, useSetPostseasonLevel, useMeetEntrants } from '@/hooks/useMeetOps';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
@@ -22,9 +22,10 @@ import { ManageEntrantsDialog } from '@/components/meets/ManageEntrantsDialog';
 import { MissingEntrantsCard } from '@/components/meets/MissingEntrantsCard';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
-import { formatTimeSec, type MeetDetail, type ResultStatus, type RaceResultEntry, type PostseasonLevel } from '@/api/meetOpsService';
+import { meetOpsService, formatTimeSec, type MeetDetail, type ResultStatus, type RaceResultEntry, type PostseasonLevel } from '@/api/meetOpsService';
 import { rosterService } from '@/api/rosterService';
 import { formatTime, parseTimeToSeconds } from '@/lib/formatUtils';
+import { toCsv, downloadCsv } from '@/lib/csvParse';
 
 const DISTANCE_PRESETS: Array<{ label: string; meters: number }> = [
   { label: '1 Mile', meters: 1609 },
@@ -82,6 +83,7 @@ const MeetDetailPage: React.FC = () => {
   const [enterResultsOpen, setEnterResultsOpen] = useState(false);
   const [importResultsOpen, setImportResultsOpen] = useState(false);
   const [entrantsOpen, setEntrantsOpen] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
 
   useEffect(() => {
     if (!meet) return;
@@ -135,6 +137,34 @@ const MeetDetailPage: React.FC = () => {
       if (selectedRaceId === raceId) setSelectedRaceId(null);
     } catch {
       toast.error('Could not delete that race.');
+    }
+  };
+
+  // Every race's results at once, combined into one CSV — "I ran 4 races'
+  // timer sheets, now I need to export all of it." Fetched on click, not
+  // kept as a standing query: this is a one-off action a coach reaches
+  // for once per meet, not something the page needs to keep in sync with.
+  const handleExportCsv = async () => {
+    setExportingCsv(true);
+    try {
+      const { results } = await meetOpsService.getMeetResults(meet.id);
+      const csv = toCsv(
+        ['Race', 'Name', 'Grade', 'Gender', 'Time', 'Status'],
+        results.map((r) => ({
+          Race: r.raceName,
+          Name: r.name,
+          Grade: r.grade != null ? String(r.grade) : '',
+          Gender: r.gender ?? '',
+          Time: r.time != null ? formatTimeSec(r.time) : '',
+          Status: r.status,
+        }))
+      );
+      const safeName = meet.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'meet';
+      downloadCsv(`${safeName}-results.csv`, csv);
+    } catch {
+      toast.error('Could not export results.');
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -235,10 +265,18 @@ const MeetDetailPage: React.FC = () => {
         <CardHeader>
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <CardTitle>Race plans</CardTitle>
-            <Button variant="outline" size="sm" onClick={() => setAddRaceOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Race
-            </Button>
+            <div className="flex items-center gap-2">
+              {meet.races.length > 0 && (
+                <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exportingCsv}>
+                  {exportingCsv ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                  Export CSV
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setAddRaceOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Race
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

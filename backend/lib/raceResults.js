@@ -40,4 +40,27 @@ function decideResultWrite(entry) {
   return { action: 'upsert', data };
 }
 
-module.exports = { RESULT_STATUSES, decideResultWrite };
+// Every result across a meet's races, joined with athlete info,
+// flattened and ordered for export (MeetDetailPage's "Export CSV"
+// button — see GET /:meetId/results in routes/meetOps.js). `races` is
+// [{id, name}] in display order; `results` is already joined to
+// {raceId, athleteId, name, grade, gender, time, status}. Sorted by
+// race (in the given order), then by time ascending within a race — a
+// non-finisher (no time) sorts to the end of their race rather than
+// before every finisher.
+function flattenMeetResults(races, results) {
+  const raceOrder = new Map(races.map((r, i) => [r.id, i]));
+  const raceNameById = new Map(races.map((r) => [r.id, r.name]));
+  return results
+    .map((r) => ({ ...r, raceName: raceNameById.get(r.raceId) ?? '' }))
+    .sort((a, b) => {
+      const orderDiff = (raceOrder.get(a.raceId) ?? 0) - (raceOrder.get(b.raceId) ?? 0);
+      if (orderDiff !== 0) return orderDiff;
+      if (a.time == null && b.time == null) return 0;
+      if (a.time == null) return 1;
+      if (b.time == null) return -1;
+      return a.time - b.time;
+    });
+}
+
+module.exports = { RESULT_STATUSES, decideResultWrite, flattenMeetResults };
