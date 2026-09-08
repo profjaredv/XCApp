@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchesQuery } from '@/lib/athleteSearch';
+import { matchesQuery, firstNameOf, lastNameOf } from '@/lib/athleteSearch';
 
 // Name matching for the group pickers. The failure this replaces was not
 // a bug so much as an absence: a plain <Select> listing the whole roster,
@@ -36,5 +36,29 @@ describe('matchesQuery', () => {
 
   it('does not match a name it should not', () => {
     expect(matchesQuery('Jordan Lee', 'mays')).toBe(false);
+  });
+});
+
+describe('firstNameOf / lastNameOf', () => {
+  it('splits a plain two-word name', () => {
+    expect(firstNameOf('Morgan Mays')).toBe('Morgan');
+    expect(lastNameOf('Morgan Mays')).toBe('Mays');
+  });
+
+  it('takes the LAST token as the surname for a multi-word name, not the second', () => {
+    // "Van Der Berg" sorts on "Berg" — not exactly a real name parse, but
+    // a defensible sort key, and this only ever has to sort, not identify.
+    expect(lastNameOf('Anna Van Der Berg')).toBe('Berg');
+    expect(firstNameOf('Anna Van Der Berg')).toBe('Anna');
+  });
+
+  it('handles a single-word name without throwing', () => {
+    expect(firstNameOf('Cher')).toBe('Cher');
+    expect(lastNameOf('Cher')).toBe('Cher');
+  });
+
+  it('trims stray whitespace', () => {
+    expect(firstNameOf('  Morgan   Mays  ')).toBe('Morgan');
+    expect(lastNameOf('  Morgan   Mays  ')).toBe('Mays');
   });
 });
