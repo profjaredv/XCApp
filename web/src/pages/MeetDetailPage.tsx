@@ -89,11 +89,6 @@ const MeetDetailPage: React.FC = () => {
     setDate(meet.date.slice(0, 10));
     setLocation(meet.location ?? '');
     setIsHome(meet.isHome == null ? 'unspecified' : meet.isHome ? 'home' : 'away');
-    if (meet.races.length > 0 && !meet.races.some((r) => r.id === selectedRaceId)) {
-      setSelectedRaceId(meet.races[0].id);
-    }
-    if (meet.races.length === 0) setSelectedRaceId(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meet]);
 
   const handleSave = async () => {
@@ -132,13 +127,12 @@ const MeetDetailPage: React.FC = () => {
 
   const selectedRace = meet.races.find((r) => r.id === selectedRaceId) ?? null;
 
-  const handleDeleteRace = async () => {
-    if (!selectedRaceId) return;
+  const handleDeleteRace = async (raceId: string) => {
     if (!window.confirm('Delete this race and all its results? This cannot be undone.')) return;
     try {
-      await deleteRace.mutateAsync(selectedRaceId);
+      await deleteRace.mutateAsync(raceId);
       toast.success('Race deleted.');
-      setSelectedRaceId(null);
+      if (selectedRaceId === raceId) setSelectedRaceId(null);
     } catch {
       toast.error('Could not delete that race.');
     }
@@ -254,63 +248,83 @@ const MeetDetailPage: React.FC = () => {
               Once it has results it's treated exactly like any other race.
             </p>
           ) : (
-            <>
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Select value={selectedRaceId ?? undefined} onValueChange={setSelectedRaceId}>
-                    <SelectTrigger className="w-[280px]"><SelectValue placeholder="Choose a race…" /></SelectTrigger>
-                    <SelectContent>
-                      {meet.races.map((r) => {
-                        const count = entrantCountByRace.get(r.id);
-                        return (
-                          <SelectItem key={r.id} value={r.id}>
-                            {r.name}{count != null ? ` (${count})` : ''}{r.isManual ? ' (Manual)' : ''}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                  {selectedRace?.isManual && (
-                    <Button variant="ghost" size="icon" onClick={handleDeleteRace} disabled={deleteRace.isPending} title="Delete this race">
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {selectedRaceId && (
-                    <Button variant="outline" onClick={() => setEntrantsOpen(true)}>
-                      <Users className="h-4 w-4 mr-2" />
-                      Entrants
-                    </Button>
-                  )}
-                  {selectedRaceId && (
-                    <Button variant="outline" onClick={() => navigate(teamPath(`/race/${selectedRaceId}/timer`))}>
-                      <TimerIcon className="h-4 w-4 mr-2" />
-                      Live Timer
-                    </Button>
-                  )}
-                  {selectedRaceId && (
-                    <Button variant="outline" onClick={() => setImportResultsOpen(true)}>
-                      <Upload className="h-4 w-4 mr-2" />
-                      Import Results
-                    </Button>
-                  )}
-                  {selectedRaceId && (
-                    <Button variant="outline" onClick={() => setEnterResultsOpen(true)}>
-                      <ClipboardList className="h-4 w-4 mr-2" />
-                      Enter Results
-                    </Button>
-                  )}
-                  {selectedRaceId && (
-                    <Button variant="outline" onClick={() => navigate(teamPath(`/race/${selectedRaceId}/splits`))}>
-                      <Split className="h-4 w-4 mr-2" />
-                      Enter splits
-                    </Button>
-                  )}
-                </div>
-              </div>
-              {selectedRaceId && <ReflectionsView raceId={selectedRaceId} />}
-            </>
+            // A dropdown hid every race but one — a coach with several
+            // races at a meet (varsity/JV x boys/girls, easily) wants to
+            // see the whole list and reach any of them without a menu in
+            // the way. Each race is its own self-contained block instead:
+            // its name, its own action buttons, its own reflections.
+            <div className="space-y-4">
+              {meet.races.map((r) => {
+                const count = entrantCountByRace.get(r.id);
+                return (
+                  <div key={r.id} className="rounded-lg border p-3 space-y-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-medium">{r.name}</span>
+                        {count != null && <span className="shrink-0 text-xs text-muted-foreground">{count} entered</span>}
+                        {r.isManual && <span className="shrink-0 text-xs text-muted-foreground">Manual</span>}
+                      </div>
+                      {r.isManual && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => handleDeleteRace(r.id)}
+                          disabled={deleteRace.isPending}
+                          title="Delete this race"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedRaceId(r.id);
+                          setEntrantsOpen(true);
+                        }}
+                      >
+                        <Users className="h-4 w-4 mr-2" />
+                        Entrants
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => navigate(teamPath(`/race/${r.id}/timer`))}>
+                        <TimerIcon className="h-4 w-4 mr-2" />
+                        Live Timer
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedRaceId(r.id);
+                          setImportResultsOpen(true);
+                        }}
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Import Results
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedRaceId(r.id);
+                          setEnterResultsOpen(true);
+                        }}
+                      >
+                        <ClipboardList className="h-4 w-4 mr-2" />
+                        Enter Results
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => navigate(teamPath(`/race/${r.id}/splits`))}>
+                        <Split className="h-4 w-4 mr-2" />
+                        Enter splits
+                      </Button>
+                    </div>
+                    <ReflectionsView raceId={r.id} />
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
