@@ -124,6 +124,20 @@ describe('race entrants', () => {
 
   it('can narrow the bulk grid by name and by gender for a big roster', () => {
     expect(dialog).toContain('matchesQuery(a.preferredName || a.name, bulkQuery)');
-    expect(dialog).toContain("genderFilter === 'ALL' || a.gender === genderFilter");
+    expect(dialog).toContain("genderFilter !== 'ALL' && a.gender !== genderFilter");
+  });
+
+  it('can narrow the bulk grid by best mile pace — "boys faster than 6:15" — in either direction', () => {
+    expect(dialog).toContain("paceDirection === 'faster' ? a.pace < paceThresholdSec : a.pace > paceThresholdSec");
+    expect(dialog).toContain('parseTimeToSeconds(paceInput)');
+  });
+
+  it('never hides an athlete with no time on record behind the pace filter — labels them instead', () => {
+    const filterBlock = dialog.slice(dialog.indexOf('const filteredForBulk = useMemo'), dialog.indexOf('const toggleSelected'));
+    // The pace comparison only ever runs when BOTH a threshold is set and
+    // this athlete has a pace to compare — anyone with a.pace == null
+    // falls through every branch to the final `return true`.
+    expect(filterBlock).toContain('paceThresholdSec != null && a.pace != null');
+    expect(dialog).toContain("a.pace != null ? formatTime(a.pace) : 'no time on record'");
   });
 });
