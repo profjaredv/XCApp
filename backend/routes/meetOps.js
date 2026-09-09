@@ -10,6 +10,7 @@ const { decideResultWrite, flattenMeetResults } = require('../lib/raceResults');
 const { parseResultsText, resolveRows } = require('../lib/resultImport');
 const { normalizeAthleteName } = require('../lib/athleteMatching');
 const { groupEntrantsByRace } = require('../lib/meetEntries');
+const calculationService = require('../services/performance/calculationService');
 
 // T4 (Team Management handoff), simplified per the Schedule rework: meet
 // operations — the Meet parent entity (name/date/location/home-or-away)
@@ -683,6 +684,20 @@ router.post('/races/:raceId/results', authenticate, requireTeam, requireRole(FUL
         saved++;
       }
     });
+
+    // Fire-and-forget, same pattern the Athletic.net scrape already uses
+    // (routes/teams.js) — season-wide metrics (MeetPerformanceMetrics,
+    // AthleteSeasonMetrics, TeamSeasonMetrics) only ever recompute here or
+    // after a scrape/roster change. A time trial or manually-timed race
+    // never touches either of those, so without this its results existed
+    // in the database but never showed up anywhere the analytics screens
+    // (Season > Meets, Dashboard, Athletes tab) actually read from — not
+    // "grouped wrong," just never computed at all.
+    if (saved > 0 || cleared > 0) {
+      calculationService
+        .calculateAllMetrics(teamId, race.season)
+        .catch((calcError) => console.error(`Error calculating analytics for season ${race.season}:`, calcError.message));
+    }
 
     res.json({ success: true, saved, cleared });
   } catch (error) {

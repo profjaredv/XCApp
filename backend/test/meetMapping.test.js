@@ -1,6 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { stripLevelGenderSuffix, buildMeetMappingProposal, raceIdentityKey, groupMeetMetricsByMeet } = require('../lib/meetMapping');
+const {
+  stripLevelGenderSuffix,
+  buildMeetMappingProposal,
+  raceIdentityKey,
+  groupMeetMetricsByMeet,
+  groupRacesIntoColumns,
+} = require('../lib/meetMapping');
 
 test('stripLevelGenderSuffix', () => {
   assert.equal(stripLevelGenderSuffix('Sunfair Invite - Boys Varsity'), 'Sunfair Invite');
@@ -180,5 +186,46 @@ test('groupMeetMetricsByMeet', async (t) => {
     const rows = [row('r1', { meetDate: '2024-10-01' }), row('r2', { meetDate: '2024-09-01' })];
     const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
     assert.deepEqual(meets.map((m) => m.id), ['r2', 'r1']);
+  });
+});
+
+// Results Grid (GET /teams/results-grid) — a multi-heat meet should be
+// one column, not one per heat.
+test('groupRacesIntoColumns', async (t) => {
+  await t.test('combines races sharing a meetId into one column', () => {
+    const races = [
+      { id: 'r1', name: 'Sunfair Invite - Boys Varsity', meetId: 'm1', meetName: 'Sunfair Invite' },
+      { id: 'r2', name: 'Sunfair Invite - Girls Varsity', meetId: 'm1', meetName: 'Sunfair Invite' },
+    ];
+    const columns = groupRacesIntoColumns(races);
+    assert.equal(columns.length, 1);
+    assert.equal(columns[0].name, 'Sunfair Invite');
+    assert.deepEqual(columns[0].raceIds, ['r1', 'r2']);
+  });
+
+  await t.test('keeps an unlinked race (no meetId) as its own column, using its own name', () => {
+    const races = [{ id: 'r1', name: 'District Meet', meetId: null, meetName: null }];
+    const columns = groupRacesIntoColumns(races);
+    assert.equal(columns.length, 1);
+    assert.equal(columns[0].name, 'District Meet');
+    assert.deepEqual(columns[0].raceIds, ['r1']);
+  });
+
+  await t.test('never merges races from two different meets', () => {
+    const races = [
+      { id: 'r1', name: 'Race A', meetId: 'm1', meetName: 'Meet A' },
+      { id: 'r2', name: 'Race B', meetId: 'm2', meetName: 'Meet B' },
+    ];
+    const columns = groupRacesIntoColumns(races);
+    assert.equal(columns.length, 2);
+  });
+
+  await t.test('preserves input order, matching the date-ascending order races are queried in', () => {
+    const races = [
+      { id: 'r1', name: 'A', meetId: null, meetName: null },
+      { id: 'r2', name: 'B', meetId: null, meetName: null },
+    ];
+    const columns = groupRacesIntoColumns(races);
+    assert.deepEqual(columns.map((c) => c.name), ['A', 'B']);
   });
 });

@@ -16,7 +16,7 @@ const { parseDistanceToMeters } = require('../lib/distance');
 const { normalizeAthleteName, matchAthlete } = require('../lib/athleteMatching');
 const { normalizeGender } = require('../lib/gender');
 const { mergeStaffRoster } = require('../lib/teamStaff');
-const { raceIdentityKey } = require('../lib/meetMapping');
+const { raceIdentityKey, groupRacesIntoColumns } = require('../lib/meetMapping');
 
 // F2 (LeadPack Master Build Handoff): self-serve team creation is gone.
 // POST /api/teams used to let any signed-in user become HEAD_COACH of any
@@ -881,11 +881,19 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
 
     const races = await prisma.race.findMany({
       where: { teamId, season: { in: seasonsArray } },
-      select: { id: true, name: true, date: true, season: true },
+      select: { id: true, name: true, date: true, season: true, meetId: true, meet: { select: { name: true } } },
       orderBy: { date: 'asc' },
     });
 
-    const raceHeaders = races.map((r) => ({ raceId: r.id, name: r.name }));
+    // One column per meet, not per race — a multi-heat meet (Race.meetId
+    // links several heats to one Meet, via Schedule > Meets > Import)
+    // otherwise shows as one column per heat instead of one for the
+    // whole meet day.
+    const columns = groupRacesIntoColumns(
+      races.map((r) => ({ id: r.id, name: r.name, meetId: r.meetId, meetName: r.meet?.name ?? null }))
+    );
+    const columnIndexByRaceId = new Map();
+    columns.forEach((col, index) => col.raceIds.forEach((raceId) => columnIndexByRaceId.set(raceId, index)));
     const raceIds = races.map((r) => r.id);
 
     if (raceIds.length === 0) {
@@ -917,10 +925,14 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
           name: result.athlete.preferredName || result.athlete.name,
           grade: result.grade,
           gender: result.athlete.gender || '',
-          resultsByRace: new Map(),
+          resultsByColumn: new Map(),
         });
       }
-      athleteMap.get(athleteId).resultsByRace.set(result.raceId, result.time);
+      // An athlete only ever runs one heat of a given meet, so this never
+      // has two different heats writing the same column for the same
+      // athlete in practice.
+      const columnIndex = columnIndexByRaceId.get(result.raceId);
+      if (columnIndex != null) athleteMap.get(athleteId).resultsByColumn.set(columnIndex, result.time);
     });
 
     const gridData = Array.from(athleteMap.values())
@@ -929,11 +941,11 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
         name: athlete.name,
         grade: athlete.grade,
         gender: athlete.gender,
-        results: raceHeaders.map((h) => athlete.resultsByRace.get(h.raceId) || null),
+        results: columns.map((_, index) => athlete.resultsByColumn.get(index) || null),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    res.json({ races: raceHeaders.map((h) => h.name), athletes: gridData });
+    res.json({ races: columns.map((c) => c.name), athletes: gridData });
   } catch (error) {
     console.error('Error fetching results grid:', error.message);
     res.status(500).json({ message: 'Server error' });

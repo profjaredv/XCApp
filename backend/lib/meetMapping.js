@@ -138,4 +138,36 @@ function groupMeetMetricsByMeet(rows, meetInfoByRaceId, hasSplitsRaceIds) {
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 }
 
-module.exports = { stripLevelGenderSuffix, buildMeetMappingProposal, raceIdentityKey, groupMeetMetricsByMeet };
+// GET /teams/results-grid — one column per meet instead of one per race,
+// so a multi-heat meet (several races sharing a Meet, via Race.meetId)
+// shows as a single combined column instead of one per heat: an athlete
+// only ever runs one heat of a given meet, so whichever heat has their
+// time is that meet's value for them (see the caller, which looks a
+// result up by whichever raceId in a column actually has one). `races`
+// is [{id, name, meetId, meetName}], already ordered the way columns
+// should read left to right (by date); a race with no Meet link (never
+// run through Import) keeps its own column, unchanged.
+function groupRacesIntoColumns(races) {
+  const columns = [];
+  const indexByKey = new Map();
+  for (const race of races) {
+    const key = race.meetId ? `meet:${race.meetId}` : `race:${race.id}`;
+    let index = indexByKey.get(key);
+    if (index == null) {
+      index = columns.length;
+      indexByKey.set(key, index);
+      columns.push({ name: race.meetId ? race.meetName : race.name, raceIds: [race.id] });
+    } else {
+      columns[index].raceIds.push(race.id);
+    }
+  }
+  return columns;
+}
+
+module.exports = {
+  stripLevelGenderSuffix,
+  buildMeetMappingProposal,
+  raceIdentityKey,
+  groupMeetMetricsByMeet,
+  groupRacesIntoColumns,
+};
