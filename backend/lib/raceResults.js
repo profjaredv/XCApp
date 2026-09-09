@@ -35,9 +35,47 @@ function decideResultWrite(entry) {
   }
 
   const data = {};
-  if (hasTime) data.time = timeNum;
+  if (hasTime) {
+    data.time = timeNum;
+  } else if (hasStatus && statusValue && statusValue !== 'FINISHED') {
+    // Marking a non-finish (DNF/DNS/DQ) without touching time in this
+    // same save must not leave a previously-saved time in place — a
+    // stale nonzero time sitting next to a DNS/DNF status is exactly
+    // what let that row keep ranking as a real (even "fastest") finisher
+    // anywhere downstream sorted or filtered by time without also
+    // checking status. Unlike every other field here, status and time
+    // aren't independent: a non-finish and a real time are mutually
+    // exclusive, so this is the status field's own necessary
+    // consequence, not the "touch only what's touched" rule being
+    // broken for some unrelated field.
+    data.time = null;
+  }
   if (hasStatus) data.status = statusValue || 'FINISHED';
   return { action: 'upsert', data };
+}
+
+// A result only counts as a real, rankable time when it's a genuine
+// finish — status FINISHED AND a positive time. Checking time alone
+// (even "time != null") isn't enough: a DNS/DNF/DQ row can still be
+// sitting on a stale nonzero time saved before the status was changed
+// (decideResultWrite above stops this for new writes, but doesn't
+// retroactively clean up whatever a coach already saved before that
+// fix existed) — treating that as a real time is exactly what let a
+// non-finisher rank as a "fastest" runner anywhere sorted by time
+// without also checking status.
+function isRankableFinish(result) {
+  return result.status === 'FINISHED' && typeof result.time === 'number' && result.time > 0;
+}
+
+// Fastest-to-slowest; anyone who isn't a rankable finish (see above)
+// sorts to the end, in whatever order they were already in.
+function compareByFinishTime(a, b) {
+  const aOk = isRankableFinish(a);
+  const bOk = isRankableFinish(b);
+  if (aOk && bOk) return a.time - b.time;
+  if (aOk) return -1;
+  if (bOk) return 1;
+  return 0;
 }
 
 // Every result across a meet's races, joined with athlete info,
@@ -45,9 +83,7 @@ function decideResultWrite(entry) {
 // button — see GET /:meetId/results in routes/meetOps.js). `races` is
 // [{id, name}] in display order; `results` is already joined to
 // {raceId, athleteId, name, grade, gender, time, status}. Sorted by
-// race (in the given order), then by time ascending within a race — a
-// non-finisher (no time) sorts to the end of their race rather than
-// before every finisher.
+// race (in the given order), then fastest-to-slowest within each.
 function flattenMeetResults(races, results) {
   const raceOrder = new Map(races.map((r, i) => [r.id, i]));
   const raceNameById = new Map(races.map((r) => [r.id, r.name]));
@@ -55,12 +91,8 @@ function flattenMeetResults(races, results) {
     .map((r) => ({ ...r, raceName: raceNameById.get(r.raceId) ?? '' }))
     .sort((a, b) => {
       const orderDiff = (raceOrder.get(a.raceId) ?? 0) - (raceOrder.get(b.raceId) ?? 0);
-      if (orderDiff !== 0) return orderDiff;
-      if (a.time == null && b.time == null) return 0;
-      if (a.time == null) return 1;
-      if (b.time == null) return -1;
-      return a.time - b.time;
+      return orderDiff !== 0 ? orderDiff : compareByFinishTime(a, b);
     });
 }
 
-module.exports = { RESULT_STATUSES, decideResultWrite, flattenMeetResults };
+module.exports = { RESULT_STATUSES, decideResultWrite, flattenMeetResults, isRankableFinish, compareByFinishTime };

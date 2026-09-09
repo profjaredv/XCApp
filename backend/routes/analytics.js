@@ -18,6 +18,7 @@ const { aggregateSplitsByDistance, normalizeDistanceMeters } = require('../lib/s
 const { buildStrategy } = require('../lib/raceStrategy');
 const { parseDistanceToMeters } = require('../lib/distance');
 const { groupMeetMetricsByMeet } = require('../lib/meetMapping');
+const { compareByFinishTime } = require('../lib/raceResults');
 
 
 const normalizeGender = (value) => {
@@ -255,11 +256,15 @@ router.get('/races/:raceId', authenticate, requireTeam, async (req, res) => {
       return res.status(404).json({ msg: 'Race not found' });
     }
 
-    const results = await prisma.result.findMany({
+    const rawResults = await prisma.result.findMany({
       where: { raceId: race.id },
       include: { athlete: true },
-      orderBy: { time: 'asc' },
     });
+    // See routes/meets.js's GET /:id for why a plain time-ascending order
+    // isn't safe: a DNS/DNF/DQ row can rank ahead of real finishers,
+    // either from a null time (SQL sorts null first ascending) or a
+    // stale nonzero one left over from before it was marked a non-finish.
+    const results = [...rawResults].sort(compareByFinishTime);
 
     res.json({ race, results });
   } catch (err) {

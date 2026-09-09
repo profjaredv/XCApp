@@ -5,6 +5,7 @@ const { authenticate, requireTeam } = require('../middleware/auth');
 const { resolveActiveSeason } = require('../lib/season');
 const { computeTeamPlaces } = require('../lib/teamPlace');
 const { computeMeetScoring } = require('../lib/meetScoring');
+const { compareByFinishTime } = require('../lib/raceResults');
 
 router.get('/', authenticate, requireTeam, async (req, res) => {
   const { season } = req.query;
@@ -48,14 +49,21 @@ router.get('/:id', authenticate, requireTeam, async (req, res) => {
       return res.status(404).json({ msg: 'Meet not found' });
     }
 
-    const [results, fieldResults] = await Promise.all([
+    const [rawResults, fieldResults] = await Promise.all([
       prisma.result.findMany({
         where: { raceId: meet.id },
         include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true } } },
-        orderBy: { time: 'asc' },
       }),
       prisma.fieldResult.findMany({ where: { raceId: meet.id } }),
     ]);
+    // orderBy: {time: 'asc'} put a DNS/DNF/DQ row ahead of every real
+    // finisher whenever its time was null (SQL sorts null first
+    // ascending) — or, worse, ahead of everyone if it had a stale
+    // nonzero time left over from before it was marked a non-finish (see
+    // lib/raceResults.js's decideResultWrite). compareByFinishTime checks
+    // status alongside time, so neither case can rank as a "fastest"
+    // finisher.
+    const results = [...rawResults].sort(compareByFinishTime);
 
     // Team place (rank among just our own team's same-gender finishers) is
     // always computable from ORIGIN data alone — no field-results upload

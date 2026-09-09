@@ -12,6 +12,7 @@ import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Responsive
 import { meetService } from '@/api/meetService';
 import { X, Split } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
+import { isRankableFinish } from '@/lib/raceResultRanking';
 import type { Meet, RaceResult, Athlete } from '@/types/analytics';
 
 interface MeetsTabProps {
@@ -114,9 +115,11 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
   // Calculate cohort statistics for a meet
   const calculateMeetStats = (meet: Meet) => {
     if (!meet.results || meet.results.length === 0) return null;
+    const finishedResults = meet.results.filter(isRankableFinish);
+    if (finishedResults.length === 0) return null;
 
     // Enrich results with athlete data
-    const enrichedResults = meet.results.map(result => {
+    const enrichedResults = finishedResults.map(result => {
       const athlete = athleteMap.get(result.athleteId);
       return {
         ...result,
@@ -268,8 +271,8 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
   // Prepare swarmplot data
   const swarmplotData = useMemo(() => {
     if (!selectedMeetWithResults?.results) return [];
-    
-    const enrichedResults = selectedMeetWithResults.results.map(result => {
+
+    const enrichedResults = selectedMeetWithResults.results.filter(isRankableFinish).map(result => {
       const athlete = athleteMap.get(result.athleteId);
       return {
         ...result,
