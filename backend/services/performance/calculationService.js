@@ -184,7 +184,7 @@ class CalculationService {
           totalTimeSeconds: metrics.totalTimeSeconds || 0,
           averagePace: metrics.avgMilePace?.overall || 0,
           bestPace: metrics.bestPace || 0,
-          bestTime5k: metrics.best5kTime || 0,
+          bestTime5k: metrics.best5kTime ?? null,
           improvementPercent: metrics.improvementPercent || 0,
           calculatedAt: new Date(),
         },
@@ -200,7 +200,7 @@ class CalculationService {
           totalTimeSeconds: metrics.totalTimeSeconds || 0,
           averagePace: metrics.avgMilePace?.overall || 0,
           bestPace: metrics.bestPace || 0,
-          bestTime5k: metrics.best5kTime || 0,
+          bestTime5k: metrics.best5kTime ?? null,
           improvementPercent: metrics.improvementPercent || 0,
           calculatedAt: new Date(),
         },
@@ -241,7 +241,7 @@ class CalculationService {
     }
 
     // F2 (pre-season fix): best5kTime only ever finds anything for a team
-    // that races 5Ks — zero for an all-2-mile or all-8K season. bestPace
+    // that races 5Ks — null for an all-2-mile or all-8K season. bestPace
     // below is the real, distance-agnostic replacement: the best pace
     // across every race, each converted through its own actual distance
     // (calculatePace/normalizeDistanceMiles, not a fixed 3.1mi/5K guess).
@@ -261,7 +261,11 @@ class CalculationService {
       return (is5K || textIs5K || nameHas5k) && Number(r.time) > 0;
     });
 
-    const best5kTime = fiveKRaces.length > 0 ? Math.min(...fiveKRaces.map((r) => r.time)) : 0;
+    // null, not 0, when this athlete has no 5K on record — AthleteSeasonMetrics.bestTime5k
+    // is read with `orderBy: { bestTime5k: { sort: 'asc', nulls: 'last' } }` (routes/analytics.js)
+    // to rank the season's Athletes list fastest-first; storing 0 here instead of null
+    // defeated that guard and put every non-5K athlete at the top of the list, shown as "0:00".
+    const best5kTime = fiveKRaces.length > 0 ? Math.min(...fiveKRaces.map((r) => r.time)) : null;
 
     const racePaces = races
       .map((r) => this.calculatePace(r.time, this.normalizeDistanceMiles(r.distance)))

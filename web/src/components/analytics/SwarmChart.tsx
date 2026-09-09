@@ -4,13 +4,16 @@ import { scaleLinear } from 'd3-scale';
 import { axisBottom } from 'd3-axis';
 import { select } from 'd3-selection';
 import { formatTime } from '@/lib/formatUtils';
+import { isRankableFinish } from '@/lib/raceResultRanking';
 import { RaceResult } from '@/types/analytics';
 
 interface SwarmChartProps {
   results: RaceResult[];
 }
 
-interface SimulationNode extends SimulationNodeDatum, RaceResult {
+type FinishedRaceResult = RaceResult & { time: number };
+
+interface SimulationNode extends SimulationNodeDatum, FinishedRaceResult {
   id: string;
 }
 
@@ -18,7 +21,14 @@ const greenScale = scaleLinear<string, string>()
   .domain([2, 10])
   .range(['#a8e063', '#248f24']);
 
-const SwarmChart: React.FC<SwarmChartProps> = ({ results }) => {
+const SwarmChart: React.FC<SwarmChartProps> = ({ results: allResults }) => {
+  // A time-distribution chart only means anything for people who
+  // actually posted a time — a DNS/DNF/DQ row (possibly with a leftover
+  // nonzero time from before it was marked a non-finish, see backend
+  // lib/raceResults.js's decideResultWrite) would otherwise skew the
+  // domain min/max and could even animate into the #1 "fastest" spot.
+  const results = useMemo(() => allResults.filter(isRankableFinish), [allResults]);
+
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const xAxisRef = useRef<SVGGElement>(null);

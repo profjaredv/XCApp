@@ -95,7 +95,11 @@ export interface ApiMeet {
   scoring?: RaceScoringDivision[];
   results?: Array<{
     athleteId: string;
-    time: number;
+    time: number | null;
+    /** FINISHED/DNF/DNS/DQ — a non-FINISHED row can carry a leftover
+     * nonzero `time` from before it was marked a non-finish, so ranking
+     * code must check this alongside time, never time alone. */
+    status?: string;
     place: number;
     // The division/heat text this athlete actually ran, matched from a
     // field-results upload — see the Result.division schema comment.
@@ -223,7 +227,11 @@ export interface RaceResult {
   id?: string;
   athleteId: string;
   name?: string;
-  time: number;
+  time: number | null;
+  /** FINISHED/DNF/DNS/DQ — a non-FINISHED row can carry a leftover
+   * nonzero `time` from before it was marked a non-finish, so ranking
+   * code must check this alongside time, never time alone. */
+  status?: string;
   // FIELD data (see backend lib/fieldPlacement.js) — place within this
   // athlete's own division's field, null until a field-results upload
   // exists for this race. Distinct from teamPlace below — never conflate

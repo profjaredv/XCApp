@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import SwarmChart from './SwarmChart';
 import { formatTime } from '@/lib/formatUtils';
+import { compareByFinishTime } from '@/lib/raceResultRanking';
 import { RaceResult } from '@/types/analytics';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
@@ -28,8 +29,12 @@ const RaceVisualization: React.FC<RaceVisualizationProps> = ({ race, onClose, at
     // r.place was unset, which meant "place" quietly meant team-relative
     // rank until a field-results upload existed for the race, then quietly
     // switched to meaning something else entirely under the same label.
+    // compareByFinishTime, not a raw a.time - b.time: this table shows
+    // every result including DNS/DNF/DQ (never filtered out, unlike
+    // MeetsTab's rankings), so a plain time subtraction would put a
+    // null-time or stale-nonzero-time non-finish ahead of real finishers.
     return [...race.results]
-      .sort((a, b) => a.time - b.time)
+      .sort(compareByFinishTime)
       .map((r) => ({
         ...r,
         name: athleteNameMap.get(r.athleteId) || 'Unknown Runner',
@@ -76,7 +81,9 @@ const RaceVisualization: React.FC<RaceVisualizationProps> = ({ race, onClose, at
                       {result.teamPlace != null ? `#${result.teamPlace}` : '—'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{result.name}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatTime(result.time)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                      {result.status && result.status !== 'FINISHED' ? result.status : formatTime(result.time ?? 0)}
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                       {result.place != null ? (
                         <>
