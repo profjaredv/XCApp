@@ -26,20 +26,30 @@ describe('MeetsTab grouped-meet rendering', () => {
     expect(tab).toContain('{meet.heats && <Badge variant="secondary">{meet.heats.length} heats</Badge>}');
   });
 
-  it('lists each heat with its own runners/pace, not just the combined meet-level numbers', () => {
-    const heatsBlock = tab.slice(tab.indexOf('meet.heats.map((heat)'), tab.indexOf('renderMeetActions(meet)'));
-    expect(heatsBlock).toContain('{heat.runners} runners');
-    expect(heatsBlock).toContain('formatPace(heat.avgPace)');
+  it('analyzes a multi-heat meet as ONE meet — one card, one Analyze button, no per-heat picker', () => {
+    // Heats belong to meet management (entrants/results), not here: a
+    // coach opening a meet in analytics wants the whole field at once,
+    // split back out by the gender/grade filters like any other meet.
+    expect(tab).not.toContain('meet.heats.map((heat)');
+    const actions = tab.slice(tab.indexOf('const renderMeetActions ='), tab.indexOf('return (\n    <div className="space-y-6">'));
+    expect(actions).toContain('setSelectedMeet(meet)');
   });
 
-  it('scopes every action (Analyze/Splits/Chart) to the heat\'s own race id, never the group\'s Meet id', () => {
-    // renderMeetActions builds /race/${target.id}/splits and
-    // meetService.getMeet(target.id) — if a heat row ever passed the
-    // outer `meet` through unmodified, those would hit the Meet's id
-    // instead of a real race id and 404.
-    const heatCall = tab.slice(tab.indexOf('renderMeetActions({'), tab.indexOf('})\n                    </div>\n                  ))}'));
-    expect(heatCall).toContain('id: heat.id');
-    expect(heatCall).toContain('heats: undefined');
+  it('merges every heat\'s results into one pool when the meet is opened', () => {
+    const fetchEffect = tab.slice(tab.indexOf('if (!selectedMeet) {'), tab.indexOf('// Create athlete lookup map'));
+    expect(fetchEffect).toContain('selectedMeet.heats?.length ? selectedMeet.heats.map((h) => h.id) : [selectedMeet.id]');
+    expect(fetchEffect).toContain('races.flatMap((r) => r.results || [])');
+  });
+
+  it('keeps each heat\'s own division scoring rather than averaging heats together', () => {
+    const fetchEffect = tab.slice(tab.indexOf('if (!selectedMeet) {'), tab.indexOf('// Create athlete lookup map'));
+    expect(fetchEffect).toContain('races.flatMap((r) => r.scoring || [])');
+  });
+
+  it('drops the per-race splits button for a multi-heat meet — splits are entered per race, from the meet page', () => {
+    const actions = tab.slice(tab.indexOf('const renderMeetActions ='), tab.indexOf('return (\n    <div className="space-y-6">'));
+    expect(actions).toContain('raceIds.length === 1 && (');
+    expect(actions).toContain('`/race/${raceIds[0]}/splits`');
   });
 
   it('falls back to the single-race path unchanged when nothing is grouped', () => {

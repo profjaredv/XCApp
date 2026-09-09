@@ -31,30 +31,57 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
   const [gradeFilter, setGradeFilter] = useState<'all' | number>('all');
   const [meetStatsTab, setMeetStatsTab] = useState('overview');
 
-  // Fetch full meet details when a meet is selected
+  // Fetch full meet details when a meet is selected. A meet with heats
+  // (several races on the same day — varsity/JV x boys/girls) analyzes as
+  // ONE meet: every heat's results merged into a single pool, split back
+  // out by the gender/grade filters below like any other meet, rather
+  // than four separate cards a coach has to open one at a time. The heats
+  // themselves stay visible where they're actually managed (a meet's
+  // entrants and results pages), not here.
   useEffect(() => {
-    if (selectedMeet && !selectedMeet.results) {
-      setIsLoadingMeetDetails(true);
-      meetService.getMeet(selectedMeet.id)
-        .then((meetData) => {
-          setSelectedMeetWithResults({
-            ...selectedMeet,
-            results: meetData.results || [],
-            scoring: meetData.scoring || []
-          });
-        })
-        .catch((error) => {
-          console.error('Error fetching meet details:', error);
-          setSelectedMeetWithResults(selectedMeet); // Fallback to meet without results
-        })
-        .finally(() => {
-          setIsLoadingMeetDetails(false);
-        });
-    } else if (selectedMeet) {
-      setSelectedMeetWithResults(selectedMeet);
-    } else {
+    if (!selectedMeet) {
       setSelectedMeetWithResults(null);
+      return;
     }
+    if (selectedMeet.results) {
+      setSelectedMeetWithResults(selectedMeet);
+      return;
+    }
+
+    // `meet.id` is a Meet id (not a race id) once heats are grouped, so
+    // fetch each underlying race and merge; an ungrouped entry's id IS
+    // its race id, so it fetches exactly as it always did.
+    const raceIds = selectedMeet.heats?.length ? selectedMeet.heats.map((h) => h.id) : [selectedMeet.id];
+    let cancelled = false;
+    setIsLoadingMeetDetails(true);
+
+    Promise.all(raceIds.map((raceId) => meetService.getMeet(raceId)))
+      .then((races) => {
+        if (cancelled) return;
+        setSelectedMeetWithResults({
+          ...selectedMeet,
+          results: races.flatMap((r) => r.results || []),
+          // Each heat scores its own divisions (see backend
+          // lib/meetScoring.js) — concatenating keeps every heat's
+          // standings intact instead of averaging them into nonsense.
+          scoring: races.flatMap((r) => r.scoring || []),
+          // A per-race field size can't describe a merged multi-heat
+          // pool; each result carries its own overallFieldSize anyway.
+          fieldFinisherCount: raceIds.length === 1 ? races[0]?.fieldFinisherCount ?? null : null,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('Error fetching meet details:', error);
+        setSelectedMeetWithResults(selectedMeet); // Fallback to meet without results
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingMeetDetails(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedMeet]);
 
   // Create athlete lookup map
@@ -311,43 +338,46 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
     return calculateFilteredStats(swarmplotData);
   }, [swarmplotData, genderFilter, gradeFilter]);
 
-  // Every action here is scoped to one race's own analytics (IQR bands,
-  // scoring, splits) — a grouped multi-heat entry's combined `meet.id` is
-  // a Meet id, not a race id, so these can never run against the group
-  // itself. `target` is always a real race: either the ungrouped `meet`
-  // (single-race entries, unchanged from before grouping existed), or one
-  // heat re-shaped to look like one, below.
-  const renderMeetActions = (target: Meet) => (
-    <div className="flex flex-wrap gap-2">
-      <Button variant="outline" size="sm" onClick={() => setSelectedMeet(target)}>
-        Analyze Meet
-      </Button>
-      <Button variant="outline" size="sm" onClick={() => navigate(teamPath(`/race/${target.id}/splits`))}>
-        <Split className="h-4 w-4 mr-1" />
-        {target.hasSplits ? 'View Splits' : 'Add Splits'}
-      </Button>
-      <Button
-        variant="link"
-        size="sm"
-        onClick={async () => {
-          // Fetch meet details if not already loaded
-          if (!target.results || target.results.length === 0) {
-            try {
-              const meetData = await meetService.getMeet(target.id);
-              setSelectedRace({ id: target.id, name: target.name, results: meetData.results || [] });
-            } catch (error) {
-              console.error('Error fetching meet for chart:', error);
-              setSelectedRace({ id: target.id, name: target.name, results: [] });
+  // One set of actions per meet, heats or not. Splits are entered per
+  // race, so that button only appears for a meet that IS one race — for
+  // a multi-heat meet the splits pages live on the meet's own page,
+  // alongside the entrants and results those heats are managed from.
+  const renderMeetActions = (meet: Meet) => {
+    const raceIds = meet.heats?.length ? meet.heats.map((h) => h.id) : [meet.id];
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={() => setSelectedMeet(meet)}>
+          Analyze Meet
+        </Button>
+        {raceIds.length === 1 && (
+          <Button variant="outline" size="sm" onClick={() => navigate(teamPath(`/race/${raceIds[0]}/splits`))}>
+            <Split className="h-4 w-4 mr-1" />
+            {meet.hasSplits ? 'View Splits' : 'Add Splits'}
+          </Button>
+        )}
+        <Button
+          variant="link"
+          size="sm"
+          onClick={async () => {
+            // Fetch meet details if not already loaded
+            if (!meet.results || meet.results.length === 0) {
+              try {
+                const races = await Promise.all(raceIds.map((raceId) => meetService.getMeet(raceId)));
+                setSelectedRace({ id: meet.id, name: meet.name, results: races.flatMap((r) => r.results || []) });
+              } catch (error) {
+                console.error('Error fetching meet for chart:', error);
+                setSelectedRace({ id: meet.id, name: meet.name, results: [] });
+              }
+            } else {
+              setSelectedRace({ id: meet.id, name: meet.name, results: meet.results });
             }
-          } else {
-            setSelectedRace({ id: target.id, name: target.name, results: target.results });
-          }
-        }}
-      >
-        View Chart
-      </Button>
-    </div>
-  );
+          }}
+        >
+          View Chart
+        </Button>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -373,35 +403,7 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                   <p className="font-semibold">{meet.runners}</p>
                 </div>
               </div>
-              {meet.heats ? (
-                // A meet-day's own analytics (mixing every gender/level's
-                // times together) wouldn't mean anything — each heat still
-                // gets its own Analyze/Splits/Chart, scoped to itself.
-                <div className="space-y-3">
-                  {meet.heats.map((heat) => (
-                    <div key={heat.id} className="rounded-md border p-2 space-y-2">
-                      <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="min-w-0 flex-1 truncate font-medium">{heat.name}</span>
-                        <span className="shrink-0 text-muted-foreground">
-                          {heat.runners} runners · {formatPace(heat.avgPace)}
-                        </span>
-                      </div>
-                      {renderMeetActions({
-                        ...meet,
-                        id: heat.id,
-                        name: heat.name,
-                        runners: heat.runners,
-                        avgPace: heat.avgPace,
-                        hasSplits: heat.hasSplits,
-                        heats: undefined,
-                        results: undefined,
-                      })}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                renderMeetActions(meet)
-              )}
+              {renderMeetActions(meet)}
             </CardContent>
           </Card>
         ))}
