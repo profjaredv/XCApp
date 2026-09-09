@@ -4,13 +4,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Loader2, Search, X } from 'lucide-react';
+import { Download, Loader2, Search, X } from 'lucide-react';
 import { AthletePicker } from '@/components/groups/AthletePicker';
 import { useRaceEntrants, useAddEntrant, useRemoveEntrant } from '@/hooks/useMeetOps';
 import { useRosterWithRaces } from '@/hooks/useGroups';
 import { bestPaceSecPerMile, entrantPaceStat, formatTime } from '@/api/groupService';
 import { matchesQuery } from '@/lib/athleteSearch';
 import { parseTimeToSeconds } from '@/lib/formatUtils';
+import { toCsv, downloadCsv } from '@/lib/csvParse';
 
 // "Add entrants to a manual race" — who's declared to run it, before the
 // fact. The point isn't meet-day logistics (that whole workflow — bibs,
@@ -136,6 +137,25 @@ export const ManageEntrantsDialog: React.FC<{
   };
 
   const loading = rosterLoading || entrantsLoading;
+
+  // A blank sheet to fill in by hand — at the meet with no signal, or just
+  // faster to jot times on paper and type them in later than tap through
+  // the app between races. Grade comes from the roster (RaceEntrant
+  // itself doesn't carry it); Time/Status are left blank on purpose.
+  const handleExportCsv = () => {
+    const csv = toCsv(
+      ['Name', 'Grade', 'Gender', 'Time', 'Status'],
+      entrants.map((e) => ({
+        Name: e.name,
+        Grade: rosterById.get(e.athleteId)?.grade != null ? String(rosterById.get(e.athleteId)!.grade) : '',
+        Gender: e.gender ?? '',
+        Time: '',
+        Status: '',
+      }))
+    );
+    const safeName = raceName.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'race';
+    downloadCsv(`${safeName}-entrants.csv`, csv);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -305,6 +325,10 @@ export const ManageEntrantsDialog: React.FC<{
           </div>
         </div>
         <DialogFooter>
+          <Button variant="outline" onClick={handleExportCsv} disabled={entrants.length === 0}>
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Done</Button>
         </DialogFooter>
       </DialogContent>

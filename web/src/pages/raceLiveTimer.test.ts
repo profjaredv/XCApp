@@ -311,4 +311,57 @@ describe('meet results export', () => {
     const handler = resultsGrid.slice(resultsGrid.indexOf('const handleExportCsv ='), resultsGrid.indexOf('const handleSort ='));
     expect(handler).toContain('dedupeColumnLabels(gridData.races)');
   });
+
+  it('exports a blank entrants sheet to fill in by hand, ready to type or paste back in later', () => {
+    expect(dialog).toContain("from '@/lib/csvParse'");
+    const handler = dialog.slice(dialog.indexOf('const handleExportCsv ='), dialog.indexOf('return ('));
+    expect(handler).toContain("'Name', 'Grade', 'Gender', 'Time', 'Status'");
+    expect(handler).toContain('entrants.map(');
+    expect(handler).toContain("Time: ''");
+    expect(handler).toContain("Status: ''");
+    expect(handler).toContain('downloadCsv(');
+  });
+
+  it('disables the entrants export until there is actually an entrant to export', () => {
+    const button = dialog.slice(dialog.indexOf('onClick={handleExportCsv}') - 60, dialog.indexOf('onClick={handleExportCsv}') + 80);
+    expect(button).toContain('disabled={entrants.length === 0}');
+  });
+});
+
+describe('enter results scoped to the race, not the whole roster', () => {
+  const enterResults = meetDetail.slice(
+    meetDetail.indexOf('const EnterRaceResultsDialog:'),
+    meetDetail.indexOf('export default MeetDetailPage;')
+  );
+
+  it('reads the race\'s own entrants, same list the Live Timer and Manage Entrants use', () => {
+    expect(enterResults).toContain('useRaceEntrants(open ? raceId : null)');
+  });
+
+  it('builds its rows from entrants plus anyone who already has a result, not the entire season roster', () => {
+    // A scraped race never goes through the entrants system at all — if
+    // rows were entrants-only, every one of its existing results would
+    // become invisible (and un-editable) in this dialog.
+    const rowIdsBlock = enterResults.slice(enterResults.indexOf('const rowIds = useMemo'), enterResults.indexOf('const rows = useMemo'));
+    expect(rowIdsBlock).toContain('entrants.forEach((e) => ids.add(e.athleteId))');
+    expect(rowIdsBlock).toContain('(raceResults?.results ?? []).forEach((r) => ids.add(r.athleteId))');
+    expect(rowIdsBlock).toContain('addedAthleteIds.forEach((id) => ids.add(id))');
+    expect(enterResults).not.toContain('{roster.map((a) => {');
+  });
+
+  it('lets a coach add someone beyond entrants/existing-results — a manual race with nobody entered yet still works', () => {
+    expect(meetDetail).toContain("from '@/components/groups/AthletePicker'");
+    expect(enterResults).toContain('onPick={handleAddAthlete}');
+    expect(enterResults).toContain('const [addedAthleteIds, setAddedAthleteIds] = useState<string[]>([])');
+  });
+
+  it('resets added-this-session athletes when the dialog reopens, so a stray add from last time can\'t linger', () => {
+    const resetEffect = enterResults.slice(enterResults.indexOf('useEffect(() => {\n    if (!open || !raceResults) return;'), enterResults.indexOf('const rosterById'));
+    expect(resetEffect).toContain('setAddedAthleteIds([])');
+  });
+
+  it('still saves through the same touched-fields-only payload — this is a scoping fix, not a rewrite of the save path', () => {
+    const handleSave = enterResults.slice(enterResults.indexOf('const handleSave = async'), enterResults.indexOf('const loading ='));
+    expect(handleSave).toContain('touched[id]?.time || touched[id]?.status');
+  });
 });
