@@ -5,7 +5,13 @@ const { FULL_COACH } = require('../lib/teamRoles');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
 const { paceSecPerMile } = require('../lib/groupAnalytics');
-const { pickTopSevenByPace, computeRaceDifficulty, computeCourseDifficulty } = require('../lib/courseDifficulty');
+const {
+  pickTopSevenByPace,
+  computeRaceDifficulty,
+  computeCourseDifficulty,
+  computeSeasonAdjustedPaces,
+  adjustedTimeSec,
+} = require('../lib/courseDifficulty');
 
 const router = express.Router();
 
@@ -483,6 +489,96 @@ router.get('/athlete-progression/:athleteId', authenticate, requireTeam, async (
   } catch (error) {
     logger.error(`Error fetching athlete progression: ${error.message}`);
     res.status(500).json({ success: false, message: 'Failed to fetch athlete progression' });
+  }
+});
+
+/**
+ * @route   GET /api/enhanced-performance/adjusted-progression/:athleteId
+ * One athlete's races with the course difficulty actually APPLIED, not
+ * just reported — the answer to "he ran 6:00 on the track and 6:20 on the
+ * hill, did he regress?". See lib/courseDifficulty.js for the leave-one-
+ * out and (n-1)/n shrinkage this depends on.
+ *
+ * Adjusted paces are relative to each SEASON's own average course, so
+ * they compare races within a season, not across seasons — which is also
+ * why the whole team's results for that season are loaded: a rating built
+ * from one athlete's races would just be that athlete's form.
+ */
+router.get('/adjusted-progression/:athleteId', authenticate, requireTeam, async (req, res) => {
+  try {
+    const teamId = req.user.teamId;
+    const { athleteId } = req.params;
+
+    const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId } });
+    if (!athlete) {
+      return res.status(404).json({ success: false, message: 'Athlete not found' });
+    }
+
+    const ownResults = await prisma.result.findMany({
+      where: { athleteId, teamId, status: 'FINISHED', time: { gt: 0 } },
+      select: {
+        time: true,
+        race: { select: { id: true, name: true, date: true, season: true, distanceMeters: true } },
+      },
+    });
+
+    const seasonYears = [...new Set(ownResults.map((r) => r.race.season))];
+    if (seasonYears.length === 0) {
+      return res.json({ success: true, data: { athleteId, athleteName: athlete.preferredName || athlete.name, seasons: [] } });
+    }
+
+    // Everyone's results for those seasons — the field the ratings come from.
+    const teamResults = await prisma.result.findMany({
+      where: { teamId, status: 'FINISHED', time: { gt: 0 }, race: { season: { in: seasonYears } } },
+      select: { athleteId: true, time: true, race: { select: { id: true, season: true, distanceMeters: true } } },
+    });
+
+    const bySeason = new Map();
+    for (const r of teamResults) {
+      const pace = paceSecPerMile(r.time, r.race.distanceMeters);
+      if (pace == null) continue;
+      if (!bySeason.has(r.race.season)) bySeason.set(r.race.season, []);
+      bySeason.get(r.race.season).push({ athleteId: r.athleteId, raceId: r.race.id, paceSecPerMile: pace });
+    }
+
+    // raceId -> this athlete's adjusted row, per season.
+    const adjustedByRaceId = new Map();
+    for (const [, rows] of bySeason) {
+      for (const row of computeSeasonAdjustedPaces(rows)) {
+        if (row.athleteId === athleteId) adjustedByRaceId.set(row.raceId, row);
+      }
+    }
+
+    const racesBySeason = new Map();
+    for (const r of ownResults) {
+      const adj = adjustedByRaceId.get(r.race.id);
+      const race = {
+        raceId: r.race.id,
+        raceName: r.race.name,
+        date: r.race.date,
+        distanceMeters: r.race.distanceMeters,
+        timeSec: r.time,
+        paceSecPerMile: paceSecPerMile(r.time, r.race.distanceMeters),
+        courseDifficultySecPerMile: adj?.courseDifficultySecPerMile ?? null,
+        adjustedPaceSecPerMile: adj?.adjustedPaceSecPerMile ?? null,
+        adjustedTimeSec: adjustedTimeSec(r.time, adj?.adjustedPaceSecPerMile ?? null, r.race.distanceMeters),
+        contributingCount: adj?.contributingCount ?? 0,
+      };
+      if (!racesBySeason.has(r.race.season)) racesBySeason.set(r.race.season, []);
+      racesBySeason.get(r.race.season).push(race);
+    }
+
+    const seasons = [...racesBySeason.entries()]
+      .map(([season, races]) => ({
+        season,
+        races: races.sort((a, b) => new Date(a.date) - new Date(b.date)),
+      }))
+      .sort((a, b) => a.season - b.season);
+
+    res.json({ success: true, data: { athleteId, athleteName: athlete.preferredName || athlete.name, seasons } });
+  } catch (error) {
+    logger.error(`Error fetching adjusted progression: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to fetch adjusted progression' });
   }
 });
 

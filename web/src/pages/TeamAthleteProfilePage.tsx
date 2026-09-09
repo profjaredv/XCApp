@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SeasonModeSelector } from '@/components/analytics/SeasonModeSelector';
 import type { SeasonMode } from '@/components/analytics/types';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
+import { CourseAdjustedProgressionCard } from '@/components/athletes/CourseAdjustedProgressionCard';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
 import { AthleteExportButton } from '@/components/AthleteExportButton';
@@ -339,6 +340,15 @@ const TeamAthleteProfilePage = () => {
       <div className="mb-6">
         <TrainingPacesCard recentRaces={recentRaces} />
       </div>
+
+      {/* Raw times across different courses can't tell a regression from
+          a harder course. This can — and it renders nothing until there
+          are two rateable races to compare. */}
+      {athleteId && (
+        <div className="mb-6">
+          <CourseAdjustedProgressionCard athleteId={athleteId} season={selectedSeason} />
+        </div>
+      )}
 
       {/* A coach can hand an athlete (or their parents) their own data
           without anyone filing a request. Same file the athlete gets

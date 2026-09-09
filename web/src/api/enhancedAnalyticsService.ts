@@ -197,6 +197,29 @@ export interface DistanceAnalysis {
   }[];
 }
 
+
+/** One race with its course difficulty applied — see backend/lib/courseDifficulty.js. */
+export interface AdjustedRace {
+  raceId: string;
+  raceName: string;
+  date: string;
+  distanceMeters: number;
+  timeSec: number;
+  paceSecPerMile: number | null;
+  /** How much harder this course ran than the season's average, sec/mile. Null when unrateable. */
+  courseDifficultySecPerMile: number | null;
+  adjustedPaceSecPerMile: number | null;
+  adjustedTimeSec: number | null;
+  /** Teammates whose gaps produced the rating — the confidence behind it. */
+  contributingCount: number;
+}
+
+export interface AdjustedProgression {
+  athleteId: string;
+  athleteName: string;
+  seasons: Array<{ season: number; races: AdjustedRace[] }>;
+}
+
 /**
  * Service for enhanced analytics operations
  */
@@ -234,6 +257,15 @@ export const enhancedAnalyticsService = {
    */
   getRaceComparisons: async (athleteId: string): Promise<RaceComparison[]> => {
     const response = await api.get<{ success: boolean; data: RaceComparison[] }>(`/enhanced-performance/race-comparisons/${athleteId}`);
+    return response.data.data;
+  },
+
+  /**
+   * An athlete's races with each course's difficulty applied, so a slower
+   * time on a harder course can read as the improvement it was.
+   */
+  getAdjustedProgression: async (athleteId: string): Promise<AdjustedProgression> => {
+    const response = await api.get<{ success: boolean; data: AdjustedProgression }>(`/enhanced-performance/adjusted-progression/${athleteId}`);
     return response.data.data;
   }
 };
