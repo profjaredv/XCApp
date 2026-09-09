@@ -16,6 +16,7 @@ const { parseDistanceToMeters } = require('../lib/distance');
 const { normalizeAthleteName, matchAthlete } = require('../lib/athleteMatching');
 const { normalizeGender } = require('../lib/gender');
 const { mergeStaffRoster } = require('../lib/teamStaff');
+const { raceIdentityKey } = require('../lib/meetMapping');
 
 // F2 (LeadPack Master Build Handoff): self-serve team creation is gone.
 // POST /api/teams used to let any signed-in user become HEAD_COACH of any
@@ -77,12 +78,24 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
     // every other race here, so silently deleting it on a routine
     // re-import would be unrecoverable.
     const importedSeasons = team.importedSeasons || [];
+    // Recreated below (the upsert's create branch, per row) with no
+    // meetId of its own — captured here so a race a coach already grouped
+    // into a Meet (via the Import flow) doesn't lose that link on every
+    // subsequent re-scrape. Athletic.net gives no stable race id across
+    // scrapes, so identity is the same (name, date, distance) the unique
+    // index already keys on.
+    let previousMeetIdByKey = new Map();
     if (importedSeasons.includes(yearNum)) {
       const racesToDelete = await prisma.race.findMany({
         where: { teamId: team.id, season: yearNum, isManual: false },
-        select: { id: true },
+        select: { id: true, name: true, date: true, distance: true, meetId: true },
       });
       if (racesToDelete.length > 0) {
+        previousMeetIdByKey = new Map(
+          racesToDelete
+            .filter((r) => r.meetId)
+            .map((r) => [raceIdentityKey(r.name, r.date, r.distance), r.meetId])
+        );
         const raceIds = racesToDelete.map((r) => r.id);
         await prisma.result.deleteMany({ where: { raceId: { in: raceIds } } });
         await prisma.race.deleteMany({ where: { id: { in: raceIds } } });
@@ -266,6 +279,7 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
               season: yearNum,
               sourceUrl: sourceUrlValue,
               athleticMeetId: athleticMeetIdValue,
+              meetId: previousMeetIdByKey.get(raceIdentityKey(raceName, parsedDate.startOf('day').toDate(), distance)) ?? null,
             },
           });
 
