@@ -12,6 +12,7 @@ import { useAthleteSplitsAggregate } from '@/hooks/useSplits';
 import { useCareerComparison } from '@/hooks/usePerformanceMetrics';
 import { formatTime, formatPace } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
+import { CourseAdjustedProgressionCard } from '@/components/athletes/CourseAdjustedProgressionCard';
 import { enrichRacesWithPRs, getPRBadgeStyle } from '@/utils/prTracking';
 import type { Athlete, Race } from '@/types/analytics';
 
@@ -370,6 +371,14 @@ export const AthleteDetailModal = ({
             </TabsContent>
             <TabsContent value="races">
               <div className="space-y-6">
+                {/* The chart and table below both plot RAW times, which
+                    can't tell a regression from a harder course. This
+                    answers that, and sits above them because it changes
+                    how the rest of the tab should be read. */}
+                {selectedAthlete?.id && (
+                  <CourseAdjustedProgressionCard athleteId={selectedAthlete.id} />
+                )}
+
                 {/* Race Progress Chart */}
                 <Card>
                   <CardHeader>
