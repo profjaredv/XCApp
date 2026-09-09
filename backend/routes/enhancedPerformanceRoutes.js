@@ -5,12 +5,36 @@ const { FULL_COACH } = require('../lib/teamRoles');
 const logger = require('../utils/logger');
 const prisma = require('../lib/db');
 const { paceSecPerMile } = require('../lib/groupAnalytics');
+const { pickTopSevenByPace, computeRaceDifficulty, computeCourseDifficulty } = require('../lib/courseDifficulty');
 
 const router = express.Router();
 
 // Note: Enhanced metrics are part of the main calculationService.
 // This route file exists for backward compatibility with the frontend's
 // "enhanced" views but delegates to the main service.
+
+// Shared by meet-comparison and course-difficulty below: a "meet name" as
+// selected from GET /multi-season-meets resolves to a real Course
+// (MeetGroup, coach-confirmed via Schedule > Meets > Import) when one
+// exists, one race per season it was run; otherwise falls back to an
+// exact Race.name match (the pre-Course behavior, for a team that hasn't
+// grouped this meet). Ordered by season so callers can read multi-year
+// trends straight off the array.
+async function resolveMeetRaces(teamId, decodedMeetName) {
+  const meetGroup = await prisma.meetGroup.findFirst({
+    where: { teamId, groupName: decodedMeetName },
+    include: { races: { include: { race: true } } },
+  });
+
+  if (meetGroup) {
+    return meetGroup.races.map((mgr) => mgr.race).filter(Boolean).sort((a, b) => a.season - b.season);
+  }
+
+  return prisma.race.findMany({
+    where: { teamId, name: decodedMeetName },
+    orderBy: { season: 'asc' },
+  });
+}
 
 /**
  * @route   POST /api/enhanced-performance/calculate/:season
@@ -239,21 +263,7 @@ router.get('/meet-comparison/:meetName', authenticate, requireTeam, async (req, 
   try {
     const teamId = req.user.teamId;
     const decodedMeetName = decodeURIComponent(req.params.meetName);
-
-    const meetGroup = await prisma.meetGroup.findFirst({
-      where: { teamId, groupName: decodedMeetName },
-      include: { races: { include: { race: true } } },
-    });
-
-    let races;
-    if (meetGroup) {
-      races = meetGroup.races.map((mgr) => mgr.race).filter(Boolean).sort((a, b) => a.season - b.season);
-    } else {
-      races = await prisma.race.findMany({
-        where: { teamId, name: decodedMeetName },
-        orderBy: { season: 'asc' },
-      });
-    }
+    const races = await resolveMeetRaces(teamId, decodedMeetName);
 
     if (!races || races.length === 0) {
       return res.json({ success: true, data: [] });
@@ -301,6 +311,95 @@ router.get('/meet-comparison/:meetName', authenticate, requireTeam, async (req, 
   } catch (error) {
     logger.error(`Error fetching meet comparison: ${error.message}`);
     res.status(500).json({ success: false, message: 'Failed to fetch meet comparison' });
+  }
+});
+
+/**
+ * @route   GET /api/enhanced-performance/course-difficulty/:meetName
+ * "How much harder is this course than usual" — see lib/courseDifficulty.js
+ * for the athlete-relative reasoning. Combined top 7 (not split by
+ * gender): a course's difficulty applies to whoever runs it, and boys
+ * and girls almost always race the exact same course/distance.
+ */
+router.get('/course-difficulty/:meetName', authenticate, requireTeam, async (req, res) => {
+  try {
+    const teamId = req.user.teamId;
+    const decodedMeetName = decodeURIComponent(req.params.meetName);
+    const races = await resolveMeetRaces(teamId, decodedMeetName);
+
+    if (!races || races.length === 0) {
+      return res.json({ success: true, data: { meetName: decodedMeetName, courseDifficultySecPerMile: null, seasons: [] } });
+    }
+
+    const athleteNameById = new Map();
+
+    const seasons = await Promise.all(
+      races.map(async (race) => {
+        const results = await prisma.result.findMany({
+          where: { raceId: race.id, teamId, status: 'FINISHED', time: { gt: 0 } },
+          select: { athleteId: true, time: true, athlete: { select: { name: true, preferredName: true } } },
+        });
+        if (results.length === 0) return null;
+
+        results.forEach((r) => {
+          if (!athleteNameById.has(r.athleteId)) {
+            athleteNameById.set(r.athleteId, r.athlete?.preferredName || r.athlete?.name || 'Unknown');
+          }
+        });
+
+        const paced = results.map((r) => ({ athleteId: r.athleteId, pace: paceSecPerMile(r.time, race.distanceMeters) }));
+        const topSeven = pickTopSevenByPace(paced);
+        if (topSeven.length === 0) return null;
+        const topSevenIds = topSeven.map((t) => t.athleteId);
+
+        // Baseline: each of these athletes' average pace at their OTHER
+        // FINISHED races the SAME season (excluding this one) — within-
+        // season on purpose, so a September course isn't judged against
+        // an athlete's fitter November pace from the same year.
+        const otherResults = await prisma.result.findMany({
+          where: {
+            athleteId: { in: topSevenIds },
+            teamId,
+            status: 'FINISHED',
+            time: { gt: 0 },
+            race: { season: race.season, id: { not: race.id } },
+          },
+          select: { athleteId: true, time: true, race: { select: { distanceMeters: true } } },
+        });
+        const otherPacesByAthlete = new Map();
+        otherResults.forEach((r) => {
+          const pace = paceSecPerMile(r.time, r.race.distanceMeters);
+          if (!otherPacesByAthlete.has(r.athleteId)) otherPacesByAthlete.set(r.athleteId, []);
+          otherPacesByAthlete.get(r.athleteId).push(pace);
+        });
+        const baselineByAthlete = new Map(
+          [...otherPacesByAthlete.entries()].map(([athleteId, paces]) => [
+            athleteId,
+            paces.reduce((sum, p) => sum + p, 0) / paces.length,
+          ])
+        );
+
+        const { difficultySecPerMile, contributingCount, breakdown } = computeRaceDifficulty(
+          topSeven.map((t) => ({ athleteId: t.athleteId, paceAtRace: t.pace, baselinePace: baselineByAthlete.get(t.athleteId) ?? null }))
+        );
+
+        return {
+          season: race.season,
+          raceDate: race.date,
+          difficultySecPerMile,
+          contributingCount,
+          topSeven: breakdown.map((b) => ({ ...b, athleteName: athleteNameById.get(b.athleteId) ?? 'Unknown' })),
+        };
+      })
+    );
+
+    const validSeasons = seasons.filter((s) => s !== null).sort((a, b) => a.season - b.season);
+    const courseDifficultySecPerMile = computeCourseDifficulty(validSeasons);
+
+    res.json({ success: true, data: { meetName: decodedMeetName, courseDifficultySecPerMile, seasons: validSeasons } });
+  } catch (error) {
+    logger.error(`Error fetching course difficulty: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to fetch course difficulty' });
   }
 });
 

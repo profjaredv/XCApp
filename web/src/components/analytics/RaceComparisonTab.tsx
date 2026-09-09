@@ -17,6 +17,16 @@ const formatTime = (timeInSeconds: number): string => {
   return `${minutes}:${seconds.padStart(4, '0')}`;
 };
 
+// Course difficulty is a pace GAP (sec/mile), not a pace itself — signed,
+// small in magnitude, and needs its own +/- reading, unlike formatTime.
+// Within ±3 sec/mile reads as noise, not a real signal either way.
+const formatDifficulty = (secPerMile: number | null): string => {
+  if (secPerMile == null) return 'Not enough data yet';
+  if (Math.abs(secPerMile) < 3) return 'About average';
+  const rounded = Math.round(Math.abs(secPerMile));
+  return secPerMile > 0 ? `+${rounded} sec/mi harder` : `-${rounded} sec/mi easier`;
+};
+
 interface RaceComparisonTabProps {
   teamId: string;
 }
@@ -73,6 +83,28 @@ interface Athlete {
   gender: string;
 }
 
+interface TopSevenEntry {
+  athleteId: string;
+  athleteName: string;
+  paceAtRace: number;
+  baselinePace: number | null;
+  deltaSecPerMile: number | null;
+}
+
+interface SeasonDifficulty {
+  season: number;
+  raceDate: string;
+  difficultySecPerMile: number | null;
+  contributingCount: number;
+  topSeven: TopSevenEntry[];
+}
+
+interface CourseDifficulty {
+  meetName: string;
+  courseDifficultySecPerMile: number | null;
+  seasons: SeasonDifficulty[];
+}
+
 type MetricType = 'avgTime' | 'avgPace' | 'top10AvgTime' | 'fastestTime';
 
 export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
@@ -82,6 +114,8 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
   const [multiSeasonMeets, setMultiSeasonMeets] = useState<MultiSeasonMeet[]>([]);
   const [selectedMeet, setSelectedMeet] = useState<string>('');
   const [meetComparison, setMeetComparison] = useState<MeetComparison | null>(null);
+  const [courseDifficulty, setCourseDifficulty] = useState<CourseDifficulty | null>(null);
+  const [isLoadingDifficulty, setIsLoadingDifficulty] = useState(false);
   const [eligibleAthletes, setEligibleAthletes] = useState<Athlete[]>([]);
   const [selectedAthlete, setSelectedAthlete] = useState<string>('');
   const [athleteData, setAthleteData] = useState<AthleteData | null>(null);
@@ -175,6 +209,35 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
     };
 
     fetchMeetComparison();
+  }, [selectedMeet, teamId, getFreshToken]);
+
+  // Fetch course difficulty alongside the comparison — separate request
+  // since it's a materially different (athlete-relative) computation, not
+  // just another metric on the same season stats.
+  useEffect(() => {
+    const fetchCourseDifficulty = async () => {
+      if (!selectedMeet) {
+        setCourseDifficulty(null);
+        return;
+      }
+
+      try {
+        setIsLoadingDifficulty(true);
+        const token = await getFreshToken();
+        const encodedMeetName = encodeURIComponent(selectedMeet);
+        const response = await axiosInstance.get(`/enhanced-performance/course-difficulty/${encodedMeetName}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setCourseDifficulty(response.data.data);
+      } catch (err) {
+        console.error('Error fetching course difficulty:', err);
+        setCourseDifficulty(null);
+      } finally {
+        setIsLoadingDifficulty(false);
+      }
+    };
+
+    fetchCourseDifficulty();
   }, [selectedMeet, teamId, getFreshToken]);
 
   // Fetch athlete data when athlete is selected
@@ -312,6 +375,63 @@ export function RaceComparisonTab({ teamId }: RaceComparisonTabProps) {
           )}
         </CardContent>
       </Card>
+
+      {selectedMeet && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Course Difficulty</CardTitle>
+            <CardDescription>
+              Top 7 team finishers' pace at {selectedMeet}, compared to their own average pace at other meets that
+              same season — isolates the course from just who happened to run that day.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingDifficulty ? (
+              <div className="flex items-center space-x-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Calculating…</span>
+              </div>
+            ) : !courseDifficulty || courseDifficulty.seasons.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No finished results here yet.</p>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-2xl font-bold">{formatDifficulty(courseDifficulty.courseDifficultySecPerMile)}</p>
+                <div className="space-y-2">
+                  {courseDifficulty.seasons.map((s) => (
+                    <div key={s.season} className="rounded-md border p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{s.season}</span>
+                        <span className="text-muted-foreground">{formatDifficulty(s.difficultySecPerMile)}</span>
+                      </div>
+                      {s.contributingCount > 0 ? (
+                        <>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Based on {s.contributingCount} of the top {s.topSeven.length} finishers who had another race that season to compare against.
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            {s.topSeven.map((t) => (
+                              <span key={t.athleteId}>
+                                {t.athleteName}
+                                {t.deltaSecPerMile != null
+                                  ? `: ${t.deltaSecPerMile > 0 ? '+' : ''}${Math.round(t.deltaSecPerMile)}s/mi`
+                                  : ': no baseline yet'}
+                              </span>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          None of the top {s.topSeven.length} finishers had another race that season yet to compare against.
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isLoadingComparison && (
         <div className="flex items-center justify-center p-8">
