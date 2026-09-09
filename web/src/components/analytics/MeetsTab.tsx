@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
 import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
@@ -307,6 +308,44 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
     return calculateFilteredStats(swarmplotData);
   }, [swarmplotData, genderFilter, gradeFilter]);
 
+  // Every action here is scoped to one race's own analytics (IQR bands,
+  // scoring, splits) — a grouped multi-heat entry's combined `meet.id` is
+  // a Meet id, not a race id, so these can never run against the group
+  // itself. `target` is always a real race: either the ungrouped `meet`
+  // (single-race entries, unchanged from before grouping existed), or one
+  // heat re-shaped to look like one, below.
+  const renderMeetActions = (target: Meet) => (
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" size="sm" onClick={() => setSelectedMeet(target)}>
+        Analyze Meet
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => navigate(teamPath(`/race/${target.id}/splits`))}>
+        <Split className="h-4 w-4 mr-1" />
+        {target.hasSplits ? 'View Splits' : 'Add Splits'}
+      </Button>
+      <Button
+        variant="link"
+        size="sm"
+        onClick={async () => {
+          // Fetch meet details if not already loaded
+          if (!target.results || target.results.length === 0) {
+            try {
+              const meetData = await meetService.getMeet(target.id);
+              setSelectedRace({ id: target.id, name: target.name, results: meetData.results || [] });
+            } catch (error) {
+              console.error('Error fetching meet for chart:', error);
+              setSelectedRace({ id: target.id, name: target.name, results: [] });
+            }
+          } else {
+            setSelectedRace({ id: target.id, name: target.name, results: target.results });
+          }
+        }}
+      >
+        View Chart
+      </Button>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       {/* Meet Selection Grid */}
@@ -314,7 +353,10 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
         {meets.map((meet: Meet) => (
           <Card key={meet.id} className={selectedMeet?.id === meet.id ? 'ring-2 ring-blue-500' : ''}>
             <CardHeader>
-              <CardTitle className="text-lg">{meet.name}</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-lg">{meet.name}</CardTitle>
+                {meet.heats && <Badge variant="secondary">{meet.heats.length} heats</Badge>}
+              </div>
               <p className="text-sm text-muted-foreground">{formatDateShort(meet.date)}</p>
             </CardHeader>
             <CardContent>
@@ -328,43 +370,35 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                   <p className="font-semibold">{meet.runners}</p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedMeet(meet)}
-                >
-                  Analyze Meet
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate(teamPath(`/race/${meet.id}/splits`))}
-                >
-                  <Split className="h-4 w-4 mr-1" />
-                  {meet.hasSplits ? 'View Splits' : 'Add Splits'}
-                </Button>
-                <Button
-                  variant="link"
-                  size="sm"
-                  onClick={async () => {
-                    // Fetch meet details if not already loaded
-                    if (!meet.results || meet.results.length === 0) {
-                      try {
-                        const meetData = await meetService.getMeet(meet.id);
-                        setSelectedRace({ id: meet.id, name: meet.name, results: meetData.results || [] });
-                      } catch (error) {
-                        console.error('Error fetching meet for chart:', error);
-                        setSelectedRace({ id: meet.id, name: meet.name, results: [] });
-                      }
-                    } else {
-                      setSelectedRace({ id: meet.id, name: meet.name, results: meet.results });
-                    }
-                  }}
-                >
-                  View Chart
-                </Button>
-              </div>
+              {meet.heats ? (
+                // A meet-day's own analytics (mixing every gender/level's
+                // times together) wouldn't mean anything — each heat still
+                // gets its own Analyze/Splits/Chart, scoped to itself.
+                <div className="space-y-3">
+                  {meet.heats.map((heat) => (
+                    <div key={heat.id} className="rounded-md border p-2 space-y-2">
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="min-w-0 flex-1 truncate font-medium">{heat.name}</span>
+                        <span className="shrink-0 text-muted-foreground">
+                          {heat.runners} runners · {formatPace(heat.avgPace)}
+                        </span>
+                      </div>
+                      {renderMeetActions({
+                        ...meet,
+                        id: heat.id,
+                        name: heat.name,
+                        runners: heat.runners,
+                        avgPace: heat.avgPace,
+                        hasSplits: heat.hasSplits,
+                        heats: undefined,
+                        results: undefined,
+                      })}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                renderMeetActions(meet)
+              )}
             </CardContent>
           </Card>
         ))}
