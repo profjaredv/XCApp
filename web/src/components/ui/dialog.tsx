@@ -43,7 +43,18 @@ const DialogContent = React.forwardRef<
         // while Radix scroll-locks the page behind it — the content is
         // simply unreachable. 100dvh (not vh) so mobile browser chrome is
         // accounted for.
-        "fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        //
+        // Top-anchored below sm, centered from sm up. iOS does not shrink
+        // the layout viewport when the keyboard opens, so a `fixed`
+        // dialog centered with translate-y-[-50%] keeps its position
+        // while the keyboard covers the bottom half — focusing an input
+        // makes Safari heave the visual viewport around to reveal it, and
+        // the page behind is scroll-locked, so there is no way to bring
+        // the rest back. Anchoring near the top keeps the fields above
+        // the keyboard where they started. Named breakpoint on purpose:
+        // arbitrary min-[Npx]: variants are not guaranteed to compile
+        // after sm:, and would lose the cascade tie.
+        "fixed left-[50%] top-4 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-lg translate-x-[-50%] translate-y-0 gap-4 overflow-y-auto border bg-background p-6 shadow-lg duration-200 sm:top-[50%] sm:translate-y-[-50%] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
         className
       )}
       {...props}

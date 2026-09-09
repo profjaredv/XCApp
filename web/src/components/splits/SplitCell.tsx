@@ -59,7 +59,7 @@ export const SplitCell: React.FC<SplitCellProps> = ({
   onComplete,
   onClear,
   onNavigate,
-  className = 'text-sm',
+  className = 'text-base md:text-sm',
 }) => {
   const [digits, setDigits] = useState(() => digitsFromElapsedSec(value ?? null));
   const [invalid, setInvalid] = useState(false);
