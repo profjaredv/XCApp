@@ -16,10 +16,11 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Download, Upload, Timer as TimerIcon, Users } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
-import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useSubmitRaceResults, useSetPostseasonLevel, useMeetEntrants } from '@/hooks/useMeetOps';
+import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useRaceEntrants, useSubmitRaceResults, useSetPostseasonLevel, useMeetEntrants } from '@/hooks/useMeetOps';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { ManageEntrantsDialog } from '@/components/meets/ManageEntrantsDialog';
 import { MissingEntrantsCard } from '@/components/meets/MissingEntrantsCard';
+import { AthletePicker } from '@/components/groups/AthletePicker';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
 import { meetOpsService, formatTimeSec, type MeetDetail, type ResultStatus, type RaceResultEntry, type PostseasonLevel } from '@/api/meetOpsService';
@@ -559,10 +560,17 @@ interface ResultDraft {
 // existing result for that athlete, so un-filling a row removes it rather
 // than saving a zero.
 //
+// Rows are this race's own field — entrants, plus anyone who already has
+// a result (a scraped race never goes through the entrants system at
+// all, so its results would otherwise be invisible here), plus anyone
+// added via "Someone else ran too" below — not the entire season roster.
+// Scrolling past everyone else on the team to find the dozen who ran one
+// race was the whole complaint this replaces.
+//
 // Only the athlete/field combinations a coach actually edits in THIS
-// dialog session are sent on save — not every roster row rebuilt from
-// this dialog's own load-time snapshot. Two coaches with this dialog open
-// on the same race at once, each entering different athletes (or even
+// dialog session are sent on save — not every row rebuilt from this
+// dialog's own load-time snapshot. Two coaches with this dialog open on
+// the same race at once, each entering different athletes (or even
 // different fields for the same athlete), must not have one's save wipe
 // the other's already-saved result back to blank just because it wasn't
 // in whichever coach's snapshot loaded first — see backend POST
@@ -580,6 +588,7 @@ const EnterRaceResultsDialog: React.FC<{
     queryFn: () => rosterService.getRoster(seasonYear ?? undefined),
     enabled: open && seasonYear != null,
   });
+  const { data: entrants = [], isLoading: entrantsLoading } = useRaceEntrants(open ? raceId : null);
   const { data: raceResults, isLoading: resultsLoading } = useRaceResults(open ? raceId : null);
   const submitResults = useSubmitRaceResults(raceId);
 
@@ -587,6 +596,9 @@ const EnterRaceResultsDialog: React.FC<{
   // Which (athleteId, field) pairs this dialog session has actually
   // edited — the only things handleSave includes in its payload.
   const [touched, setTouched] = useState<Record<string, { time?: boolean; status?: boolean }>>({});
+  // Added via "Someone else ran too" this session — beyond entrants and
+  // existing results, for a manual race with nobody entered yet.
+  const [addedAthleteIds, setAddedAthleteIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open || !raceResults) return;
@@ -596,7 +608,40 @@ const EnterRaceResultsDialog: React.FC<{
     }
     setDraft(initial);
     setTouched({});
+    setAddedAthleteIds([]);
   }, [open, raceResults]);
+
+  const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
+  const entrantNameById = useMemo(() => new Map(entrants.map((e) => [e.athleteId, e.name])), [entrants]);
+
+  const rowIds = useMemo(() => {
+    const ids = new Set<string>();
+    entrants.forEach((e) => ids.add(e.athleteId));
+    (raceResults?.results ?? []).forEach((r) => ids.add(r.athleteId));
+    addedAthleteIds.forEach((id) => ids.add(id));
+    return ids;
+  }, [entrants, raceResults?.results, addedAthleteIds]);
+
+  const rows = useMemo(
+    () =>
+      [...rowIds]
+        .map((id) => {
+          const entrantName = entrantNameById.get(id);
+          if (entrantName) return { id, name: entrantName };
+          const a = rosterById.get(id);
+          return { id, name: a ? a.preferredName || a.name : id };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [rowIds, entrantNameById, rosterById]
+  );
+
+  const availableToAdd = useMemo(
+    () =>
+      roster
+        .filter((a) => !rowIds.has(a.id))
+        .map((a) => ({ id: a.id, name: a.preferredName || a.name, grade: a.grade })),
+    [roster, rowIds]
+  );
 
   const setEntry = (athleteId: string, patch: Partial<ResultDraft>) => {
     setDraft((prev) => ({
@@ -609,18 +654,20 @@ const EnterRaceResultsDialog: React.FC<{
     }));
   };
 
+  const handleAddAthlete = (athleteId: string) => setAddedAthleteIds((prev) => [...prev, athleteId]);
+
   const handleSave = async () => {
-    const entries: RaceResultEntry[] = roster
-      .filter((a) => touched[a.id]?.time || touched[a.id]?.status)
-      .map((a) => {
-        const d = draft[a.id];
-        const entry: RaceResultEntry = { athleteId: a.id };
-        if (touched[a.id]?.time) {
+    const entries: RaceResultEntry[] = [...rowIds]
+      .filter((id) => touched[id]?.time || touched[id]?.status)
+      .map((id) => {
+        const d = draft[id];
+        const entry: RaceResultEntry = { athleteId: id };
+        if (touched[id]?.time) {
           const timeStr = d?.time?.trim();
           const parsed = timeStr ? parseTimeToSeconds(timeStr) : NaN;
           entry.time = timeStr && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
         }
-        if (touched[a.id]?.status) {
+        if (touched[id]?.status) {
           entry.status = d?.status ?? 'FINISHED';
         }
         return entry;
@@ -638,7 +685,7 @@ const EnterRaceResultsDialog: React.FC<{
     }
   };
 
-  const loading = rosterLoading || resultsLoading;
+  const loading = rosterLoading || entrantsLoading || resultsLoading;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -647,23 +694,25 @@ const EnterRaceResultsDialog: React.FC<{
           <DialogTitle>Enter results — {raceName}</DialogTitle>
         </DialogHeader>
         {loading ? (
-          <p className="text-sm text-muted-foreground py-8 text-center">Loading roster…</p>
-        ) : roster.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-8 text-center">No roster found for this season.</p>
+          <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            Nobody's entered in this race yet — add someone below to get started.
+          </p>
         ) : (
           <div className="max-h-[60vh] overflow-y-auto space-y-2">
-            {roster.map((a) => {
-              const d = draft[a.id] ?? { time: '', status: 'FINISHED' as ResultStatus };
+            {rows.map((row) => {
+              const d = draft[row.id] ?? { time: '', status: 'FINISHED' as ResultStatus };
               return (
-                <div key={a.id} className="flex items-center gap-2 py-1 border-b last:border-0">
-                  <span className="flex-1 text-sm truncate">{a.preferredName || a.name}</span>
+                <div key={row.id} className="flex items-center gap-2 py-1 border-b last:border-0">
+                  <span className="flex-1 text-sm truncate">{row.name}</span>
                   <Input
                     className="w-24 font-mono"
                     placeholder="mm:ss"
                     value={d.time}
-                    onChange={(e) => setEntry(a.id, { time: e.target.value })}
+                    onChange={(e) => setEntry(row.id, { time: e.target.value })}
                   />
-                  <Select value={d.status} onValueChange={(v) => setEntry(a.id, { status: v as ResultStatus })}>
+                  <Select value={d.status} onValueChange={(v) => setEntry(row.id, { status: v as ResultStatus })}>
                     <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {STATUS_OPTIONS.map((s) => (
@@ -676,9 +725,18 @@ const EnterRaceResultsDialog: React.FC<{
             })}
           </div>
         )}
+        <div className="border-t pt-3">
+          <p className="mb-2 text-sm font-medium">Someone else ran too</p>
+          <AthletePicker
+            athletes={availableToAdd}
+            onPick={handleAddAthlete}
+            disabled={loading}
+            emptyLabel={roster.length === 0 ? 'No roster found for this season.' : 'Everyone on the roster already has a row here.'}
+          />
+        </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={loading || roster.length === 0 || submitResults.isPending}>
+          <Button onClick={handleSave} disabled={loading || rows.length === 0 || submitResults.isPending}>
             {submitResults.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Save Results
           </Button>
