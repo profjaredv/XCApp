@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { stripLevelGenderSuffix, buildMeetMappingProposal } = require('../lib/meetMapping');
+const { stripLevelGenderSuffix, buildMeetMappingProposal, raceIdentityKey } = require('../lib/meetMapping');
 
 test('stripLevelGenderSuffix', () => {
   assert.equal(stripLevelGenderSuffix('Sunfair Invite - Boys Varsity'), 'Sunfair Invite');
@@ -72,4 +72,23 @@ test('location uses the most common non-null value across the group', () => {
   const { meets } = buildMeetMappingProposal({ races });
 
   assert.equal(meets[0].location, 'Sunfair Park');
+});
+
+// POST /scrape (routes/teams.js) deletes and recreates every non-manual
+// race for a season on every re-import — this is what carries an
+// already-grouped race's meetId across that cycle, so re-scraping a
+// season a coach already ran Import on doesn't silently un-group it.
+test('raceIdentityKey', async (t) => {
+  await t.test('matches for the same name/date/distance regardless of Date vs string date', () => {
+    const d = new Date('2024-09-07T00:00:00.000Z');
+    assert.equal(raceIdentityKey('Sunfair Invite', d, '5000'), raceIdentityKey('Sunfair Invite', d.toISOString(), '5000'));
+  });
+
+  await t.test('differs when name, date, or distance differs', () => {
+    const d = new Date('2024-09-07T00:00:00.000Z');
+    const base = raceIdentityKey('Sunfair Invite', d, '5000');
+    assert.notEqual(base, raceIdentityKey('District Meet', d, '5000'));
+    assert.notEqual(base, raceIdentityKey('Sunfair Invite', new Date('2024-09-08T00:00:00.000Z'), '5000'));
+    assert.notEqual(base, raceIdentityKey('Sunfair Invite', d, '3200'));
+  });
 });

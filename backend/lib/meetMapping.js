@@ -69,4 +69,16 @@ function buildMeetMappingProposal({ races }) {
   return { meets, noSeason };
 }
 
-module.exports = { stripLevelGenderSuffix, buildMeetMappingProposal };
+// A re-scrape (routes/teams.js POST /scrape) deletes and recreates every
+// non-manual race for the season from scratch — Athletic.net gives no
+// stable "this is still the same race" id beyond name+date+distance, the
+// same fields the (teamId, name, date, distance) unique index already
+// keys on. Used to carry a race's existing meetId across that delete/
+// recreate cycle, so re-scraping a season doesn't silently un-group a
+// multi-heat meet a coach already confirmed with the Import flow above.
+function raceIdentityKey(name, date, distance) {
+  const dateKey = date instanceof Date ? date.toISOString() : String(date);
+  return `${name}|${dateKey}|${distance}`;
+}
+
+module.exports = { stripLevelGenderSuffix, buildMeetMappingProposal, raceIdentityKey };
