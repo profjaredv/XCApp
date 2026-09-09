@@ -81,4 +81,61 @@ function raceIdentityKey(name, date, distance) {
   return `${name}|${dateKey}|${distance}`;
 }
 
-module.exports = { stripLevelGenderSuffix, buildMeetMappingProposal, raceIdentityKey };
+// GET /analytics/overview's Season > Meets list — this is display
+// grouping only (the list a coach scans), never touching the per-race
+// analytics underneath (IQR bands, scoring, splits) which stay per-heat
+// on purpose: mixing "Boys Varsity" and "Girls JV" times from the same
+// meet day into one blob would be a wrong number, not a convenience.
+// `rows` is [{raceId, meetName, meetDate, distance, averagePace,
+// participantCount}] (MeetPerformanceMetrics, one per race);
+// `meetInfoByRaceId` maps a raceId to {id, name, location} when that
+// race is linked to a real Meet, or is simply absent/null when it isn't
+// (an unlinked scraped race, or one from before a coach ran Import) —
+// those races keep showing as their own single-race entry, unchanged.
+// `hasSplitsRaceIds` is the existing per-race splits Set.
+function groupMeetMetricsByMeet(rows, meetInfoByRaceId, hasSplitsRaceIds) {
+  const groups = new Map();
+  for (const row of rows) {
+    const info = meetInfoByRaceId.get(row.raceId) || null;
+    const key = info ? `meet:${info.id}` : `race:${row.raceId}`;
+    if (!groups.has(key)) groups.set(key, { info, rows: [] });
+    groups.get(key).rows.push(row);
+  }
+
+  return [...groups.values()]
+    .map(({ info, rows: groupRows }) => {
+      const totalRunners = groupRows.reduce((sum, r) => sum + (r.participantCount || 0), 0);
+      // Weighted by field size, not a naive average of averages — a
+      // 60-runner varsity heat and a 10-runner JV heat don't deserve
+      // equal weight in "this meet's average pace."
+      const weightedPaceSum = groupRows.reduce((sum, r) => sum + (r.averagePace || 0) * (r.participantCount || 0), 0);
+      const avgPace = totalRunners > 0 ? weightedPaceSum / totalRunners : groupRows[0].averagePace || 0;
+      const first = groupRows[0];
+      return {
+        id: info ? info.id : first.raceId,
+        name: info ? info.name : first.meetName,
+        date: first.meetDate,
+        location: (info && info.location) || '',
+        distance: first.distance || 5000,
+        avgPace,
+        runners: totalRunners,
+        hasSplits: groupRows.some((r) => hasSplitsRaceIds.has(r.raceId)),
+        // Only present when this entry is actually multiple heats — a
+        // single race (grouped or not) stays exactly the shape it always
+        // was, so nothing downstream has to special-case "one heat."
+        heats:
+          groupRows.length > 1
+            ? groupRows.map((r) => ({
+                id: r.raceId,
+                name: r.meetName,
+                runners: r.participantCount || 0,
+                avgPace: r.averagePace || 0,
+                hasSplits: hasSplitsRaceIds.has(r.raceId),
+              }))
+            : undefined,
+      };
+    })
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+module.exports = { stripLevelGenderSuffix, buildMeetMappingProposal, raceIdentityKey, groupMeetMetricsByMeet };

@@ -17,6 +17,7 @@ const { buildAthleteSplitRows } = require('../lib/splitRows');
 const { aggregateSplitsByDistance, normalizeDistanceMeters } = require('../lib/splitAggregates');
 const { buildStrategy } = require('../lib/raceStrategy');
 const { parseDistanceToMeters } = require('../lib/distance');
+const { groupMeetMetricsByMeet } = require('../lib/meetMapping');
 
 
 const normalizeGender = (value) => {
@@ -99,6 +100,21 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
       : [];
     const raceIdsWithSplits = new Set(splitResultRows.map((s) => s.result.raceId));
 
+    // Which of these races are linked to a real Meet (Schedule > Meets >
+    // Import groups same-day races together) — the Season > Meets list
+    // below groups by this, so a coach's 4-heat meet reads as one entry
+    // instead of four, without touching the per-race analytics deeper in
+    // this file (IQR bands, scoring, splits stay per-heat on purpose).
+    const racesWithMeet = raceIds.length
+      ? await prisma.race.findMany({
+          where: { id: { in: raceIds } },
+          select: { id: true, meetId: true, meet: { select: { id: true, name: true, location: true } } },
+        })
+      : [];
+    const meetInfoByRaceId = new Map(
+      racesWithMeet.map((r) => [r.id, r.meetId ? { id: r.meetId, name: r.meet.name, location: r.meet.location } : null])
+    );
+
     // Season-best (bestTime5k above) is scoped to this one season; PR is the
     // athlete's best 5k across every season they've ever run — a single
     // groupBy across AthleteSeasonMetrics rather than N per-athlete queries.
@@ -145,16 +161,9 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
       };
     });
 
-    const meets = meetMetrics.map((mm) => ({
-      id: mm.raceId,
-      name: mm.meetName,
-      date: mm.meetDate,
-      location: '',
-      distance: mm.distance || 5000,
-      avgPace: mm.averagePace || 0,
-      runners: mm.participantCount || 0,
+    const meets = groupMeetMetricsByMeet(meetMetrics, meetInfoByRaceId, raceIdsWithSplits).map((m) => ({
+      ...m,
       conditions: '',
-      hasSplits: raceIdsWithSplits.has(mm.raceId),
     }));
 
     const mostImproved = athletes
@@ -172,7 +181,11 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
         bestTimeDate: '',
       }));
 
-    const totalMeets = meets.length;
+    // Deliberately meetMetrics.length (race/heat count), not meets.length
+    // (grouped meet-day count) — avgAthletesPerRace below divides by
+    // this, and "average athletes per RACE" needs the race count, not
+    // the number of distinct meet-days those races happened on.
+    const totalMeets = meetMetrics.length;
     const totalRaces = teamMetrics?.totalRaces || 0;
     const totalAthletes = athletes.length;
     const totalMilesRun = teamMetrics?.totalMiles || 0;

@@ -79,6 +79,13 @@ export interface ApiMeet {
   conditions?: string;
   /** Whether any splits have been entered for this race — GET /analytics/overview only. */
   hasSplits?: boolean;
+  /** Present only when this entry combines multiple heats of one real Meet
+   * (GET /analytics/overview groups by Race.meetId) — `id` above is then
+   * the Meet's id, not a race's, and `runners`/`avgPace` are already
+   * combined across every heat. Each heat still opens its own detail (its
+   * own scoring/IQR/splits never merge with another heat's), so this is
+   * a heat picker, not pre-fetched detail data. */
+  heats?: Array<{ id: string; name: string; runners: number; avgPace: number; hasSplits: boolean }>;
   // Total FINISHED count in this race's uploaded field-results — the
   // denominator for `results[].place` ("place of fieldFinisherCount").
   // Null/undefined until a field-results upload exists for this race.
