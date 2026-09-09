@@ -250,3 +250,27 @@
     @apply bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent;
   }
 }
+
+/* iOS form-control zoom guard — deliberately UNLAYERED.
+ *
+ * Safari zooms the whole page in whenever a focused text control has a
+ * font-size under 16px, and it does not zoom back out on blur. The coach
+ * is left on a page wider than the screen that lurches on every tap and
+ * has to be pinched back by hand — which is what "the screen jumps and
+ * then I can't scroll or pinch" actually is. No text control in this app
+ * is worth that trade, so none goes under 16px on a touch screen.
+ *
+ * This sits outside @layer on purpose: unlayered rules outrank every
+ * cascade layer, and Tailwind puts `text-sm`/`text-xs` in @layer
+ * utilities, so a rule inside @layer base would lose to any component
+ * that sets its own size. Scoped to coarse pointers so dense desktop
+ * grids keep the sizing they were designed with, and to text-entry
+ * controls so checkbox/radio metrics are untouched.
+ */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

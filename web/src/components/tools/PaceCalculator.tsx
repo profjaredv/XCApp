@@ -24,7 +24,7 @@ const Command: React.FC<{children: React.ReactNode}> = ({children}) => (
 const CommandInput: React.FC<{placeholder?: string; value: string; onValueChange: (value: string) => void}> = 
   ({placeholder, value, onValueChange}) => (
     <input 
-      className="flex h-10 w-full rounded-md bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex h-10 w-full rounded-md bg-transparent px-3 py-2 text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
       placeholder={placeholder}
       value={value}
       onChange={(e) => onValueChange(e.target.value)}
