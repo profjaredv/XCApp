@@ -22,6 +22,10 @@ import { useTeamContext } from '@/hooks/useTeamContext';
 // the sentence — screen, season and recent console errors are attached
 // automatically, because those are exactly the details that make a report
 // actionable and that nobody writes down by hand.
+//
+// The trigger renders inline in Layout's header. It was a floating
+// bottom-right pill, which is the one corner a mobile form can't spare:
+// it overlapped the last input and the submit button beneath it.
 
 type Severity = 'blocker' | 'bug' | 'polish' | 'idea';
 
@@ -109,17 +113,26 @@ export const FeedbackWidget: React.FC = () => {
 
   return (
     <>
+      {/* Lives in Layout's header, not floating over the page. A fixed
+          bottom-right button sits exactly where a form's last field and
+          its Save button are, and on a phone with the keyboard up it
+          covered the input being typed into. `relative` is load-bearing:
+          the error-count badge is positioned against this button, which
+          used to be its own positioned ancestor by virtue of `fixed`.
+          The header's team name carries flex-1, which is what pushes this
+          and the season picker to the right edge. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
         title="Log feedback about this screen"
-        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-primary-foreground shadow-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        aria-label="Log feedback about this screen"
+        className="relative flex shrink-0 items-center gap-2 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
       >
         <MessageSquarePlus className="h-5 w-5" />
-        <span className="hidden text-sm font-medium sm:inline">Feedback</span>
+        <span className="hidden text-sm font-medium md:inline">Feedback</span>
         {recentErrors.length > 0 && (
           <span
-            className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white"
+            className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white"
             title={`${recentErrors.length} console errors will be attached`}
           >
             {recentErrors.length}
