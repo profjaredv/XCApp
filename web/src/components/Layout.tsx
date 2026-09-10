@@ -324,7 +324,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
                   ))}
                 {/* The feedback INBOX is the maintainer's, not a per-team
                     feature — filing a report is still open to everyone via
-                    the floating FeedbackWidget on every screen. The backend
+                    the FeedbackWidget in the header on every screen. The backend
                     is what enforces this (requireSuperAdmin); hiding the
                     link just stops coaches walking into a 403. */}
                 {currentUser?.isSuperAdmin && (
@@ -452,7 +452,12 @@ const TeamSeasonHeader: React.FC = () => {
 
   return (
     <>
-      <span className="font-semibold text-sm md:text-base truncate min-w-0 flex-shrink">{context?.team?.name}</span>
+      {/* flex-1 (not a trailing ml-auto on each control) is what pushes
+          the season picker and the feedback button to the right: two
+          siblings both carrying ml-auto SPLIT the free space between
+          them instead of right-aligning as a group. min-w-0 keeps
+          truncate working once the name is the flexible item. */}
+      <span className="font-semibold text-sm md:text-base truncate min-w-0 flex-1">{context?.team?.name}</span>
       {seasonSelection && seasonSelection.seasons.length > 0 && (
         <Select
           value={seasonSelection.activeYear != null ? String(seasonSelection.activeYear) : undefined}
@@ -460,7 +465,7 @@ const TeamSeasonHeader: React.FC = () => {
         >
           <SelectTrigger
             size="sm"
-            className="ml-auto w-auto gap-1 border-none bg-transparent shadow-none px-2 h-8 hover:bg-accent"
+            className="w-auto gap-1 border-none bg-transparent shadow-none px-2 h-8 hover:bg-accent"
           >
             <CalendarDays className="h-4 w-4 text-muted-foreground" />
             <SelectValue />
@@ -557,12 +562,15 @@ const Layout: React.FC = () => {
               </button>
             )}
             <TeamSeasonHeader />
+            {/* Right-aligned in the header rather than floating over the
+                page — see FeedbackWidget. The dialog it opens portals to
+                the body, so nesting the trigger here costs nothing. */}
+            <FeedbackWidget />
           </header>
           <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 md:p-6">
             <Outlet />
           </main>
         </div>
-        <FeedbackWidget />
       </div>
     </div>
   );
