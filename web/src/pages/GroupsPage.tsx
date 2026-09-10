@@ -24,7 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell, Search, CalendarCheck } from 'lucide-react';
+import { Plus, Copy, Save, Loader2, Pencil, Trash2, UserCog, X, ChevronDown, ChevronRight, EyeOff, Eye, Dumbbell, Search, CalendarCheck, ArrowUpDown } from 'lucide-react';
 import { AthletePicker } from '@/components/groups/AthletePicker';
 import { DynamicGroups } from '@/components/groups/DynamicGroups';
 import { XTrainingSendDialog } from '@/components/groups/XTrainingSendDialog';
@@ -52,7 +52,9 @@ import {
   useRemoveMember,
   useXTrainingRoster,
 } from '@/hooks/useGroups';
-import { seasonBestTime, formatTime, type Group, type GroupType } from '@/api/groupService';
+import { seasonBestTime, averagePaceSecPerMile, formatTime, type Group, type GroupType } from '@/api/groupService';
+import { sortAthletes, GROUP_SORT_LABELS, type GroupSortMode } from '@/lib/groupSort';
+import { formatPace } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { formatDateShort } from '@/lib/formatUtils';
 import { useQueryClient } from '@tanstack/react-query';
@@ -87,6 +89,10 @@ interface AthleteRow {
   gender: string | null;
   grade: number | null;
   bestTime: number | null;
+  // Distance-normalized, so it's comparable across a roster where some
+  // athletes have only run miles and others only 5Ks — which raw
+  // bestTime is not (see groupService.seasonBestTime's own note).
+  avgPaceSecPerMile: number | null;
 }
 
 const displayName = (a: { name: string; preferredName?: string | null }) => a.preferredName || a.name;
@@ -193,6 +199,10 @@ const CoachGroupsView: React.FC = () => {
 
   const [selectedAthletes, setSelectedAthletes] = useState<Set<string>>(new Set());
   const [athleteQuery, setAthleteQuery] = useState('');
+  // Name is the default: the board's job is finding a specific athlete to
+  // move. Pace order is what you switch to when the question is "who
+  // belongs in this group", so it's a choice rather than the default.
+  const [sortMode, setSortMode] = useState<GroupSortMode>('name');
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>({}); // athleteId -> groupId | UNASSIGNED
   const [showUnassigned, setShowUnassigned] = useState(true);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
@@ -259,6 +269,7 @@ const CoachGroupsView: React.FC = () => {
         gender: a.gender,
         grade: a.grade,
         bestTime: seasonBestTime(a),
+        avgPaceSecPerMile: averagePaceSecPerMile(a),
       })),
     [roster]
   );
@@ -270,6 +281,10 @@ const CoachGroupsView: React.FC = () => {
     () => athletes.filter((a) => matchesQuery(a.name, athleteQuery)),
     [athletes, athleteQuery]
   );
+
+  // Sorted once here, not per column: every group on the board reads in
+  // the same order, and GenderColumn's filter preserves it.
+  const sortedAthletes = useMemo(() => sortAthletes(visibleAthletes, sortMode), [visibleAthletes, sortMode]);
 
   const displayedGroupFor = (athleteId: string) => pendingChanges[athleteId] ?? currentGroupByAthlete.get(athleteId) ?? UNASSIGNED;
 
@@ -650,7 +665,8 @@ const CoachGroupsView: React.FC = () => {
             Filters rather than jumps: seeing WHICH group the match sits in
             is usually the actual question. */}
         {!loading && athletes.length > 0 && (
-          <div className="relative max-w-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative w-full max-w-sm">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={athleteQuery}
@@ -668,6 +684,20 @@ const CoachGroupsView: React.FC = () => {
                 <X className="h-4 w-4" />
               </button>
             )}
+            </div>
+            <Select value={sortMode} onValueChange={(v) => setSortMode(v as GroupSortMode)}>
+              <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Sort athletes">
+                <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(GROUP_SORT_LABELS) as GroupSortMode[]).map((mode) => (
+                  <SelectItem key={mode} value={mode}>
+                    {GROUP_SORT_LABELS[mode]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -685,7 +715,7 @@ const CoachGroupsView: React.FC = () => {
               <GenderColumn
                 key={gender}
                 gender={gender}
-                athletes={visibleAthletes.filter((a) => a.gender === gender)}
+                athletes={sortedAthletes.filter((a) => a.gender === gender)}
                 groups={trainingGroups.filter((g) => g.gender === gender || !g.gender)}
                 archivedGroups={groups.filter((g) => g.type === 'TRAINING' && g.archived && (g.gender === gender || !g.gender))}
                 displayedGroupFor={displayedGroupFor}
@@ -937,9 +967,26 @@ const GenderColumn: React.FC<{
                     className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer text-sm"
                   >
                     <Checkbox checked={selectedAthletes.has(a.id)} onCheckedChange={() => toggle(a.id)} />
-                    <span className="flex-1">{a.name}</span>
-                    {a.grade && <span className="text-xs text-muted-foreground">{a.grade}</span>}
-                    <span className="text-xs text-muted-foreground w-12 text-right">{formatTime(a.bestTime)}</span>
+                    {/* min-w-0 + truncate: four fixed-width siblings will
+                        otherwise squeeze a long name to nothing rather
+                        than ellipsing it. */}
+                    <span className="flex-1 min-w-0 truncate">{a.name}</span>
+                    {a.grade && <span className="shrink-0 text-xs text-muted-foreground">{a.grade}</span>}
+                    {/* The number the pace sort actually orders by — an
+                        order you can't see the basis for reads as random.
+                        An em dash, never 0:00, for nobody who has raced. */}
+                    <span
+                      className="shrink-0 w-14 text-right text-xs tabular-nums text-muted-foreground"
+                      title="Average pace per mile this season"
+                    >
+                      {a.avgPaceSecPerMile != null ? `${formatPace(a.avgPaceSecPerMile)}` : '—'}
+                    </span>
+                    <span
+                      className="hidden sm:inline shrink-0 text-xs text-muted-foreground w-12 text-right tabular-nums"
+                      title="Season best time"
+                    >
+                      {formatTime(a.bestTime)}
+                    </span>
                     <Button
                       variant="ghost"
                       size="icon"

@@ -403,6 +403,26 @@ export function average5kPaceSecPerMile(athlete: RosterAthleteWithRaces): number
   return paces.length > 0 ? paces.reduce((sum, p) => sum + p, 0) / paces.length : null;
 }
 
+/** Average pace per mile across EVERY race this season, distance-normalized.
+ * Unlike average5kPaceSecPerMile this doesn't require 5Ks, so it still says
+ * something for a group whose only results are mile time trials — which is
+ * what a training-group board needs, since it ranks the whole roster rather
+ * than an entrants list for one known distance. Average, not best: a
+ * training group is built around what someone habitually runs, not their
+ * single best day. */
+export function averagePaceSecPerMile(athlete: RosterAthleteWithRaces): number | null {
+  const paces = athlete.races
+    .filter(
+      (r): r is { time: number; race: { date: string; distanceMeters: number } } =>
+        typeof r.time === 'number' &&
+        r.time > 0 &&
+        typeof r.race.distanceMeters === 'number' &&
+        r.race.distanceMeters > 0
+    )
+    .map((r) => r.time / (r.race.distanceMeters / 1609.34));
+  return paces.length > 0 ? paces.reduce((sum, p) => sum + p, 0) / paces.length : null;
+}
+
 export interface EntrantPaceStat {
   label: string;
   seconds: number;
