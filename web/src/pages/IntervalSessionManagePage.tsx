@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Trash2, UserPlus, Archive, Loader2, X, Check, Printer, Play, RotateCcw } from 'lucide-react';
+import { Trash2, UserPlus, Archive, Loader2, X, Check, Printer, Play, RotateCcw, Square, Flag } from 'lucide-react';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
@@ -29,6 +29,16 @@ import { formatDateShort, compactName } from '@/lib/formatUtils';
 import { SplitCell, type CellNavigate } from '@/components/splits/SplitCell';
 import { FieldHeader, type FieldAction } from '@/components/field/FieldHeader';
 import { SegmentedPills } from '@/components/field/SegmentedPills';
+import {
+  orderCaptures,
+  nextUnnamedId,
+  unnamedCount,
+  assignCapture,
+  removeCapture,
+  remainingBy,
+  newCaptureId,
+  type Capture,
+} from '@/lib/captureTimer';
 
 // The "manage entries" state of an interval session — its own full-screen
 // route (not one card among many on the list page), so filling this in on
@@ -162,7 +172,7 @@ const IntervalTimerPanel: React.FC<{
   entries: IntervalSessionEntry[];
   activeRep: number;
   setActiveRep: (rep: number) => void;
-  phase: 'idle' | 'running';
+  phase: 'idle' | 'running' | 'stopped';
   elapsedMs: number;
   onStart: () => void;
   onReset: () => void;
@@ -174,8 +184,55 @@ const IntervalTimerPanel: React.FC<{
    * baked into `entries` itself, not held back), just faded until it's
    * confirmed rather than assumed. */
   pendingKeys: Set<string>;
-}> = ({ entries, activeRep, setActiveRep, phase, elapsedMs, onStart, onReset, onRecord, onClear, targetFor, pendingKeys }) => {
+  // Capture-first timing for this rep — same reasoning as the Live Timer
+  // (see lib/captureTimer.ts): tap FINISH per athlete crossing, name them
+  // afterwards. On a group of twenty doing 400s the names come back too
+  // fast to find, and a missed tap is a rep nobody can re-run.
+  captures: Capture[];
+  onFinishCapture: () => void;
+  onAssignCapture: (captureId: string, entry: IntervalSessionEntry) => void;
+  onDeleteCapture: (captureId: string) => void;
+  onStop: () => void;
+  selectedCaptureId: string | null;
+  setSelectedCaptureId: (id: string | null) => void;
+}> = ({
+  entries,
+  activeRep,
+  setActiveRep,
+  phase,
+  elapsedMs,
+  onStart,
+  onReset,
+  onRecord,
+  onClear,
+  targetFor,
+  pendingKeys,
+  captures,
+  onFinishCapture,
+  onAssignCapture,
+  onDeleteCapture,
+  onStop,
+  selectedCaptureId,
+  setSelectedCaptureId,
+}) => {
   const rep = activeRep + 1;
+  const placed = orderCaptures(captures);
+  const autoTargetId = phase === 'running' ? null : nextUnnamedId(captures);
+  const assigningId =
+    selectedCaptureId && captures.some((c) => c.id === selectedCaptureId) ? selectedCaptureId : autoTargetId;
+  const assigningCapture = assigningId ? placed.find((c) => c.id === assigningId) ?? null : null;
+  const stillUnnamed = unnamedCount(captures);
+  const entryNameById = new Map(entries.map((e) => [e.id, e.athleteName]));
+  // In the naming pass only offer athletes still unaccounted for; while
+  // recording, every athlete stays tappable.
+  const gridEntries = assigningId
+    ? remainingBy(
+        entries.filter((e) => e[repField(rep)] == null),
+        captures,
+        new Set(),
+        (e) => e.id
+      )
+    : entries;
 
   return (
     <div className="space-y-4">
@@ -190,27 +247,112 @@ const IntervalTimerPanel: React.FC<{
         <span className="font-mono text-5xl font-bold tabular-nums tracking-tight text-primary">
           {formatElapsed(elapsedMs)}
         </span>
-        {phase === 'idle' ? (
-          <Button size="lg" className="h-12 px-8" onClick={onStart}>
-            <Play className="mr-2 h-5 w-5" />
-            Start rep {rep}
-          </Button>
+        <div className="flex gap-2">
+          {phase === 'running' ? (
+            <Button size="lg" variant="outline" className="h-12 px-8" onClick={onStop}>
+              <Square className="mr-2 h-4 w-4" />
+              Stop
+            </Button>
+          ) : (
+            <Button size="lg" className="h-12 px-8" onClick={onStart}>
+              <Play className="mr-2 h-5 w-5" />
+              {elapsedMs > 0 ? 'Resume' : `Start rep ${rep}`}
+            </Button>
+          )}
+          {phase !== 'running' && elapsedMs > 0 && (
+            <Button size="lg" variant="ghost" className="h-12" onClick={onReset}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Reset
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* The primary action, same as the Live Timer: one press per athlete
+          crossing, no name needed. */}
+      <button
+        type="button"
+        onClick={onFinishCapture}
+        disabled={phase !== 'running'}
+        className="flex h-24 w-full flex-col items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg transition-transform active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
+      >
+        <Flag className="mb-1 h-6 w-6" />
+        <span className="text-xl font-bold">Finish</span>
+        <span className="text-xs opacity-90">
+          {phase === 'running' ? `Tap as each athlete finishes rep ${rep}` : 'Start the clock first'}
+        </span>
+      </button>
+
+      {placed.length > 0 && (
+        <div className="space-y-2 rounded-lg border p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Rep {rep} finish order ({placed.length})</p>
+            {stillUnnamed > 0 && <span className="text-xs text-muted-foreground">{stillUnnamed} to name</span>}
+          </div>
+          <div className="max-h-60 space-y-1 overflow-y-auto">
+            {placed.map((capture) => {
+              const isAssigning = capture.id === assigningId;
+              const name = capture.athleteId ? entryNameById.get(capture.athleteId) ?? 'Unknown' : null;
+              return (
+                <div
+                  key={capture.id}
+                  className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${
+                    isAssigning ? 'border-primary bg-primary/5' : 'bg-background'
+                  }`}
+                >
+                  <span className="w-5 shrink-0 text-right font-mono text-xs text-muted-foreground">{capture.place}</span>
+                  <span className="w-14 shrink-0 font-mono font-medium tabular-nums">{formatTime(capture.timeSec)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCaptureId(capture.id)}
+                    className="min-w-0 flex-1 truncate text-left"
+                  >
+                    {name ? (
+                      compactName(name)
+                    ) : (
+                      <span className={isAssigning ? 'font-medium text-primary' : 'text-muted-foreground'}>
+                        {isAssigning ? 'Tap a name below →' : 'Unnamed — tap to name'}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteCapture(capture.id)}
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label={`Delete finish ${capture.place}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* What a name tap will do, stated rather than inferred. */}
+      <div className="rounded-lg bg-muted/60 px-3 py-2 text-sm">
+        {assigningCapture ? (
+          <div className="flex items-center justify-between gap-2">
+            <span>
+              Naming <span className="font-medium">#{assigningCapture.place}</span> ·{' '}
+              <span className="font-mono">{formatTime(assigningCapture.timeSec)}</span> — tap who it was.
+            </span>
+            {selectedCaptureId && (
+              <Button variant="ghost" size="sm" onClick={() => setSelectedCaptureId(null)}>
+                Cancel
+              </Button>
+            )}
+          </div>
+        ) : phase === 'running' ? (
+          <span>Tapping a name records their rep {rep} now. Tap again to clear.</span>
         ) : (
-          <Button size="lg" variant="outline" className="h-12 px-8" onClick={onReset}>
-            <RotateCcw className="mr-2 h-5 w-5" />
-            Reset
-          </Button>
+          <span>Start the clock, or tap an unnamed row above to name it.</span>
         )}
       </div>
 
-      <p className="text-sm text-muted-foreground">
-        {phase === 'running'
-          ? `Tap a name the moment they finish rep ${rep}. Tap it again to clear a mistake.`
-          : `Start the clock, then tap each name as they finish rep ${rep}.`}
-      </p>
-
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {entries.map((entry) => {
+        {gridEntries.map((entry) => {
           const recorded = entry[repField(rep)];
           const target = recorded == null ? targetFor(entry) : null;
           const tappable = recorded != null || phase === 'running';
@@ -223,8 +365,12 @@ const IntervalTimerPanel: React.FC<{
             <button
               key={entry.id}
               type="button"
-              onClick={() => (recorded != null ? onClear(entry) : onRecord(entry))}
-              disabled={!tappable}
+              onClick={() => {
+                if (assigningId) onAssignCapture(assigningId, entry);
+                else if (recorded != null) onClear(entry);
+                else onRecord(entry);
+              }}
+              disabled={assigningId ? false : !tappable}
               className={`flex min-h-16 flex-col items-center justify-center rounded-lg border px-2 py-3 text-center transition-colors ${
                 recorded != null
                   ? pending
@@ -279,7 +425,9 @@ const IntervalSessionManagePage: React.FC = () => {
   // rendered — switching back to Manual and then back to Timer does not
   // reset a clock that's mid-run, same as any other stopwatch.
   const [timerMode, setTimerMode] = useState(false);
-  const [timerPhase, setTimerPhase] = useState<'idle' | 'running'>('idle');
+  // 'stopped' is distinct from 'idle': clock frozen, times and captures
+  // still on screen, which is when the naming pass happens.
+  const [timerPhase, setTimerPhase] = useState<'idle' | 'running' | 'stopped'>('idle');
   const [elapsedMs, setElapsedMs] = useState(0);
   const startRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -287,17 +435,55 @@ const IntervalSessionManagePage: React.FC = () => {
   useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
 
   const handleTimerStart = () => {
-    startRef.current = performance.now();
-    setElapsedMs(0);
+    startRef.current = performance.now() - elapsedMs;
     setTimerPhase('running');
+    if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => setElapsedMs(performance.now() - startRef.current), 100);
   };
 
+  const handleTimerStop = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    setTimerPhase('stopped');
+  };
+
+  // Clears the clock only — captures survive, same as the Live Timer. The
+  // times are the irreplaceable half.
   const handleTimerReset = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     setElapsedMs(0);
     setTimerPhase('idle');
   };
+
+  // Capture-first timing, per rep. `Capture.athleteId` holds the ENTRY id
+  // here, not the athlete id — reps are recorded against an entry, and the
+  // entry is what a tap in the grid identifies. Held per session in
+  // localStorage so a phone locking mid-workout loses nothing.
+  const CAPTURES_KEY = sessionId ? `xc_interval_captures_${sessionId}` : null;
+  const [capturesByRep, setCapturesByRep] = useState<Record<number, Capture[]>>(() => {
+    if (!sessionId) return {};
+    try {
+      const raw = window.localStorage.getItem(`xc_interval_captures_${sessionId}`);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (!CAPTURES_KEY) return;
+    try {
+      window.localStorage.setItem(CAPTURES_KEY, JSON.stringify(capturesByRep));
+    } catch {
+      // Storage blocked — captures still live in this tab's state.
+    }
+  }, [CAPTURES_KEY, capturesByRep]);
+
+  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
+  const setRepCaptures = useCallback(
+    (rep: number, update: (prev: Capture[]) => Capture[]) =>
+      setCapturesByRep((prev) => ({ ...prev, [rep]: update(prev[rep] ?? []) })),
+    []
+  );
 
   const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
   const enteredIds = useMemo(() => new Set((session?.entries ?? []).map((e) => e.athleteId)), [session?.entries]);
@@ -596,9 +782,53 @@ const IntervalSessionManagePage: React.FC = () => {
                     phase={timerPhase}
                     elapsedMs={elapsedMs}
                     onStart={handleTimerStart}
+                    onStop={handleTimerStop}
                     onReset={handleTimerReset}
-                    onRecord={(entry) => handleComplete(cellKey(entry.id, activeRep + 1), Math.round(elapsedMs / 1000))}
-                    onClear={(entry) => handleClear(cellKey(entry.id, activeRep + 1))}
+                    onRecord={(entry) => {
+                      const timeSec = Math.round(elapsedMs / 1000);
+                      setRepCaptures(activeRep + 1, (prev) => [
+                        ...prev,
+                        { id: newCaptureId(), timeSec, athleteId: entry.id },
+                      ]);
+                      handleComplete(cellKey(entry.id, activeRep + 1), timeSec);
+                    }}
+                    onClear={(entry) => {
+                      setRepCaptures(activeRep + 1, (prev) =>
+                        prev.map((c) => (c.athleteId === entry.id ? { ...c, athleteId: null } : c))
+                      );
+                      handleClear(cellKey(entry.id, activeRep + 1));
+                    }}
+                    captures={capturesByRep[activeRep + 1] ?? []}
+                    selectedCaptureId={selectedCaptureId}
+                    setSelectedCaptureId={setSelectedCaptureId}
+                    onFinishCapture={() => {
+                      if (timerPhase !== 'running') return;
+                      setRepCaptures(activeRep + 1, (prev) => [
+                        ...prev,
+                        { id: newCaptureId(), timeSec: Math.round(elapsedMs / 1000), athleteId: null },
+                      ]);
+                    }}
+                    onAssignCapture={(captureId, entry) => {
+                      const rep = activeRep + 1;
+                      const list = capturesByRep[rep] ?? [];
+                      const capture = list.find((c) => c.id === captureId);
+                      if (!capture) return;
+                      // assignCapture moves the entry off any row that
+                      // already claimed it; that vacated row's saved rep
+                      // has to be cleared too or the old time would linger.
+                      const displaced = list.find((c) => c.athleteId === entry.id && c.id !== captureId);
+                      setRepCaptures(rep, (prev) => assignCapture(prev, captureId, entry.id));
+                      setSelectedCaptureId(null);
+                      if (displaced) handleClear(cellKey(entry.id, rep));
+                      handleComplete(cellKey(entry.id, rep), capture.timeSec);
+                    }}
+                    onDeleteCapture={(captureId) => {
+                      const rep = activeRep + 1;
+                      const capture = (capturesByRep[rep] ?? []).find((c) => c.id === captureId);
+                      setRepCaptures(rep, (prev) => removeCapture(prev, captureId));
+                      if (capture?.athleteId) handleClear(cellKey(capture.athleteId, rep));
+                      if (selectedCaptureId === captureId) setSelectedCaptureId(null);
+                    }}
                     targetFor={(entry) => suggestedRepTarget(recentRaceByAthlete?.get(entry.athleteId), sessionZone, session.repDistanceM)}
                   />
                 ) : (
