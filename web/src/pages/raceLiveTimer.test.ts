@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// The Live Timer, rewritten to match Interval Sessions' Timer mode: start
-// one stopwatch, tap a name the moment they finish. Requires race entrants
-// (backend MeetEntry, reused) to exist first — see ManageEntrantsDialog
-// and routes/meetOps.js's GET/POST/DELETE /races/:raceId/entrants.
+// The Live Timer, capture-first: the big button takes no name, every press
+// appends a finish at the current elapsed time, and naming is a second
+// pass afterwards. Name-first failed in the field — you cannot scan sixty
+// names at a chute, and a missed tap is a time that cannot be recovered.
+// Tapping a name mid-race still works; it is the same capture arriving
+// with its athleteId already set. See lib/captureTimer.ts (which holds the
+// ordering/assignment logic, with its own unit tests).
 
 const read = (p: string) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
 const code = (src: string) =>
@@ -21,15 +24,10 @@ const meetDetail = code(read('pages/MeetDetailPage.tsx'));
 const resultsGrid = code(read('pages/ResultsGridPage.tsx'));
 
 describe('race live timer', () => {
-  it('has no old two-phase capture/assign state left — a single stopwatch instead', () => {
-    // "captures" itself now legitimately appears (unassignedCaptures, the
-    // "Runner not listed" fallback below) — checking for the OLD shape
-    // specifically, not the bare word.
+  it('has a stopped phase distinct from idle, so the naming pass keeps the clock and captures on screen', () => {
     expect(page).not.toContain("'idle' | 'running' | 'paused' | 'review'");
-    expect(page).not.toContain('captures: number[]');
-    expect(page).not.toContain('assignments: Record<string, string>');
     expect(page).not.toContain('SlideToConfirm');
-    expect(page).toContain("useState<'idle' | 'running'>('idle')");
+    expect(page).toContain("useState<'idle' | 'running' | 'stopped'>('idle')");
   });
 
   it('prompts to add entrants first when there are none, rather than falling back to the whole roster', () => {
@@ -40,7 +38,7 @@ describe('race live timer', () => {
 
   it('taps into the entrants list, not the whole team roster', () => {
     expect(page).toContain('useRaceEntrants(raceId ?? null)');
-    expect(page).toContain('entrants.map((entrant) =>');
+    expect(page).toContain('gridEntrants.map((entrant) =>');
   });
 
   it('records the elapsed time on tap, and saves through the same batch endpoint manual entry uses', () => {
@@ -83,14 +81,15 @@ describe('race live timer', () => {
     // timeFor and pendingByAthlete are both keyed by athleteId and read
     // from sortedEntrants the same as entrants — sorting only reorders the
     // array sortedEntrants is built from, never rewrites those maps.
-    const sortBlock = page.slice(page.indexOf('const sortedEntrants = useMemo'), page.indexOf('const enteredIds ='));
+    const sortBlock = page.slice(page.indexOf('const sortedEntrants = useMemo'), page.indexOf('const timedElsewhere ='));
     expect(sortBlock).not.toContain('setPendingByAthlete');
     expect(sortBlock).not.toContain('clearPending');
-    expect(page).toContain('sortedEntrants.map((entrant) =>');
+    expect(page).toContain('gridEntrants.map((entrant) =>');
   });
 
   it('renders the grid from the sorted list, not the raw entrants order', () => {
     expect(page).not.toContain('{entrants.map((entrant) => {');
+    expect(page).toContain('const sortedEntrants = useMemo');
   });
 
   it('shows four columns on an iPad in portrait to cut down on scrolling a big field', () => {
@@ -108,73 +107,111 @@ describe('race live timer', () => {
     expect(page).not.toContain('min-[700px]');
   });
 
-  it('shows the entrant count within the race name, both in the header and the "Runner not listed" section', () => {
+  it('shows the entrant count within the race name in the header', () => {
     expect(page).toContain('`${raceName} (${entrants.length})`');
   });
 
   it('gives the not-yet-tapped tile a solid, high-contrast look rather than a light bordered box, for outdoor readability', () => {
-    const grid = page.slice(page.indexOf('sortedEntrants.map((entrant) => {'), page.indexOf('{/* Times logged with "Runner not listed,"'));
+    const grid = page.slice(page.indexOf('gridEntrants.map((entrant) => {'), page.indexOf('{assigningId && gridEntrants.length === 0'));
     expect(grid).toContain('border-foreground bg-foreground text-background');
   });
 
   it('turns a tap gray while the save is in flight, distinct from the not-yet-tapped state', () => {
-    const grid = page.slice(page.indexOf('sortedEntrants.map((entrant) => {'), page.indexOf('{/* Times logged with "Runner not listed,"'));
+    const grid = page.slice(page.indexOf('gridEntrants.map((entrant) => {'), page.indexOf('{assigningId && gridEntrants.length === 0'));
     expect(grid).toContain('border-muted-foreground/40 bg-muted text-muted-foreground');
   });
 
   it('gives a confirmed, saved tap its own distinct color family — not a re-use of the not-yet-tapped or pending colors', () => {
-    const grid = page.slice(page.indexOf('sortedEntrants.map((entrant) => {'), page.indexOf('{/* Times logged with "Runner not listed,"'));
+    const grid = page.slice(page.indexOf('gridEntrants.map((entrant) => {'), page.indexOf('{assigningId && gridEntrants.length === 0'));
     expect(grid).toContain('border-primary bg-primary text-primary-foreground');
   });
 
-  it('makes "Runner not listed" a solid button, not the low-contrast outline variant', () => {
-    // code() strips the block comment right above this button, so anchor
-    // on the onClick itself and look at the surrounding markup instead.
-    const anchor = page.indexOf('onClick={handleLogUnnamed}');
-    const button = page.slice(Math.max(0, anchor - 200), anchor + 250);
-    expect(button).not.toContain('variant="outline"');
-    expect(button).toContain('Runner not listed — log time only');
+  it('makes FINISH the biggest, most obvious target on the page', () => {
+    const anchor = page.indexOf('onClick={handleFinish}');
+    expect(anchor).toBeGreaterThan(-1);
+    const button = page.slice(Math.max(0, anchor - 300), anchor + 600);
+    expect(button).toContain('h-28 w-full');
+    expect(button).toContain('bg-primary text-primary-foreground');
+    expect(button).toContain('Finish');
   });
 });
 
-describe('runner not listed', () => {
-  it('is reclickable — no per-press disabled state beyond needing the clock running', () => {
-    const handler = page.slice(page.indexOf('const handleLogUnnamed'), page.indexOf('const handleDiscardUnnamed'));
+describe('capture-first timing', () => {
+  it('the primary button records a time with no name at all', () => {
+    const handler = page.slice(page.indexOf('const handleFinish ='), page.indexOf('const handleAssign ='));
     expect(handler).toContain("if (phase !== 'running') return");
-    // Every press appends; nothing here marks a "used" state on the button.
-    expect(handler).toContain('setUnassignedCaptures((prev) => [');
-    expect(page).toContain('onClick={handleLogUnnamed}');
-    expect(page).toContain("disabled={phase !== 'running'}");
+    expect(handler).toContain('athleteId: null');
+    expect(handler).toContain('timeSec: Math.round(elapsedMs / 1000)');
   });
 
-  it('logs the time with no name attached, distinct from a normal entrant tap', () => {
-    expect(page).toContain('interface UnassignedCapture');
-    expect(page).toContain('timeSec: Math.round(elapsedMs / 1000)');
+  it('is reclickable — nothing marks the button used, one press per runner crossing', () => {
+    const anchor = page.indexOf('onClick={handleFinish}');
+    const button = page.slice(anchor, anchor + 400);
+    expect(button).toContain("disabled={phase !== 'running'}");
+    expect(button).not.toContain('disabled={pending');
   });
 
-  it('persists unnamed captures per race so a reload cannot lose one still waiting on a name', () => {
-    expect(page).toContain('UNASSIGNED_STORAGE_KEY');
-    expect(page).toContain('window.localStorage.getItem(UNASSIGNED_STORAGE_KEY(raceId))');
-    expect(page).toContain('window.localStorage.setItem(UNASSIGNED_STORAGE_KEY(raceId)');
+  it('a name tapped mid-race is the same capture, already named — not a second mechanism', () => {
+    const handler = page.slice(page.indexOf('const handleRecordNow ='), page.indexOf('const handleClearAthlete ='));
+    expect(handler).toContain('athleteId }');
+    expect(handler).toContain('save(athleteId, timeSec)');
   });
 
-  it('assigning a name writes a real Result through the same submit path as every other tap', () => {
-    const handler = page.slice(page.indexOf('const handleAssignUnnamed'), page.indexOf('const claimedByOtherCaptures'));
-    expect(handler).toContain('submitResults.mutate([{ athleteId, time: capture.timeSec }]');
-    expect(handler).toContain('onSuccess: () => {');
-    expect(handler).toContain('onError: () => {');
+  it('persists captures per race so a reload mid-heat cannot lose a time', () => {
+    expect(page).toContain('CAPTURES_STORAGE_KEY');
+    expect(page).toContain('window.localStorage.getItem(CAPTURES_STORAGE_KEY(raceId))');
+    expect(page).toContain('window.localStorage.setItem(CAPTURES_STORAGE_KEY(raceId)');
   });
 
-  it('can assign to any roster athlete without a time, not only entrants — covers "not listed" and "listed but unfindable" alike', () => {
-    expect(page).toContain('const assignableRoster = useMemo(');
-    const block = page.slice(page.indexOf('const assignableRoster = useMemo'), page.indexOf('const raceName ='));
-    expect(block).toContain('timeFor(a.id) == null');
+  it('Reset clears the clock but never the captures', () => {
+    const handler = page.slice(page.indexOf('const handleReset ='), page.indexOf('const resultByAthlete ='));
+    expect(handler).toContain('setElapsedMs(0)');
+    expect(handler).not.toContain('setCaptures');
+  });
+
+  it('naming a capture writes a real Result through the same submit path as every other tap', () => {
+    const handler = page.slice(page.indexOf('const handleAssign ='), page.indexOf('const handleRecordNow ='));
+    expect(handler).toContain('save(athleteId, capture.timeSec)');
+  });
+
+  it('clears the displaced row\'s saved time when an athlete is moved between captures', () => {
+    // assignCapture frees the athlete from whichever row held them; the
+    // result already written for that row has to go too, or a stale time
+    // is left on the server for a runner who has since been re-placed.
+    const handler = page.slice(page.indexOf('const handleAssign ='), page.indexOf('const handleRecordNow ='));
+    expect(handler).toContain('const displaced =');
+    expect(handler).toContain('if (displaced) save(athleteId, null)');
+  });
+
+  it('clearing a name keeps the time, as an unnamed row', () => {
+    const handler = page.slice(page.indexOf('const handleClearAthlete ='), page.indexOf('const handleDeleteCapture ='));
+    expect(handler).toContain('unassignCapture');
+    expect(handler).toContain('save(athleteId, null)');
+    expect(handler).not.toContain('removeCapture');
+  });
+
+  it('targets the earliest unnamed row automatically once the clock stops, so naming needs no setup tap', () => {
+    expect(page).toContain("const autoTargetId = phase === 'running' ? null : nextUnnamedId(captures)");
+  });
+
+  it('never silently changes what a name tap does — the mode is stated on screen', () => {
+    expect(page).toContain('Naming <span className="font-medium">#{assigningPlace}</span>');
+    expect(page).toContain('Tapping a name records their finish now.');
+  });
+
+  it('offers only athletes still unaccounted for during the naming pass', () => {
+    expect(page).toContain('remainingBy(sortedEntrants, captures, timedElsewhere, (e) => e.athleteId)');
+  });
+
+  it('can name from the whole roster, not only entrants — a walk-on was never declared', () => {
+    const block = page.slice(page.indexOf('const assignableRoster = useMemo'), page.indexOf('const placed = useMemo'));
+    expect(block).toContain('remainingAthletes(');
     expect(block).not.toContain('enteredIds.has');
   });
 
-  it('cannot double-claim the same athlete across two unnamed rows at once', () => {
-    expect(page).toContain('const claimedByOtherCaptures = useMemo(');
-    expect(page).toContain('!claimedByOtherCaptures.has(a.id)');
+  it('shows the finish order with places that count unnamed runners too', () => {
+    expect(page).toContain('const placed = useMemo(() => orderCaptures(captures), [captures])');
+    expect(page).toContain('{capture.place}');
   });
 });
 

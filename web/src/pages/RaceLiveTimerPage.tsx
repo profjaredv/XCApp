@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Play, RotateCcw, UserPlus, UserX, X } from 'lucide-react';
+import { Play, RotateCcw, Square, Flag, UserPlus, X } from 'lucide-react';
 import { useRaceResults, useSubmitRaceResults, useRaceEntrants, useAddEntrant } from '@/hooks/useMeetOps';
 import { useRosterWithRaces } from '@/hooks/useGroups';
 import { AthletePicker } from '@/components/groups/AthletePicker';
@@ -12,44 +12,50 @@ import { FieldHeader } from '@/components/field/FieldHeader';
 import { SegmentedPills } from '@/components/field/SegmentedPills';
 import { fastestFirstPaceSecPerMile } from '@/api/groupService';
 import { firstNameOf, lastNameOf } from '@/lib/athleteSearch';
+import {
+  orderCaptures,
+  nextUnnamedId,
+  unnamedCount,
+  assignCapture,
+  unassignCapture,
+  removeCapture,
+  remainingAthletes,
+  remainingBy,
+  newCaptureId,
+  type Capture,
+} from '@/lib/captureTimer';
 
-// The Live Timer, rewritten to match Interval Sessions' Timer mode: start
-// one stopwatch, tap a name the moment they finish, done — see
-// IntervalSessionManagePage.tsx's IntervalTimerPanel, the model this
-// copies. That was possible for intervals because who's doing the session
-// is always known ahead of time; this page needed race entrants (backend
-// MeetEntry, reused — see routes/meetOps.js) to exist first, so a tap has
-// a bounded, named list to land on instead of the entire team roster.
+// The Live Timer, capture-first.
 //
-// The old flow — tap "Capture" repeatedly with no identity yet, then
-// assign athletes to captures afterward — existed because identity
-// genuinely wasn't known up front. It's gone along with the TimerSession
-// draft table that backed it: every tap here writes a real Result
-// directly (the same batch endpoint EnterRaceResultsDialog uses), so
-// there's nothing left to draft or resume. Closing this page mid-race
-// loses nothing — every tap already saved.
+// It was name-first: a grid of every entrant, tap whoever just crossed.
+// That works for a handful and fails on a real heat — at the chute you
+// cannot scan sixty names fast enough, and a missed tap is a time that
+// cannot be recovered, because the order runners cross in is only
+// observable once.
 //
-// "Runner not listed" (below) is the one deliberate exception: a runner
-// who's in the race but isn't an entrant and can't be found/identified in
-// the moment a coach needs to log their time. Reclickable with no name
-// attached — logs the elapsed time now, name TBD — because the whole
-// point is not losing the time while someone figures out who that was.
-// Unlike a normal tap, this genuinely has nowhere durable to write yet
-// (Result.athleteId is required — see schema.prisma), so it's held in
-// local state, backed by localStorage per race so a reload doesn't lose
-// it, until assigned to a real athlete (at which point it becomes a
-// normal Result, same save() path as everything else on this page).
+// So the button that matters takes no name: FINISH appends a capture at
+// the current elapsed time, as fast as a coach can tap, and the list that
+// builds up IS the finish order. Naming is an unhurried second pass with
+// the remaining runners right there to tap through in order.
+//
+// Tapping a name mid-race still works and is still the fastest path when
+// the coach does recognise someone — it isn't a separate mechanism, just a
+// capture that arrives with its athleteId already filled in. One list, one
+// ordering, whichever way identity showed up. See lib/captureTimer.ts.
+//
+// What tapping a name in the grid MEANS depends on one visible thing: if a
+// capture row is selected (always the case once the clock is stopped and
+// something is unnamed), the tap names that row; otherwise, while running,
+// it records a new finish now. The banner above the grid says which, every
+// time — this is the one genuinely ambiguous interaction on the page and
+// it is never left to be inferred.
+//
+// Captures live in localStorage per race so a reload mid-heat loses
+// nothing. A NAMED capture is also written through as a real Result
+// immediately (same batch endpoint as everywhere else), so the durable
+// record never waits on the naming pass finishing.
 
-const UNASSIGNED_STORAGE_KEY = (raceId: string) => `xc_unassigned_captures_${raceId}`;
-
-interface UnassignedCapture {
-  id: string;
-  timeSec: number;
-  /** Set while this capture's assign save is in flight — the row stays
-   * visible with the picked name until it's confirmed, same "saving…"
-   * convention as everywhere else on this page. */
-  assignedTo?: { athleteId: string; name: string };
-}
+const CAPTURES_STORAGE_KEY = (raceId: string) => `xc_captures_${raceId}`;
 
 function formatElapsed(ms: number): string {
   const totalDeci = Math.max(0, Math.floor(ms / 100));
@@ -77,46 +83,49 @@ const RaceLiveTimerPage: React.FC = () => {
 
   const { data: roster = [] } = useRosterWithRaces(seasonYear ?? undefined);
 
-  const [phase, setPhase] = useState<'idle' | 'running'>('idle');
+  // 'stopped' is distinct from 'idle': the clock is frozen but the elapsed
+  // time and captures are still on screen, which is when the naming pass
+  // happens. Reset is what actually clears the clock.
+  const [phase, setPhase] = useState<'idle' | 'running' | 'stopped'>('idle');
   const [sortMode, setSortMode] = useState<'fastest' | 'first' | 'last'>('fastest');
   const [elapsedMs, setElapsedMs] = useState(0);
   const startRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [entrantsDialogOpen, setEntrantsDialogOpen] = useState(false);
 
-  // "Runner not listed" — see the file header comment. Restored from
-  // localStorage on mount (per race) so a reload mid-race doesn't drop an
-  // unnamed time nobody's assigned yet; an in-flight "assignedTo" from a
-  // previous session is deliberately not restored — a stuck "saving…"
-  // across a reload should just revert to "pick a name," not stay stuck.
-  const [unassignedCaptures, setUnassignedCaptures] = useState<UnassignedCapture[]>(() => {
+  const [captures, setCaptures] = useState<Capture[]>(() => {
     if (!raceId) return [];
     try {
-      const raw = window.localStorage.getItem(UNASSIGNED_STORAGE_KEY(raceId));
+      const raw = window.localStorage.getItem(CAPTURES_STORAGE_KEY(raceId));
       const parsed = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed)
-        ? parsed.map((c: { id: string; timeSec: number }) => ({ id: c.id, timeSec: c.timeSec }))
+        ? parsed
+            .filter((c) => c && typeof c.id === 'string' && typeof c.timeSec === 'number')
+            .map((c) => ({ id: c.id, timeSec: c.timeSec, athleteId: c.athleteId ?? null }))
         : [];
     } catch {
       return [];
     }
   });
+
   useEffect(() => {
     if (!raceId) return;
     try {
-      const toStore = unassignedCaptures.map(({ id, timeSec }) => ({ id, timeSec }));
-      window.localStorage.setItem(UNASSIGNED_STORAGE_KEY(raceId), JSON.stringify(toStore));
+      window.localStorage.setItem(CAPTURES_STORAGE_KEY(raceId), JSON.stringify(captures));
     } catch {
-      // Private browsing, or storage blocked — the capture still lives in
-      // this tab's state either way, just won't survive a reload.
+      // Private browsing, or storage blocked — captures still live in this
+      // tab's state, they just won't survive a reload.
     }
-  }, [raceId, unassignedCaptures]);
+  }, [raceId, captures]);
 
-  // Same optimistic-paint fix as Interval Sessions' Timer mode: a tap
-  // saves through a real network round trip (invalidate + refetch), and
-  // waiting on that before painting anything reads as "did that tap even
-  // work." athleteId -> the value now showing on screen, reconciled
-  // (cleared) once the save settles either way.
+  // Which capture the name grid is currently naming. Explicit selection
+  // wins; otherwise, once the clock is stopped, the earliest unnamed row
+  // is targeted automatically so the naming pass needs no setup tap.
+  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
+  const autoTargetId = phase === 'running' ? null : nextUnnamedId(captures);
+  const assigningId =
+    selectedCaptureId && captures.some((c) => c.id === selectedCaptureId) ? selectedCaptureId : autoTargetId;
+
   const [pendingByAthlete, setPendingByAthlete] = useState<Record<string, number | null>>({});
   const clearPending = useCallback((athleteId: string) => {
     setPendingByAthlete((prev) => {
@@ -130,12 +139,20 @@ const RaceLiveTimerPage: React.FC = () => {
   useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
 
   const handleStart = () => {
-    startRef.current = performance.now();
-    setElapsedMs(0);
+    startRef.current = performance.now() - elapsedMs;
     setPhase('running');
+    if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => setElapsedMs(performance.now() - startRef.current), 100);
   };
 
+  const handleStop = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    setPhase('stopped');
+  };
+
+  // Clears the clock only. Captures survive on purpose — the times are the
+  // irreplaceable part, and a coach who taps Reset while rows are still
+  // unnamed has not asked to throw those away.
   const handleReset = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     setElapsedMs(0);
@@ -153,66 +170,77 @@ const RaceLiveTimerPage: React.FC = () => {
     [pendingByAthlete, resultByAthlete]
   );
 
-  const save = (athleteId: string, time: number | null) => {
-    setPendingByAthlete((prev) => ({ ...prev, [athleteId]: time }));
-    submitResults.mutate([{ athleteId, time }], {
-      onSuccess: () => clearPending(athleteId),
-      onError: () => {
-        clearPending(athleteId);
-        toast.error(time == null ? 'Could not clear that time — try again.' : 'Could not save that time — try again.');
-      },
-    });
-  };
+  const save = useCallback(
+    (athleteId: string, time: number | null) => {
+      setPendingByAthlete((prev) => ({ ...prev, [athleteId]: time }));
+      submitResults.mutate([{ athleteId, time }], {
+        onSuccess: () => clearPending(athleteId),
+        onError: () => {
+          clearPending(athleteId);
+          toast.error(time == null ? 'Could not clear that time — try again.' : 'Could not save that time — try again.');
+        },
+      });
+    },
+    [submitResults, clearPending]
+  );
 
-  const handleRecord = (athleteId: string) => save(athleteId, Math.round(elapsedMs / 1000));
-  const handleClear = (athleteId: string) => save(athleteId, null);
-
-  // Reclickable on purpose — no per-press disabled state, no capture ever
-  // "consumes" the button. One press per runner who crosses and can't be
-  // identified in the moment; each becomes its own row to name afterward.
-  const handleLogUnnamed = () => {
+  // The button that matters. No name, no confirmation, no per-press
+  // disabled state — one press per runner crossing, as fast as they come.
+  const handleFinish = () => {
     if (phase !== 'running') return;
-    setUnassignedCaptures((prev) => [
-      ...prev,
-      { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, timeSec: Math.round(elapsedMs / 1000) },
-    ]);
+    setCaptures((prev) => [...prev, { id: newCaptureId(), timeSec: Math.round(elapsedMs / 1000), athleteId: null }]);
   };
 
-  const handleDiscardUnnamed = (captureId: string) => {
-    setUnassignedCaptures((prev) => prev.filter((c) => c.id !== captureId));
-  };
-
-  // Same optimistic pattern as save() above, plus bookkeeping to remove
-  // the row once it's genuinely become a real Result — not reusing save()
-  // directly since nothing else on this page needs to react to "this
-  // specific capture is now spoken for" the way this does.
-  const handleAssignUnnamed = (captureId: string, athleteId: string, athleteName: string) => {
-    const capture = unassignedCaptures.find((c) => c.id === captureId);
+  // Name a capture, and write the result through immediately. assignCapture
+  // moves an athlete off any row that already claimed them, so correcting
+  // a mis-tap needs no extra step — but that vacated row's result has to
+  // be cleared too, or the old time would linger on the server.
+  const handleAssign = (captureId: string, athleteId: string) => {
+    const capture = captures.find((c) => c.id === captureId);
     if (!capture) return;
-    setUnassignedCaptures((prev) =>
-      prev.map((c) => (c.id === captureId ? { ...c, assignedTo: { athleteId, name: athleteName } } : c))
-    );
-    setPendingByAthlete((prev) => ({ ...prev, [athleteId]: capture.timeSec }));
-    submitResults.mutate([{ athleteId, time: capture.timeSec }], {
-      onSuccess: () => {
-        clearPending(athleteId);
-        setUnassignedCaptures((prev) => prev.filter((c) => c.id !== captureId));
-      },
-      onError: () => {
-        clearPending(athleteId);
-        setUnassignedCaptures((prev) => prev.map((c) => (c.id === captureId ? { ...c, assignedTo: undefined } : c)));
-        toast.error('Could not save that time — try again.');
-      },
-    });
+    const displaced = captures.find((c) => c.athleteId === athleteId && c.id !== captureId);
+    setCaptures((prev) => assignCapture(prev, captureId, athleteId));
+    setSelectedCaptureId(null);
+    if (displaced) save(athleteId, null);
+    save(athleteId, capture.timeSec);
   };
 
-  // Fastest-first by default: on a 60-person heat, scanning for one name
-  // is the whole bottleneck, and pace order puts the runners most likely
-  // to finish (and need tapping) first at the top. Sorting only ever
-  // reorders this array — recorded/pending state is keyed by athleteId
-  // (timeFor, pendingByAthlete above), never by position, so switching
-  // sort mode can't un-mark someone already tapped.
+  // Tapping a name while nothing is selected and the clock is running:
+  // record a finish for them right now.
+  const handleRecordNow = (athleteId: string) => {
+    const timeSec = Math.round(elapsedMs / 1000);
+    setCaptures((prev) => [...prev, { id: newCaptureId(), timeSec, athleteId }]);
+    save(athleteId, timeSec);
+  };
+
+  // Tapping a name that already has a time: let the name go, keep the
+  // time. The capture stays as an unnamed row rather than vanishing —
+  // losing a time to a fat-fingered correction is the one thing this page
+  // must never do.
+  const handleClearAthlete = (athleteId: string) => {
+    const owning = captures.find((c) => c.athleteId === athleteId);
+    if (owning) setCaptures((prev) => unassignCapture(prev, owning.id));
+    save(athleteId, null);
+  };
+
+  const handleDeleteCapture = (captureId: string) => {
+    const capture = captures.find((c) => c.id === captureId);
+    setCaptures((prev) => removeCapture(prev, captureId));
+    if (capture?.athleteId) save(capture.athleteId, null);
+    if (selectedCaptureId === captureId) setSelectedCaptureId(null);
+  };
+
   const rosterById = useMemo(() => new Map(roster.map((a) => [a.id, a])), [roster]);
+  const nameById = useMemo(() => {
+    const map = new Map<string, string>();
+    entrants.forEach((e) => map.set(e.athleteId, e.name));
+    roster.forEach((a) => { if (!map.has(a.id)) map.set(a.id, a.preferredName || a.name); });
+    return map;
+  }, [entrants, roster]);
+
+  // Fastest-first by default: pace order puts the runners most likely to
+  // finish next at the top. Sorting only reorders this array — recorded
+  // state is keyed by athleteId, never by position.
   const sortedEntrants = useMemo(() => {
     const withKeys = entrants.map((entrant) => {
       const athlete = rosterById.get(entrant.athleteId);
@@ -226,7 +254,6 @@ const RaceLiveTimerPage: React.FC = () => {
     withKeys.sort((a, b) => {
       if (sortMode === 'first') return a.first.localeCompare(b.first) || a.entrant.name.localeCompare(b.entrant.name);
       if (sortMode === 'last') return a.last.localeCompare(b.last) || a.entrant.name.localeCompare(b.entrant.name);
-      // 'fastest' — no pace on record sorts to the end, ties by name.
       if (a.pace == null && b.pace == null) return a.entrant.name.localeCompare(b.entrant.name);
       if (a.pace == null) return 1;
       if (b.pace == null) return -1;
@@ -234,6 +261,22 @@ const RaceLiveTimerPage: React.FC = () => {
     });
     return withKeys.map((w) => w.entrant);
   }, [entrants, rosterById, sortMode]);
+
+  // In the naming pass the grid should only offer people still available —
+  // scanning past names already used is the slowness this page exists to
+  // remove. While recording, every entrant stays tappable (a recorded one
+  // taps to clear).
+  const timedElsewhere = useMemo(
+    () => new Set(entrants.map((e) => e.athleteId).filter((id) => timeFor(id) != null)),
+    [entrants, timeFor]
+  );
+  const gridEntrants = useMemo(
+    () =>
+      assigningId
+        ? remainingBy(sortedEntrants, captures, timedElsewhere, (e) => e.athleteId)
+        : sortedEntrants,
+    [assigningId, sortedEntrants, captures, timedElsewhere]
+  );
 
   const enteredIds = useMemo(() => new Set(entrants.map((e) => e.athleteId)), [entrants]);
   const availableToAdd = useMemo(
@@ -252,23 +295,21 @@ const RaceLiveTimerPage: React.FC = () => {
     }
   };
 
-  // Who an unassigned capture can be named to — the whole roster, not
-  // just entrants: "not listed OR can't find" covers both someone who was
-  // never declared and an entrant the coach just couldn't spot in time.
-  // Excludes anyone who already has a time, and anyone another unassigned
-  // row is already mid-assigning to, so the same person can't end up
-  // double-claimed.
-  const claimedByOtherCaptures = useMemo(
-    () => new Set(unassignedCaptures.filter((c) => c.assignedTo).map((c) => c.assignedTo!.athleteId)),
-    [unassignedCaptures]
-  );
+  // Naming from the full roster, not just entrants: an unnamed capture
+  // might be a walk-on who was never declared.
   const assignableRoster = useMemo(
     () =>
-      roster
-        .filter((a) => timeFor(a.id) == null && !claimedByOtherCaptures.has(a.id))
-        .map((a) => ({ id: a.id, name: a.preferredName || a.name, grade: a.grade })),
-    [roster, timeFor, claimedByOtherCaptures]
+      remainingAthletes(
+        roster.map((a) => ({ id: a.id, name: a.preferredName || a.name, grade: a.grade })),
+        captures,
+        new Set(roster.map((a) => a.id).filter((id) => timeFor(id) != null))
+      ),
+    [roster, captures, timeFor]
   );
+
+  const placed = useMemo(() => orderCaptures(captures), [captures]);
+  const stillUnnamed = unnamedCount(captures);
+  const assigningPlace = assigningId ? placed.find((c) => c.id === assigningId)?.place ?? null : null;
 
   const raceName = raceResults?.race.name ?? 'Race';
   const recordedCount = entrants.filter((e) => timeFor(e.athleteId) != null).length;
@@ -281,13 +322,14 @@ const RaceLiveTimerPage: React.FC = () => {
         actions={[{ icon: X, label: 'Close', onClick: () => navigate(-1), variant: 'ghost' }]}
       />
 
-      <div className="mx-auto max-w-lg space-y-6 p-4">
-        {!entrantsLoading && entrants.length === 0 ? (
+      <div className="mx-auto max-w-lg space-y-5 p-4">
+        {!entrantsLoading && entrants.length === 0 && captures.length === 0 ? (
           <Card>
             <CardHeader className="text-center">
               <CardTitle>No entrants yet</CardTitle>
               <CardDescription>
-                Add who's running this race first — the timer taps names from that list.
+                Add who's running — you can still time first and name people afterwards, but a
+                declared list makes the naming pass much faster.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex justify-center pb-6">
@@ -299,43 +341,122 @@ const RaceLiveTimerPage: React.FC = () => {
           </Card>
         ) : (
           <>
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border bg-muted/40 py-10">
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border bg-muted/40 py-6">
               <span className="font-mono text-6xl font-bold tabular-nums tracking-tight text-primary">
                 {formatElapsed(elapsedMs)}
               </span>
-              {phase === 'idle' ? (
-                <Button size="lg" className="h-14 px-10 text-base" onClick={handleStart}>
-                  <Play className="mr-2 h-5 w-5" />
-                  Start
-                </Button>
-              ) : (
-                <Button size="lg" variant="outline" className="h-14 px-10 text-base" onClick={handleReset}>
-                  <RotateCcw className="mr-2 h-5 w-5" />
-                  Reset
-                </Button>
-              )}
+              <div className="flex gap-2">
+                {phase === 'running' ? (
+                  <Button size="lg" variant="outline" className="h-12 px-8" onClick={handleStop}>
+                    <Square className="mr-2 h-4 w-4" />
+                    Stop
+                  </Button>
+                ) : (
+                  <Button size="lg" className="h-12 px-8" onClick={handleStart}>
+                    <Play className="mr-2 h-5 w-5" />
+                    {elapsedMs > 0 ? 'Resume' : 'Start'}
+                  </Button>
+                )}
+                {phase !== 'running' && elapsedMs > 0 && (
+                  <Button size="lg" variant="ghost" className="h-12" onClick={handleReset}>
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Reset
+                  </Button>
+                )}
+              </div>
             </div>
 
-            {/* Reclickable, no name attached — for a runner who's in the
-                race but isn't on the list below and can't be found fast
-                enough to tap correctly. Logs the time now; who it was
-                gets sorted out in "Unnamed times" below. Solid (default
-                variant), not outline — outline reads as barely-there next
-                to the sun on a track. */}
-            <Button
-              className="w-full"
-              onClick={handleLogUnnamed}
+            {/* The primary action. Deliberately the biggest target on the
+                page: one press per runner crossing, no name needed, no
+                scanning. Everything else here exists to support it. */}
+            <button
+              type="button"
+              onClick={handleFinish}
               disabled={phase !== 'running'}
+              className="flex h-28 w-full flex-col items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg transition-transform active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
             >
-              <UserX className="mr-2 h-4 w-4" />
-              Runner not listed — log time only
-            </Button>
+              <Flag className="mb-1 h-7 w-7" />
+              <span className="text-2xl font-bold">Finish</span>
+              <span className="text-xs opacity-90">
+                {phase === 'running' ? 'Tap as each runner crosses' : 'Start the clock first'}
+              </span>
+            </button>
 
-            <p className="text-sm text-muted-foreground">
-              {phase === 'running'
-                ? 'Tap a name the moment they finish. Tap it again to clear a mistake.'
-                : 'Start the clock, then tap each name as they finish.'}
-            </p>
+            {placed.length > 0 && (
+              <div className="space-y-2 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium">
+                    Finish order ({placed.length})
+                  </p>
+                  {stillUnnamed > 0 && (
+                    <span className="text-xs text-muted-foreground">{stillUnnamed} to name</span>
+                  )}
+                </div>
+                <div className="max-h-72 space-y-1 overflow-y-auto">
+                  {placed.map((capture) => {
+                    const isAssigning = capture.id === assigningId;
+                    const name = capture.athleteId ? nameById.get(capture.athleteId) ?? 'Unknown' : null;
+                    return (
+                      <div
+                        key={capture.id}
+                        className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${
+                          isAssigning ? 'border-primary bg-primary/5' : 'bg-background'
+                        }`}
+                      >
+                        <span className="w-6 shrink-0 text-right font-mono text-xs text-muted-foreground">
+                          {capture.place}
+                        </span>
+                        <span className="w-14 shrink-0 font-mono font-medium tabular-nums">
+                          {formatTime(capture.timeSec)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCaptureId(capture.id)}
+                          className="min-w-0 flex-1 truncate text-left"
+                        >
+                          {name ?? (
+                            <span className={isAssigning ? 'font-medium text-primary' : 'text-muted-foreground'}>
+                              {isAssigning ? 'Tap a name below →' : 'Unnamed — tap to name'}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCapture(capture.id)}
+                          className="shrink-0 text-muted-foreground hover:text-foreground"
+                          aria-label={`Delete finish ${capture.place}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* The one ambiguous interaction on this page — say which mode
+                the grid is in rather than leaving it to be inferred. */}
+            <div className="rounded-lg bg-muted/60 px-3 py-2 text-sm">
+              {assigningId ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span>
+                    Naming <span className="font-medium">#{assigningPlace}</span> ·{' '}
+                    <span className="font-mono">{formatTime(placed.find((c) => c.id === assigningId)?.timeSec ?? null)}</span>
+                    {' '}— tap who it was.
+                  </span>
+                  {selectedCaptureId && (
+                    <Button variant="ghost" size="sm" onClick={() => setSelectedCaptureId(null)}>
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              ) : phase === 'running' ? (
+                <span>Tapping a name records their finish now. Tap again to clear.</span>
+              ) : (
+                <span>Start the clock, or tap an unnamed row above to name it.</span>
+              )}
+            </div>
 
             {entrants.length > 1 && (
               <SegmentedPills
@@ -350,33 +471,27 @@ const RaceLiveTimerPage: React.FC = () => {
               />
             )}
 
-            {/* Three visually distinct states, high-contrast enough to read
-                outdoors — a light bordered tile blended into the page in
-                daylight. Not-yet-tapped is a solid dark button (this is
-                the state that's up almost the whole race, so it's the one
-                that most needs to actually look tappable); a tap goes gray
-                mid-save (the same "pressed" feedback pattern as the pill
-                below); a confirmed save turns solid primary, deliberately
-                a different color family from "not yet" so the two can't be
-                confused at a glance. */}
             {/* md, not the arbitrary min-[700px] this started as: Tailwind
                 only guarantees correct cascade order between its own named
                 breakpoints. An arbitrary breakpoint's media block can land
                 earlier in the compiled CSS than sm's — which is exactly
                 what happened here, so sm:grid-cols-3 (later in the
                 stylesheet, same specificity) kept winning the tie at any
-                width past 700px, including a full-size iPad. md is 768px —
-                every iPad except mini in portrait (744px) clears it. */}
+                width past 700px, including a full-size iPad. */}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-              {sortedEntrants.map((entrant) => {
+              {gridEntrants.map((entrant) => {
                 const recorded = timeFor(entrant.athleteId);
                 const pending = entrant.athleteId in pendingByAthlete;
-                const tappable = recorded != null || phase === 'running';
+                const tappable = assigningId ? true : recorded != null || phase === 'running';
                 return (
                   <button
                     key={entrant.athleteId}
                     type="button"
-                    onClick={() => (recorded != null ? handleClear(entrant.athleteId) : handleRecord(entrant.athleteId))}
+                    onClick={() => {
+                      if (assigningId) handleAssign(assigningId, entrant.athleteId);
+                      else if (recorded != null) handleClearAthlete(entrant.athleteId);
+                      else handleRecordNow(entrant.athleteId);
+                    }}
                     disabled={!tappable}
                     className={`flex min-h-16 flex-col items-center justify-center rounded-lg border-2 px-2 py-3 text-center font-medium transition-colors ${
                       recorded != null
@@ -397,50 +512,26 @@ const RaceLiveTimerPage: React.FC = () => {
               })}
             </div>
 
-            {/* Times logged with "Runner not listed," waiting on a name.
-                Each row is its own pick-a-name — assigning one writes a
-                real Result the same way any other tap does. */}
-            {unassignedCaptures.length > 0 && (
-              <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
-                <p className="text-sm font-medium">
-                  Unnamed time{unassignedCaptures.length === 1 ? '' : 's'} ({unassignedCaptures.length})
-                </p>
-                {unassignedCaptures.map((capture) => (
-                  <div key={capture.id} className="space-y-1.5 rounded-md border bg-background p-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-sm font-medium">{formatTime(capture.timeSec)}</span>
-                      {capture.assignedTo ? (
-                        <span className="text-xs text-muted-foreground">Saving {capture.assignedTo.name}…</span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="text-muted-foreground hover:text-foreground"
-                          onClick={() => handleDiscardUnnamed(capture.id)}
-                          aria-label="Discard this time"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                    {!capture.assignedTo && (
-                      <AthletePicker
-                        athletes={assignableRoster}
-                        onPick={(athleteId) => {
-                          const athlete = assignableRoster.find((a) => a.id === athleteId);
-                          if (athlete) handleAssignUnnamed(capture.id, athleteId, athlete.name);
-                        }}
-                        placeholder="Whose time was this?"
-                        emptyLabel="Everyone on the roster already has a time."
-                      />
-                    )}
-                  </div>
-                ))}
+            {assigningId && gridEntrants.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Every entrant has a time. Use the search below if this was someone else.
+              </p>
+            )}
+
+            {/* Someone who was never declared — search the whole roster
+                rather than adding them as an entrant first. */}
+            {assigningId && (
+              <div>
+                <p className="mb-2 text-sm font-medium">Not an entrant?</p>
+                <AthletePicker
+                  athletes={assignableRoster}
+                  onPick={(athleteId) => handleAssign(assigningId, athleteId)}
+                  placeholder="Search the whole roster…"
+                  emptyLabel="Everyone on the roster already has a time."
+                />
               </div>
             )}
 
-            {/* Someone unexpected ran — a walk-on, an athlete who wasn't on
-                the declared list. Adds them as an entrant immediately, so
-                they show up above to tap like anyone else. */}
             <div className="pt-2">
               <p className="mb-2 text-sm font-medium">Someone not on this list ran too</p>
               <AthletePicker

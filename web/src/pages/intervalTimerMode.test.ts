@@ -27,18 +27,18 @@ describe('interval session timer mode', () => {
     expect(page).toContain('Math.round(elapsedMs / 1000)');
     // Reuses the same write path as typing a time by hand — one place
     // that actually calls updateEntry, not a second copy of it.
-    expect(page).toContain('onRecord={(entry) => handleComplete(');
+    expect(page).toContain('handleComplete(cellKey(entry.id, activeRep + 1), timeSec)');
   });
 
-  it('only lets a tap record while the clock is actually running', () => {
+  it('only lets a tap record while the clock is running — unless it is naming a capture', () => {
     const panel = page.slice(page.indexOf('const IntervalTimerPanel'), page.indexOf('const IntervalSessionManagePage'));
     expect(panel).toContain("tappable = recorded != null || phase === 'running'");
-    expect(panel).toContain('disabled={!tappable}');
+    expect(panel).toContain('disabled={assigningId ? false : !tappable}');
   });
 
   it('lets a mistap be cleared without needing the clock running', () => {
     const panel = page.slice(page.indexOf('const IntervalTimerPanel'), page.indexOf('const IntervalSessionManagePage'));
-    expect(panel).toContain('recorded != null ? onClear(entry) : onRecord(entry)');
+    expect(panel).toContain('else if (recorded != null) onClear(entry)');
   });
 
   it('keeps the clock ticking independent of which panel is on screen', () => {
@@ -47,7 +47,7 @@ describe('interval session timer mode', () => {
     // inside IntervalTimerPanel itself.
     const panelDeclaration = page.slice(page.indexOf('const IntervalTimerPanel'), page.indexOf('IntervalTimerPanel: React.FC') + 400);
     expect(panelDeclaration).not.toContain('useState');
-    expect(page).toContain("const [timerPhase, setTimerPhase] = useState<'idle' | 'running'>('idle')");
+    expect(page).toContain("const [timerPhase, setTimerPhase] = useState<'idle' | 'running' | 'stopped'>('idle')");
   });
 
   it('clears the running interval on unmount', () => {
@@ -91,5 +91,54 @@ describe('interval session timer mode', () => {
     const panel = page.slice(page.indexOf('const IntervalTimerPanel'), page.indexOf('const IntervalSessionManagePage'));
     expect(panel).toContain('pendingKeys.has(cellKey(entry.id, rep))');
     expect(panel).toContain("pending ? 'saving…' : 'tap to clear'");
+  });
+});
+
+
+// Capture-first timing, the same change the Live Timer got: on a group of
+// twenty running 400s the names come back too fast to find, and a missed
+// tap is a rep nobody can re-run. The ordering/assignment logic itself is
+// shared and unit-tested in lib/captureTimer.test.ts.
+describe('interval timer capture-first', () => {
+  const panel = page.slice(page.indexOf('const IntervalTimerPanel'), page.indexOf('const IntervalSessionManagePage'));
+
+  it('gives the rep a FINISH button that takes no name', () => {
+    expect(panel).toContain('onClick={onFinishCapture}');
+    expect(panel).toContain('Finish');
+    expect(panel).toContain("disabled={phase !== 'running'}");
+  });
+
+  it('keeps captures per rep, so rep 2 does not inherit rep 1 finish order', () => {
+    expect(page).toContain('captures={capturesByRep[activeRep + 1] ?? []}');
+    expect(page).toContain('const setRepCaptures = useCallback(');
+  });
+
+  it('persists captures per session so a locked phone mid-workout loses nothing', () => {
+    expect(page).toContain('xc_interval_captures_');
+    expect(page).toContain('window.localStorage.setItem(CAPTURES_KEY');
+  });
+
+  it('names a capture into the same rep write path manual entry uses', () => {
+    expect(page).toContain('handleComplete(cellKey(entry.id, rep), capture.timeSec)');
+  });
+
+  it('clears the displaced row when an athlete is moved between captures', () => {
+    expect(page).toContain('const displaced = list.find((c) => c.athleteId === entry.id && c.id !== captureId)');
+    expect(page).toContain('if (displaced) handleClear(cellKey(entry.id, rep))');
+  });
+
+  it('Reset clears the clock but not the captures', () => {
+    const handler = page.slice(page.indexOf('const handleTimerReset ='), page.indexOf('const CAPTURES_KEY'));
+    expect(handler).toContain('setElapsedMs(0)');
+    expect(handler).not.toContain('setCapturesByRep');
+  });
+
+  it('states what a name tap will do rather than leaving it to be inferred', () => {
+    expect(panel).toContain('Naming <span className="font-medium">#{assigningCapture.place}</span>');
+    expect(panel).toContain('Tapping a name records their rep {rep} now.');
+  });
+
+  it('offers only athletes without a time for this rep during the naming pass', () => {
+    expect(panel).toContain('entries.filter((e) => e[repField(rep)] == null)');
   });
 });
