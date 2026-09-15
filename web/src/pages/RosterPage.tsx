@@ -279,7 +279,13 @@ const RosterPage: React.FC = () => {
         icon={ClipboardList}
         title="Roster"
         description="Manage who is on the team, season by season."
-        actions={<>
+        actions={
+          <Button onClick={() => setAddOpen(true)}>
+            <UserPlus className="mr-2 h-4 w-4" />
+            Add athlete
+          </Button>
+        }
+        secondaryActions={<>
           {isCoach && (
             <Button
               variant="outline"
@@ -302,10 +308,6 @@ const RosterPage: React.FC = () => {
               Merge Duplicates
             </Button>
           )}
-          <Button onClick={() => setAddOpen(true)}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Add athlete
-          </Button>
         </>}
       />
 

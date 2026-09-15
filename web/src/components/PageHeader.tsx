@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { ComponentType } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { accentFor, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
 
@@ -19,11 +21,16 @@ export const PageHeader: React.FC<{
   icon: ComponentType<{ className?: string }>;
   title: string;
   description?: string;
-  /** Buttons, filters — anything that belongs with the title. */
+  /** The one or two things a coach came to this page to do. Always visible. */
   actions?: React.ReactNode;
+  /** Occasional setup actions — sync, import, merge. Inline from sm up;
+   *  behind a "More" toggle on a phone, where four buttons at full size
+   *  ate half the screen before the page content started. */
+  secondaryActions?: React.ReactNode;
   className?: string;
-}> = ({ section, icon: Icon, title, description, actions, className }) => {
+}> = ({ section, icon: Icon, title, description, actions, secondaryActions, className }) => {
   const accent = accentFor(section);
+  const [showMore, setShowMore] = useState(false);
 
   return (
     <div
@@ -55,16 +62,31 @@ export const PageHeader: React.FC<{
             )}
           </div>
         </div>
-        {/* Full width on a phone, hugging the title from sm up. shrink-0
-            here was the bug: with the actions block refusing to shrink and
-            a fixed-width control inside it, a long action ("Sync from
-            Athletic.net") ran straight off the right edge of the screen
-            instead of wrapping. Buttons also go full width below sm so a
-            wrapped row doesn't leave ragged half-width targets. */}
-        {actions && (
-          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0 [&>*]:min-w-0 [&>button]:w-full sm:[&>button]:w-auto">
+        {/* shrink-0 with a fixed-width control inside was the original
+            bug: a long action ("Sync from Athletic.net") ran off the right
+            edge instead of wrapping. Buttons wrap at their natural width —
+            NOT forced full width, which just traded an overflow for four
+            stacked bars filling half a phone screen. */}
+        {(actions || secondaryActions) && (
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 [&>*]:min-w-0">
             {actions}
+            {secondaryActions && <span className="hidden sm:contents">{secondaryActions}</span>}
+            {secondaryActions && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="sm:hidden"
+                aria-expanded={showMore}
+                onClick={() => setShowMore((v) => !v)}
+              >
+                {showMore ? 'Less' : 'More'}
+                {showMore ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />}
+              </Button>
+            )}
           </div>
+        )}
+        {secondaryActions && showMore && (
+          <div className="flex w-full flex-wrap gap-2 sm:hidden">{secondaryActions}</div>
         )}
       </div>
     </div>
