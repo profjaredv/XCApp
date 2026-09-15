@@ -137,13 +137,22 @@ const TeamAthleteProfilePage = () => {
   const enhancedAthlete: (Athlete & { bestTimeDate?: string; raceCount?: number; firstRaceTime?: number; lastRaceTime?: number; races: Race[] }) | null = useMemo(() => {
     if (!athletePerf?.data) return null;
     const { data } = athletePerf;
+    // Identity comes from the identity query first. The metrics endpoint
+    // is keyed on a season's calculated row and had no athleteName field
+    // at all, so this rendered a blank heading and a chart legend that
+    // fell through to its raw dataKey ("athlete5K"). The backend now sends
+    // one, but identity is still preferred: it always 200s, it reflects a
+    // rename or a merge immediately, and it has already loaded by the time
+    // this runs.
+    const identityName = athleteIdentity?.preferredName || athleteIdentity?.name;
+    const displayName = identityName || data.athleteName || '';
     return {
       id: athleteId || '',
-      name: data.athleteName || '',
-      firstName: data.athleteName?.split(' ')[0] || '',
-      lastName: data.athleteName?.split(' ').slice(1).join(' ') || '',
-      currentGrade: data.grade || 0,
-      gender: data.gender as 'M' | 'F',
+      name: displayName,
+      firstName: displayName.split(' ')[0] || '',
+      lastName: displayName.split(' ').slice(1).join(' ') || '',
+      currentGrade: athleteIdentity?.grade ?? data.grade ?? 0,
+      gender: (athleteIdentity?.gender ?? data.gender) as 'M' | 'F',
       teamName: '', // This can be populated if available from the API
       seasons: [], // This will be populated by athleteAllSeasons
       currentSeason: {} as AthleteSeasonData, // Placeholder
@@ -157,7 +166,7 @@ const TeamAthleteProfilePage = () => {
       lastRaceTime: 0, // Placeholder
       bestTimeDate: '' // Placeholder
     };
-  }, [athletePerf, athleteId]);
+  }, [athletePerf, athleteId, athleteIdentity]);
 
   const careerSummary = useMemo<CareerSummary>(() => {
     const seasons = athleteAllSeasons?.data?.seasons || [];
@@ -422,6 +431,7 @@ const TeamAthleteProfilePage = () => {
           careerSummary={careerSummary}
           seasonBreakdown={seasonBreakdown}
           allSeasonsRaces={allSeasonsRaces}
+          adminSeason={selectedSeason}
           // This page renders the modal as its whole body (no separate
           // "page behind it" to fall back to visually — the modal's own
           // fixed inset-0 overlay covers the "Back to Team" header above).

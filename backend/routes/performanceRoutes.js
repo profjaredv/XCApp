@@ -140,7 +140,7 @@ router.get('/athlete/:athleteId/season/:season', authenticate, requireTeam, asyn
       return res.status(404).json({ success: false, message: 'Athlete not found' });
     }
 
-    const cacheKey = `athlete:v2:${athleteId}:${seasonNum}`;
+    const cacheKey = `athlete:v3:${athleteId}:${seasonNum}`;
     const cachedMetrics = await cache.get(cacheKey);
     if (cachedMetrics) {
       return res.json({ success: true, data: cachedMetrics, cached: true });
@@ -170,6 +170,19 @@ router.get('/athlete/:athleteId/season/:season', authenticate, requireTeam, asyn
       enriched.races = [];
       logger.warn(`Failed to attach season-only races for athlete ${athleteId}, season ${seasonNum}: ${err.message}`);
     }
+
+    // Identity, read live from the Athlete row rather than the metrics
+    // table's denormalized `name` snapshot — that snapshot is only as
+    // fresh as the last metrics calculation, so a rename or a duplicate
+    // merge would keep showing the old name until someone recalculated.
+    //
+    // The client reads `athleteName`; this row only ever had `name`, so
+    // the field simply came back undefined and the profile rendered a
+    // blank heading and a chart legend that fell through to its raw
+    // dataKey ("athlete5K").
+    enriched.athleteName = athlete.preferredName || athlete.name;
+    enriched.gender = athlete.gender ?? metrics.gender ?? null;
+    if (athlete.grade != null) enriched.grade = athlete.grade;
 
     await cache.set(cacheKey, enriched);
     res.json({ success: true, data: enriched, cached: false });

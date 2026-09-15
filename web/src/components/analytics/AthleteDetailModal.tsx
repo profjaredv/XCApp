@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
 import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { X, ChevronUp, ChevronDown } from 'lucide-react';
@@ -13,6 +13,8 @@ import { useCareerComparison } from '@/hooks/usePerformanceMetrics';
 import { formatTime, formatPace } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { CourseAdjustedProgressionCard } from '@/components/athletes/CourseAdjustedProgressionCard';
+import { AthleteAdminPanel } from '@/components/athletes/AthleteAdminPanel';
+import { useAuth } from '@/contexts/AuthContext';
 import { enrichRacesWithPRs, getPRBadgeStyle } from '@/utils/prTracking';
 import type { Athlete, Race } from '@/types/analytics';
 
@@ -55,6 +57,9 @@ interface AthleteDetailModalProps {
   careerSummary: CareerSummary;
   seasonBreakdown: SeasonBreakdown[];
   allSeasonsRaces: RaceData[];
+  /** Which season the admin actions apply to. Omitted on call sites with
+   *  no season in hand — the Admin tab simply doesn't render. */
+  adminSeason?: number;
   onClose: () => void;
 }
 
@@ -64,8 +69,13 @@ export const AthleteDetailModal = ({
   careerSummary,
   seasonBreakdown,
   allSeasonsRaces,
+  adminSeason,
   onClose
 }: AthleteDetailModalProps) => {
+  const { currentUser } = useAuth();
+  // Roster admin is a coach's job; the same actions are coach-gated on the
+  // roster page, and the API enforces it regardless of what renders here.
+  const showAdmin = currentUser?.role === 'coach' && adminSeason != null && selectedAthlete?.id;
   // Sorting state for races table
   const [sortField, setSortField] = useState<'meet' | 'season' | 'distance' | 'time' | 'pace'>('season');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -283,6 +293,7 @@ export const AthleteDetailModal = ({
                 <TabsTrigger value="races" className="whitespace-nowrap">All Races</TabsTrigger>
                 <TabsTrigger value="splits" className="whitespace-nowrap">Splits</TabsTrigger>
                 <TabsTrigger value="highlights" className="whitespace-nowrap">Highlights</TabsTrigger>
+                {showAdmin && <TabsTrigger value="admin" className="whitespace-nowrap">Admin</TabsTrigger>}
               </ResponsiveTabsList>
             </div>
             <TabsContent value="summary">
@@ -557,6 +568,22 @@ export const AthleteDetailModal = ({
                 </Card>
               </div>
             </TabsContent>
+            {showAdmin && (
+              <TabsContent value="admin">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Roster admin</CardTitle>
+                    <CardDescription>
+                      Everything that used to be a row of buttons on the roster. All of it applies
+                      to this athlete only.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <AthleteAdminPanel athleteId={selectedAthlete!.id} season={adminSeason!} />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
             <TabsContent value="splits">
               <Card>
                 <CardHeader>
