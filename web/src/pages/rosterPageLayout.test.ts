@@ -116,3 +116,31 @@ describe('preview as athlete', () => {
     }
   });
 });
+
+describe('roster row hierarchy', () => {
+  it('renders each status badge exactly once per row', () => {
+    // Captain appeared twice on the same row: once beside the name, once
+    // in the action row that was added when admin actions moved out.
+    // Counted on the render conditions rather than the label text, which
+    // also appears in the prose explaining why this happened.
+    expect((roster.match(/\{athlete\.isCaptain &&/g) ?? []).length).toBe(1);
+    expect((roster.match(/\{athlete\.graduated &&/g) ?? []).length).toBe(1);
+    expect((roster.match(/\{!athlete\.graduationYear &&/g) ?? []).length).toBe(1);
+    expect((roster.match(/\{athlete\.flaggedForRemoval &&/g) ?? []).length).toBe(1);
+  });
+
+  it('makes the name the largest thing on the row', () => {
+    expect(roster).toContain('text-base font-semibold leading-tight sm:text-lg');
+  });
+
+  it('steps the badges down so they annotate the name rather than rival it', () => {
+    expect(roster).toContain("const ROW_BADGE = 'px-1.5 py-0 text-[10px] font-medium'");
+    // Including the group chips, which sit directly under the name.
+    expect(roster).toContain('${ROW_BADGE} font-normal');
+  });
+
+  it('keeps the name flexible against the action column', () => {
+    expect(roster).toContain('<div className="min-w-0 flex-1">');
+    expect(roster).toContain('<div className="flex shrink-0 flex-wrap items-center gap-2">');
+  });
+});

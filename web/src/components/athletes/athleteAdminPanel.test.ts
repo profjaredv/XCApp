@@ -46,7 +46,10 @@ describe('roster row after the move', () => {
   it('keeps status badges and the way in, and nothing else per athlete', () => {
     expect(roster).toContain('View Profile');
     expect(roster).toContain('Needs class year');
-    expect(roster).toContain('<Badge variant="destructive">Flagged</Badge>');
+    // Status lives on the name line; the action row carries actions only,
+    // which is what stopped Captain rendering twice on one row.
+    const actionRow = roster.slice(roster.indexOf('<div className="flex shrink-0 flex-wrap items-center gap-2">'));
+    expect(actionRow.slice(0, 400)).not.toContain('<Badge');
   });
 
   it('no longer carries the per-athlete action buttons', () => {
