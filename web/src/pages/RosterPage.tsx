@@ -23,24 +23,21 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, GraduationCap, Users, KeyRound, Mail, RefreshCw, AlertTriangle, Star, Eye, Upload, Loader2, Merge, ClipboardList, Search, X } from 'lucide-react';
+import { UserPlus, GraduationCap, Users, KeyRound, RefreshCw, AlertTriangle, Star, Upload, Loader2, Merge, ClipboardList, Search, X } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { rosterService, type RosterAthlete, type RosterImportResult, type ExistingAthleteConflict } from '@/api/rosterService';
-import { athleteService } from '@/api/athleteService';
 import { teamService } from '@/api/teamService';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useGroups, useAllGroupMembers } from '@/hooks/useGroups';
 import { matchesQuery } from '@/lib/athleteSearch';
-import { gradeLabel, deriveGraduationYear } from '@/lib/seasonUtils';
+import { gradeLabel } from '@/lib/seasonUtils';
 import { PageHeader } from '@/components/PageHeader';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAuth } from '@/contexts/AuthContext';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { PendingClaimsCard } from '@/components/PendingClaimsCard';
 import { PendingGuardianLinksCard } from '@/components/PendingGuardianLinksCard';
 import { PendingParentRequestsCard } from '@/components/PendingParentRequestsCard';
-import { setPreviewAthlete } from '@/lib/impersonation';
 
 // The roster is the thing a coach actually manages day to day: who is on the
 // team this season, what grade they're in, who just graduated. Before this
@@ -97,13 +94,6 @@ const RosterPage: React.FC = () => {
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
   const [joinCodeError, setJoinCodeError] = useState<string | null>(null);
 
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
-  const [inviteTarget, setInviteTarget] = useState<RosterAthlete | null>(null);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteLoading, setInviteLoading] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
-  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const {
     data: roster = [],
@@ -176,14 +166,6 @@ const RosterPage: React.FC = () => {
     onError: () => toast.error('Could not add them to this season.'),
   });
 
-  const removeFromRoster = useMutation({
-    mutationFn: (athleteId: string) => rosterService.removeFromRoster(season!, athleteId),
-    onSuccess: () => {
-      toast.success('Removed from roster (results kept)');
-      invalidate();
-    },
-    onError: () => toast.error('Could not update roster'),
-  });
 
   const syncRoster = useMutation({
     mutationFn: () => rosterService.syncFromAthleticNet(season!),
@@ -199,59 +181,15 @@ const RosterPage: React.FC = () => {
     },
   });
 
-  const clearRemovalFlag = useMutation({
-    mutationFn: (athleteId: string) => rosterService.clearRemovalFlag(season!, athleteId),
-    onSuccess: () => {
-      toast.success('Kept on roster');
-      invalidate();
-    },
-    onError: () => toast.error('Could not update roster'),
-  });
 
   // T1: captain designation — coach-only, no action required from the
   // athlete's side at all. isCaptain toggles instantly; captainNotes gets
   // its own small dialog since it's optional detail, not the common case.
-  const setCaptain = useMutation({
-    mutationFn: ({ athlete, isCaptain }: { athlete: RosterAthlete; isCaptain: boolean }) =>
-      rosterService.setCaptain(athlete.seasonId!, athlete.id, isCaptain),
-    onSuccess: (_data, { athlete, isCaptain }) => {
-      const displayName = athlete.preferredName || athlete.name;
-      toast.success(isCaptain ? `${displayName} is now a captain` : `${displayName} is no longer a captain`);
-      invalidate();
-    },
-    onError: () => toast.error('Could not update captain status'),
-  });
 
-  const [captainNotesTarget, setCaptainNotesTarget] = useState<RosterAthlete | null>(null);
-  const [captainNotesDraft, setCaptainNotesDraft] = useState('');
-  const saveCaptainNotes = useMutation({
-    mutationFn: () =>
-      // isCaptain omitted deliberately — this dialog only ever opens for an
-      // athlete who's already a captain, and saving a note shouldn't also
-      // re-assert captaincy (see rosterService.setCaptain's doc comment).
-      rosterService.setCaptain(captainNotesTarget!.seasonId!, captainNotesTarget!.id, undefined, captainNotesDraft.trim()),
-    onSuccess: () => {
-      toast.success('Captain notes saved');
-      setCaptainNotesTarget(null);
-      invalidate();
-    },
-    onError: () => toast.error('Could not save captain notes'),
-  });
 
   // What the athlete actually goes by — shown throughout the app instead of
   // their legal name wherever set. Its own small dialog, same shape as
   // captain notes above, since it's an occasional edit, not the common case.
-  const [nicknameTarget, setNicknameTarget] = useState<RosterAthlete | null>(null);
-  const [nicknameDraft, setNicknameDraft] = useState('');
-  const saveNickname = useMutation({
-    mutationFn: () => rosterService.updateAthlete(nicknameTarget!.id, { preferredName: nicknameDraft.trim() }),
-    onSuccess: () => {
-      toast.success('Preferred name saved');
-      setNicknameTarget(null);
-      invalidate();
-    },
-    onError: () => toast.error('Could not save preferred name'),
-  });
 
   // Class year. The roster has always BADGED "Needs class year" without
   // offering any way to set one — nickname was the only inline edit — so an
@@ -259,22 +197,6 @@ const RosterPage: React.FC = () => {
   // Grade is derived from graduationYear everywhere (lib/seasonUtils), so
   // that is what gets stored; coaches think in grades, so that is what they
   // pick, and the year is worked back from the season on screen.
-  const [classYearTarget, setClassYearTarget] = useState<RosterAthlete | null>(null);
-  const [classYearGrade, setClassYearGrade] = useState<string>('');
-  const saveClassYear = useMutation({
-    mutationFn: () => {
-      const grade = parseInt(classYearGrade, 10);
-      const graduationYear = deriveGraduationYear(grade, season ?? null);
-      if (graduationYear === null) throw new Error('Pick a grade first.');
-      return rosterService.updateAthlete(classYearTarget!.id, { graduationYear });
-    },
-    onSuccess: () => {
-      toast.success('Class year saved');
-      setClassYearTarget(null);
-      invalidate();
-    },
-    onError: (err) => toast.error(getApiErrorMessage(err, 'Could not save class year')),
-  });
 
   // "What group am I in?" is the question athletes actually ask at
   // practice, and answering it used to mean opening the roster, scrolling
@@ -352,56 +274,9 @@ const RosterPage: React.FC = () => {
     toast.success('Join code copied to clipboard');
   };
 
-  const openInviteDialog = (athlete: RosterAthlete) => {
-    setInviteTarget(athlete);
-    setInviteEmail(athlete.invite?.email || '');
-    setInviteError(null);
-    setInviteNotice(null);
-    setInviteLink(null);
-    setInviteDialogOpen(true);
-  };
 
-  const closeInviteDialog = () => {
-    setInviteDialogOpen(false);
-    setInviteTarget(null);
-    setInviteEmail('');
-    setInviteLoading(false);
-  };
 
-  const handleInviteSubmit = async () => {
-    if (!inviteTarget || !inviteEmail) {
-      setInviteError('Please provide an email to send the invitation.');
-      return;
-    }
-    setInviteLoading(true);
-    setInviteError(null);
-    try {
-      const response = await athleteService.inviteAthlete(inviteTarget.id, inviteEmail);
-      const tokenFromResponse = response?.token || response?.invite?.token;
-      setInviteNotice(
-        response?.emailSent
-          ? `Invitation emailed to ${inviteEmail}.`
-          : `Invitation ready for ${inviteEmail} — email wasn't sent, share the link below.`
-      );
-      setInviteLink(
-        tokenFromResponse && typeof window !== 'undefined'
-          ? `${window.location.origin}/invite/${tokenFromResponse}`
-          : null
-      );
-      invalidate();
-      closeInviteDialog();
-    } catch (err) {
-      setInviteError(getApiErrorMessage(err, 'Failed to send invitation.'));
-    } finally {
-      setInviteLoading(false);
-    }
-  };
 
-  const handleCopyInviteLink = async () => {
-    if (!inviteLink || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(inviteLink);
-    toast.success('Invite link copied to clipboard');
-  };
 
   const inviteBadgeFor = (athlete: RosterAthlete) => {
     if (athlete.user) return { label: 'Accepted', variant: 'default' as const };
@@ -419,11 +294,6 @@ const RosterPage: React.FC = () => {
     }
   };
 
-  const inviteButtonLabel = (athlete: RosterAthlete) => {
-    if (athlete.user) return 'Invite Sent';
-    if (athlete.invite?.status && athlete.invite.status !== 'not_invited') return 'Resend Invite';
-    return 'Invite';
-  };
 
   return (
     <div className="space-y-6">
@@ -570,31 +440,7 @@ const RosterPage: React.FC = () => {
         </div>
       )}
 
-      {inviteNotice && (
-        <Alert>
-          <div className="space-y-2">
-            <AlertDescription>{inviteNotice}</AlertDescription>
-            {inviteLink && (
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="break-all font-mono">{inviteLink}</span>
-                <Button size="sm" variant="outline" onClick={handleCopyInviteLink}>
-                  Copy Link
-                </Button>
-              </div>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setInviteNotice(null);
-                setInviteLink(null);
-              }}
-            >
-              Dismiss
-            </Button>
-          </div>
-        </Alert>
-      )}
+
 
       <div className="flex items-center gap-2">
         <Button
@@ -702,68 +548,19 @@ const RosterPage: React.FC = () => {
                         <p className="mt-1 text-xs text-muted-foreground italic">No group yet</p>
                       )}
                   </div>
+                  {/* A list is for seeing everyone and getting to one of
+                      them. Every per-athlete admin action — nickname, class
+                      year, captain, notes, invite, preview, remove — moved
+                      to the athlete's own page (Admin tab, see
+                      AthleteAdminPanel): nine buttons per row wrapped onto
+                      three lines on a phone and pushed the actual roster
+                      off the screen. What stays is status a coach scans
+                      for, and the way in. */}
                   <div className="flex flex-wrap items-center gap-2">
                     {athlete.graduated && <Badge variant="secondary">Graduated</Badge>}
-                    {!athlete.graduationYear &&
-                      (isCoach ? (
-                        // Actionable rather than just a complaint: this is
-                        // the fix for an athlete showing up with no grade in
-                        // meet analysis.
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setClassYearTarget(athlete);
-                            setClassYearGrade('');
-                          }}
-                        >
-                          <GraduationCap className="mr-2 h-4 w-4" />
-                          Set class year
-                        </Button>
-                      ) : (
-                        <Badge variant="outline">Needs class year</Badge>
-                      ))}
-                    {isCoach && athlete.seasonId && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCaptain.mutate({ athlete, isCaptain: !athlete.isCaptain })}
-                        disabled={setCaptain.isPending}
-                      >
-                        <Star className="mr-2 h-4 w-4" />
-                        {athlete.isCaptain ? 'Remove Captain' : 'Make Captain'}
-                      </Button>
-                    )}
-                    {isCoach && athlete.isCaptain && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setCaptainNotesTarget(athlete);
-                          setCaptainNotesDraft(athlete.captainNotes ?? '');
-                        }}
-                      >
-                        Notes
-                      </Button>
-                    )}
-                    {isCoach && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setNicknameTarget(athlete);
-                          setNicknameDraft(athlete.preferredName ?? '');
-                        }}
-                      >
-                        {athlete.preferredName ? 'Edit Nickname' : 'Add Nickname'}
-                      </Button>
-                    )}
-                    {isCoach && !athlete.user && (
-                      <Button variant="outline" size="sm" onClick={() => openInviteDialog(athlete)}>
-                        <Mail className="mr-2 h-4 w-4" />
-                        {inviteButtonLabel(athlete)}
-                      </Button>
-                    )}
+                    {athlete.isCaptain && <Badge><Star className="mr-1 h-3 w-3" />Captain</Badge>}
+                    {!athlete.graduationYear && <Badge variant="outline">Needs class year</Badge>}
+                    {athlete.flaggedForRemoval && <Badge variant="destructive">Flagged</Badge>}
                     <Button
                       variant="outline"
                       size="sm"
@@ -771,46 +568,6 @@ const RosterPage: React.FC = () => {
                     >
                       View Profile
                     </Button>
-                    {/* Icon-only: this row already carries up to eight
-                        actions and "Preview as athlete" was the longest
-                        label on it, for the one action a coach reaches for
-                        least. Kept rather than deleted because this is the
-                        only entry point to the preview feature — removing
-                        the button would strand a working full-stack path
-                        (lib/impersonation.ts's preview half,
-                        ImpersonationBanner, axios's X-Preview-Athlete-Id
-                        header, and the server middleware behind it). */}
-                    {isCoach && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-11 w-11 p-0 sm:h-8 sm:w-8"
-                        title="Preview as athlete — see the app as they would: their own profile, log-a-run, race reflections"
-                        aria-label={`Preview the app as ${athlete.preferredName || athlete.name}`}
-                        onClick={() => setPreviewAthlete(athlete.id, athlete.preferredName || athlete.name, teamPath)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    )}
-                    {isCoach && athlete.flaggedForRemoval && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => clearRemovalFlag.mutate(athlete.id)}
-                        disabled={clearRemovalFlag.isPending}
-                      >
-                        Keep
-                      </Button>
-                    )}
-                    {athlete.onRoster && !athlete.graduated && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeFromRoster.mutate(athlete.id)}
-                      >
-                        Remove
-                      </Button>
-                    )}
                   </div>
                 </div>
               ))}
@@ -932,133 +689,6 @@ const RosterPage: React.FC = () => {
               disabled={!newName.trim() || addAthlete.isPending || !!nameConflict}
             >
               {addAthlete.isPending ? 'Adding…' : 'Add athlete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={inviteDialogOpen}
-        onOpenChange={(open) => (open ? setInviteDialogOpen(true) : closeInviteDialog())}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Invite {inviteTarget?.preferredName || inviteTarget?.name}</DialogTitle>
-            <DialogDescription>
-              Send an invitation so this athlete can access analytics, results, and their profile.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="invite-email">Athlete Email</Label>
-              <Input
-                id="invite-email"
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="runner@example.com"
-              />
-            </div>
-            {inviteError && (
-              <Alert variant="destructive">
-                <AlertDescription>{inviteError}</AlertDescription>
-              </Alert>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={closeInviteDialog} disabled={inviteLoading}>
-              Cancel
-            </Button>
-            <Button onClick={handleInviteSubmit} disabled={inviteLoading}>
-              {inviteLoading ? 'Sending…' : 'Send Invite'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!captainNotesTarget} onOpenChange={(open) => !open && setCaptainNotesTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Captain notes — {captainNotesTarget?.preferredName || captainNotesTarget?.name}</DialogTitle>
-            <DialogDescription>Private to coaching staff. Not visible to the athlete.</DialogDescription>
-          </DialogHeader>
-          <Textarea
-            value={captainNotesDraft}
-            onChange={(e) => setCaptainNotesDraft(e.target.value)}
-            rows={4}
-            placeholder="e.g. leads the Boys Blue group's warmup"
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCaptainNotesTarget(null)}>
-              Cancel
-            </Button>
-            <Button onClick={() => saveCaptainNotes.mutate()} disabled={saveCaptainNotes.isPending}>
-              {saveCaptainNotes.isPending ? 'Saving…' : 'Save'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!nicknameTarget} onOpenChange={(open) => !open && setNicknameTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Preferred name — {nicknameTarget?.name}</DialogTitle>
-            <DialogDescription>
-              Shown everywhere in place of their full name — the roster, meet entries, AI insights,
-              and everywhere else. Leave blank to just use "{nicknameTarget?.name}".
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            value={nicknameDraft}
-            onChange={(e) => setNicknameDraft(e.target.value)}
-            placeholder="What they go by"
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNicknameTarget(null)}>
-              Cancel
-            </Button>
-            <Button onClick={() => saveNickname.mutate()} disabled={saveNickname.isPending}>
-              {saveNickname.isPending ? 'Saving…' : 'Save'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!classYearTarget} onOpenChange={(open) => !open && setClassYearTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Class year — {classYearTarget?.name}</DialogTitle>
-            <DialogDescription>
-              What grade are they in for the {season} season? Their class year is worked out from
-              that, so every past and future season shows the right grade automatically.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label>Grade in {season}</Label>
-            <Select value={classYearGrade} onValueChange={setClassYearGrade}>
-              <SelectTrigger>
-                <SelectValue placeholder="Pick a grade" />
-              </SelectTrigger>
-              <SelectContent>
-                {[9, 10, 11, 12].map((g) => (
-                  <SelectItem key={g} value={String(g)}>
-                    {gradeLabel(g)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {classYearGrade && season !== undefined && (
-              <p className="text-xs text-muted-foreground">
-                Saved as class of {deriveGraduationYear(parseInt(classYearGrade, 10), season)}.
-              </p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setClassYearTarget(null)}>
-              Cancel
-            </Button>
-            <Button onClick={() => saveClassYear.mutate()} disabled={!classYearGrade || saveClassYear.isPending}>
-              {saveClassYear.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

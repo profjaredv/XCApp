@@ -47,6 +47,12 @@ interface AthleteProgressChartProps {
   isLoading?: boolean;
 }
 
+// Recharts falls back to the raw dataKey when a Line's `name` is empty,
+// which is how a coach ended up looking at a legend reading "athlete5K".
+// The upstream blank is fixed, but a legend should never be able to leak
+// an internal field name again regardless of what the data does.
+const FALLBACK_SERIES_NAME = 'This athlete';
+
 const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({ 
   athleteName, 
   data, 
@@ -139,7 +145,7 @@ const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({
                   dataKey="athlete5K" 
                   stroke="#2563eb" 
                   strokeWidth={3}
-                  name={athleteName}
+                  name={athleteName || FALLBACK_SERIES_NAME}
                   connectNulls={false}
                 />
                 {comparisons.boys5K && (
@@ -201,7 +207,7 @@ const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({
                   dataKey="athletePace" 
                   stroke="#2563eb" 
                   strokeWidth={3}
-                  name={athleteName}
+                  name={athleteName || FALLBACK_SERIES_NAME}
                   connectNulls={false}
                 />
                 {comparisons.boysPace && (
