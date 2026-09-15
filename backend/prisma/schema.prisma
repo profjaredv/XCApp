@@ -106,12 +106,13 @@ model Team {
   // resolves to all-on; only keys the coach actually changed are stored, so
   // a feature added to the catalog later starts enabled for everyone
   // instead of silently disappearing. See lib/teamFeatures.js.
-  features             Json?
+  features Json?
 
   coach                   User?                    @relation("TeamCoach", fields: [coachUid], references: [id])
   members                 User[]                   @relation("TeamUsers")
   teamMembers             TeamMember[]
   athletes                Athlete[]
+  athleteAliasIds         AthleteAliasId[]
   races                   Race[]
   results                 Result[]
   seasons                 Season[]
@@ -258,6 +259,35 @@ model TeamMember {
 // Roster & results
 // ---------------------------------------------------------------------------
 
+// Athletic.net profile links that USED to belong to a separate Athlete row
+// before a merge folded it into this one.
+//
+// The bug this exists for: Athlete.athleticAthleteId is singular and
+// unique, so merging two duplicates destroys the loser's id along with its
+// row. The next scrape then arrives carrying that id, matches nothing,
+// falls back to name — and since the two rows had different names (which
+// is usually WHY they were duplicates), it creates the duplicate all over
+// again. Every import undid the merge.
+//
+// Keeping the retired ids means a merge is permanent: the scraper can go
+// on reporting either profile and both resolve to the surviving athlete.
+// Unique across the table for the same reason the Athlete column is — one
+// profile cannot point at two people.
+model AthleteAliasId {
+  id                String   @id @default(uuid()) @db.Uuid
+  teamId            String   @map("team_id") @db.Uuid
+  athleteId         String   @map("athlete_id") @db.Uuid
+  athleticAthleteId String   @unique @map("athletic_athlete_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@index([athleteId])
+  @@index([teamId])
+  @@map("athlete_alias_ids")
+}
+
 model Athlete {
   id                String   @id @default(uuid()) @db.Uuid
   teamId            String   @map("team_id") @db.Uuid
@@ -299,6 +329,7 @@ model Athlete {
   trainingLogs             TrainingLog[]
   trainingLogImportBatches TrainingLogImportBatch[]
   guardianLinks            GuardianLink[]
+  aliasIds                 AthleteAliasId[]
   groupMemberships         GroupMembership[]
   meetEntries              MeetEntry[]
   raceReflections          RaceReflection[]
@@ -665,28 +696,28 @@ model MeetPlan {
 }
 
 model Race {
-  id                 String   @id @default(uuid()) @db.Uuid
-  teamId             String   @map("team_id") @db.Uuid
+  id                 String           @id @default(uuid()) @db.Uuid
+  teamId             String           @map("team_id") @db.Uuid
   name               String
-  date               DateTime @db.Date
+  date               DateTime         @db.Date
   season             Int
   distance           String? // e.g. "5K", "5,000 Meters" (as scraped)
-  distanceMeters     Float?   @map("distance_meters")
+  distanceMeters     Float?           @map("distance_meters")
   location           String?
   // Populated by the season scraper's meet-key extraction (Phase 2). Points
   // at this race's own meet-results page on Athletic.net, which carries the
   // full field (every school, every athlete) — the season grid never does.
   // Null for races imported before this field existed, until re-scraped.
-  sourceUrl          String?  @map("source_url")
-  athleticMeetId     String?  @map("athletic_meet_id")
+  sourceUrl          String?          @map("source_url")
+  athleticMeetId     String?          @map("athletic_meet_id")
   // T4: the parent Meet this race belongs to (boys varsity, girls JV, etc.
   // all sharing one meet day). Null until grouped — see the Meet model's
   // own comment for how existing scraped races get backfilled.
-  meetId             String?  @map("meet_id") @db.Uuid
+  meetId             String?          @map("meet_id") @db.Uuid
   // Set only by the coach-confirmed course-mapping apply step (see
   // scripts/proposeCourseMapping.js / scripts/applyCourseMapping.js) —
   // never inferred/written automatically from location-string similarity.
-  courseId           String?  @map("course_id") @db.Uuid
+  courseId           String?          @map("course_id") @db.Uuid
   // Field-relative normalization (Build Spec, "Core measurement decisions").
   // Computed from FieldResult by the meet scraper's ingest step, gender-
   // specific — a single Athletic.net race entry is usually single-gender;
@@ -694,17 +725,17 @@ model Race {
   // a blended figure here. Null (not zero) when normalization wasn't
   // computed — either the field scrape hasn't run for this race yet, or
   // fieldFinisherCount fell below the 40-finisher confidence threshold.
-  fieldMeanSec       Float?   @map("field_mean_sec")
-  fieldMedianSec     Float?   @map("field_median_sec")
-  fieldFinisherCount Int?     @map("field_finisher_count")
+  fieldMeanSec       Float?           @map("field_mean_sec")
+  fieldMedianSec     Float?           @map("field_median_sec")
+  fieldFinisherCount Int?             @map("field_finisher_count")
   // C3/C4 (LeadPack Master Build Handoff): which mile markers a coach films
   // for this race — 'MILE' | 'KM' | 'CUSTOM'. Null defaults to MILE in
   // lib/splitMath.js's markersForRace, which is correct for every race this
   // program runs; the scheme exists for college/metric-marked courses, not
   // something a high school coach needs to think about. splitMarkersMeters
   // only matters when scheme = 'CUSTOM' (e.g. a course marked at 2K/4K only).
-  splitMarkerScheme  String?  @map("split_marker_scheme")
-  splitMarkersMeters Float[]  @map("split_markers_meters")
+  splitMarkerScheme  String?          @map("split_marker_scheme")
+  splitMarkersMeters Float[]          @map("split_markers_meters")
   // A coach-entered race that never touched the Athletic.net scraper (e.g.
   // an in-house track time trial) — see POST /:meetId/races in
   // routes/meetOps.js. Everything downstream (pace calcs, PRs, band
@@ -718,11 +749,11 @@ model Race {
   // wipe site (scrape re-import, clear-team-data, season results delete)
   // excludes isManual races; deleting one is only ever a direct,
   // deliberate action (DELETE /races/:raceId, manual-only).
-  isManual           Boolean  @default(false) @map("is_manual")
+  isManual           Boolean          @default(false) @map("is_manual")
   // Null for a regular-season race. Coach-set — see PostseasonLevel.
   postseasonLevel    PostseasonLevel? @map("postseason_level")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
 
   team                   Team                     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   course                 Course?                  @relation(fields: [courseId], references: [id], onDelete: SetNull)

@@ -126,6 +126,11 @@ const CLASSIFICATION = {
     what: 'Name, preferred name, class year and gender.',
     why: 'Name, grade level and participation in a school sport are directory information under 34 CFR 99.3 — the same fields already published on public results sites.',
   },
+  AthleteAliasId: {
+    class: CLASSES.DIRECTORY,
+    what: "Athletic.net profile links that used to belong to a duplicate roster row, before a merge folded it into this athlete.",
+    why: 'A public results-site URL for a student already identified by name on that same site — the same directory-level fact as Athlete.athleticAthleteId, which it exists to remember after a merge.',
+  },
   Meet: {
     class: CLASSES.DIRECTORY,
     what: 'Meet name, date, location and logistics.',
