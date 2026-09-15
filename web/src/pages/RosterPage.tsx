@@ -41,6 +41,11 @@ import { useAuth } from '@/contexts/AuthContext';
 // page the only way an athlete could exist was to be scraped out of a results
 // page, so a team couldn't be set up before its first race.
 
+// Status badges on a roster row annotate the name; they never rival it.
+// Smaller and lighter than the Badge default, which is sized for standing
+// alone rather than sitting beside a 16-18px name.
+const ROW_BADGE = 'px-1.5 py-0 text-[10px] font-medium';
+
 const RosterPage: React.FC = () => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
@@ -417,30 +422,45 @@ const RosterPage: React.FC = () => {
                   key={athlete.id}
                   className="flex flex-wrap items-center justify-between gap-3 py-3"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium flex items-center gap-2">
-                      <span>{athlete.preferredName || athlete.name}</span>
+                  {/* The name is the thing a coach is scanning for, so it
+                      is the largest item on the row and everything else
+                      steps down from it. The status badges were competing
+                      with it at the same weight — a blue "Captain" pill
+                      read louder than the person it belonged to. They are
+                      smaller and lighter now; they annotate the name, they
+                      do not rival it. */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-base font-semibold leading-tight sm:text-lg">
+                        {athlete.preferredName || athlete.name}
+                      </span>
                       {athlete.preferredName && (
                         <span className="text-xs font-normal text-muted-foreground">({athlete.name})</span>
                       )}
                       {athlete.isCaptain && (
-                        <Badge variant="default" className="flex items-center gap-1">
-                          <Star className="h-3 w-3" />
+                        <Badge variant="default" className={ROW_BADGE}>
+                          <Star className="mr-1 h-3 w-3" />
                           Captain
                         </Badge>
                       )}
+                      {athlete.graduated && (
+                        <Badge variant="secondary" className={ROW_BADGE}>Graduated</Badge>
+                      )}
+                      {!athlete.graduationYear && (
+                        <Badge variant="outline" className={ROW_BADGE}>Needs class year</Badge>
+                      )}
                       {inviteBadgeFor(athlete) && (
-                        <Badge variant={inviteBadgeFor(athlete)!.variant}>
+                        <Badge variant={inviteBadgeFor(athlete)!.variant} className={ROW_BADGE}>
                           {inviteBadgeFor(athlete)!.label}
                         </Badge>
                       )}
                       {athlete.flaggedForRemoval && (
-                        <Badge variant="destructive" className="flex items-center gap-1">
-                          <AlertTriangle className="h-3 w-3" />
+                        <Badge variant="destructive" className={ROW_BADGE}>
+                          <AlertTriangle className="mr-1 h-3 w-3" />
                           Not on Athletic.net
                         </Badge>
                       )}
-                    </p>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {athlete.graduationYear ? `Class of ${athlete.graduationYear}` : 'No class year'}
                       {athlete.raceCount > 0 ? ` • ${athlete.raceCount} races in ${season}` : ''}
@@ -455,7 +475,7 @@ const RosterPage: React.FC = () => {
                           <Badge
                             key={g.id}
                             variant={g.type === 'TRAINING' ? 'secondary' : 'outline'}
-                            className="font-normal"
+                            className={`${ROW_BADGE} font-normal`}
                           >
                             {g.name}
                           </Badge>
@@ -475,11 +495,10 @@ const RosterPage: React.FC = () => {
                       three lines on a phone and pushed the actual roster
                       off the screen. What stays is status a coach scans
                       for, and the way in. */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {athlete.graduated && <Badge variant="secondary">Graduated</Badge>}
-                    {athlete.isCaptain && <Badge><Star className="mr-1 h-3 w-3" />Captain</Badge>}
-                    {!athlete.graduationYear && <Badge variant="outline">Needs class year</Badge>}
-                    {athlete.flaggedForRemoval && <Badge variant="destructive">Flagged</Badge>}
+                  {/* Actions only. Every badge that used to sit here was a
+                      second copy of one already beside the name — Captain
+                      rendered twice on the same row. */}
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
