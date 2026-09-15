@@ -11,7 +11,8 @@ import { AthletePicker } from '@/components/groups/AthletePicker';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { accentFor } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
-import type { RosterAthlete } from '@/api/rosterService';
+import { rosterService, type RosterAthlete } from '@/api/rosterService';
+import { useSeasonSelection } from '@/contexts/SeasonContext';
 
 // Parents who asked for this team but had no join code.
 //
@@ -27,7 +28,19 @@ import type { RosterAthlete } from '@/api/rosterService';
 // pick rather than an automatic name match — "Woods" could be two
 // siblings, and guessing wrong hands a stranger a student's information.
 
-export const PendingParentRequestsCard: React.FC<{ roster: RosterAthlete[] }> = ({ roster }) => {
+// `roster` is optional so this can sit on Settings (where no roster is in
+// hand) as well as inline on a page that already loaded one — passing it
+// avoids a second identical fetch, omitting it just costs one.
+export const PendingParentRequestsCard: React.FC<{ roster?: RosterAthlete[] }> = ({
+  roster: rosterProp,
+}) => {
+  const { activeYear } = useSeasonSelection();
+  const { data: fetchedRoster = [] } = useQuery({
+    queryKey: ['roster', activeYear],
+    queryFn: () => rosterService.getRoster(activeYear ?? undefined),
+    enabled: rosterProp === undefined && activeYear != null,
+  });
+  const roster = rosterProp ?? fetchedRoster;
   const queryClient = useQueryClient();
   const accent = accentFor('groups');
   const [openFor, setOpenFor] = useState<string | null>(null);

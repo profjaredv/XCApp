@@ -26,9 +26,13 @@ import { DataPracticesCard } from '@/components/settings/DataPracticesCard';
 import { SeasonRolloverCard } from '@/components/settings/SeasonRolloverCard';
 import { TeamFeaturesCard } from '@/components/settings/TeamFeaturesCard';
 import { PageHeader } from '@/components/PageHeader';
+import { TeamJoinCodeCard } from '@/components/team/TeamJoinCodeCard';
+import { PendingClaimsCard } from '@/components/PendingClaimsCard';
+import { PendingGuardianLinksCard } from '@/components/PendingGuardianLinksCard';
+import { PendingParentRequestsCard } from '@/components/PendingParentRequestsCard';
 import { useExpandedSections } from '@/hooks/useExpandedSections';
 import { isFullCoach, canDeleteData, isImpersonatingAdmin } from '@/lib/teamRole';
-import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2, CalendarPlus, ToggleLeft } from 'lucide-react';
+import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2, CalendarPlus, ToggleLeft, KeyRound } from 'lucide-react';
 
 interface Team {
   id: string;
@@ -313,6 +317,31 @@ const SimpleSettingsPage: React.FC = () => {
             onToggle={() => toggle('staff')}
           >
             {isMounted('staff') && <StaffManager />}
+          </SettingsSection>
+        )}
+
+        {/* Moved off the Roster page. Handing out a join code and
+            approving claims is team setup a coach does once a season; it
+            was sitting above the roster list and pushing it off a phone
+            screen on every visit. */}
+        {team && (isFullCoach(currentUser) || isImpersonatingAdmin(currentUser)) && (
+          <SettingsSection
+            id="athlete-access"
+            section="athletes"
+            title="Athlete access"
+            description="Join code, profile claims and guardian requests."
+            icon={KeyRound}
+            open={isOpen('athlete-access')}
+            onToggle={() => toggle('athlete-access')}
+          >
+            {isMounted('athlete-access') && (
+              <div className="space-y-4">
+                <TeamJoinCodeCard />
+                <PendingClaimsCard />
+                <PendingGuardianLinksCard />
+                <PendingParentRequestsCard />
+              </div>
+            )}
           </SettingsSection>
         )}
 

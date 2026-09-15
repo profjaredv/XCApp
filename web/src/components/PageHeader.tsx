@@ -55,7 +55,17 @@ export const PageHeader: React.FC<{
             )}
           </div>
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
+        {/* Full width on a phone, hugging the title from sm up. shrink-0
+            here was the bug: with the actions block refusing to shrink and
+            a fixed-width control inside it, a long action ("Sync from
+            Athletic.net") ran straight off the right edge of the screen
+            instead of wrapping. Buttons also go full width below sm so a
+            wrapped row doesn't leave ragged half-width targets. */}
+        {actions && (
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0 [&>*]:min-w-0 [&>button]:w-full sm:[&>button]:w-auto">
+            {actions}
+          </div>
+        )}
       </div>
     </div>
   );
