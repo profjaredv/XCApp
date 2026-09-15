@@ -23,21 +23,18 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, GraduationCap, Users, KeyRound, RefreshCw, AlertTriangle, Star, Upload, Loader2, Merge, ClipboardList, Search, X } from 'lucide-react';
+import { UserPlus, GraduationCap, Users, RefreshCw, AlertTriangle, Star, Upload, Loader2, Merge, ClipboardList, Search, X, Eye } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { rosterService, type RosterAthlete, type RosterImportResult, type ExistingAthleteConflict } from '@/api/rosterService';
-import { teamService } from '@/api/teamService';
 import { useTeamContext } from '@/hooks/useTeamContext';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useGroups, useAllGroupMembers } from '@/hooks/useGroups';
 import { matchesQuery } from '@/lib/athleteSearch';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { PageHeader } from '@/components/PageHeader';
+import { setPreviewAthlete } from '@/lib/impersonation';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAuth } from '@/contexts/AuthContext';
-import { PendingClaimsCard } from '@/components/PendingClaimsCard';
-import { PendingGuardianLinksCard } from '@/components/PendingGuardianLinksCard';
-import { PendingParentRequestsCard } from '@/components/PendingParentRequestsCard';
 
 // The roster is the thing a coach actually manages day to day: who is on the
 // team this season, what grade they're in, who just graduated. Before this
@@ -76,7 +73,7 @@ const RosterPage: React.FC = () => {
 
   const queryClient = useQueryClient();
   const { data: context } = useTeamContext();
-  const { seasons, activeYear, setSelectedYear } = useSeasonSelection();
+  const { seasons, activeYear } = useSeasonSelection();
   const [athleteQuery, setAthleteQuery] = useState('');
   const season = activeYear ?? undefined;
 
@@ -90,9 +87,6 @@ const RosterPage: React.FC = () => {
   const [newGrade, setNewGrade] = useState<string>('9');
   const [newGender, setNewGender] = useState<string>('M');
 
-  const [joinCode, setJoinCode] = useState<string | null>(null);
-  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
-  const [joinCodeError, setJoinCodeError] = useState<string | null>(null);
 
 
   const {
@@ -255,24 +249,7 @@ const RosterPage: React.FC = () => {
   const summary = context?.activeSeasonSummary;
   const isPreseason = season === context?.activeSeason && summary?.isPreseason;
 
-  const handleGenerateJoinCode = async () => {
-    setIsGeneratingCode(true);
-    setJoinCodeError(null);
-    try {
-      const response = await teamService.generateJoinCode();
-      setJoinCode(response.joinCode);
-    } catch (err) {
-      setJoinCodeError(err instanceof Error ? err.message : 'Failed to generate join code');
-    } finally {
-      setIsGeneratingCode(false);
-    }
-  };
 
-  const handleCopyJoinCode = async () => {
-    if (!joinCode || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(joinCode);
-    toast.success('Join code copied to clipboard');
-  };
 
 
 
@@ -303,23 +280,6 @@ const RosterPage: React.FC = () => {
         title="Roster"
         description="Manage who is on the team, season by season."
         actions={<>
-          <Select
-            value={season?.toString() ?? ''}
-            onValueChange={(v) => setSelectedYear(parseInt(v, 10))}
-          >
-            <SelectTrigger className="w-[190px]">
-              <SelectValue placeholder="Season" />
-            </SelectTrigger>
-            <SelectContent>
-              {seasons.map((s) => (
-                <SelectItem key={s.year} value={s.year.toString()}>
-                  {s.year}
-                  {s.isActive ? ' (Active)' : ''}
-                  {!s.hasData && s.rosterCount > 0 ? ' — preseason' : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           {isCoach && (
             <Button
               variant="outline"
@@ -396,49 +356,6 @@ const RosterPage: React.FC = () => {
         </p>
       )}
 
-      {isCoach && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <KeyRound className="h-5 w-5" />
-                Team Join Code
-              </CardTitle>
-              <CardDescription>
-                Generate a code athletes can use to join the team and claim their roster profile.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {joinCode ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between rounded-lg bg-muted p-3">
-                    <span className="font-mono text-lg font-semibold">{joinCode}</span>
-                    <Button size="sm" variant="outline" onClick={handleCopyJoinCode}>
-                      Copy Code
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Share this code with athletes so they can join the team and claim their profile.
-                  </p>
-                </div>
-              ) : (
-                <Button onClick={handleGenerateJoinCode} disabled={isGeneratingCode}>
-                  {isGeneratingCode ? 'Generating…' : 'Generate Join Code'}
-                </Button>
-              )}
-              {joinCodeError && (
-                <Alert variant="destructive" className="mt-3">
-                  <AlertDescription>{joinCodeError}</AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
-
-          <PendingClaimsCard onClaimProcessed={invalidate} />
-          <PendingGuardianLinksCard />
-          <PendingParentRequestsCard roster={roster} />
-        </div>
-      )}
 
 
 
@@ -568,6 +485,23 @@ const RosterPage: React.FC = () => {
                     >
                       View Profile
                     </Button>
+                    {/* Icon-only, and back on the row by request: this is
+                        the one admin action a coach reaches for FROM the
+                        list (pick a name, see the app as them) rather than
+                        from that athlete's own page. Everything else moved
+                        to the profile's Admin tab. */}
+                    {isCoach && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 w-9 shrink-0 p-0"
+                        title="Preview as athlete — see the app as they would: their own profile, log-a-run, race reflections"
+                        aria-label={`Preview the app as ${athlete.preferredName || athlete.name}`}
+                        onClick={() => setPreviewAthlete(athlete.id, athlete.preferredName || athlete.name, teamPath)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
