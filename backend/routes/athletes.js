@@ -741,6 +741,42 @@ router.post('/merge', authenticate, requireTeam, requireRole(DESTRUCTIVE), async
         await tx.athlete.update({ where: { id: keeperId }, data: { preferredName: loser.preferredName } });
       }
 
+      // The loser's Athletic.net profile link. Without this the merge
+      // silently undoes itself: athleticAthleteId is singular and unique,
+      // so deleting the loser destroys its id, the next scrape arrives
+      // carrying that id, matches nothing, falls back to name — and the
+      // two rows had DIFFERENT names (usually why they were duplicates in
+      // the first place), so the duplicate is created all over again.
+      //
+      // Any aliases the loser had already accumulated (a chain of earlier
+      // merges) move too, and must move BEFORE the delete below: they
+      // hang off the loser by onDelete: Cascade and would otherwise be
+      // destroyed with it, reopening every one of those older merges.
+      await tx.athleteAliasId.updateMany({ where: { athleteId: loserId }, data: { athleteId: keeperId } });
+
+      if (loser.athleticAthleteId) {
+        if (!keeper.athleticAthleteId) {
+          // Keeper had no id of its own — promote rather than alias, so
+          // the surviving athlete has a live id like any other athlete.
+          // Clear it off the loser first: the column is globally unique
+          // and the loser row still exists at this point.
+          await tx.athlete.update({ where: { id: loserId }, data: { athleticAthleteId: null } });
+          await tx.athlete.update({ where: { id: keeperId }, data: { athleticAthleteId: loser.athleticAthleteId } });
+        } else if (loser.athleticAthleteId !== keeper.athleticAthleteId) {
+          // No need to clear the loser's column first — that unique lives
+          // on `athletes`, this one on `athlete_alias_ids`, and the loser
+          // row is deleted moments later anyway. Upsert, not create: if
+          // this profile is already aliased (a re-merge, or a chain that
+          // has looped), re-pointing it at the keeper is right, and a
+          // unique violation here would roll back the entire merge.
+          await tx.athleteAliasId.upsert({
+            where: { athleticAthleteId: loser.athleticAthleteId },
+            update: { athleteId: keeperId, teamId },
+            create: { teamId, athleteId: keeperId, athleticAthleteId: loser.athleticAthleteId },
+          });
+        }
+      }
+
       // Everything still pointing at loserId at this point is exactly
       // what was deliberately left behind above (dropped duplicates) —
       // this cascades all of it away, RaceSplit/Split included.

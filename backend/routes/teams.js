@@ -156,11 +156,24 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
         // lib/athleteMatching.js). Pre-fetch once and keep the lookup maps
         // updated as rows create new athletes, since one CSV row per result
         // means the same athlete recurs across many rows in this loop.
-        const existingAthletes = await prisma.athlete.findMany({ where: { teamId: team.id } });
+        const [existingAthletes, aliasRows] = await Promise.all([
+          prisma.athlete.findMany({ where: { teamId: team.id } }),
+          prisma.athleteAliasId.findMany({ where: { teamId: team.id } }),
+        ]);
         const athleteByAthleticId = new Map(
           existingAthletes.filter((a) => a.athleticAthleteId).map((a) => [a.athleticAthleteId, a])
         );
         const athleteByName = new Map(existingAthletes.map((a) => [normalizeAthleteName(a.name), a]));
+        // Profile links retired by a merge (AthleteAliasId). Without
+        // these, every import re-creates the duplicate a coach just
+        // merged away — the scraper keeps reporting the merged-away
+        // profile, and name is the only thing left to match on.
+        const athleteById = new Map(existingAthletes.map((a) => [a.id, a]));
+        const athleteByAliasId = new Map(
+          aliasRows
+            .filter((r) => athleteById.has(r.athleteId))
+            .map((r) => [r.athleticAthleteId, athleteById.get(r.athleteId)])
+        );
 
         const parseTimeToSeconds = (timeStr) => {
           if (!timeStr) return null;
@@ -214,7 +227,7 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
           // row actually told us one — a blank grade must not wipe it.
           const existingMatch = matchAthlete(
             { athleticAthleteId: athleticAthleteIdValue, name: athleteName },
-            { byAthleticId: athleteByAthleticId, byName: athleteByName }
+            { byAthleticId: athleteByAthleticId, byAliasId: athleteByAliasId, byName: athleteByName }
           );
 
           let athlete;
@@ -437,13 +450,24 @@ router.post('/scrape-roster', authenticate, requireRole(FULL_COACH), async (req,
         // exists for). Matching only within the season's own roster meant
         // every returning athlete looked "new" and hit the (team, name)
         // unique constraint on athlete creation.
-        const [existingAthletes, existingRoster] = await Promise.all([
+        const [existingAthletes, existingRoster, aliasRows] = await Promise.all([
           prisma.athlete.findMany({ where: { teamId: team.id } }),
           prisma.seasonRoster.findMany({ where: { seasonId: season.id }, include: { athlete: true } }),
+          prisma.athleteAliasId.findMany({ where: { teamId: team.id } }),
         ]);
         const athleteByName = new Map(existingAthletes.map((a) => [normalizeAthleteName(a.name), a]));
         const athleteByAthleticId = new Map(
           existingAthletes.filter((a) => a.athleticAthleteId).map((a) => [a.athleticAthleteId, a])
+        );
+        // Profile links retired by a merge (AthleteAliasId). Without
+        // these, every import re-creates the duplicate a coach just
+        // merged away — the scraper keeps reporting the merged-away
+        // profile, and name is the only thing left to match on.
+        const athleteById = new Map(existingAthletes.map((a) => [a.id, a]));
+        const athleteByAliasId = new Map(
+          aliasRows
+            .filter((r) => athleteById.has(r.athleteId))
+            .map((r) => [r.athleticAthleteId, athleteById.get(r.athleteId)])
         );
         const rosterByAthleteId = new Map(existingRoster.map((r) => [r.athleteId, r]));
 
@@ -463,7 +487,7 @@ router.post('/scrape-roster', authenticate, requireRole(FULL_COACH), async (req,
 
           const existingAthlete = matchAthlete(
             { athleticAthleteId: athleticAthleteIdValue, name },
-            { byAthleticId: athleteByAthleticId, byName: athleteByName }
+            { byAthleticId: athleteByAthleticId, byAliasId: athleteByAliasId, byName: athleteByName }
           );
 
           let athleteId;

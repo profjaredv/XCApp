@@ -15,11 +15,23 @@ function normalizeAthleteName(name) {
   return (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-// byAthleticId: Map<athleticAthleteId, athlete>
-// byName: Map<normalizedName, athlete>
-function matchAthlete({ athleticAthleteId, name }, { byAthleticId, byName }) {
+// byAthleticId: Map<athleticAthleteId, athlete>  (Athlete.athleticAthleteId)
+// byAliasId:    Map<athleticAthleteId, athlete>  (AthleteAliasId — ids retired
+//               by a merge; optional, so existing callers keep working)
+// byName:       Map<normalizedName, athlete>
+//
+// Aliases are checked BEFORE name and AFTER live ids. Before name, because
+// an id is the whole reason this function prefers ids — a merged duplicate
+// usually had a DIFFERENT name (that's why it was a duplicate), so falling
+// through to name is exactly what recreated it every import. After live
+// ids, because a live id is a current fact and an alias is a historical
+// one; if some profile were somehow both, the athlete who owns it now wins.
+function matchAthlete({ athleticAthleteId, name }, { byAthleticId, byAliasId, byName }) {
   if (athleticAthleteId && byAthleticId.has(athleticAthleteId)) {
     return byAthleticId.get(athleticAthleteId);
+  }
+  if (athleticAthleteId && byAliasId && byAliasId.has(athleticAthleteId)) {
+    return byAliasId.get(athleticAthleteId);
   }
   const normalized = normalizeAthleteName(name);
   if (normalized && byName.has(normalized)) {
