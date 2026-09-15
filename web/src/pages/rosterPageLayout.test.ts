@@ -26,7 +26,42 @@ describe('page header actions on a phone', () => {
     // ("Sync from Athletic.net") ran off the right edge rather than
     // wrapping onto its own line.
     expect(header).not.toContain('flex shrink-0 flex-wrap gap-2');
-    expect(header).toContain('w-full flex-wrap gap-2 sm:w-auto sm:shrink-0');
+    expect(header).toContain('w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0');
+  });
+
+  it('does NOT force buttons to full width', () => {
+    // The first fix for the overflow made every action a full-width bar,
+    // which turned four buttons into half a phone screen before any page
+    // content. Wrapping at natural width was the actual answer.
+    expect(header).not.toContain('[&>button]:w-full');
+  });
+
+  it('hides occasional setup actions behind a More toggle below sm', () => {
+    expect(header).toContain('secondaryActions');
+    expect(header).toContain('hidden sm:contents');
+    expect(header).toContain('className="sm:hidden"');
+    expect(header).toContain('flex w-full flex-wrap gap-2 sm:hidden');
+  });
+
+  it('keeps the toggle out of the way entirely when a page has no secondary actions', () => {
+    expect(header).toContain('{secondaryActions && (');
+  });
+});
+
+describe('roster header on a phone', () => {
+  it('keeps only Add athlete visible — the thing a coach came to do', () => {
+    const primary = roster.slice(roster.indexOf('actions={'), roster.indexOf('secondaryActions={'));
+    expect(primary).toContain('Add athlete');
+    expect(primary).not.toContain('Sync from Athletic.net');
+    expect(primary).not.toContain('Import Roster');
+    expect(primary).not.toContain('Merge Duplicates');
+  });
+
+  it('puts sync, import and merge behind More', () => {
+    const secondary = roster.slice(roster.indexOf('secondaryActions={'));
+    for (const action of ['Sync from Athletic.net', 'Import Roster', 'Merge Duplicates']) {
+      expect(secondary).toContain(action);
+    }
   });
 });
 
