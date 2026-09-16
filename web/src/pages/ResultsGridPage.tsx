@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { axiosInstance as api } from '@/api/axios';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -40,11 +40,18 @@ interface ResultsGridPageProps {
    *  heading and a Data actions row. Suppresses this page's own header and
    *  hands its export up instead of drawing a second button. */
   embedded?: boolean;
-  /** Lets the embedding page put Export CSV in its Data actions menu. */
-  onExportReady?: (run: (() => void) | null) => void;
+  /**
+   * Bumped by the embedding page's Export CSV button. A signal DOWN, not
+   * a handler UP: the first version handed `handleExportCsv` upward into
+   * the parent's state, which meant a new function identity stored on
+   * every render — setState on every render — an infinite loop (React
+   * #185) that took the live site down. A number only changes when
+   * someone clicks, so this cannot feed back.
+   */
+  exportSignal?: number;
 }
 
-const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, onExportReady }) => {
+const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exportSignal = 0 }) => {
   const { currentUser } = useAuth();
   const [gridData, setGridData] = useState<GridData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -229,14 +236,14 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, onE
     }
   }, [currentUser, selectedSeason, seasons]);
 
-  // Hand the export up to whoever is embedding this, so it can live in
-  // their Data actions menu instead of as a second button on the page.
-  // Cleared on unmount so a stale handler can't outlive the tab.
+  // Runs when the embedding page's Export CSV button is pressed. Depends
+  // ONLY on the signal: handleExportCsv is recreated every render, and
+  // depending on it here would fire the download on every render instead.
+  const exportRef = useRef(handleExportCsv);
+  exportRef.current = handleExportCsv;
   useEffect(() => {
-    if (!onExportReady) return;
-    onExportReady(() => handleExportCsv);
-    return () => onExportReady(null);
-  });
+    if (exportSignal > 0) exportRef.current();
+  }, [exportSignal]);
 
   // Every state gets the page header. Loading and empty used to render a
   // bare <div>, so the screen appeared to have no identity of its own —
