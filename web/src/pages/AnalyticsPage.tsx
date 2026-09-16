@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useContext, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Download } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import VDOTCalculator from '@/components/tools/VDOTCalculator';
 import ResultsGridPage from '@/pages/ResultsGridPage';
@@ -113,6 +113,10 @@ const AnalyticsPage = () => {
   // was in the URL — a real cause of state feeling like it didn't persist.
   const [tabParam, setTabParam] = useQueryParam('tab');
   const activeTab = tabParam ?? 'dashboard';
+  // The Results Grid tab contributes its export to the Data actions menu
+  // above rather than drawing its own button — it holds the filtered rows,
+  // so the handler has to come up from there.
+  const [gridExport, setGridExport] = useState<(() => void) | null>(null);
   const [seasonModeParam] = useQueryParam('seasonMode');
   const seasonMode = (seasonModeParam as SeasonMode | undefined) ?? 'current';
   const [selectedSeason, setSelectedSeasonParam] = useQueryParamNumber('season');
@@ -548,6 +552,14 @@ const AnalyticsPage = () => {
         isRecalculating={isRecalculating}
         team={team}
         handleClearTeamData={handleClearTeamData}
+        extraActions={
+          activeTab === 'resultsGrid' && gridExport ? (
+            <Button variant="outline" size="sm" onClick={gridExport}>
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
+          ) : null
+        }
       />
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         {/* The sidebar's Season dropdown (Layout.tsx's SeasonNavSection) is
@@ -650,7 +662,10 @@ const AnalyticsPage = () => {
             grid view and a utility calculator. Neither depends on
             AthleteSeasonMetrics, so both work in preseason too. */}
         <TabsContent value="resultsGrid">
-          <ResultsGridPage />
+          {/* Embedded: this tab already carries a heading and the Data
+              actions row above, so the grid suppresses its own header and
+              hands its export up rather than drawing a second button. */}
+          <ResultsGridPage embedded onExportReady={setGridExport} />
         </TabsContent>
         <TabsContent value="tools">
           <VDOTCalculator />

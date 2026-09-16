@@ -4,12 +4,13 @@ import { axiosInstance as api } from '@/api/axios';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageHeader } from '@/components/PageHeader';
-import { SegmentedPills } from '@/components/field/SegmentedPills';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronUp, ArrowUpDown, Download, LayoutGrid } from 'lucide-react';
+import { ChevronDown, ChevronUp, ArrowUpDown, Download, LayoutGrid, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
+import { normalizeGender, genderLabel } from '@/lib/gender';
 import { toCsv, downloadCsv, dedupeColumnLabels } from '@/lib/csvParse';
 
 interface GridData {
@@ -34,7 +35,16 @@ const formatTime = (timeInSeconds: number | null): string => {
   return `${minutes}:${seconds.padStart(4, '0')}`;
 };
 
-const ResultsGridPage: React.FC = () => {
+interface ResultsGridPageProps {
+  /** Rendered inside Season > Results Grid, which already supplies a
+   *  heading and a Data actions row. Suppresses this page's own header and
+   *  hands its export up instead of drawing a second button. */
+  embedded?: boolean;
+  /** Lets the embedding page put Export CSV in its Data actions menu. */
+  onExportReady?: (run: (() => void) | null) => void;
+}
+
+const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, onExportReady }) => {
   const { currentUser } = useAuth();
   const [gridData, setGridData] = useState<GridData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,17 +75,17 @@ const ResultsGridPage: React.FC = () => {
   }, [gridData]);
 
   // Extract unique genders from the grid data
+  // Normalized, so a team storing both 'M' and 'Men' gets ONE Male chip
+  // rather than one per spelling — see lib/gender.ts.
   const availableGenders = useMemo(() => {
     if (!gridData) return ['M', 'F'];
     const genders = new Set<string>();
-    gridData.athletes.forEach(athlete => {
-      if (athlete.gender) genders.add(athlete.gender);
+    gridData.athletes.forEach((athlete) => {
+      const key = normalizeGender(athlete.gender);
+      if (key) genders.add(key);
     });
-    // If no genders found in data, default to M and F
-    if (genders.size === 0) {
-      return ['M', 'F'];
-    }
-    return Array.from(genders);
+    if (genders.size === 0) return ['M', 'F'];
+    return ['M', 'F'].filter((g) => genders.has(g));
   }, [gridData]);
 
   // Initialize selected grades when grades are loaded
@@ -103,8 +113,9 @@ const ResultsGridPage: React.FC = () => {
       
       // Handle gender filtering - include athlete if they have no gender or their gender is selected
       let genderMatch = true;
-      if (athlete.gender) {
-        genderMatch = selectedGenders.has(athlete.gender);
+      const genderKey = normalizeGender(athlete.gender);
+      if (genderKey) {
+        genderMatch = selectedGenders.has(genderKey);
       } else if (selectedGenders.size < availableGenders.length) {
         // If athlete has no gender and not all genders are selected, check if we should include them
         genderMatch = false; // Default to false if not all genders are selected and athlete has no gender
@@ -218,10 +229,19 @@ const ResultsGridPage: React.FC = () => {
     }
   }, [currentUser, selectedSeason, seasons]);
 
+  // Hand the export up to whoever is embedding this, so it can live in
+  // their Data actions menu instead of as a second button on the page.
+  // Cleared on unmount so a stale handler can't outlive the tab.
+  useEffect(() => {
+    if (!onExportReady) return;
+    onExportReady(() => handleExportCsv);
+    return () => onExportReady(null);
+  });
+
   // Every state gets the page header. Loading and empty used to render a
   // bare <div>, so the screen appeared to have no identity of its own —
   // part of why this page read as something embedded in another view.
-  const header = (
+  const header = embedded ? null : (
     <PageHeader
       section="season"
       icon={LayoutGrid}
@@ -311,18 +331,20 @@ const ResultsGridPage: React.FC = () => {
           bare <Card> carrying a CardTitle while every other screen opens
           with PageHeader, which is why it read as something nested inside
           another view. */}
-      <PageHeader
-        section="season"
-        icon={LayoutGrid}
-        title="Results Grid"
-        description="Every athlete's time at every meet this season, side by side."
-        actions={
-          <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={processedAthletes.length === 0}>
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
-          </Button>
-        }
-      />
+      {!embedded && (
+        <PageHeader
+          section="season"
+          icon={LayoutGrid}
+          title="Results Grid"
+          description="Every athlete's time at every meet this season, side by side."
+          actions={
+            <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={processedAthletes.length === 0}>
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
+          }
+        />
+      )}
 
       {/* The season picker that used to sit here was a third copy of the
           one in the app header, writing the same SeasonContext — same
@@ -363,7 +385,7 @@ const ResultsGridPage: React.FC = () => {
                 className={chip(selectedGenders.has(gender))}
                 onClick={() => setSelectedGenders(toggleIn(selectedGenders, gender))}
               >
-                {gender === 'M' ? 'Boys' : gender === 'F' ? 'Girls' : gender}
+                {genderLabel(gender)}
               </button>
             ))}
           </div>
@@ -376,16 +398,46 @@ const ResultsGridPage: React.FC = () => {
 
       {/* --- Phone: one race at a time ------------------------------- */}
       <div className="space-y-3 md:hidden">
+        {/* A pill per meet was fine for three and unusable by ten — a
+            full-season grid is a dozen meets, which is four rows of pills
+            before a single time is on screen. A dropdown is one row at any
+            count, and the arrows keep meet-to-meet stepping a single tap
+            rather than open-scan-pick. */}
         {gridData.races.length > 1 && (
-          <SegmentedPills
-            caption="Meet"
-            segments={gridData.races.map((raceName, index) => ({
-              value: String(index),
-              label: raceName,
-            }))}
-            value={String(safeRaceIndex)}
-            onChange={(v) => setMobileRaceIndex(Number(v))}
-          />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 shrink-0"
+              aria-label="Previous meet"
+              disabled={safeRaceIndex === 0}
+              onClick={() => setMobileRaceIndex(safeRaceIndex - 1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Select value={String(safeRaceIndex)} onValueChange={(v) => setMobileRaceIndex(Number(v))}>
+              <SelectTrigger className="h-10 min-w-0 flex-1" aria-label="Meet">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {gridData.races.map((raceName, index) => (
+                  <SelectItem key={index} value={String(index)}>
+                    {raceName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 shrink-0"
+              aria-label="Next meet"
+              disabled={safeRaceIndex >= gridData.races.length - 1}
+              onClick={() => setMobileRaceIndex(safeRaceIndex + 1)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         )}
         <Card>
           <CardContent className="divide-y p-0">
