@@ -27,7 +27,11 @@ const GUARDIAN = code('backend', 'routes', 'guardian.js');
 const TEAM = code('backend', 'routes', 'team.js');
 const ONBOARDING = code('web', 'src', 'pages', 'OnboardingPage.tsx');
 const SCHEMA = read('backend', 'prisma', 'schema.prisma');
-const ROSTER = read('web', 'src', 'pages', 'RosterPage.tsx');
+// The queue lives in Settings > Athlete access now, not on the roster:
+// handing out a join code and approving claims is once-a-season team
+// setup, and it was pushing the roster list off a phone screen on every
+// visit. What this test cares about is that a coach can still reach it.
+const SETTINGS = read('web', 'src', 'pages', 'SettingsPage.tsx');
 
 test('a parent request never goes to the platform queue', () => {
   // The exact defect. /team-requests is super-admin-only and its approve
@@ -86,7 +90,7 @@ test('a coach can actually see the queue', () => {
   // Scoped by the ATHLETE's team — a guardian belongs to no team, so that
   // is the only thing tying a request to the coach who may answer it.
   assert.match(TEAM, /status,\s*athlete: \{ teamId: req\.user\.teamId \}/);
-  assert.match(ROSTER, /PendingGuardianLinksCard/, 'the card must be mounted for coaches');
+  assert.match(SETTINGS, /PendingGuardianLinksCard/, 'the card must be mounted somewhere a coach reaches');
 });
 
 test('approval stays per child', () => {

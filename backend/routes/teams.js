@@ -948,7 +948,11 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
           athleteId,
           name: result.athlete.preferredName || result.athlete.name,
           grade: result.grade,
-          gender: result.athlete.gender || '',
+          // Athlete.gender is free text on the way in ('Men', 'Boys',
+          // 'male', ...) — see lib/gender.js. Unnormalized, the results
+          // grid built a filter chip per raw spelling, so a team ended up
+          // with Boys, Girls AND Men as three separate options.
+          gender: normalizeGender(result.athlete.gender) || '',
           resultsByColumn: new Map(),
         });
       }

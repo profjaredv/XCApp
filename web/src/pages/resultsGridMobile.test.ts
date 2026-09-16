@@ -25,9 +25,20 @@ describe('results grid is a page, not a nested card', () => {
   });
 
   it('keeps that header in the loading, error and empty states too', () => {
-    expect(page).toContain('const header = (');
+    expect(page).toContain('const header = embedded ? null : (');
     expect(page).not.toContain("return <div>Loading...</div>");
     expect((page.match(/\{header\}/g) ?? []).length).toBe(3);
+  });
+
+  it('suppresses its own header when embedded in the Season tab, which has one already', () => {
+    expect(page).toContain('embedded = false');
+    expect(page).toContain('{!embedded && (');
+  });
+
+  it('hands its export up instead of drawing a second button inside the tab', () => {
+    expect(page).toContain('onExportReady(() => handleExportCsv)');
+    // Cleared on unmount, or a stale handler outlives the tab.
+    expect(page).toContain('return () => onExportReady(null)');
   });
 });
 
@@ -50,9 +61,22 @@ describe('filters', () => {
     expect(page).not.toContain('Filter by Gender:');
   });
 
-  it('says Boys and Girls, the words the rest of the app uses', () => {
-    expect(page).toContain("gender === 'M' ? 'Boys' : gender === 'F' ? 'Girls' : gender");
-    expect(page).not.toContain("? 'Male' :");
+  it('shows one chip per gender, not one per spelling stored in the data', () => {
+    // 'M' and 'Men' both live in real rows, which produced Boys, Girls AND
+    // Men as three separate chips — and filtering to one silently dropped
+    // the athletes stored under the other.
+    expect(page).toContain('const key = normalizeGender(athlete.gender)');
+    expect(page).toContain("return ['M', 'F'].filter((g) => genders.has(g))");
+  });
+
+  it('filters on the normalized key, so no athlete is dropped by spelling', () => {
+    expect(page).toContain('const genderKey = normalizeGender(athlete.gender)');
+    expect(page).toContain('genderMatch = selectedGenders.has(genderKey)');
+  });
+
+  it('labels them Male and Female through one shared helper', () => {
+    expect(page).toContain('{genderLabel(gender)}');
+    expect(page).not.toContain("'Boys' : gender === 'F' ? 'Girls'");
   });
 
   it('drops the one-button "Sort by:" row — the table header already sorts by name', () => {
@@ -72,8 +96,20 @@ describe('filters', () => {
 describe('phone layout', () => {
   it('shows one meet at a time instead of a sideways scroll', () => {
     expect(page).toContain('<div className="space-y-3 md:hidden">');
-    expect(page).toContain('<SegmentedPills');
-    expect(page).toContain('caption="Meet"');
+  });
+
+  it('picks the meet with a control that survives a full season of them', () => {
+    // A pill per meet was fine for three and unusable by ten — a dozen
+    // meets is four rows of pills before a single time is on screen.
+    expect(page).not.toContain('<SegmentedPills');
+    expect(page).toContain('<Select value={String(safeRaceIndex)}');
+    expect(page).toContain('aria-label="Previous meet"');
+    expect(page).toContain('aria-label="Next meet"');
+  });
+
+  it('disables the arrows at each end rather than wrapping around', () => {
+    expect(page).toContain('disabled={safeRaceIndex === 0}');
+    expect(page).toContain('disabled={safeRaceIndex >= gridData.races.length - 1}');
   });
 
   it('clamps the selected meet so a season with fewer races cannot index off the end', () => {
@@ -97,5 +133,19 @@ describe('phone layout', () => {
 describe('housekeeping', () => {
   it('no longer logs every athlete\'s results to the console on each render', () => {
     expect(page).not.toContain('console.log');
+  });
+});
+
+describe('export lives with the other data actions', () => {
+  const analytics = code(read('pages/AnalyticsPage.tsx'));
+  const header = code(read('components/analytics/AnalyticsHeader.tsx'));
+
+  it('the Season tab embeds the grid and collects its export', () => {
+    expect(analytics).toContain('<ResultsGridPage embedded onExportReady={setGridExport} />');
+  });
+
+  it('the export shows up in the Data actions menu, only on that tab', () => {
+    expect(analytics).toContain("activeTab === 'resultsGrid' && gridExport");
+    expect(header).toContain('{extraActions}');
   });
 });

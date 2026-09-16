@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, MoreVertical } from 'lucide-react';
@@ -26,6 +27,11 @@ interface AnalyticsHeaderProps {
   isRecalculating: boolean;
   team: Team | undefined;
   handleClearTeamData: () => void;
+  /** Actions contributed by whichever tab is open — the Results Grid's
+   *  Export CSV, say. They belong in the same Data actions menu as
+   *  Recalculate and Clear, not as a separate button competing with the
+   *  page's own content. */
+  extraActions?: React.ReactNode;
 }
 
 export const AnalyticsHeader = ({
@@ -38,6 +44,7 @@ export const AnalyticsHeader = ({
   isRecalculating,
   team,
   handleClearTeamData,
+  extraActions,
 }: AnalyticsHeaderProps) => {
   // Backend only ever lets HEAD_COACH (or an impersonating super admin)
   // actually clear team data (routes/teams.js) — this just keeps the
@@ -53,6 +60,7 @@ export const AnalyticsHeader = ({
 
   const dataActionButtons = (
     <>
+      {extraActions}
       <Button variant="outline" size="sm" onClick={handleRecalculateMetrics} disabled={isRecalculating || !team} title={!team ? 'Team ID unavailable' : undefined}>
         <RefreshCw className={`h-4 w-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
         {isRecalculating ? 'Recalculating…' : 'Recalculate Metrics'}
