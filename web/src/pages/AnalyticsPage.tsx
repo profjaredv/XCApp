@@ -114,9 +114,11 @@ const AnalyticsPage = () => {
   const [tabParam, setTabParam] = useQueryParam('tab');
   const activeTab = tabParam ?? 'dashboard';
   // The Results Grid tab contributes its export to the Data actions menu
-  // above rather than drawing its own button — it holds the filtered rows,
-  // so the handler has to come up from there.
-  const [gridExport, setGridExport] = useState<(() => void) | null>(null);
+  // above rather than drawing its own button. A counter going DOWN, not a
+  // handler coming up: storing the grid's export function in state here
+  // stored a new identity on every render, which is setState-per-render —
+  // React #185, an infinite loop that took the live site down.
+  const [gridExportSignal, setGridExportSignal] = useState(0);
   const [seasonModeParam] = useQueryParam('seasonMode');
   const seasonMode = (seasonModeParam as SeasonMode | undefined) ?? 'current';
   const [selectedSeason, setSelectedSeasonParam] = useQueryParamNumber('season');
@@ -553,8 +555,8 @@ const AnalyticsPage = () => {
         team={team}
         handleClearTeamData={handleClearTeamData}
         extraActions={
-          activeTab === 'resultsGrid' && gridExport ? (
-            <Button variant="outline" size="sm" onClick={gridExport}>
+          activeTab === 'resultsGrid' ? (
+            <Button variant="outline" size="sm" onClick={() => setGridExportSignal((n) => n + 1)}>
               <Download className="mr-2 h-4 w-4" />
               Export CSV
             </Button>
@@ -665,7 +667,7 @@ const AnalyticsPage = () => {
           {/* Embedded: this tab already carries a heading and the Data
               actions row above, so the grid suppresses its own header and
               hands its export up rather than drawing a second button. */}
-          <ResultsGridPage embedded onExportReady={setGridExport} />
+          <ResultsGridPage embedded exportSignal={gridExportSignal} />
         </TabsContent>
         <TabsContent value="tools">
           <VDOTCalculator />

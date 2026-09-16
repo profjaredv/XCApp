@@ -35,10 +35,20 @@ describe('results grid is a page, not a nested card', () => {
     expect(page).toContain('{!embedded && (');
   });
 
-  it('hands its export up instead of drawing a second button inside the tab', () => {
-    expect(page).toContain('onExportReady(() => handleExportCsv)');
-    // Cleared on unmount, or a stale handler outlives the tab.
-    expect(page).toContain('return () => onExportReady(null)');
+  it('takes a click signal DOWN rather than handing a function UP', () => {
+    // Handing handleExportCsv up into the parent's state stored a new
+    // function identity on every render — setState per render, React #185,
+    // a white screen on the live site. A number only changes on a click.
+    expect(page).toContain('exportSignal');
+    expect(page).not.toContain('onExportReady');
+    expect(page).toContain('}, [exportSignal]);');
+  });
+
+  it('reads the handler through a ref, so the effect need not depend on it', () => {
+    // handleExportCsv is rebuilt every render; depending on it here would
+    // fire the download on every render instead of on every click.
+    expect(page).toContain('exportRef.current = handleExportCsv');
+    expect(page).toContain('if (exportSignal > 0) exportRef.current()');
   });
 });
 
@@ -140,12 +150,14 @@ describe('export lives with the other data actions', () => {
   const analytics = code(read('pages/AnalyticsPage.tsx'));
   const header = code(read('components/analytics/AnalyticsHeader.tsx'));
 
-  it('the Season tab embeds the grid and collects its export', () => {
-    expect(analytics).toContain('<ResultsGridPage embedded onExportReady={setGridExport} />');
+  it('the Season tab embeds the grid and drives its export by signal', () => {
+    expect(analytics).toContain('<ResultsGridPage embedded exportSignal={gridExportSignal} />');
+    expect(analytics).not.toContain('setGridExport(');
   });
 
   it('the export shows up in the Data actions menu, only on that tab', () => {
-    expect(analytics).toContain("activeTab === 'resultsGrid' && gridExport");
+    expect(analytics).toContain("activeTab === 'resultsGrid' ?");
+    expect(analytics).toContain('setGridExportSignal((n) => n + 1)');
     expect(header).toContain('{extraActions}');
   });
 });
