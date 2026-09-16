@@ -2,10 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { axiosInstance as api } from '@/api/axios';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/PageHeader';
+import { SegmentedPills } from '@/components/field/SegmentedPills';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronUp, ArrowUpDown, Download } from 'lucide-react';
+import { ChevronDown, ChevronUp, ArrowUpDown, Download, LayoutGrid } from 'lucide-react';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
 import { toCsv, downloadCsv, dedupeColumnLabels } from '@/lib/csvParse';
@@ -46,6 +48,11 @@ const ResultsGridPage: React.FC = () => {
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [sortRaceIndex, setSortRaceIndex] = useState<RaceIndex>(null);
+  // Which race the phone layout is showing. A grid of ten meets cannot be
+  // read sideways on a 390px screen; below md this page shows one race at
+  // a time (see SegmentedPills, built for exactly this) and the full table
+  // from md up.
+  const [mobileRaceIndex, setMobileRaceIndex] = useState(0);
 
   // Extract unique grades from the grid data
   const availableGrades = useMemo(() => {
@@ -89,10 +96,6 @@ const ResultsGridPage: React.FC = () => {
   const processedAthletes = useMemo(() => {
     if (!gridData) return [];
     
-    console.log('Processing athletes with data:', gridData);
-    console.log('Selected grades:', Array.from(selectedGrades));
-    console.log('Selected genders:', Array.from(selectedGenders));
-    
     // Step 1: Filter by grade and gender
     let result = gridData.athletes.filter(athlete => {
       // Check if grade exists and is in selected grades
@@ -109,8 +112,6 @@ const ResultsGridPage: React.FC = () => {
       
       return gradeMatch && genderMatch;
     });
-    
-    console.log('Filtered athletes:', result);
     
     // Step 2: Sort the filtered results
     if (sortField === 'name') {
@@ -217,211 +218,260 @@ const ResultsGridPage: React.FC = () => {
     }
   }, [currentUser, selectedSeason, seasons]);
 
+  // Every state gets the page header. Loading and empty used to render a
+  // bare <div>, so the screen appeared to have no identity of its own —
+  // part of why this page read as something embedded in another view.
+  const header = (
+    <PageHeader
+      section="season"
+      icon={LayoutGrid}
+      title="Results Grid"
+      description="Every athlete's time at every meet this season, side by side."
+    />
+  );
+
   if (loading) {
-    return <div>Loading...</div>;
+    return (
+      <div className="space-y-4">
+        {header}
+        <Card>
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">Loading results…</CardContent>
+        </Card>
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-destructive">{error}</p>
+      <div className="space-y-4">
+        {header}
+        <Card>
+          <CardContent className="p-10 text-center text-sm text-destructive">{error}</CardContent>
+        </Card>
       </div>
     );
   }
 
   if (!gridData || gridData.athletes.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full space-y-4">
-        <p>No results found for the selected season.</p>
-        {seasons.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {seasons.map((season) => (
-              <button
-                key={season}
-                onClick={() => setSelectedSeason(season)}
-                className={`px-3 py-1 rounded-md ${
-                  selectedSeason === season
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-                }`}
-              >
-                {season}
-              </button>
-            ))}
-          </div>
-        )}
+      <div className="space-y-4">
+        {header}
+        <Card>
+          <CardContent className="space-y-4 p-10 text-center">
+            <p className="text-sm text-muted-foreground">No results for this season yet.</p>
+            {/* The one place a season control still earns its keep: there
+                is nothing to show, so offering the seasons that do have
+                data is the way out rather than a duplicate of the header
+                picker. */}
+            {seasons.length > 1 && (
+              <div className="flex flex-wrap justify-center gap-2">
+                {seasons.map((season) => (
+                  <button
+                    key={season}
+                    type="button"
+                    onClick={() => setSelectedSeason(season)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      selectedSeason === season
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-background text-muted-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {season}
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
+  const safeRaceIndex = Math.min(mobileRaceIndex, Math.max(0, gridData.races.length - 1));
+
+  const toggleIn = <T,>(set: Set<T>, value: T): Set<T> => {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    return next;
+  };
+
+  // One chip style for every filter on this page. Small on purpose: these
+  // annotate the grid, they are not the grid.
+  const chip = (active: boolean) =>
+    `rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+      active
+        ? 'border-primary bg-primary text-primary-foreground'
+        : 'border-border bg-background text-muted-foreground hover:bg-accent'
+    }`;
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="space-y-4">
-          <div className="flex justify-between items-center flex-wrap gap-2">
-            <CardTitle>Results Grid</CardTitle>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={processedAthletes.length === 0}>
-                <Download className="h-4 w-4 mr-2" />
-                Export CSV
-              </Button>
-              {seasons.length > 0 && (
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-muted-foreground">Season:</span>
-                  <select
-                    className="border border-input bg-background text-foreground rounded-md px-2 py-1 text-sm"
-                    value={selectedSeason || ''}
-                    onChange={(e) => setSelectedSeason(parseInt(e.target.value))}
-                  >
-                    {seasons.map((season) => (
-                      <option key={season} value={season}>
-                        {season}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          </div>
-          
-          {/* Grade Filter */}
-          {availableGrades.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-foreground">Filter by Grade:</span>
-              <div className="flex flex-wrap gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedGrades(new Set(availableGrades))}
-                  className={`text-xs ${selectedGrades.size === availableGrades.length ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
-                >
-                  All Grades
-                </Button>
-                {availableGrades.map((grade) => (
-                  <Button
-                    key={grade}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const newSelected = new Set(selectedGrades);
-                      if (newSelected.has(grade)) {
-                        newSelected.delete(grade);
-                      } else {
-                        newSelected.add(grade);
-                      }
-                      setSelectedGrades(newSelected);
-                    }}
-                    className={`text-xs ${selectedGrades.has(grade) ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
-                  >
-                    {gradeLabel(grade)}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
+    <div className="space-y-4">
+      {/* A page, not a card floating inside one. This screen opened with a
+          bare <Card> carrying a CardTitle while every other screen opens
+          with PageHeader, which is why it read as something nested inside
+          another view. */}
+      <PageHeader
+        section="season"
+        icon={LayoutGrid}
+        title="Results Grid"
+        description="Every athlete's time at every meet this season, side by side."
+        actions={
+          <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={processedAthletes.length === 0}>
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+        }
+      />
 
-          {/* Gender Filter */}
-          {availableGenders.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-foreground">Filter by Gender:</span>
-              <div className="flex flex-wrap gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedGenders(new Set(availableGenders))}
-                  className={`text-xs ${selectedGenders.size === availableGenders.length ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
-                >
-                  All Genders
-                </Button>
-                {availableGenders.map((gender) => (
-                  <Button
-                    key={gender}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const newSelected = new Set(selectedGenders);
-                      if (newSelected.has(gender)) {
-                        newSelected.delete(gender);
-                      } else {
-                        newSelected.add(gender);
-                      }
-                      setSelectedGenders(newSelected);
-                    }}
-                    className={`text-xs ${selectedGenders.has(gender) ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
-                  >
-                    {gender === 'M' ? 'Male' : gender === 'F' ? 'Female' : gender}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Sort Controls */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-foreground">Sort by:</span>
-            <div className="flex flex-wrap gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleSort('name')}
-                className={`text-xs flex items-center ${sortField === 'name' ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
+      {/* The season picker that used to sit here was a third copy of the
+          one in the app header, writing the same SeasonContext — same
+          state, three controls. Filters are what belongs on the page.
+          Short grade labels (Fr/So/Jr/Sr) and no "Filter by …:" prose, so
+          the whole set fits one or two rows on a phone instead of three
+          labelled rows. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {availableGrades.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              className={chip(selectedGrades.size === availableGrades.length)}
+              onClick={() => setSelectedGrades(new Set(availableGrades))}
+            >
+              All
+            </button>
+            {availableGrades.map((grade) => (
+              <button
+                key={grade}
+                type="button"
+                className={chip(selectedGrades.has(grade))}
+                onClick={() => setSelectedGrades(toggleIn(selectedGrades, grade))}
+                title={gradeLabel(grade)}
               >
-                Name {renderSortIndicator('name')}
-              </Button>
-            </div>
+                {gradeLabelShort(grade)}
+              </button>
+            ))}
           </div>
-        </div>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead 
-                className="sticky left-0 bg-card z-10 cursor-pointer"
-                onClick={() => handleSort('name')}
+        )}
+
+        {availableGenders.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {availableGenders.map((gender) => (
+              <button
+                key={gender}
+                type="button"
+                className={chip(selectedGenders.has(gender))}
+                onClick={() => setSelectedGenders(toggleIn(selectedGenders, gender))}
               >
-                <div className="flex items-center">
-                  Athlete {renderSortIndicator('name')}
-                </div>
-              </TableHead>
-              {gridData.races.map((raceName, index) => (
-                <TableHead 
-                  key={index} 
-                  className="cursor-pointer"
-                  onClick={() => handleSort('time', index)}
-                >
-                  <div className="flex items-center">
-                    {raceName} {renderSortIndicator('time', index)}
-                  </div>
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+                {gender === 'M' ? 'Boys' : gender === 'F' ? 'Girls' : gender}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <span className="text-xs text-muted-foreground">
+          {processedAthletes.length} athlete{processedAthletes.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {/* --- Phone: one race at a time ------------------------------- */}
+      <div className="space-y-3 md:hidden">
+        {gridData.races.length > 1 && (
+          <SegmentedPills
+            caption="Meet"
+            segments={gridData.races.map((raceName, index) => ({
+              value: String(index),
+              label: raceName,
+            }))}
+            value={String(safeRaceIndex)}
+            onChange={(v) => setMobileRaceIndex(Number(v))}
+          />
+        )}
+        <Card>
+          <CardContent className="divide-y p-0">
             {processedAthletes.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={gridData.races.length + 1} className="text-center py-4">
-                  No athletes match the selected filters
-                </TableCell>
-              </TableRow>
+              <p className="p-6 text-center text-sm text-muted-foreground">
+                No athletes match the selected filters
+              </p>
             ) : (
               processedAthletes.map((athlete) => (
-                <TableRow key={athlete.athleteId}>
-                  <TableCell className="sticky left-0 bg-card z-10 font-medium">
-                    {athlete.name} ({gradeLabelShort(athlete.grade)})
-                  </TableCell>
-                  {athlete.results.map((time, index) => (
-                    <TableCell key={index}>
-                      {time ? formatTime(time) : '-'}
-                    </TableCell>
-                  ))}
-                </TableRow>
+                <div key={athlete.athleteId} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-semibold leading-tight">{athlete.name}</p>
+                    <p className="text-xs text-muted-foreground">{gradeLabelShort(athlete.grade)}</p>
+                  </div>
+                  <span className="shrink-0 font-mono text-base tabular-nums">
+                    {athlete.results[safeRaceIndex] ? formatTime(athlete.results[safeRaceIndex]) : '—'}
+                  </span>
+                </div>
               ))
             )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+          </CardContent>
+        </Card>
+        <button
+          type="button"
+          className="w-full rounded-md border px-3 py-2 text-xs text-muted-foreground hover:bg-accent"
+          onClick={() => handleSort('time', safeRaceIndex)}
+        >
+          Sort by this meet's time {renderSortIndicator('time', safeRaceIndex)}
+        </button>
+      </div>
+
+      {/* --- md and up: the full grid -------------------------------- */}
+      <Card className="hidden md:block">
+        <CardContent className="overflow-x-auto p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead
+                  className="sticky left-0 z-10 min-w-[12rem] cursor-pointer bg-card"
+                  onClick={() => handleSort('name')}
+                >
+                  <div className="flex items-center">
+                    Athlete {renderSortIndicator('name')}
+                  </div>
+                </TableHead>
+                {gridData.races.map((raceName, index) => (
+                  <TableHead
+                    key={index}
+                    className="cursor-pointer"
+                    onClick={() => handleSort('time', index)}
+                    title={raceName}
+                  >
+                    <div className="flex items-center">
+                      <span className="max-w-[10rem] truncate">{raceName}</span>
+                      {renderSortIndicator('time', index)}
+                    </div>
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {processedAthletes.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={gridData.races.length + 1} className="py-4 text-center">
+                    No athletes match the selected filters
+                  </TableCell>
+                </TableRow>
+              ) : (
+                processedAthletes.map((athlete) => (
+                  <TableRow key={athlete.athleteId}>
+                    <TableCell className="sticky left-0 z-10 bg-card font-medium">
+                      {athlete.name} ({gradeLabelShort(athlete.grade)})
+                    </TableCell>
+                    {athlete.results.map((time, index) => (
+                      <TableCell key={index} className="font-mono tabular-nums">
+                        {time ? formatTime(time) : '—'}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
   );
 };
 
