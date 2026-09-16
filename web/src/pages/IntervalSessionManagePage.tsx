@@ -29,6 +29,7 @@ import { formatDateShort, compactName } from '@/lib/formatUtils';
 import { SplitCell, type CellNavigate } from '@/components/splits/SplitCell';
 import { FieldHeader, type FieldAction } from '@/components/field/FieldHeader';
 import { SegmentedPills } from '@/components/field/SegmentedPills';
+import { anchorFor, elapsedSince } from '@/lib/stopwatch';
 import {
   orderCaptures,
   nextUnnamedId,
@@ -434,11 +435,30 @@ const IntervalSessionManagePage: React.FC = () => {
 
   useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
 
+
+  // Wake-up resync. Background throttling can hold the interval for a
+  // minute or more, so without this the first thing a coach sees on
+  // unlocking the phone is a stale time that then jumps. Deps are just the
+  // phase; setElapsedMs takes an updater, so nothing here can feed back.
+  useEffect(() => {
+    if (timerPhase !== 'running') return;
+    const sync = () => setElapsedMs((prev) => elapsedSince(startRef.current, prev));
+    document.addEventListener('visibilitychange', sync);
+    window.addEventListener('pageshow', sync);
+    return () => {
+      document.removeEventListener('visibilitychange', sync);
+      window.removeEventListener('pageshow', sync);
+    };
+  }, [timerPhase]);
+
   const handleTimerStart = () => {
-    startRef.current = performance.now() - elapsedMs;
+    startRef.current = anchorFor(elapsedMs);
     setTimerPhase('running');
     if (intervalRef.current) clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(() => setElapsedMs(performance.now() - startRef.current), 100);
+    intervalRef.current = setInterval(
+      () => setElapsedMs((prev) => elapsedSince(startRef.current, prev)),
+      100
+    );
   };
 
   const handleTimerStop = () => {

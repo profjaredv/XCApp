@@ -402,3 +402,35 @@ describe('enter results scoped to the race, not the whole roster', () => {
     expect(handleSave).toContain('touched[id]?.time || touched[id]?.status');
   });
 });
+
+// A coach started this timer and a Garmin at the same instant and the app
+// came back 3:15 behind after 15 minutes. Both timers anchored to
+// performance.now(), whose clock on Android does not advance through
+// device deep sleep — pocket the phone mid-rep and those minutes are gone.
+describe('the clock survives a pocketed phone', () => {
+  const interval = code(read('pages/IntervalSessionManagePage.tsx'));
+
+  it('anchors to the wall clock, not a monotonic clock that stalls in deep sleep', () => {
+    for (const src of [page, interval]) {
+      expect(src).not.toContain('performance.now()');
+      expect(src).toContain('anchorFor(elapsedMs)');
+      expect(src).toContain('elapsedSince(startRef.current, prev)');
+    }
+  });
+
+  it('resyncs the moment the phone wakes, rather than after a throttled tick', () => {
+    for (const src of [page, interval]) {
+      expect(src).toContain("document.addEventListener('visibilitychange', sync)");
+      expect(src).toContain("window.addEventListener('pageshow', sync)");
+      expect(src).toContain("document.removeEventListener('visibilitychange', sync)");
+    }
+  });
+
+  it('reads through the state updater so the resync cannot loop', () => {
+    // The lesson from React #185: an effect that sets state needs both a
+    // dep array and no dependency on a value it itself changes.
+    for (const src of [page, interval]) {
+      expect(src).toContain('setElapsedMs((prev) => elapsedSince(startRef.current, prev))');
+    }
+  });
+});
