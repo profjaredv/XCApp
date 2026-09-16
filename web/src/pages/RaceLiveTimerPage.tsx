@@ -12,6 +12,7 @@ import { FieldHeader } from '@/components/field/FieldHeader';
 import { SegmentedPills } from '@/components/field/SegmentedPills';
 import { fastestFirstPaceSecPerMile } from '@/api/groupService';
 import { firstNameOf, lastNameOf } from '@/lib/athleteSearch';
+import { anchorFor, elapsedSince } from '@/lib/stopwatch';
 import {
   orderCaptures,
   nextUnnamedId,
@@ -138,11 +139,30 @@ const RaceLiveTimerPage: React.FC = () => {
 
   useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
 
+
+  // Wake-up resync. Background throttling can hold the interval for a
+  // minute or more, so without this the first thing a coach sees on
+  // unlocking the phone is a stale time that then jumps. Deps are just the
+  // phase; setElapsedMs takes an updater, so nothing here can feed back.
+  useEffect(() => {
+    if (phase !== 'running') return;
+    const sync = () => setElapsedMs((prev) => elapsedSince(startRef.current, prev));
+    document.addEventListener('visibilitychange', sync);
+    window.addEventListener('pageshow', sync);
+    return () => {
+      document.removeEventListener('visibilitychange', sync);
+      window.removeEventListener('pageshow', sync);
+    };
+  }, [phase]);
+
   const handleStart = () => {
-    startRef.current = performance.now() - elapsedMs;
+    startRef.current = anchorFor(elapsedMs);
     setPhase('running');
     if (intervalRef.current) clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(() => setElapsedMs(performance.now() - startRef.current), 100);
+    intervalRef.current = setInterval(
+      () => setElapsedMs((prev) => elapsedSince(startRef.current, prev)),
+      100
+    );
   };
 
   const handleStop = () => {
