@@ -161,3 +161,62 @@ describe('export lives with the other data actions', () => {
     expect(header).toContain('{extraActions}');
   });
 });
+
+describe('sized for a field, not a desk', () => {
+  it('gives every filter chip a 44px target and readable type', () => {
+    // They were 10px labels in a 24px box — under every mobile platform's
+    // minimum target, and hard to read outdoors.
+    expect(page).toContain('inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-medium');
+    expect(page).not.toContain('px-3 py-1 text-xs font-medium');
+  });
+
+  it('sizes the athlete rows for a phone held at arm\'s length', () => {
+    expect(page).toContain('truncate text-lg font-semibold leading-tight');
+    expect(page).toContain('shrink-0 font-mono text-lg font-medium tabular-nums');
+    expect(page).toContain('text-sm text-muted-foreground">{gradeLabelShort(athlete.grade)}');
+  });
+});
+
+describe('sort is reachable again', () => {
+  it('offers both fields on a phone, where there is no table header to tap', () => {
+    const mobile = page.slice(page.indexOf('md:hidden'), page.indexOf('hidden md:block'));
+    expect(mobile).toContain("onClick={() => handleSort('name')}");
+    expect(mobile).toContain("onClick={() => handleSort('time', safeRaceIndex)}");
+  });
+
+  it('puts it ABOVE the list — under a hundred names it may as well not exist', () => {
+    const mobile = page.slice(page.indexOf('md:hidden'), page.indexOf('hidden md:block'));
+    expect(mobile.indexOf("handleSort('name')")).toBeLessThan(mobile.indexOf('processedAthletes.map'));
+  });
+
+  it('marks the active field, so the order is not a mystery', () => {
+    expect(page).toContain("className={chip(sortField === 'name')}");
+    expect(page).toContain("chip(sortField === 'time' && sortRaceIndex === safeRaceIndex)");
+  });
+});
+
+describe('season mode is gone', () => {
+  const analytics = code(read('pages/AnalyticsPage.tsx'));
+  const header = code(read('components/analytics/AnalyticsHeader.tsx'));
+
+  it('no longer renders a Current/Past Season toggle', () => {
+    expect(header).not.toContain('SeasonModeSelector');
+    expect(header).not.toContain('seasonMode');
+  });
+
+  it('stops pinning the season, which fought the app header picker', () => {
+    // The 'current' branch reset selectedSeason to the active season on
+    // every render, so picking a past year in the header snapped back.
+    expect(analytics).not.toContain("if (seasonMode === 'current') {");
+    expect(analytics).not.toContain('handleSeasonModeChange');
+  });
+
+  it('keeps the preseason fallback, which is about data rather than the toggle', () => {
+    expect(analytics).toContain("setQueryParams({ seasonMode: 'historical', season: defaultSeason })");
+  });
+
+  it('right-aligns the actions instead of centring them mid-page', () => {
+    expect(header).toContain('relative mb-4 flex justify-end');
+    expect(header).not.toContain('sm:justify-end items-center');
+  });
+});
