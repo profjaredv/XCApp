@@ -2,8 +2,6 @@ import React from 'react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, MoreVertical } from 'lucide-react';
-import { SeasonModeSelector } from './SeasonModeSelector';
-import { SeasonMode } from './types';
 import type { User } from '@/types';
 import type { TeamPerformance } from '@/types/analytics';
 
@@ -21,8 +19,6 @@ interface AnalyticsHeaderProps {
   currentUser: User | null;
   isLoadingSeasons: boolean;
   availableSeasons: Season[];
-  seasonMode: SeasonMode;
-  handleSeasonModeChange: (mode: SeasonMode) => void;
   handleRecalculateMetrics: () => void;
   isRecalculating: boolean;
   team: Team | undefined;
@@ -38,8 +34,6 @@ export const AnalyticsHeader = ({
   currentUser,
   isLoadingSeasons,
   availableSeasons,
-  seasonMode,
-  handleSeasonModeChange,
   handleRecalculateMetrics,
   isRecalculating,
   team,
@@ -83,19 +77,24 @@ export const AnalyticsHeader = ({
     return null;
   }
 
+  // Right-aligned on its own line, not centred mid-page. Centred, it read
+  // as a heading for the content below it rather than a control belonging
+  // to the page — and on a phone it sat between the tabs and the data with
+  // nothing tying it to either.
   return (
-    <div className="mb-4 flex flex-col sm:flex-row sm:justify-end items-center gap-2 sm:gap-3">
-      <SeasonModeSelector mode={seasonMode} onModeChange={handleSeasonModeChange} />
+    <div className="relative mb-4 flex justify-end">
       <div className="hidden sm:flex items-center gap-2">{dataActionButtons}</div>
-      <div className="sm:hidden w-full">
-        <Button variant="ghost" size="sm" className="w-full" onClick={() => setShowDataActions((v) => !v)}>
-          <MoreVertical className="h-4 w-4 mr-1" />
-          {showDataActions ? 'Hide data actions' : 'Data actions'}
+      <div className="sm:hidden">
+        <Button variant="ghost" size="sm" onClick={() => setShowDataActions((v) => !v)}>
+          <MoreVertical className="mr-1 h-4 w-4" />
+          {showDataActions ? 'Hide' : 'Actions'}
         </Button>
-        {showDataActions && (
-          <div className="flex flex-col gap-2 mt-2">{dataActionButtons}</div>
-        )}
       </div>
+      {showDataActions && (
+        <div className="absolute right-4 z-20 mt-10 flex flex-col gap-2 rounded-lg border bg-background p-2 shadow-lg sm:hidden">
+          {dataActionButtons}
+        </div>
+      )}
     </div>
   );
 };

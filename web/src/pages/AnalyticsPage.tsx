@@ -134,7 +134,7 @@ const AnalyticsPage = () => {
 
   const { athletes = [], team, meets = [], mostImproved = [] } = analyticsData || {};
 
-  const { data: availableSeasons = [], isLoading: isLoadingSeasons, refetch: refetchSeasons } = useAvailableSeasons(teamId);
+  const { data: availableSeasons = [], isLoading: isLoadingSeasons } = useAvailableSeasons(teamId);
   const { data: teamContext } = useTeamContext();
   const activeSeason = teamContext?.activeSeason;
   const viewedSeason = selectedSeason ?? activeSeason;
@@ -244,11 +244,11 @@ const AnalyticsPage = () => {
       return;
     }
 
-    if (seasonMode === 'current') {
-      if (selectedSeason !== activeSeason) {
-        setSelectedSeasonParam(activeSeason);
-      }
-    } else if (seasonMode === 'historical' && availableSeasons.length > 0 && !selectedSeason) {
+    // The 'current' branch that used to live here pinned selectedSeason to
+    // the active season on every render, which meant picking a past year in
+    // the app header was snapped straight back. The header picker is the
+    // one season control now, so there is nothing to pin against.
+    if (seasonMode === 'historical' && availableSeasons.length > 0 && !selectedSeason) {
       // Default to the most recent PAST season, not the active one — the
       // whole point of switching to "Past Seasons" is to look at a season
       // other than the one Current Season already shows. Falling back to
@@ -367,16 +367,6 @@ const AnalyticsPage = () => {
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value);
   const handleGenderFilterChange = (value: 'all' | 'M' | 'F') => setGenderFilter(value);
   const handleGradeFilterChange = (value: string) => setGradeFilter(value);
-
-  const handleSeasonModeChange = useCallback((newMode: SeasonMode) => {
-    // Single call — see useSetQueryParams' comment. Setting seasonMode and
-    // season via two separate setSearchParams calls was silently dropping
-    // the seasonMode change: "Past Seasons" appeared to do nothing.
-    setQueryParams({ seasonMode: newMode, season: undefined });
-    if (newMode === 'historical' && (!availableSeasons || availableSeasons.length === 0)) {
-      refetchSeasons();
-    }
-  }, [availableSeasons, refetchSeasons, setQueryParams]);
 
   const handleTabChange = useCallback((tab: string) => {
     setTabParam(tab);
@@ -548,8 +538,6 @@ const AnalyticsPage = () => {
         currentUser={currentUser}
         isLoadingSeasons={isLoadingSeasons}
         availableSeasons={availableSeasons}
-        seasonMode={seasonMode}
-        handleSeasonModeChange={handleSeasonModeChange}
         handleRecalculateMetrics={handleRecalculateMetrics}
         isRecalculating={isRecalculating}
         team={team}

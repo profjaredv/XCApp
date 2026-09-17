@@ -297,10 +297,10 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
                     key={season}
                     type="button"
                     onClick={() => setSelectedSeason(season)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    className={`inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-medium transition-colors sm:min-h-9 ${
                       selectedSeason === season
                         ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border bg-background text-muted-foreground hover:bg-accent'
+                        : 'border-border bg-background text-foreground hover:bg-accent'
                     }`}
                   >
                     {season}
@@ -325,11 +325,14 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
 
   // One chip style for every filter on this page. Small on purpose: these
   // annotate the grid, they are not the grid.
+  // 44px tall and 14px type: these were 10px pills in a 24px box, which is
+  // under every mobile platform's minimum target and hard to read on a
+  // field in daylight.
   const chip = (active: boolean) =>
-    `rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+    `inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-medium transition-colors sm:min-h-9 ${
       active
         ? 'border-primary bg-primary text-primary-foreground'
-        : 'border-border bg-background text-muted-foreground hover:bg-accent'
+        : 'border-border bg-background text-foreground hover:bg-accent'
     }`;
 
   return (
@@ -398,7 +401,7 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
           </div>
         )}
 
-        <span className="text-xs text-muted-foreground">
+        <span className="text-sm text-muted-foreground">
           {processedAthletes.length} athlete{processedAthletes.length === 1 ? '' : 's'}
         </span>
       </div>
@@ -446,6 +449,24 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
             </Button>
           </div>
         )}
+        {/* Sort belongs ABOVE the list. On a phone there is no table header
+            to tap, so removing the old sort row left no way to sort at all
+            — and a control under a hundred-name list may as well not
+            exist. Tapping the active field flips direction. */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-muted-foreground">Sort</span>
+          <button type="button" className={chip(sortField === 'name')} onClick={() => handleSort('name')}>
+            Name {renderSortIndicator('name')}
+          </button>
+          <button
+            type="button"
+            className={chip(sortField === 'time' && sortRaceIndex === safeRaceIndex)}
+            onClick={() => handleSort('time', safeRaceIndex)}
+          >
+            Time {renderSortIndicator('time', safeRaceIndex)}
+          </button>
+        </div>
+
         <Card>
           <CardContent className="divide-y p-0">
             {processedAthletes.length === 0 ? (
@@ -454,12 +475,12 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
               </p>
             ) : (
               processedAthletes.map((athlete) => (
-                <div key={athlete.athleteId} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <div key={athlete.athleteId} className="flex items-center justify-between gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-base font-semibold leading-tight">{athlete.name}</p>
-                    <p className="text-xs text-muted-foreground">{gradeLabelShort(athlete.grade)}</p>
+                    <p className="truncate text-lg font-semibold leading-tight">{athlete.name}</p>
+                    <p className="text-sm text-muted-foreground">{gradeLabelShort(athlete.grade)}</p>
                   </div>
-                  <span className="shrink-0 font-mono text-base tabular-nums">
+                  <span className="shrink-0 font-mono text-lg font-medium tabular-nums">
                     {athlete.results[safeRaceIndex] ? formatTime(athlete.results[safeRaceIndex]) : '—'}
                   </span>
                 </div>
@@ -467,13 +488,7 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
             )}
           </CardContent>
         </Card>
-        <button
-          type="button"
-          className="w-full rounded-md border px-3 py-2 text-xs text-muted-foreground hover:bg-accent"
-          onClick={() => handleSort('time', safeRaceIndex)}
-        >
-          Sort by this meet's time {renderSortIndicator('time', safeRaceIndex)}
-        </button>
+
       </div>
 
       {/* --- md and up: the full grid -------------------------------- */}
