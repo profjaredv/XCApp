@@ -924,12 +924,15 @@ const GenderColumn: React.FC<{
                 <button
                   type="button"
                   onClick={() => toggleCollapsed(col.id)}
-                  className="flex items-center gap-1.5 hover:text-foreground/80"
+                  className="flex min-w-0 items-center gap-1.5 hover:text-foreground/80"
                 >
-                  {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-                  <span>{col.name}</span>
+                  {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                  <span className="truncate">{col.name}</span>
                 </button>
-                <div className="flex items-center gap-1">
+                {/* Wraps: with a 44px touch floor on coarse pointers these
+                    four actions need 176px, which on a 390px screen would
+                    otherwise crush the group name beside them. */}
+                <div className="flex flex-wrap items-center justify-end gap-1">
                   <Badge variant="secondary">{members.length}</Badge>
                   {col.group && (
                     <>
@@ -1056,11 +1059,11 @@ const GroupCard: React.FC<{
     >
       <CardHeader className="py-3">
         <CardTitle className="text-sm flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            {group.name}
-            <Badge variant="outline" className="text-[10px]">{GROUP_TYPE_LABEL[group.type]}</Badge>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate">{group.name}</span>
+            <Badge variant="outline" className="shrink-0 text-[10px]">{GROUP_TYPE_LABEL[group.type]}</Badge>
           </span>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center justify-end gap-1">
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={stop(onManageLeaders)} title="Manage leaders">
               <UserCog className="h-3.5 w-3.5" />
             </Button>

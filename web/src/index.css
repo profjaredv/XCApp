@@ -274,3 +274,50 @@
     font-size: 16px;
   }
 }
+
+/* Mobile legibility and touch floor — deliberately UNLAYERED, for the
+ * same reason as the form-control guard above: unlayered rules outrank
+ * every cascade layer, and Tailwind puts text-xs and size-9 in
+ * @layer utilities. A rule inside @layer base would lose to the very
+ * classes it exists to correct.
+ *
+ * This is a FLOOR, not a redesign. It lifts the bottom of the type scale
+ * and the bottom of the target scale without touching anything already
+ * comfortable, so 80 files get readable at once and stay that way when
+ * someone writes text-xs next week.
+ *
+ * Scoped to coarse pointers: a mouse can hit a 32px button and a desk is
+ * not a sunlit track, so desktop keeps the density it was designed with.
+ */
+@media (pointer: coarse) {
+  /* 12px is the floor of the Tailwind scale and it is genuinely hard to
+   * read outdoors at arm's length. 13px, not 14px — 14px is text-sm, and
+   * collapsing xs into sm would flatten the hierarchy on every screen
+   * rather than fixing the bottom of it. */
+  .text-xs {
+    font-size: 0.8125rem;
+    line-height: 1.125rem;
+  }
+
+  /* Hand-picked sizes below the scale — badges, chart labels, timestamps.
+   * These are the ones a coach actually cannot read. */
+  .text-\[10px\],
+  .text-\[11px\] {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  /* Every shared Button gets a 44px minimum box: the figure Apple, Google
+   * and the WCAG 2.2 target-size criterion all land on, and what h-8
+   * (32px) and size-9 (36px) were both under. min-* rather than h-*, so a
+   * button that is already bigger is left alone.
+   *
+   * Scoped to [data-slot="button"] on purpose — the hand-rolled buttons
+   * (timer tiles, filter chips, segmented pills) set their own sizes
+   * against a known layout, and blanket-growing those would break grids
+   * that were measured for a 390px screen. */
+  [data-slot='button'] {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+}
