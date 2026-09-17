@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useContext, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Sparkles, Download } from 'lucide-react';
+import { resolveSeasonSelection } from '@/lib/seasonSelection';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import VDOTCalculator from '@/components/tools/VDOTCalculator';
 import ResultsGridPage from '@/pages/ResultsGridPage';
@@ -215,62 +216,37 @@ const AnalyticsPage = () => {
   // what has actually been imported — rather than the calendar year. Using
   // `new Date().getFullYear()` here is what left a team that imported 2025
   // staring at an empty 2026.
+  // The decision itself lives in lib/seasonSelection.ts, as a pure
+  // function with the cases enumerated. It used to be inline here, which
+  // meant it could only be checked by reading the source as text — and
+  // that is how a branch got deleted as "redundant" when it was in fact
+  // the only thing initializing the page, shipping a build where every
+  // dashboard link landed on "No team data found".
   useEffect(() => {
-    if (activeSeason === undefined) return;
-
-    // Nobody has picked a mode yet (no `seasonMode` in the URL) and the
-    // active season has no races — a fresh preseason. Forcing "Current
-    // Season" in that case landed every visit on a genuinely empty page
-    // even when past seasons have real data. Default to the most recent
-    // season that actually has data instead. A user who explicitly clicks
-    // "Current Season" sets seasonModeParam and this no longer applies —
-    // that's a deliberate choice to view the (possibly empty) active season.
-    if (
-      seasonModeParam === undefined &&
-      availableSeasons.length > 0 &&
-      !availableSeasons.find((s) => s.year === activeSeason)?.hasData &&
-      availableSeasons.some((s) => s.hasData)
-    ) {
-      const defaultSeason =
-        availableSeasons.find((s) => s.year !== activeSeason && s.hasData)?.year ??
-        availableSeasons.find((s) => s.hasData)?.year;
-      if (defaultSeason && defaultSeason !== selectedSeason) {
-        // One call, not two — setSeasonModeParam() and setSelectedSeasonParam()
-        // each snapshot the URL independently and navigate off that snapshot,
-        // so calling both back to back drops whichever one lands first. See
-        // useSetQueryParams' comment for the full explanation.
-        setQueryParams({ seasonMode: 'historical', season: defaultSeason });
-      }
-      return;
-    }
-
-    // The 'current' branch that used to live here pinned selectedSeason to
-    // the active season on every render, which meant picking a past year in
-    // the app header was snapped straight back. The header picker is the
-    // one season control now, so there is nothing to pin against.
-    if (seasonMode === 'historical' && availableSeasons.length > 0 && !selectedSeason) {
-      // Default to the most recent PAST season, not the active one — the
-      // whole point of switching to "Past Seasons" is to look at a season
-      // other than the one Current Season already shows. Falling back to
-      // activeSeason here made switching modes look like it did nothing:
-      // same season, same data, just a picker appeared.
-      const pastSeasons = availableSeasons.filter((s) => s.year !== activeSeason);
-      const defaultSeason =
-        pastSeasons.find((s) => s.hasData)?.year ??
-        pastSeasons[0]?.year ??
-        availableSeasons[0]?.year;
-      if (defaultSeason) {
-        setSelectedSeasonParam(defaultSeason);
-      }
+    const decision = resolveSeasonSelection({
+      activeSeason,
+      selectedSeason: selectedSeason ?? undefined,
+      seasonMode,
+      seasonModeExplicit: seasonModeParam !== undefined,
+      availableSeasons,
+    });
+    if (!decision) return;
+    if (decision.seasonMode) {
+      // One call, not two — setSeasonModeParam() and setSelectedSeasonParam()
+      // each snapshot the URL independently and navigate off that snapshot,
+      // so calling both back to back drops whichever one lands first.
+      setQueryParams({ seasonMode: decision.seasonMode, season: decision.season });
+    } else {
+      setSelectedSeasonParam(decision.season);
     }
   }, [
+    activeSeason,
+    selectedSeason,
     seasonMode,
     seasonModeParam,
     availableSeasons,
-    selectedSeason,
-    setSelectedSeasonParam,
     setQueryParams,
-    activeSeason,
+    setSelectedSeasonParam,
   ]);
 
   const { toast } = useToast();
