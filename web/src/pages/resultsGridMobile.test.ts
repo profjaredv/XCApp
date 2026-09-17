@@ -212,7 +212,15 @@ describe('season mode is gone', () => {
   });
 
   it('keeps the preseason fallback, which is about data rather than the toggle', () => {
-    expect(analytics).toContain("setQueryParams({ seasonMode: 'historical', season: defaultSeason })");
+    // The decision moved into lib/seasonSelection.ts, where the preseason
+    // case is an enumerated test rather than a branch read as text.
+    expect(analytics).toContain('resolveSeasonSelection({');
+    expect(analytics).toContain('seasonModeExplicit: seasonModeParam !== undefined');
+  });
+
+  it('always resolves a season on first load — no season means an empty page', () => {
+    expect(analytics).toContain('if (!decision) return;');
+    expect(analytics).toContain('setSelectedSeasonParam(decision.season)');
   });
 
   it('right-aligns the actions instead of centring them mid-page', () => {
