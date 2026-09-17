@@ -72,7 +72,7 @@ const SessionSummaryCard: React.FC<{
           {session.entries.length} athlete{session.entries.length === 1 ? '' : 's'}
         </p>
       </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex flex-wrap items-center justify-end gap-1">
         <Button variant="ghost" size="icon" onClick={onDuplicate} title="Duplicate for another group">
           <Copy className="h-4 w-4" />
         </Button>
