@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 // The nav's own icons now come with its entries (lib/navigation.ts);
 // these are the ones this file draws itself.
 import { accentFor, sectionForNavKey, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, X, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamContext } from '../hooks/useTeamContext';
@@ -233,13 +233,51 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
     authClient.signOut();
   };
 
+  // Escape, the third exit. Dep array on purpose — an effect that
+  // registers listeners and never re-registers is still an effect that
+  // needs one (see noUnboundedEffects.test.ts).
+  useEffect(() => {
+    if (!isMobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMobileOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isMobileOpen, setIsMobileOpen]);
+
   return (
-    <aside className={`fixed md:relative flex flex-col h-screen bg-sidebar border-r border-sidebar-border backdrop-blur-xl transition-all duration-300 z-20 ${isCollapsed ? 'w-20' : 'w-64'} ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+    <>
+      {/* The way out. Open, the drawer is fixed at z-20 and covers the
+          header — including the hamburger that opened it — so until now
+          the only exit was picking a nav item: a coach who opened the menu
+          to look at it had to navigate somewhere to get rid of it.
+          Tapping outside is what every drawer does, so it is what this
+          does. Below md only; from md up the sidebar is part of the
+          layout and never covers anything. */}
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 z-10 bg-black/50 md:hidden"
+          onClick={() => setIsMobileOpen(false)}
+          aria-hidden
+        />
+      )}
+      <aside className={`fixed md:relative flex flex-col h-screen bg-sidebar border-r border-sidebar-border backdrop-blur-xl transition-all duration-300 z-20 ${isCollapsed ? 'w-20' : 'w-64'} ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="absolute -right-3 top-8 z-10 p-1.5 bg-background border border-border rounded-full text-muted-foreground hover:bg-accent hover:border-ring shadow-sm transition-all duration-200 hidden md:block"
       >
         <ChevronLeft className={`h-3.5 w-3.5 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* And an explicit one, for a thumb that is already on the drawer.
+          Sits where the hamburger was, so closing lands in the same place
+          opening started. */}
+      <button
+        onClick={() => setIsMobileOpen(false)}
+        aria-label="Close menu"
+        className="absolute right-3 top-3 z-10 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent md:hidden"
+      >
+        <X className="h-6 w-6" />
       </button>
 
       <div className="p-6">
@@ -433,6 +471,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
         </button>
       </div>
     </aside>
+    </>
   );
 }
 
