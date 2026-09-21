@@ -71,6 +71,20 @@ export function useCreateRace(meetId: string | null) {
   });
 }
 
+export function useUpdateRaceDistance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ raceId, ...input }: { raceId: string; distanceMeters: number; distance?: string }) =>
+      meetOpsService.updateRaceDistance(raceId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetOps'] });
+      // Every pace in the app is time / distance, so this invalidates far
+      // more than the meet itself.
+      invalidateAfterDataChange(queryClient);
+    },
+  });
+}
+
 export function useDeleteRace() {
   const queryClient = useQueryClient();
   return useMutation({

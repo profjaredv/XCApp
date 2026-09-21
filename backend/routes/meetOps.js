@@ -478,6 +478,74 @@ router.post('/:meetId/races', authenticate, requireTeam, requireRole(FULL_COACH)
 // Race.isManual's schema comment). A scraped race is only ever removed
 // by a bulk wipe/re-scrape, never through a single-race delete, so a
 // coach can't accidentally erase real Athletic.net history this way.
+// PATCH /api/meets/races/:raceId
+//
+// Correcting a race's distance after the fact. Meets publish a distance,
+// then revise it — a "5K" that was actually short, a course re-measured
+// after the fact — and until now there was no way to say so: distance was
+// only ever written by the scraper import or at race creation.
+//
+// Re-scraping does not fix it and quietly makes things worse. A Race is
+// identified by (teamId, name, date, distance) — see the upsert in
+// routes/teams.js — so a revised distance does not match the existing row
+// and the import CREATES A SECOND RACE instead of updating the first. The
+// team ends up with the meet twice: the original still holding the field
+// results, splits and entrants, and a new one holding a fresh copy of the
+// results and none of the rest.
+//
+// Every pace in the app is time / distance, so a wrong distance quietly
+// corrupts average pace, best pace, course difficulty, course-adjusted
+// times and the training zones derived from them — and a short race
+// recorded as a 5K can register as a 5K PR that never happened. The
+// stored times themselves are fine, which is why this is a one-field fix
+// followed by a recalculation rather than a re-import.
+router.patch('/races/:raceId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  const { distance, distanceMeters } = req.body;
+  const distanceMetersNum = Number(distanceMeters);
+
+  if (!Number.isFinite(distanceMetersNum) || distanceMetersNum <= 0) {
+    return res.status(400).json({ msg: 'distanceMeters is required and must be a positive number.' });
+  }
+
+  try {
+    const race = await prisma.race.findFirst({
+      where: { id: req.params.raceId, teamId: req.user.teamId },
+    });
+    if (!race) {
+      return res.status(404).json({ msg: 'Race not found.' });
+    }
+
+    const updated = await prisma.race.update({
+      where: { id: race.id },
+      data: {
+        distanceMeters: distanceMetersNum,
+        // The label is what the identity key and the UI both read, so it
+        // has to move with the number or a re-scrape would still see the
+        // old distance and fork a duplicate.
+        distance: distance != null && String(distance).trim() ? String(distance).trim() : race.distance,
+      },
+    });
+
+    // Paces are precomputed into AthleteSeasonMetrics / MeetPerformanceMetrics
+    // / TeamSeasonMetrics, so the correction is invisible until these are
+    // rebuilt. Fire-and-forget, same as every other write that invalidates
+    // them — the response should not wait on a full season recalculation.
+    calculationService
+      .calculateAllMetrics(req.user.teamId, race.season)
+      .catch((calcError) => console.error(`Error recalculating after distance edit for season ${race.season}:`, calcError.message));
+
+    res.json(updated);
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(409).json({
+        msg: 'This team already has a race with that name, date and distance. Rename one of them first.',
+      });
+    }
+    console.error('Error updating race distance:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 router.delete('/races/:raceId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId: req.user.teamId } });

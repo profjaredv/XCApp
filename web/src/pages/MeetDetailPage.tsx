@@ -12,11 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Download, Upload, Timer as TimerIcon, Users } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
-import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useRaceResults, useRaceEntrants, useSubmitRaceResults, useSetPostseasonLevel, useMeetEntrants } from '@/hooks/useMeetOps';
+import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useUpdateRaceDistance, useRaceResults, useRaceEntrants, useSubmitRaceResults, useSetPostseasonLevel, useMeetEntrants } from '@/hooks/useMeetOps';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { ManageEntrantsDialog } from '@/components/meets/ManageEntrantsDialog';
 import { MissingEntrantsCard } from '@/components/meets/MissingEntrantsCard';
@@ -74,6 +74,7 @@ const MeetDetailPage: React.FC = () => {
   );
 
   const deleteRace = useDeleteRace();
+  const updateRaceDistance = useUpdateRaceDistance();
 
   const [name, setName] = useState('');
   const [date, setDate] = useState('');
@@ -84,6 +85,9 @@ const MeetDetailPage: React.FC = () => {
   const [enterResultsOpen, setEnterResultsOpen] = useState(false);
   const [importResultsOpen, setImportResultsOpen] = useState(false);
   const [entrantsOpen, setEntrantsOpen] = useState(false);
+  // Correcting a published distance — see useUpdateRaceDistance.
+  const [distanceRace, setDistanceRace] = useState<{ id: string; name: string; distanceMeters: number | null } | null>(null);
+  const [distanceDraft, setDistanceDraft] = useState('');
   const [exportingCsv, setExportingCsv] = useState(false);
 
   useEffect(() => {
@@ -300,6 +304,21 @@ const MeetDetailPage: React.FC = () => {
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate font-medium">{r.name}</span>
+                        {/* The distance was invisible here, which is how a
+                            wrong one survives: every pace in the app is
+                            time / distance, but nothing on screen said
+                            what distance was being divided by. */}
+                        <button
+                          type="button"
+                          className="shrink-0 rounded border border-dashed px-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                          title="Correct this race's distance"
+                          onClick={() => {
+                            setDistanceRace({ id: r.id, name: r.name, distanceMeters: r.distanceMeters ?? null });
+                            setDistanceDraft(r.distanceMeters ? String(Math.round(r.distanceMeters)) : '');
+                          }}
+                        >
+                          {r.distanceMeters ? `${Math.round(r.distanceMeters)}m` : 'set distance'}
+                        </button>
                         {count != null && <span className="shrink-0 text-xs text-muted-foreground">{count} entered</span>}
                         {r.isManual && <span className="shrink-0 text-xs text-muted-foreground">Manual</span>}
                       </div>
@@ -371,6 +390,80 @@ const MeetDetailPage: React.FC = () => {
       <MissingEntrantsCard meetId={meet.id} seasonYear={meet.seasonYear} />
 
       <AddRaceDialog meet={meet} open={addRaceOpen} onOpenChange={setAddRaceOpen} />
+
+      <Dialog open={distanceRace !== null} onOpenChange={(open) => !open && setDistanceRace(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Distance — {distanceRace?.name}</DialogTitle>
+            <DialogDescription>
+              For a race that was published at one distance and revised later. Every pace in the app
+              is time ÷ distance, so correcting this here fixes average pace, course difficulty and
+              the adjusted times that depend on it. Finish times and places are untouched.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {DISTANCE_PRESETS.map((preset) => (
+                <Button
+                  key={preset.label}
+                  variant={Number(distanceDraft) === preset.meters ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDistanceDraft(String(preset.meters))}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="raceDistanceMeters">Metres</Label>
+              <Input
+                id="raceDistanceMeters"
+                type="number"
+                inputMode="numeric"
+                value={distanceDraft}
+                onChange={(e) => setDistanceDraft(e.target.value)}
+                placeholder="e.g. 4800"
+              />
+            </div>
+            {/* A re-scrape will not fix this and is not a second option:
+                a Race is keyed on (team, name, date, distance), so the
+                revised distance does not match and the import creates a
+                DUPLICATE race — the original keeping the field results,
+                splits and entrants, the new one holding a fresh copy of
+                the results and none of the rest. */}
+            <p className="text-xs text-muted-foreground">
+              Fix it here rather than re-importing: a re-import would add a second copy of this race
+              instead of correcting this one.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDistanceRace(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!(Number(distanceDraft) > 0) || updateRaceDistance.isPending}
+              onClick={() => {
+                if (!distanceRace) return;
+                const meters = Number(distanceDraft);
+                const preset = DISTANCE_PRESETS.find((p) => p.meters === meters);
+                updateRaceDistance.mutate(
+                  { raceId: distanceRace.id, distanceMeters: meters, distance: preset?.label },
+                  {
+                    onSuccess: () => {
+                      setDistanceRace(null);
+                      toast.success('Distance updated — season metrics are recalculating.');
+                    },
+                    onError: () => toast.error('Could not update that distance.'),
+                  }
+                );
+              }}
+            >
+              {updateRaceDistance.isPending ? 'Saving…' : 'Save distance'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {selectedRaceId && (
         <ManageEntrantsDialog
           raceId={selectedRaceId}
