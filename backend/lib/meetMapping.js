@@ -89,15 +89,32 @@ function raceIdentityKey(name, date, distance) {
 // `rows` is [{raceId, meetName, meetDate, distance, averagePace,
 // participantCount}] (MeetPerformanceMetrics, one per race);
 // `meetInfoByRaceId` maps a raceId to {id, name, location} when that
-// race is linked to a real Meet, or is simply absent/null when it isn't
-// (an unlinked scraped race, or one from before a coach ran Import) —
-// those races keep showing as their own single-race entry, unchanged.
+// race is linked to a real Meet, or is simply absent/null when it isn't.
 // `hasSplitsRaceIds` is the existing per-race splits Set.
+//
+// A Race.meetId only exists after a coach runs Schedule > Meets >
+// Import, so keying on it alone meant every scraped season read as one
+// card PER RACE: a meet where the team ran two distances showed up
+// twice, same name, same date, side by side, which is exactly what a
+// coach reports as "it's listed twice." Unlinked rows therefore fall
+// back to the same signal buildMeetMappingProposal above proposes a
+// Meet from — same calendar day, same name stem — because a team
+// cannot be at two events at once. This is display grouping, not a
+// merge: no Meet row is created, nothing is written, and the heats
+// stay individually addressable below.
+function unlinkedMeetKey(row) {
+  const name = (row.meetName || '').trim();
+  if (!name || !row.meetDate) return `race:${row.raceId}`;
+  const dateKey =
+    row.meetDate instanceof Date ? row.meetDate.toISOString().slice(0, 10) : String(row.meetDate).slice(0, 10);
+  return `day:${stripLevelGenderSuffix(name).toLowerCase()}|${dateKey}`;
+}
+
 function groupMeetMetricsByMeet(rows, meetInfoByRaceId, hasSplitsRaceIds) {
   const groups = new Map();
   for (const row of rows) {
     const info = meetInfoByRaceId.get(row.raceId) || null;
-    const key = info ? `meet:${info.id}` : `race:${row.raceId}`;
+    const key = info ? `meet:${info.id}` : unlinkedMeetKey(row);
     if (!groups.has(key)) groups.set(key, { info, rows: [] });
     groups.get(key).rows.push(row);
   }
@@ -107,27 +124,47 @@ function groupMeetMetricsByMeet(rows, meetInfoByRaceId, hasSplitsRaceIds) {
       const totalRunners = groupRows.reduce((sum, r) => sum + (r.participantCount || 0), 0);
       // Weighted by field size, not a naive average of averages — a
       // 60-runner varsity heat and a 10-runner JV heat don't deserve
-      // equal weight in "this meet's average pace."
+      // equal weight in "this meet's average pace." Pace per mile is
+      // comparable across distances, so this stays meaningful even for
+      // a meet whose heats ran different distances.
       const weightedPaceSum = groupRows.reduce((sum, r) => sum + (r.averagePace || 0) * (r.participantCount || 0), 0);
       const avgPace = totalRunners > 0 ? weightedPaceSum / totalRunners : groupRows[0].averagePace || 0;
       const first = groupRows[0];
+      // One distance for the whole entry ONLY when every heat ran it.
+      // Reporting the first heat's distance for a mixed-distance meet
+      // labels a 3200m heat as a 5K — a confident wrong number.
+      const distances = groupRows.map((r) => r.distance).filter((d) => d != null);
+      const sharedDistance =
+        distances.length === groupRows.length && distances.every((d) => d === distances[0]) ? distances[0] : null;
+      // An unlinked group's heats are usually named identically (the
+      // season scraper names every race after its meet), but a coach's
+      // own races differ by level/gender — the shared stem is the meet.
+      const stems = groupRows
+        .map((r) => stripLevelGenderSuffix(r.meetName || ''))
+        .filter((s) => s.length > 0);
+      let name = first.meetName;
+      if (info) name = info.name;
+      else if (groupRows.length > 1 && stems.length > 0) name = mostCommon(stems);
       return {
         id: info ? info.id : first.raceId,
-        name: info ? info.name : first.meetName,
+        name,
         date: first.meetDate,
         location: (info && info.location) || '',
-        distance: first.distance || 5000,
+        distance: sharedDistance,
         avgPace,
         runners: totalRunners,
         hasSplits: groupRows.some((r) => hasSplitsRaceIds.has(r.raceId)),
         // Only present when this entry is actually multiple heats — a
         // single race (grouped or not) stays exactly the shape it always
         // was, so nothing downstream has to special-case "one heat."
+        // Each heat carries its own distance so the UI can offer the
+        // distances as toggles rather than pooling incomparable races.
         heats:
           groupRows.length > 1
             ? groupRows.map((r) => ({
                 id: r.raceId,
                 name: r.meetName,
+                distance: r.distance ?? null,
                 runners: r.participantCount || 0,
                 avgPace: r.averagePace || 0,
                 hasSplits: hasSplitsRaceIds.has(r.raceId),
@@ -194,5 +231,6 @@ module.exports = {
   buildMeetMappingProposal,
   raceIdentityKey,
   groupMeetMetricsByMeet,
+  unlinkedMeetKey,
   groupRacesIntoColumns,
 };

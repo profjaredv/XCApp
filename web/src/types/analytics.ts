@@ -73,19 +73,31 @@ export interface ApiMeet {
   name: string;
   date: string;
   location?: string;
-  distance: number;
+  /** Null when this entry's heats did not all run the same distance —
+   * a mixed-distance meet has no single distance to report, and naming
+   * one would label a 3200m heat as a 5K. */
+  distance: number | null;
   avgPace?: number;
   runners?: number;
   conditions?: string;
   /** Whether any splits have been entered for this race — GET /analytics/overview only. */
   hasSplits?: boolean;
-  /** Present only when this entry combines multiple heats of one real Meet
-   * (GET /analytics/overview groups by Race.meetId) — `id` above is then
-   * the Meet's id, not a race's, and `runners`/`avgPace` are already
-   * combined across every heat. Each heat still opens its own detail (its
-   * own scoring/IQR/splits never merge with another heat's), so this is
-   * a heat picker, not pre-fetched detail data. */
-  heats?: Array<{ id: string; name: string; runners: number; avgPace: number; hasSplits: boolean }>;
+  /** Present only when this entry combines multiple heats of one meet —
+   * races linked by Race.meetId, or (for a scraped season nobody has run
+   * Schedule > Meets > Import on) races sharing a name and a date. `id`
+   * above is then the Meet's id when one exists, and `runners`/`avgPace`
+   * are already combined across every heat. Each heat still opens its own
+   * detail (its own scoring/IQR/splits never merge with another heat's),
+   * so this is a heat picker, not pre-fetched detail data. */
+  heats?: Array<{
+    id: string;
+    name: string;
+    /** Null when the race has no recorded distance. */
+    distance?: number | null;
+    runners: number;
+    avgPace: number;
+    hasSplits: boolean;
+  }>;
   // Total FINISHED count in this race's uploaded field-results — the
   // denominator for `results[].place` ("place of fieldFinisherCount").
   // Null/undefined until a field-results upload exists for this race.
