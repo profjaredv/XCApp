@@ -14,7 +14,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { formatDateShort } from '@/lib/formatUtils';
 import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
 import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
-import { api } from '@/api/axios';
 import { useTeamSeasonSeries } from '@/hooks/useTeamSeasonSeries';
 import { useInvalidatePerformanceCache } from '@/hooks/useInvalidatePerformanceCache';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
@@ -313,32 +312,6 @@ const AnalyticsPage = () => {
     }
   }, [teamId, selectedSeason, refetch, invalidatePerf, toast]);
 
-  const handleClearTeamData = useCallback(async () => {
-    // Athletes and roster membership survive this endpoint (see its own
-    // comment in routes/teams.js) — only imported races/results are
-    // removed, so the confirm/success copy below says that, not "all
-    // athletes."
-    if (!window.confirm('This will delete all imported races and results for your team. Athletes and rosters are not affected. This action cannot be undone. Continue?')) return;
-    const athleticTeamId = currentUser?.team?.athleticTeamId;
-    if (!athleticTeamId) {
-      toast({ title: 'Error', description: 'No team selected.', variant: 'destructive' });
-      return;
-    }
-    try {
-      // Was hitting the nonexistent /teams/data (a bare, param-less path
-      // that never matched any route — DELETE /:athleticTeamId/results is
-      // two segments — so this always 404'd). SettingsPage's "Clear Data"
-      // action already calls the real endpoint; mirrored here.
-      await api.delete(`/teams/${athleticTeamId}/results`);
-      await refetch();
-      toast({ title: 'Race data cleared', description: 'Imported races and results were deleted.', variant: 'default' });
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      const msg = status === 403 ? 'You must be the coach to clear team data.' : 'Failed to clear team data';
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
-      console.error('Error clearing team data:', err);
-    }
-  }, [refetch, toast]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value);
   const handleGenderFilterChange = (value: 'all' | 'M' | 'F') => setGenderFilter(value);
@@ -511,13 +484,11 @@ const AnalyticsPage = () => {
         <RaceVisualization race={{ id: selectedRace.id, name: selectedRace.name, results: selectedRace.results }} athleteNameMap={athleteNameMap} onClose={() => setSelectedRace(null)} />
       )}
       <AnalyticsHeader 
-        currentUser={currentUser}
         isLoadingSeasons={isLoadingSeasons}
         availableSeasons={availableSeasons}
         handleRecalculateMetrics={handleRecalculateMetrics}
         isRecalculating={isRecalculating}
         team={team}
-        handleClearTeamData={handleClearTeamData}
         extraActions={
           activeTab === 'resultsGrid' ? (
             <Button variant="outline" size="sm" onClick={() => setGridExportSignal((n) => n + 1)}>
