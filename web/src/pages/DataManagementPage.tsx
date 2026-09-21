@@ -11,13 +11,21 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTeamPath } from '../hooks/useTeamRoute';
 import { useSeasonSelection } from '../contexts/SeasonContext';
 import { currentCalendarSeason } from '../lib/seasonUtils';
-import { ClearDataPanel } from '../components/data-management/ClearDataPanel';
 import { ImportDataPanel } from '../components/data-management/ImportDataPanel';
 import { EnhancedCalculateMetricsPanel } from '../components/data-management/EnhancedCalculateMetricsPanel';
 
 // Define the steps in the data management process
+// Clearing used to be STEP 1 of this flow, which presented "delete this
+// season's imported races" as the normal first move. It is not: a re-import
+// already rebuilds the season on its own, and deleting first is strictly
+// worse — the import preserves each race's meet link by matching it against
+// the rows that are still there, so clearing beforehand orphans every race
+// from its meet. Deleting a Race also cascades to field results, splits,
+// entrants and race reflections, none of which the re-import brings back.
+//
+// It still exists, once, in Settings > Danger zone behind a confirmation —
+// which is the right weight for it.
 enum DataManagementStep {
-  CLEAR = 'clear',
   IMPORT = 'import',
   CALCULATE = 'calculate'
 }
@@ -28,7 +36,7 @@ export function DataManagementPage() {
   const teamPath = useTeamPath();
   const { currentTeam } = useTeam();
   const { currentUser } = useAuth();
-  const [activeStep, setActiveStep] = useState<DataManagementStep>(DataManagementStep.CLEAR);
+  const [activeStep, setActiveStep] = useState<DataManagementStep>(DataManagementStep.IMPORT);
   // Shared with every other season-scoped screen (SeasonContext) — defaults
   // to the team's actual active season (accounts for imported data), not
   // the calendar year. The list below stays this page's own, though: a
@@ -58,9 +66,7 @@ export function DataManagementPage() {
 
   // Move to the next step
   const goToNextStep = () => {
-    if (activeStep === DataManagementStep.CLEAR) {
-      setActiveStep(DataManagementStep.IMPORT);
-    } else if (activeStep === DataManagementStep.IMPORT) {
+    if (activeStep === DataManagementStep.IMPORT) {
       setActiveStep(DataManagementStep.CALCULATE);
     } else {
       // If we're at the last step, show success message
@@ -145,35 +151,19 @@ export function DataManagementPage() {
 
       <Tabs value={activeStep} onValueChange={(value) => setActiveStep(value as DataManagementStep)}>
         <ResponsiveTabsList
-          className="grid w-full grid-cols-3"
+          className="grid w-full grid-cols-2"
           value={activeStep}
           onValueChange={(value) => setActiveStep(value as DataManagementStep)}
         >
-          <TabsTrigger value={DataManagementStep.CLEAR} disabled={isProcessing}>
-            Step 1: Clear Data
-            {isStepCompleted(DataManagementStep.CLEAR) && <span className="ml-2 text-green-500">✓</span>}
-          </TabsTrigger>
           <TabsTrigger value={DataManagementStep.IMPORT} disabled={isProcessing}>
-            Step 2: Import Data
+            Step 1: Import
             {isStepCompleted(DataManagementStep.IMPORT) && <span className="ml-2 text-green-500">✓</span>}
           </TabsTrigger>
           <TabsTrigger value={DataManagementStep.CALCULATE} disabled={isProcessing}>
-            Step 3: Calculate Metrics
+            Step 2: Calculate Metrics
             {isStepCompleted(DataManagementStep.CALCULATE) && <span className="ml-2 text-green-500">✓</span>}
           </TabsTrigger>
         </ResponsiveTabsList>
-        
-        <TabsContent value={DataManagementStep.CLEAR}>
-          <ClearDataPanel 
-            teamId={teamId} 
-            season={selectedSeason}
-            onComplete={() => {
-              markStepCompleted(DataManagementStep.CLEAR);
-              goToNextStep();
-            }}
-            setIsProcessing={setIsProcessing}
-          />
-        </TabsContent>
         
         <TabsContent value={DataManagementStep.IMPORT}>
           <ImportDataPanel 

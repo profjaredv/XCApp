@@ -29,10 +29,12 @@ interface ClearDataParams {
   season: string;
 }
 
+// No athleticNetTeamId: POST /teams/scrape resolves the team from the
+// authenticated session and never reads one from the body. Carrying it here
+// meant the UI collected a value the server ignored.
 interface ImportDataParams {
   teamId: string;
   season: string;
-  athleticNetTeamId: string;
 }
 
 interface CalculateMetricsParams {
@@ -65,8 +67,8 @@ export const useImportData = (): UseMutationResult<
 > => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, season, athleticNetTeamId }: ImportDataParams) =>
-      dataManagementService.importData(teamId, season, athleticNetTeamId),
+    mutationFn: ({ teamId, season }: ImportDataParams) =>
+      dataManagementService.importData(teamId, season),
     onSuccess: () => invalidateAfterDataChange(queryClient),
   });
 };

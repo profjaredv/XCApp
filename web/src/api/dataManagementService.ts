@@ -37,11 +37,13 @@ export const dataManagementService = {
   /**
    * Import data for a specific team and season
    */
-  importData: async (teamId: string, season: string, _athleticNetTeamId: string): Promise<ImportDataResponse> => {
+  importData: async (teamId: string, season: string): Promise<ImportDataResponse> => {
     // Parameter 'teamId' is not required by /teams/scrape (team inferred from auth),
-    // but we accept it to keep a consistent API. Mark as intentionally unused:
+    // but we accept it to keep a consistent API. Mark as intentionally unused.
+    // An athleticNetTeamId argument used to sit alongside it and was voided
+    // the same way — the UI collected it in a required field that the server
+    // never read. Removed rather than kept as decoration.
     void teamId;
-    void _athleticNetTeamId;
     // Use the proven scraper endpoint used by ImportPage: POST /teams/scrape with { year }
     // Backend derives the team from auth context; teamId is not required by this endpoint.
     const resp = await api.post(`/teams/scrape`, { year: season });

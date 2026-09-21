@@ -2,7 +2,6 @@ import React from 'react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, MoreVertical } from 'lucide-react';
-import type { User } from '@/types';
 import type { TeamPerformance } from '@/types/analytics';
 
 interface Season {
@@ -16,13 +15,11 @@ export interface Team {
 }
 
 interface AnalyticsHeaderProps {
-  currentUser: User | null;
   isLoadingSeasons: boolean;
   availableSeasons: Season[];
   handleRecalculateMetrics: () => void;
   isRecalculating: boolean;
   team: Team | undefined;
-  handleClearTeamData: () => void;
   /** Actions contributed by whichever tab is open — the Results Grid's
    *  Export CSV, say. They belong in the same Data actions menu as
    *  Recalculate and Clear, not as a separate button competing with the
@@ -31,20 +28,17 @@ interface AnalyticsHeaderProps {
 }
 
 export const AnalyticsHeader = ({
-  currentUser,
   isLoadingSeasons,
   availableSeasons,
   handleRecalculateMetrics,
   isRecalculating,
   team,
-  handleClearTeamData,
   extraActions,
 }: AnalyticsHeaderProps) => {
   // Backend only ever lets HEAD_COACH (or an impersonating super admin)
   // actually clear team data (routes/teams.js) — this just keeps the
   // button from being shown to everyone else in the first place, rather
   // than letting them find out via a 403 after clicking.
-  const canClearData = currentUser?.isSuperAdmin || currentUser?.teamRole === 'HEAD_COACH';
   // Recalculate/Clear Data are rare admin actions, not something a coach
   // needs on every visit — stacked full-width with the season controls on
   // mobile (flex-col below sm:), they used to push the actual page content
@@ -59,9 +53,6 @@ export const AnalyticsHeader = ({
         <RefreshCw className={`h-4 w-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
         {isRecalculating ? 'Recalculating…' : 'Recalculate Metrics'}
       </Button>
-      {canClearData && (
-        <Button variant="destructive" size="sm" onClick={handleClearTeamData}>Clear Team Data</Button>
-      )}
     </>
   );
 

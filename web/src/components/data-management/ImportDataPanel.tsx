@@ -1,15 +1,11 @@
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { useToast } from "../../components/ui/use-toast";
 import { Progress } from "../../components/ui/progress";
 import { useImportData } from "../../hooks/useDataManagement";
-import { useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
 
 interface ImportDataPanelProps {
   teamId: string;
@@ -20,11 +16,9 @@ interface ImportDataPanelProps {
 
 export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }: ImportDataPanelProps) {
   const { toast } = useToast();
-  const { currentUser } = useAuth();
   const [importStatus, setImportStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [athleticNetTeamId, setAthleticNetTeamId] = useState<string>(currentUser?.team?.athleticTeamId || '');
   const [importStats, setImportStats] = useState<{
     races: number;
     athletes: number;
@@ -35,11 +29,13 @@ export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }:
   const importDataMutation = useImportData();
   const isImporting = importDataMutation.isPending;
 
-  // Keep the Athletic.net Team ID in sync with the authenticated user's team
-  useEffect(() => {
-    const fromProfile = currentUser?.team?.athleticTeamId || '';
-    setAthleticNetTeamId((prev) => (prev ? prev : fromProfile));
-  }, [currentUser?.team?.athleticTeamId]);
+  // The Athletic.net Team ID used to be an editable field here, pre-filled
+  // from the profile and required before the button would run. It was
+  // neither: POST /teams/scrape resolves the team from the authenticated
+  // session and never reads a team id from the body, so the field gated the
+  // import on a value the server ignores — and implied you could import some
+  // other team's season, which you cannot. It lives in Settings > Team,
+  // where changing it actually means something.
 
   // Simulate progress updates
   const startProgressSimulation = () => {
@@ -58,15 +54,6 @@ export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }:
   };
 
   const handleImportData = async () => {
-    if (!athleticNetTeamId) {
-      toast({
-        variant: "destructive",
-        title: "Athletic.net Team ID Required",
-        description: "Please enter the Athletic.net Team ID to import data.",
-      });
-      return;
-    }
-
     setIsProcessing(true);
     setImportStatus('loading');
     
@@ -78,7 +65,6 @@ export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }:
       const data = await importDataMutation.mutateAsync({
         teamId,
         season,
-        athleticNetTeamId
       });
       
       // Set progress to 100% when complete
@@ -130,19 +116,6 @@ export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }:
       <CardContent>
         {importStatus === 'idle' && (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="athleticNetTeamId">Athletic.net Team ID</Label>
-              <Input
-                id="athleticNetTeamId"
-                placeholder="e.g., 460"
-                value={athleticNetTeamId}
-                onChange={(e) => setAthleticNetTeamId(e.target.value)}
-              />
-              <p className="text-sm text-muted-foreground">
-                You can find this ID in the URL of your team's Athletic.net page.
-              </p>
-            </div>
-            
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Note</AlertTitle>
@@ -217,7 +190,7 @@ export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }:
       
       <CardFooter className="flex justify-end">
         {importStatus === 'idle' && (
-          <Button onClick={handleImportData} disabled={isImporting || !athleticNetTeamId}>
+          <Button onClick={handleImportData} disabled={isImporting}>
             Import Data
           </Button>
         )}
@@ -236,7 +209,7 @@ export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }:
         )}
         
         {importStatus === 'error' && (
-          <Button onClick={handleImportData} disabled={isImporting || !athleticNetTeamId}>
+          <Button onClick={handleImportData} disabled={isImporting}>
             Try Again
           </Button>
         )}
