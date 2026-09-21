@@ -292,6 +292,19 @@ export const meetOpsService = {
     return response.data;
   },
 
+  /**
+   * Removes the meet, NOT its results. Races survive with their meet link
+   * cleared — every result, split, entrant and reflection stays put — so
+   * this is safe for any meet, not just a hand-created one (contrast
+   * deleteRace above, which only ever applies to a manual race because
+   * deleting a scraped one destroys results). The meet's day-of plan goes
+   * with it. `unlinkedRaceCount` is how many races came loose.
+   */
+  async deleteMeet(meetId: string): Promise<{ success: boolean; unlinkedRaceCount: number }> {
+    const response = await api.delete<{ success: boolean; unlinkedRaceCount: number }>(`/meet-ops/${meetId}`);
+    return response.data;
+  },
+
   async myMeetCard(): Promise<MyMeetCard> {
     const response = await api.get<MyMeetCard>('/meet-ops/mine');
     return response.data;

@@ -981,6 +981,42 @@ router.put('/:meetId', authenticate, requireTeam, requireRole(FULL_COACH), async
   }
 });
 
+// DELETE /api/meet-ops/:meetId — removes the meet, NOT its results.
+//
+// A Meet is a grouping plus the day's logistics; the racing itself lives
+// on Race, and races survive with meetId cleared (the FK is ON DELETE SET
+// NULL — see the meet_operations migration). So deleting a meet a coach
+// entered by mistake, or one that got cancelled, costs nothing
+// irrecoverable: every result, split, entrant and reflection stays, and
+// Schedule > Meets > Import re-groups the races if they were scraped
+// ones.
+//
+// That is why this isn't restricted to hand-created meets the way
+// DELETE /races/:raceId is restricted to manual races. Deleting a
+// SCRAPED race destroys results that only exist in this database;
+// deleting any meet destroys a grouping and the meet plan, nothing else.
+//
+// The unlink is explicit rather than left to the FK so the response can
+// tell the coach exactly how many races came loose — a number the
+// confirmation in the UI shows them BEFORE they commit.
+router.delete('/:meetId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const meet = await prisma.meet.findFirst({ where: { id: req.params.meetId, teamId: req.user.teamId } });
+    if (!meet) {
+      return res.status(404).json({ msg: 'Meet not found.' });
+    }
+    const unlinkedRaceCount = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.race.updateMany({ where: { meetId: meet.id }, data: { meetId: null } });
+      await tx.meet.delete({ where: { id: meet.id } }); // cascades to its MeetPlan only
+      return count;
+    });
+    res.json({ success: true, unlinkedRaceCount });
+  } catch (error) {
+    console.error('Error deleting meet:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // PATCH /api/meet-ops/:meetId/postseason
 //
 // Marks every race in a meet as league / district / regional / state /

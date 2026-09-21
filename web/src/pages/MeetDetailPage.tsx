@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogD
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2, Split, Plus, Trash2, ClipboardList, Download, Upload, Timer as TimerIcon, Users } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
-import { useMeet, useUpdateMeet, useCreateRace, useDeleteRace, useUpdateRaceDistance, useRaceResults, useRaceEntrants, useSubmitRaceResults, useSetPostseasonLevel, useMeetEntrants } from '@/hooks/useMeetOps';
+import { useMeet, useUpdateMeet, useDeleteMeet, useCreateRace, useDeleteRace, useUpdateRaceDistance, useRaceResults, useRaceEntrants, useSubmitRaceResults, useSetPostseasonLevel, useMeetEntrants } from '@/hooks/useMeetOps';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { ManageEntrantsDialog } from '@/components/meets/ManageEntrantsDialog';
 import { MissingEntrantsCard } from '@/components/meets/MissingEntrantsCard';
@@ -74,6 +74,7 @@ const MeetDetailPage: React.FC = () => {
   );
 
   const deleteRace = useDeleteRace();
+  const deleteMeet = useDeleteMeet();
   const updateRaceDistance = useUpdateRaceDistance();
 
   const [name, setName] = useState('');
@@ -133,6 +134,28 @@ const MeetDetailPage: React.FC = () => {
     isHome !== (meet.isHome == null ? 'unspecified' : meet.isHome ? 'home' : 'away');
 
   const selectedRace = meet.races.find((r) => r.id === selectedRaceId) ?? null;
+
+  // Deleting a meet does NOT delete its racing. The races keep every
+  // result, split, entrant and reflection — they just stop being grouped
+  // under this meet (backend clears Race.meetId). Only the meet row and
+  // its day-of plan go. The confirmation says so in those words, with the
+  // race count, because "delete" on a screen full of results reads as
+  // something far worse than what this does.
+  const handleDeleteMeet = async () => {
+    const raceCount = meet.races.length;
+    const consequence =
+      raceCount === 0
+        ? 'It has no races linked, so nothing else is affected.'
+        : `Its ${raceCount} race${raceCount === 1 ? '' : 's'} and every result, split and entrant stay — they just stop being grouped under this meet. The meet's day-of plan is deleted.`;
+    if (!window.confirm(`Delete "${meet.name}"?\n\n${consequence}\n\nThis cannot be undone.`)) return;
+    try {
+      await deleteMeet.mutateAsync(meet.id);
+      toast.success('Meet deleted.');
+      navigate(teamPath('/meets'));
+    } catch {
+      toast.error('Could not delete that meet.');
+    }
+  };
 
   const handleDeleteRace = async (raceId: string) => {
     if (!window.confirm('Delete this race and all its results? This cannot be undone.')) return;
@@ -257,12 +280,26 @@ const MeetDetailPage: React.FC = () => {
               </Select>
             </div>
           </div>
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Button variant="outline" onClick={handleDeleteMeet} disabled={deleteMeet.isPending}>
+              {deleteMeet.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2 text-destructive" />
+              )}
+              Delete meet
+            </Button>
             <Button onClick={handleSave} disabled={!dirty || !name.trim() || !date || updateMeet.isPending}>
               {updateMeet.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Save
             </Button>
           </div>
+          {meet.races.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Deleting the meet keeps its {meet.races.length} race{meet.races.length === 1 ? '' : 's'} and all their
+              results — they just stop being grouped under it.
+            </p>
+          )}
         </CardContent>
       </Card>
 
