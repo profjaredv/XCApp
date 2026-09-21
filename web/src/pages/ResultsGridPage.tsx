@@ -11,10 +11,15 @@ import { ChevronDown, ChevronUp, ArrowUpDown, Download, LayoutGrid, ChevronLeft,
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
 import { normalizeGender, genderLabel } from '@/lib/gender';
+import { groupColumnsByMeet, distanceLabel } from '@/lib/resultsGridColumns';
 import { toCsv, downloadCsv, dedupeColumnLabels } from '@/lib/csvParse';
 
 interface GridData {
-  races: string[];
+  // Objects, not names: a meet that ran two distances yields two columns
+  // sharing a name (the scraper names every race after its meet), so the
+  // distance is what tells them apart — and meetKey is what puts them back
+  // under one heading. See lib/resultsGridColumns.ts.
+  races: Array<{ name: string; meetKey: string; distanceMeters: number | null }>;
   athletes: {
     athleteId: string;
     name: string;
@@ -70,6 +75,10 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
   // a time (see SegmentedPills, built for exactly this) and the full table
   // from md up.
   const [mobileRaceIndex, setMobileRaceIndex] = useState(0);
+  // Which meet the phone layout is on. Heats live UNDER a meet, so the
+  // meet is what's picked first and a distance toggle only appears when
+  // that meet actually ran more than one.
+  const [mobileMeetIndex, setMobileMeetIndex] = useState(0);
 
   // Extract unique grades from the grid data
   const availableGrades = useMemo(() => {
@@ -108,6 +117,14 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
       setSelectedGenders(new Set(availableGenders));
     }
   }, [availableGenders, selectedGenders.size]);
+
+  // Columns regrouped under their meet: heats of one distance were already
+  // merged server-side, so more than one column here means more than one
+  // distance, which is the only case that needs a toggle.
+  const meetGroups = useMemo(
+    () => (gridData ? groupColumnsByMeet(gridData.races) : []),
+    [gridData]
+  );
 
   // Filter and sort athletes based on selected criteria
   const processedAthletes = useMemo(() => {
@@ -156,7 +173,16 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
   // this down to "9th grade boys" gets a CSV of just that, not everyone.
   const handleExportCsv = () => {
     if (!gridData) return;
-    const raceColumns = dedupeColumnLabels(gridData.races);
+    // A meet that ran two distances produces two columns with the same
+    // name, so the label has to carry the distance or the CSV has two
+    // indistinguishable headers.
+    const raceColumns = dedupeColumnLabels(
+      gridData.races.map((race, index) =>
+        meetGroups.find((g) => g.columns.some((c) => c.index === index))?.hasHeats
+          ? `${race.name} (${distanceLabel(race.distanceMeters)})`
+          : race.name
+      )
+    );
     const csv = toCsv(
       ['Athlete', 'Grade', 'Gender', ...raceColumns],
       processedAthletes.map((athlete) => {
@@ -315,6 +341,14 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
   }
 
   const safeRaceIndex = Math.min(mobileRaceIndex, Math.max(0, gridData.races.length - 1));
+  const safeMeetIndex = Math.min(mobileMeetIndex, Math.max(0, meetGroups.length - 1));
+  const activeMeet = meetGroups[safeMeetIndex] ?? null;
+  // Selecting a meet selects its first heat; switching heats moves within
+  // it. Keeping the column index as the source of truth means everything
+  // downstream still reads one column, heats or not.
+  const activeColumnIndex = activeMeet
+    ? (activeMeet.columns.find((c) => c.index === safeRaceIndex)?.index ?? activeMeet.columns[0].index)
+    : safeRaceIndex;
 
   const toggleIn = <T,>(set: Set<T>, value: T): Set<T> => {
     const next = new Set(set);
@@ -413,26 +447,38 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
             before a single time is on screen. A dropdown is one row at any
             count, and the arrows keep meet-to-meet stepping a single tap
             rather than open-scan-pick. */}
-        {gridData.races.length > 1 && (
+        {/* Meet first. Heats live under a meet, so a meet that ran one
+            distance shows no toggle at all — which is most of them. */}
+        {meetGroups.length > 1 && (
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="icon"
-              className="h-10 w-10 shrink-0"
+              className="h-11 w-11 shrink-0"
               aria-label="Previous meet"
-              disabled={safeRaceIndex === 0}
-              onClick={() => setMobileRaceIndex(safeRaceIndex - 1)}
+              disabled={safeMeetIndex === 0}
+              onClick={() => {
+                setMobileMeetIndex(safeMeetIndex - 1);
+                setMobileRaceIndex(meetGroups[safeMeetIndex - 1].columns[0].index);
+              }}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Select value={String(safeRaceIndex)} onValueChange={(v) => setMobileRaceIndex(Number(v))}>
-              <SelectTrigger className="h-10 min-w-0 flex-1" aria-label="Meet">
+            <Select
+              value={String(safeMeetIndex)}
+              onValueChange={(v) => {
+                const next = Number(v);
+                setMobileMeetIndex(next);
+                setMobileRaceIndex(meetGroups[next].columns[0].index);
+              }}
+            >
+              <SelectTrigger className="h-11 min-w-0 flex-1" aria-label="Meet">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {gridData.races.map((raceName, index) => (
-                  <SelectItem key={index} value={String(index)}>
-                    {raceName}
+                {meetGroups.map((group, index) => (
+                  <SelectItem key={group.meetKey} value={String(index)}>
+                    {group.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -440,19 +486,35 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
             <Button
               variant="outline"
               size="icon"
-              className="h-10 w-10 shrink-0"
+              className="h-11 w-11 shrink-0"
               aria-label="Next meet"
-              disabled={safeRaceIndex >= gridData.races.length - 1}
-              onClick={() => setMobileRaceIndex(safeRaceIndex + 1)}
+              disabled={safeMeetIndex >= meetGroups.length - 1}
+              onClick={() => {
+                setMobileMeetIndex(safeMeetIndex + 1);
+                setMobileRaceIndex(meetGroups[safeMeetIndex + 1].columns[0].index);
+              }}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         )}
-        {/* Sort belongs ABOVE the list. On a phone there is no table header
-            to tap, so removing the old sort row left no way to sort at all
-            — and a control under a hundred-name list may as well not
-            exist. Tapping the active field flips direction. */}
+
+        {activeMeet?.hasHeats && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-medium text-muted-foreground">Heats</span>
+            {activeMeet.columns.map(({ index, column }) => (
+              <button
+                key={index}
+                type="button"
+                className={chip(index === activeColumnIndex)}
+                onClick={() => setMobileRaceIndex(index)}
+              >
+                {distanceLabel(column.distanceMeters)}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-muted-foreground">Sort</span>
           <button type="button" className={chip(sortField === 'name')} onClick={() => handleSort('name')}>
@@ -460,10 +522,10 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
           </button>
           <button
             type="button"
-            className={chip(sortField === 'time' && sortRaceIndex === safeRaceIndex)}
-            onClick={() => handleSort('time', safeRaceIndex)}
+            className={chip(sortField === 'time' && sortRaceIndex === activeColumnIndex)}
+            onClick={() => handleSort('time', activeColumnIndex)}
           >
-            Time {renderSortIndicator('time', safeRaceIndex)}
+            Time {renderSortIndicator('time', activeColumnIndex)}
           </button>
         </div>
 
@@ -481,7 +543,7 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
                     <p className="text-sm text-muted-foreground">{gradeLabelShort(athlete.grade)}</p>
                   </div>
                   <span className="shrink-0 font-mono text-lg font-medium tabular-nums">
-                    {athlete.results[safeRaceIndex] ? formatTime(athlete.results[safeRaceIndex]) : '—'}
+                    {athlete.results[activeColumnIndex] ? formatTime(athlete.results[activeColumnIndex]) : '—'}
                   </span>
                 </div>
               ))
@@ -505,19 +567,32 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
                     Athlete {renderSortIndicator('name')}
                   </div>
                 </TableHead>
-                {gridData.races.map((raceName, index) => (
-                  <TableHead
-                    key={index}
-                    className="cursor-pointer"
-                    onClick={() => handleSort('time', index)}
-                    title={raceName}
-                  >
-                    <div className="flex items-center">
-                      <span className="max-w-[10rem] truncate">{raceName}</span>
-                      {renderSortIndicator('time', index)}
-                    </div>
-                  </TableHead>
-                ))}
+                {gridData.races.map((race, index) => {
+                  // The distance appears only where it distinguishes
+                  // something — a meet with one distance would just be
+                  // repeating itself in every header.
+                  const isHeat = meetGroups.find((g) => g.columns.some((c) => c.index === index))?.hasHeats;
+                  return (
+                    <TableHead
+                      key={index}
+                      className="cursor-pointer"
+                      onClick={() => handleSort('time', index)}
+                      title={isHeat ? `${race.name} — ${distanceLabel(race.distanceMeters)}` : race.name}
+                    >
+                      <div className="flex items-center">
+                        <span className="max-w-[10rem] truncate">
+                          {race.name}
+                          {isHeat && (
+                            <span className="ml-1 font-normal text-muted-foreground">
+                              {distanceLabel(race.distanceMeters)}
+                            </span>
+                          )}
+                        </span>
+                        {renderSortIndicator('time', index)}
+                      </div>
+                    </TableHead>
+                  );
+                })}
               </TableRow>
             </TableHeader>
             <TableBody>

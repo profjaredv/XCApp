@@ -147,16 +147,41 @@ function groupMeetMetricsByMeet(rows, meetInfoByRaceId, hasSplitsRaceIds) {
 // is [{id, name, meetId, meetName}], already ordered the way columns
 // should read left to right (by date); a race with no Meet link (never
 // run through Import) keeps its own column, unchanged.
+// A column is one meet AT ONE DISTANCE.
+//
+// Heats of the same distance merge: they are the same race run in waves,
+// the times are directly comparable, and a coach wants them as one column.
+// Different distances at the same meet do NOT merge — a 5K and a 3200m are
+// not one result, and pooling them put two incomparable times in a single
+// cell where one silently overwrote the other.
+//
+// That case is not exotic. The season scraper names every race after its
+// MEET (Athletic.net's season grid has no per-heat name — only a distance
+// subscript per cell), so "our team ran two distances at this meet" is
+// represented as two races sharing a name and date, differing only by
+// distance. Grouping on meet alone collapsed exactly the thing that
+// distinguishes them.
+//
+// `meetKey` lets a caller re-group columns under one meet heading and show
+// the distances as toggles beneath it, which is only worth doing when a
+// meet actually has more than one.
 function groupRacesIntoColumns(races) {
   const columns = [];
   const indexByKey = new Map();
   for (const race of races) {
-    const key = race.meetId ? `meet:${race.meetId}` : `race:${race.id}`;
+    const meetKey = race.meetId ? `meet:${race.meetId}` : `race:${race.id}`;
+    const distanceKey = race.distanceMeters != null ? String(Math.round(race.distanceMeters)) : 'unknown';
+    const key = `${meetKey}|${distanceKey}`;
     let index = indexByKey.get(key);
     if (index == null) {
       index = columns.length;
       indexByKey.set(key, index);
-      columns.push({ name: race.meetId ? race.meetName : race.name, raceIds: [race.id] });
+      columns.push({
+        name: race.meetId ? race.meetName : race.name,
+        meetKey,
+        distanceMeters: race.distanceMeters ?? null,
+        raceIds: [race.id],
+      });
     } else {
       columns[index].raceIds.push(race.id);
     }

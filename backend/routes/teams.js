@@ -905,16 +905,23 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
 
     const races = await prisma.race.findMany({
       where: { teamId, season: { in: seasonsArray } },
-      select: { id: true, name: true, date: true, season: true, meetId: true, meet: { select: { name: true } } },
+      select: { id: true, name: true, date: true, season: true, distanceMeters: true, meetId: true, meet: { select: { name: true } } },
       orderBy: { date: 'asc' },
     });
 
-    // One column per meet, not per race — a multi-heat meet (Race.meetId
-    // links several heats to one Meet, via Schedule > Meets > Import)
-    // otherwise shows as one column per heat instead of one for the
-    // whole meet day.
+    // One column per meet AND distance. Heats of the same distance merge —
+    // same race run in waves, directly comparable. Different distances do
+    // not: a 5K and a 3200m are not one result, and pooling them put two
+    // incomparable times in one cell where one overwrote the other. See
+    // lib/meetMapping.js for why that case is routine rather than exotic.
     const columns = groupRacesIntoColumns(
-      races.map((r) => ({ id: r.id, name: r.name, meetId: r.meetId, meetName: r.meet?.name ?? null }))
+      races.map((r) => ({
+        id: r.id,
+        name: r.name,
+        meetId: r.meetId,
+        meetName: r.meet?.name ?? null,
+        distanceMeters: r.distanceMeters ?? null,
+      }))
     );
     const columnIndexByRaceId = new Map();
     columns.forEach((col, index) => col.raceIds.forEach((raceId) => columnIndexByRaceId.set(raceId, index)));
@@ -973,7 +980,13 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    res.json({ races: columns.map((c) => c.name), athletes: gridData });
+    // Objects, not bare names: the client groups columns back under one
+    // meet heading and only offers distance toggles when a meet actually
+    // has more than one.
+    res.json({
+      races: columns.map((c) => ({ name: c.name, meetKey: c.meetKey, distanceMeters: c.distanceMeters })),
+      athletes: gridData,
+    });
   } catch (error) {
     console.error('Error fetching results grid:', error.message);
     res.status(500).json({ message: 'Server error' });
