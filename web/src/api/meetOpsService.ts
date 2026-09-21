@@ -222,6 +222,18 @@ export const meetOpsService = {
     return response.data;
   },
 
+  /**
+   * Correcting a published distance after the fact. Applies to ANY race,
+   * scraped or manual: a meet that publishes a 5K and revises it later
+   * leaves every pace derived from that race wrong, and re-scraping forks
+   * a duplicate instead of fixing it (the Race identity key includes the
+   * distance — see routes/meetOps.js).
+   */
+  async updateRaceDistance(raceId: string, input: { distanceMeters: number; distance?: string }): Promise<MeetRace> {
+    const response = await api.patch<MeetRace>(`/meet-ops/races/${raceId}`, input);
+    return response.data;
+  },
+
   /** Only ever a manually-created race — see MeetRace.isManual. */
   async deleteRace(raceId: string): Promise<void> {
     await api.delete(`/meet-ops/races/${raceId}`);
