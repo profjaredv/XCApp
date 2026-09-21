@@ -96,6 +96,21 @@ export function useDeleteRace() {
   });
 }
 
+// Deleting a meet unlinks its races rather than deleting them, so the
+// analytics caches still need clearing: Season > Meets groups by the meet
+// link first (backend lib/meetMapping.js), and those races now group by
+// name and date instead.
+export function useDeleteMeet() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (meetId: string) => meetOpsService.deleteMeet(meetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetOps'] });
+      invalidateAfterDataChange(queryClient);
+    },
+  });
+}
+
 export function useRaceResults(raceId: string | null) {
   return useQuery({
     queryKey: ['meetOps', 'raceResults', raceId],
