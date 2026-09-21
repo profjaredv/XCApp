@@ -135,6 +135,102 @@ test('groupMeetMetricsByMeet', async (t) => {
     assert.equal(meets[1].heats, undefined);
   });
 
+  // The case a coach actually hits: a scraped season nobody has run
+  // Schedule > Meets > Import on. Race.meetId is null for every race, so
+  // keying on it alone listed one meet as two cards — same name, same
+  // date, one per distance.
+  await t.test('groups unlinked races sharing a name and a date into one entry', () => {
+    const rows = [
+      row('r1', { meetName: 'Bellevue Cross Country Invitational', participantCount: 65, distance: 5000 }),
+      row('r2', { meetName: 'Bellevue Cross Country Invitational', participantCount: 16, distance: 3200 }),
+    ];
+    const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
+    assert.equal(meets.length, 1);
+    assert.equal(meets[0].name, 'Bellevue Cross Country Invitational');
+    assert.equal(meets[0].runners, 81);
+    assert.equal(meets[0].heats.length, 2);
+  });
+
+  await t.test('groups unlinked races whose names differ only by level/gender', () => {
+    const rows = [
+      row('r1', { meetName: 'Sunfair Invite - Boys Varsity' }),
+      row('r2', { meetName: 'Sunfair Invite - Girls JV' }),
+    ];
+    const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
+    assert.equal(meets.length, 1);
+    assert.equal(meets[0].name, 'Sunfair Invite');
+  });
+
+  await t.test('never groups differently named unlinked races on the same day', () => {
+    const rows = [row('r1', { meetName: 'Sunfair Invite' }), row('r2', { meetName: 'Richland Invite' })];
+    const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
+    assert.equal(meets.length, 2);
+  });
+
+  await t.test('never groups same-named unlinked races on different days', () => {
+    const rows = [
+      row('r1', { meetName: 'League Meet', meetDate: '2024-09-07' }),
+      row('r2', { meetName: 'League Meet', meetDate: '2024-09-14' }),
+    ];
+    const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
+    assert.equal(meets.length, 2);
+  });
+
+  await t.test('matches on the calendar day whether the date is a Date or a string', () => {
+    const rows = [
+      row('r1', { meetName: 'League Meet', meetDate: new Date('2024-09-07T00:00:00.000Z') }),
+      row('r2', { meetName: 'League Meet', meetDate: '2024-09-07' }),
+    ];
+    const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
+    assert.equal(meets.length, 1);
+  });
+
+  await t.test('carries each heat\'s own distance so the UI can offer them as toggles', () => {
+    const rows = [
+      row('r1', { meetName: 'Bellevue Invitational', distance: 5000 }),
+      row('r2', { meetName: 'Bellevue Invitational', distance: 3200 }),
+    ];
+    const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
+    assert.deepEqual(meets[0].heats.map((h) => h.distance), [5000, 3200]);
+  });
+
+  await t.test('reports no single distance for a mixed-distance meet rather than the first heat\'s', () => {
+    const rows = [
+      row('r1', { meetName: 'Bellevue Invitational', distance: 5000 }),
+      row('r2', { meetName: 'Bellevue Invitational', distance: 3200 }),
+    ];
+    const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
+    assert.equal(meets[0].distance, null);
+  });
+
+  await t.test('keeps the shared distance when every heat ran it', () => {
+    const rows = [
+      row('r1', { meetName: 'Bellevue Invitational', distance: 5000 }),
+      row('r2', { meetName: 'Bellevue Invitational', distance: 5000 }),
+    ];
+    const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
+    assert.equal(meets[0].distance, 5000);
+  });
+
+  await t.test('never invents a distance for a race that has none', () => {
+    const meets = groupMeetMetricsByMeet([row('r1', { distance: null })], new Map(), new Set());
+    assert.equal(meets[0].distance, null);
+  });
+
+  await t.test('keeps a nameless or dateless row on its own rather than pooling them', () => {
+    const rows = [row('r1', { meetName: '' }), row('r2', { meetName: '' })];
+    const meets = groupMeetMetricsByMeet(rows, new Map(), new Set());
+    assert.equal(meets.length, 2);
+  });
+
+  await t.test('prefers the real Meet link over the name/date fallback', () => {
+    const rows = [row('r1', { meetName: 'League Meet' }), row('r2', { meetName: 'League Meet' })];
+    const meetInfo = new Map([['r1', { id: 'm1', name: 'League Meet #1', location: 'Home' }]]);
+    const meets = groupMeetMetricsByMeet(rows, meetInfo, new Set());
+    assert.equal(meets.length, 2);
+    assert.equal(meets.find((m) => m.id === 'm1').location, 'Home');
+  });
+
   await t.test('sums runner counts across heats rather than keeping just one heat\'s count', () => {
     const rows = [row('r1', { participantCount: 40 }), row('r2', { participantCount: 12 })];
     const meetInfo = new Map([

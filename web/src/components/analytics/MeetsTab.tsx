@@ -13,6 +13,8 @@ import { meetService } from '@/api/meetService';
 import { X, Split } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { isRankableFinish } from '@/lib/raceResultRanking';
+import { groupHeatsByDistance, hasMultipleDistances } from '@/lib/meetHeatGroups';
+import { distanceLabel } from '@/lib/resultsGridColumns';
 import type { Meet, RaceResult, Athlete } from '@/types/analytics';
 
 interface MeetsTabProps {
@@ -30,6 +32,11 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
   const [genderFilter, setGenderFilter] = useState<'all' | 'M' | 'F'>('all');
   const [gradeFilter, setGradeFilter] = useState<'all' | number>('all');
   const [meetStatsTab, setMeetStatsTab] = useState('overview');
+  // Which distance a mixed-distance meet's card is currently showing.
+  // Keyed by meet id, defaulting to the first distance; only meets that
+  // actually ran more than one distance ever get a toggle (see
+  // lib/meetHeatGroups) so this stays empty for a normal season.
+  const [heatDistanceByMeetId, setHeatDistanceByMeetId] = useState<Record<string, number>>({});
 
   // Fetch full meet details when a meet is selected. A meet with heats
   // (several races on the same day — varsity/JV x boys/girls) analyzes as
@@ -381,32 +388,68 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
 
   return (
     <div className="space-y-6">
-      {/* Meet Selection Grid */}
+      {/* One card per MEET. Heats of the same distance are already one
+          entry; a meet that ran more than one distance gets a toggle,
+          because its heats can be listed together but never analyzed
+          together (a 3200m time is not a slow 5K). */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {meets.map((meet: Meet) => (
-          <Card key={meet.id} className={selectedMeet?.id === meet.id ? 'ring-2 ring-blue-500' : ''}>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-lg">{meet.name}</CardTitle>
-                {meet.heats && <Badge variant="secondary">{meet.heats.length} heats</Badge>}
-              </div>
-              <p className="text-sm text-muted-foreground">{formatDateShort(meet.date)}</p>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Avg. Pace</p>
-                  <p className="font-semibold">{formatPace(meet.avgPace)}</p>
+        {meets.map((meet: Meet) => {
+          const distanceGroups = hasMultipleDistances(meet.heats) ? groupHeatsByDistance(meet.heats || []) : null;
+          const activeIndex = distanceGroups
+            ? Math.min(heatDistanceByMeetId[meet.id] ?? 0, distanceGroups.length - 1)
+            : 0;
+          const activeGroup = distanceGroups ? distanceGroups[activeIndex] : null;
+          // Everything below the toggle — pace, runner count, and what
+          // "Analyze Meet" opens — is the SELECTED distance only.
+          const shown: Meet = activeGroup
+            ? {
+                ...meet,
+                heats: activeGroup.heats,
+                runners: activeGroup.runners,
+                avgPace: activeGroup.avgPace,
+                hasSplits: activeGroup.hasSplits,
+                distance: activeGroup.distance,
+              }
+            : meet;
+          return (
+            <Card key={meet.id} className={selectedMeet?.id === meet.id ? 'ring-2 ring-blue-500' : ''}>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-lg">{meet.name}</CardTitle>
+                  {!distanceGroups && meet.heats && <Badge variant="secondary">{meet.heats.length} heats</Badge>}
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Runners</p>
-                  <p className="font-semibold">{meet.runners}</p>
+                <p className="text-sm text-muted-foreground">{formatDateShort(meet.date)}</p>
+                {distanceGroups && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {distanceGroups.map((group, index) => (
+                      <Button
+                        key={group.label}
+                        variant={index === activeIndex ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setHeatDistanceByMeetId((prev) => ({ ...prev, [meet.id]: index }))}
+                      >
+                        {group.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Avg. Pace</p>
+                    <p className="font-semibold">{formatPace(shown.avgPace)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Runners</p>
+                    <p className="font-semibold">{shown.runners}</p>
+                  </div>
                 </div>
-              </div>
-              {renderMeetActions(meet)}
-            </CardContent>
-          </Card>
-        ))}
+                {renderMeetActions(shown)}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Enhanced Meet Analysis Modal */}
@@ -418,7 +461,10 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
                 <div className="flex justify-between items-start">
                   <div>
                     <CardTitle>{selectedMeet.name} - Detailed Analysis</CardTitle>
-                    <p className="text-sm text-muted-foreground">{formatDateShort(selectedMeet.date)}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {formatDateShort(selectedMeet.date)}
+                      {selectedMeet.distance != null && ` · ${distanceLabel(selectedMeet.distance)}`}
+                    </p>
                   </div>
                   <Button variant="ghost" size="icon" onClick={() => setSelectedMeet(null)}>
                     <X className="h-5 w-5" />
