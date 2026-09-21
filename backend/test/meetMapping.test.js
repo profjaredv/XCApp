@@ -229,3 +229,58 @@ test('groupRacesIntoColumns', async (t) => {
     assert.deepEqual(columns.map((c) => c.name), ['A', 'B']);
   });
 });
+
+// A column is one meet AT ONE DISTANCE. The season scraper names every
+// race after its MEET — Athletic.net's season grid carries no per-heat
+// name, only a distance subscript per cell — so "our team ran two
+// distances at this meet" arrives as two races sharing a name and date
+// and differing only by distance.
+test('groupRacesIntoColumns keeps distances apart', async (t) => {
+  await t.test('splits one meet into a column per distance', () => {
+    const races = [
+      { id: 'r1', name: 'Ellensburg Invite', meetId: 'm1', meetName: 'Ellensburg Invite', distanceMeters: 5000 },
+      { id: 'r2', name: 'Ellensburg Invite', meetId: 'm1', meetName: 'Ellensburg Invite', distanceMeters: 3200 },
+    ];
+    const columns = groupRacesIntoColumns(races);
+    assert.equal(columns.length, 2);
+    assert.deepEqual(columns.map((c) => c.distanceMeters).sort((a, b) => a - b), [3200, 5000]);
+  });
+
+  await t.test('still merges heats that share a distance — same race, run in waves', () => {
+    const races = [
+      { id: 'r1', name: 'Sunfair', meetId: 'm1', meetName: 'Sunfair', distanceMeters: 5000 },
+      { id: 'r2', name: 'Sunfair', meetId: 'm1', meetName: 'Sunfair', distanceMeters: 5000 },
+      { id: 'r3', name: 'Sunfair', meetId: 'm1', meetName: 'Sunfair', distanceMeters: 5000 },
+    ];
+    const columns = groupRacesIntoColumns(races);
+    assert.equal(columns.length, 1);
+    assert.deepEqual(columns[0].raceIds, ['r1', 'r2', 'r3']);
+  });
+
+  await t.test('tags every column with the meet it belongs to, so a caller can regroup them', () => {
+    const races = [
+      { id: 'r1', name: 'Ellensburg Invite', meetId: 'm1', meetName: 'Ellensburg Invite', distanceMeters: 5000 },
+      { id: 'r2', name: 'Ellensburg Invite', meetId: 'm1', meetName: 'Ellensburg Invite', distanceMeters: 3200 },
+    ];
+    const columns = groupRacesIntoColumns(races);
+    assert.equal(new Set(columns.map((c) => c.meetKey)).size, 1);
+  });
+
+  await t.test('treats a missing distance as its own bucket rather than merging it into a real one', () => {
+    const races = [
+      { id: 'r1', name: 'Unknown', meetId: 'm1', meetName: 'Unknown', distanceMeters: 5000 },
+      { id: 'r2', name: 'Unknown', meetId: 'm1', meetName: 'Unknown', distanceMeters: null },
+    ];
+    const columns = groupRacesIntoColumns(races);
+    assert.equal(columns.length, 2);
+    assert.equal(columns.find((c) => c.distanceMeters === null).raceIds.length, 1);
+  });
+
+  await t.test('rounds so 1609 and 1609.34 are one distance, not two', () => {
+    const races = [
+      { id: 'r1', name: 'Mile TT', meetId: 'm1', meetName: 'Mile TT', distanceMeters: 1609 },
+      { id: 'r2', name: 'Mile TT', meetId: 'm1', meetName: 'Mile TT', distanceMeters: 1609.34 },
+    ];
+    assert.equal(groupRacesIntoColumns(races).length, 1);
+  });
+});

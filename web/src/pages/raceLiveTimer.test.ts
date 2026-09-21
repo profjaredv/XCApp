@@ -346,7 +346,11 @@ describe('meet results export', () => {
 
   it('disambiguates a race name that recurs across the season instead of letting columns collide', () => {
     const handler = resultsGrid.slice(resultsGrid.indexOf('const handleExportCsv ='), resultsGrid.indexOf('const handleSort ='));
-    expect(handler).toContain('dedupeColumnLabels(gridData.races)');
+    expect(handler).toContain('dedupeColumnLabels(');
+    // A meet that ran two distances yields two columns with the SAME name,
+    // so the label has to carry the distance or the CSV ships two
+    // indistinguishable headers for different races.
+    expect(handler).toContain('`${race.name} (${distanceLabel(race.distanceMeters)})`');
   });
 
   it('exports a blank entrants sheet to fill in by hand, ready to type or paste back in later', () => {

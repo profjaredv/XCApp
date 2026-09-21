@@ -112,14 +112,30 @@ describe('phone layout', () => {
     // A pill per meet was fine for three and unusable by ten — a dozen
     // meets is four rows of pills before a single time is on screen.
     expect(page).not.toContain('<SegmentedPills');
-    expect(page).toContain('<Select value={String(safeRaceIndex)}');
+    expect(page).toContain('<Select\n              value={String(safeMeetIndex)}');
     expect(page).toContain('aria-label="Previous meet"');
     expect(page).toContain('aria-label="Next meet"');
   });
 
+  it('lists MEETS, with heats underneath — not the same meet twice', () => {
+    // The scraper names every race after its meet, so two distances at one
+    // meet arrive as two identically-named columns.
+    expect(page).toContain('groupColumnsByMeet(gridData.races)');
+    expect(page).toContain('{meetGroups.map((group, index) => (');
+  });
+
+  it('offers a heat toggle ONLY when a meet ran more than one distance', () => {
+    expect(page).toContain('{activeMeet?.hasHeats && (');
+    expect(page).toContain('{distanceLabel(column.distanceMeters)}');
+  });
+
+  it('selecting a meet lands on its first heat rather than a stale column', () => {
+    expect(page).toContain('setMobileRaceIndex(meetGroups[next].columns[0].index)');
+  });
+
   it('disables the arrows at each end rather than wrapping around', () => {
-    expect(page).toContain('disabled={safeRaceIndex === 0}');
-    expect(page).toContain('disabled={safeRaceIndex >= gridData.races.length - 1}');
+    expect(page).toContain('disabled={safeMeetIndex === 0}');
+    expect(page).toContain('disabled={safeMeetIndex >= meetGroups.length - 1}');
   });
 
   it('clamps the selected meet so a season with fewer races cannot index off the end', () => {
@@ -135,8 +151,8 @@ describe('phone layout', () => {
     expect(page).toContain('max-w-[10rem] truncate');
   });
 
-  it('can still sort by the shown meet on a phone', () => {
-    expect(page).toContain("onClick={() => handleSort('time', safeRaceIndex)}");
+  it('can still sort by the shown heat on a phone', () => {
+    expect(page).toContain("onClick={() => handleSort('time', activeColumnIndex)}");
   });
 });
 
@@ -181,7 +197,7 @@ describe('sort is reachable again', () => {
   it('offers both fields on a phone, where there is no table header to tap', () => {
     const mobile = page.slice(page.indexOf('md:hidden'), page.indexOf('hidden md:block'));
     expect(mobile).toContain("onClick={() => handleSort('name')}");
-    expect(mobile).toContain("onClick={() => handleSort('time', safeRaceIndex)}");
+    expect(mobile).toContain("onClick={() => handleSort('time', activeColumnIndex)}");
   });
 
   it('puts it ABOVE the list — under a hundred names it may as well not exist', () => {
@@ -191,7 +207,7 @@ describe('sort is reachable again', () => {
 
   it('marks the active field, so the order is not a mystery', () => {
     expect(page).toContain("className={chip(sortField === 'name')}");
-    expect(page).toContain("chip(sortField === 'time' && sortRaceIndex === safeRaceIndex)");
+    expect(page).toContain("chip(sortField === 'time' && sortRaceIndex === activeColumnIndex)");
   });
 });
 
