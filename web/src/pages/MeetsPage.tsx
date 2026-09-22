@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Loader2, CalendarDays, Download } from 'lucide-react';
+import { Plus, Loader2, CalendarDays, Download, Trash2 } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,6 +33,7 @@ import {
   useConfirmImport,
   useProposeCalendarImport,
   useConfirmCalendarImport,
+  useDeleteRace,
 } from '@/hooks/useMeetOps';
 import { entryStatusLabel, type ProposedMeet, type ProposedCalendarMeet } from '@/api/meetOpsService';
 
@@ -269,8 +270,16 @@ const ImportMeetsDialog: React.FC<{
 }> = ({ open, onClose, seasonId, onImported }) => {
   const proposeImport = useProposeImport(seasonId);
   const confirmImport = useConfirmImport(seasonId);
+  const deleteRace = useDeleteRace();
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [proposed, setProposed] = useState(false);
+  // Which row a delete is in flight for — e.g. leftover heats from a meet
+  // deleted without deleting its races first (DELETE /meet-ops/:meetId
+  // unlinks races rather than deleting them). This is the same "races
+  // this season aren't linked to a Meet" list Import reads from; deleting
+  // straight from here means a coach doesn't have to import junk into a
+  // throwaway meet just to reach a delete button.
+  const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (open && !proposed) {
@@ -304,6 +313,49 @@ const ImportMeetsDialog: React.FC<{
     }
   };
 
+  // Deletes every race in one proposed group. Only a manually-entered
+  // race actually goes (DELETE /meet-ops/races/:raceId — same rule as the
+  // meet detail page's own Trash2 button); a scraped one is silently left
+  // in place rather than destroyed, since its results exist nowhere else.
+  // Re-proposes afterward instead of guessing the new state locally: a
+  // full delete removes the row, a partial one shrinks it to just the
+  // scraped race(s) left behind.
+  const handleDeleteRow = async (row: ImportRow, index: number) => {
+    const count = row.raceIds.length;
+    const confirmed = window.confirm(
+      `Delete ${count} race${count === 1 ? '' : 's'} from "${row.proposedName}"?\n\n` +
+        `Any results recorded on a manually-entered race go with it. A scraped race isn't removed this way — ` +
+        `re-import it into a meet if you want to keep it.\n\nThis cannot be undone.`
+    );
+    if (!confirmed) {
+      return;
+    }
+    setDeletingIndex(index);
+    let deleted = 0;
+    for (const raceId of row.raceIds) {
+      try {
+        await deleteRace.mutateAsync(raceId);
+        deleted += 1;
+      } catch {
+        // Not a manual race — left in place, see the confirmation copy above.
+      }
+    }
+    const skipped = count - deleted;
+    setDeletingIndex(null);
+    if (deleted === 0) {
+      toast.error("Couldn't delete — none of these are manually-entered races.");
+      return;
+    }
+    toast.success(
+      skipped === 0
+        ? `Deleted ${deleted} race${deleted === 1 ? '' : 's'}.`
+        : `Deleted ${deleted} race${deleted === 1 ? '' : 's'}. ${skipped} left in place — not manually entered.`
+    );
+    proposeImport.mutate(undefined, {
+      onSuccess: (data) => setRows(data.map((m) => ({ ...m, included: true, editedName: m.proposedName }))),
+    });
+  };
+
   const selectedCount = rows.filter((r) => r.included).length;
 
   return (
@@ -314,7 +366,8 @@ const ImportMeetsDialog: React.FC<{
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           Races on the same day are grouped into one proposed meet (boys/girls, varsity/JV races at the same event share a day).
-          Nothing is created until you confirm.
+          Nothing is created until you confirm. Just want a leftover group gone — say, heats from a meet you deleted by
+          mistake — instead of imported? Use the trash icon on that row.
         </p>
         {proposeImport.isPending ? (
           <p className="text-sm text-muted-foreground py-4">Loading races…</p>
@@ -330,18 +383,34 @@ const ImportMeetsDialog: React.FC<{
                   checked={row.included}
                   onCheckedChange={(v) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, included: Boolean(v) } : r)))}
                   className="mt-2"
+                  disabled={deletingIndex === i}
                 />
                 <div className="flex-1 space-y-1">
                   <Input
                     className="h-8"
                     value={row.editedName}
                     onChange={(e) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, editedName: e.target.value } : r)))}
+                    disabled={deletingIndex === i}
                   />
                   <p className="text-xs text-muted-foreground">
                     {row.date.slice(0, 10)}
                     {row.location ? ` · ${row.location}` : ''} · {row.raceCount} race{row.raceCount === 1 ? '' : 's'}: {row.raceNames.join(', ')}
                   </p>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => handleDeleteRow(row, i)}
+                  disabled={deletingIndex !== null}
+                  title="Delete these races instead of importing them"
+                >
+                  {deletingIndex === i ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  )}
+                </Button>
               </div>
             ))}
           </div>
