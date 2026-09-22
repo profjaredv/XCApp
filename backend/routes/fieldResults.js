@@ -39,6 +39,7 @@ const { computeFieldStats } = require('../lib/fieldNormalization');
 const { parseFieldResultsCsv } = require('../lib/fieldResultsCsv');
 const { computeRacePlacements } = require('../lib/fieldPlacement');
 const perfCache = require('../services/performance/cache');
+const calculationService = require('../services/performance/calculationService');
 
 // A meet's full field is the same real-world data no matter which XCApp
 // team uploaded it — 20 different teams at the same invitational shouldn't
@@ -260,6 +261,18 @@ router.post('/:raceId', authenticate, requireFeature('fieldResults'), requireTea
 
     await recomputeRacePlacements(race.id);
 
+    // Season > Meets, the Program tab's "Top 20% of Field" chart, and
+    // band analytics normalization all read this from the precomputed
+    // TeamSeasonMetrics/AthleteSeasonMetrics rows (calculationService.js),
+    // not live from FieldResult — an upload that never triggers a
+    // recalc is invisible everywhere except this race's own results
+    // table. Fire-and-forget, same as every other write that invalidates
+    // those rows (see routes/meetOps.js's distance-correction route) —
+    // the response should not wait on a full season recalculation.
+    calculationService
+      .calculateAllMetrics(teamId, race.season)
+      .catch((calcError) => console.error(`Error recalculating after field-results upload for season ${race.season}:`, calcError.message));
+
     res.json({
       success: true,
       rowsUploaded: results.length,
@@ -348,6 +361,14 @@ router.delete('/:raceId', authenticate, requireFeature('fieldResults'), requireT
     // Field is gone for the whole race, so every division's overall
     // place/field-size on it collapses back to null too.
     await recomputeRacePlacements(race.id);
+
+    // Symmetric with the upload above: an undone upload should stop
+    // counting toward Top 20%-of-field and normalization too, not leave
+    // stale numbers behind until something else happens to trigger a
+    // recalc.
+    calculationService
+      .calculateAllMetrics(teamId, race.season)
+      .catch((calcError) => console.error(`Error recalculating after clearing field results for season ${race.season}:`, calcError.message));
 
     res.json({ success: true });
   } catch (err) {
