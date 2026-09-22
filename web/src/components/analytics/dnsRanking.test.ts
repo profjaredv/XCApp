@@ -18,8 +18,6 @@ const code = (src: string) =>
     .join('\n');
 
 const meetsTab = code(read('components/analytics/MeetsTab.tsx'));
-const raceViz = code(read('components/analytics/RaceVisualization.tsx'));
-const swarmChart = code(read('components/analytics/SwarmChart.tsx'));
 
 describe('MeetsTab rankings exclude non-finishers', () => {
   it('filters through isRankableFinish before building the meet-detail stats (top 7/15, IQR, scoring)', () => {
@@ -39,18 +37,3 @@ describe('MeetsTab rankings exclude non-finishers', () => {
   });
 });
 
-describe('RaceVisualization and SwarmChart order/filter non-finishers correctly', () => {
-  it('sorts the full results table with compareByFinishTime, not a bare time subtraction', () => {
-    expect(raceViz).toContain("from '@/lib/raceResultRanking'");
-    expect(raceViz).toContain('.sort(compareByFinishTime)');
-  });
-
-  it('shows the status word (DNS/DNF/DQ) instead of a misleading 0:00 for a non-finish row', () => {
-    expect(raceViz).toContain("result.status && result.status !== 'FINISHED' ? result.status : formatTime(result.time ?? 0)");
-  });
-
-  it('SwarmChart filters to rankable finishers itself — a distribution chart of DNS/DNF times means nothing', () => {
-    expect(swarmChart).toContain("from '@/lib/raceResultRanking'");
-    expect(swarmChart).toContain('allResults.filter(isRankableFinish)');
-  });
-});

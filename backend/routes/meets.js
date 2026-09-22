@@ -6,6 +6,7 @@ const { resolveActiveSeason } = require('../lib/season');
 const { computeTeamPlaces } = require('../lib/teamPlace');
 const { computeMeetScoring } = require('../lib/meetScoring');
 const { compareByFinishTime } = require('../lib/raceResults');
+const { computePrFlagsByRace } = require('../lib/personalRecords');
 
 router.get('/', authenticate, requireTeam, async (req, res) => {
   const { season } = req.query;
@@ -76,13 +77,54 @@ router.get('/:id', authenticate, requireTeam, async (req, res) => {
     // upload exists yet for this race.
     const scoring = computeMeetScoring({ results, fieldResults });
 
+    // PR / season best (lib/personalRecords.js) — same distance only, one
+    // extra query scoped to just the athletes actually in this race. Skip
+    // entirely when this race has no recorded distance; there's nothing
+    // safe to compare it against.
+    const raceDistanceKey = meet.distanceMeters != null ? Math.round(meet.distanceMeters) : null;
+    const athleteIds = [...new Set(results.map((r) => r.athleteId))];
+    const prFlagsByAthleteId = new Map();
+    if (raceDistanceKey != null && athleteIds.length > 0) {
+      const careerRows = await prisma.result.findMany({
+        where: {
+          teamId: req.user.teamId,
+          athleteId: { in: athleteIds },
+          status: 'FINISHED',
+          time: { not: null },
+          race: { distanceMeters: { not: null } },
+        },
+        select: {
+          athleteId: true,
+          raceId: true,
+          time: true,
+          race: { select: { date: true, season: true, distanceMeters: true } },
+        },
+      });
+      const rowsByAthleteId = new Map();
+      for (const row of careerRows) {
+        if (Math.round(row.race.distanceMeters) !== raceDistanceKey) continue;
+        const list = rowsByAthleteId.get(row.athleteId) || [];
+        list.push({ raceId: row.raceId, time: row.time, date: row.race.date, season: row.race.season });
+        rowsByAthleteId.set(row.athleteId, list);
+      }
+      for (const [athleteId, rows] of rowsByAthleteId) {
+        const flags = computePrFlagsByRace(rows).get(meet.id) || { pr: false, seasonBest: false };
+        prFlagsByAthleteId.set(athleteId, flags);
+      }
+    }
+
     const meetWithResults = {
       ...meet,
-      results: results.map((r) => ({
-        ...r,
-        athlete: r.athlete ? { ...r.athlete, grade: r.grade } : null,
-        teamPlace: teamPlaces.get(r.id) ?? null,
-      })),
+      results: results.map((r) => {
+        const flags = prFlagsByAthleteId.get(r.athleteId) || { pr: false, seasonBest: false };
+        return {
+          ...r,
+          athlete: r.athlete ? { ...r.athlete, grade: r.grade } : null,
+          teamPlace: teamPlaces.get(r.id) ?? null,
+          pr: flags.pr,
+          seasonBest: flags.seasonBest,
+        };
+      }),
       scoring,
     };
 

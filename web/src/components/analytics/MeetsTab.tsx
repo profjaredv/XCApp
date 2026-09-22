@@ -15,15 +15,14 @@ import { useTeamPath } from '@/hooks/useTeamRoute';
 import { isRankableFinish } from '@/lib/raceResultRanking';
 import { groupHeatsByDistance, hasMultipleDistances } from '@/lib/meetHeatGroups';
 import { distanceLabel } from '@/lib/resultsGridColumns';
-import type { Meet, RaceResult, Athlete } from '@/types/analytics';
+import type { Meet, Athlete } from '@/types/analytics';
 
 interface MeetsTabProps {
   meets: Meet[];
   athletes: Athlete[];
-  setSelectedRace: (race: { id: string; name: string; results: RaceResult[] }) => void;
 }
 
-export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) => {
+export const MeetsTab = ({ meets, athletes }: MeetsTabProps) => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
   const [selectedMeet, setSelectedMeet] = useState<Meet | null>(null);
@@ -362,26 +361,6 @@ export const MeetsTab = ({ meets, athletes, setSelectedRace }: MeetsTabProps) =>
             {meet.hasSplits ? 'View Splits' : 'Add Splits'}
           </Button>
         )}
-        <Button
-          variant="link"
-          size="sm"
-          onClick={async () => {
-            // Fetch meet details if not already loaded
-            if (!meet.results || meet.results.length === 0) {
-              try {
-                const races = await Promise.all(raceIds.map((raceId) => meetService.getMeet(raceId)));
-                setSelectedRace({ id: meet.id, name: meet.name, results: races.flatMap((r) => r.results || []) });
-              } catch (error) {
-                console.error('Error fetching meet for chart:', error);
-                setSelectedRace({ id: meet.id, name: meet.name, results: [] });
-              }
-            } else {
-              setSelectedRace({ id: meet.id, name: meet.name, results: meet.results });
-            }
-          }}
-        >
-          View Chart
-        </Button>
       </div>
     );
   };
