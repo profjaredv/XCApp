@@ -152,36 +152,73 @@ test('segments: empty when finish or distance is missing', () => {
 });
 
 // --- splitAnalysis ---
+//
+// Compares the FIRST segment's pace to the LAST segment's pace — and the
+// last one, whenever a closing segment exists, IS the closing segment.
+// This used to stop at the last FULL mile and treat the closing segment
+// as separate/unranked; the coach wants the closing pace itself to be
+// what decides positive/negative, not just displayed next to a verdict
+// that never looked at it.
 
-test('splitAnalysis: the doc worked example (5:30, 5:40, 5:34-equivalent) is a positive split', () => {
+test('splitAnalysis: mile1 5:30, mile2 5:40, closing back down to 5:34 — the closer partially recovers, so this reads even, not positive', () => {
+  // Before this counted the closing segment: 5:30 vs 5:40 alone read
+  // "positive" (3%+ slower). Once the closer (5:34, roughly halfway back
+  // between the two) is the actual comparison point, first-to-last is
+  // only ~1.3% slower — inside the even threshold.
   const splits = [
     { sequence: 1, markerMeters: 1609.34, elapsedSec: 330 },
     { sequence: 2, markerMeters: 3218.68, elapsedSec: 670 },
   ];
   const segs = segments(splits, 17 * 60 + 20, 5000);
   const analysis = splitAnalysis(segs);
+  assert.equal(analysis.pattern, 'even');
+});
+
+test('splitAnalysis: two full miles within 2% of each other, but a fast closing kick — now correctly reads negative', () => {
+  // The exact bug this fixes: mile1 5:30/mi and mile2 5:33/mi alone would
+  // read "even" (under 1% apart), same as the old behavior. But this
+  // athlete then closed at ~4:40/mi — a real, sizeable kick that used to
+  // be computed, displayed, and then silently ignored by the pattern
+  // badge sitting right next to it.
+  const splits = [
+    { sequence: 1, markerMeters: 1609.34, elapsedSec: 330 }, // 5:30/mi
+    { sequence: 2, markerMeters: 3218.68, elapsedSec: 663 }, // 5:33/mi
+  ];
+  const segs = segments(splits, 973, 5000); // closing ~310s over 1.107mi = ~4:40/mi
+  const analysis = splitAnalysis(segs);
+  assert.equal(analysis.pattern, 'negative');
+  assert.ok(analysis.differentialSec < 0);
+});
+
+test('splitAnalysis: two full miles within 2% of each other, but a slow closing fade — reads positive', () => {
+  const splits = [
+    { sequence: 1, markerMeters: 1609.34, elapsedSec: 330 }, // 5:30/mi
+    { sequence: 2, markerMeters: 3218.68, elapsedSec: 663 }, // 5:33/mi
+  ];
+  const segs = segments(splits, 1106, 5000); // closing ~443s over 1.107mi = ~6:40/mi
+  const analysis = splitAnalysis(segs);
   assert.equal(analysis.pattern, 'positive');
   assert.ok(analysis.differentialSec > 0);
 });
 
-test('splitAnalysis: even pace across two full-mile segments within 2% reads even', () => {
+test('splitAnalysis: even end to end, including the closing segment, still reads even', () => {
   const splits = [
     { sequence: 1, markerMeters: 1609.34, elapsedSec: 330 }, // 5:30/mi
-    { sequence: 2, markerMeters: 3218.68, elapsedSec: 663 }, // 5:33/mi, ~0.9% slower
+    { sequence: 2, markerMeters: 3218.68, elapsedSec: 663 }, // 5:33/mi
   ];
-  const segs = segments(splits, 990, 5000);
+  const segs = segments(splits, 1031, 5000); // closing ~368s over 1.107mi = ~5:32/mi
   const analysis = splitAnalysis(segs);
   assert.equal(analysis.pattern, 'even');
 });
 
-test('splitAnalysis: negative split when the athlete sped up beyond 2%', () => {
-  const splits = [
-    { sequence: 1, markerMeters: 1609.34, elapsedSec: 340 }, // 5:40/mi
-    { sequence: 2, markerMeters: 3218.68, elapsedSec: 670 }, // second mile 5:30/mi
-  ];
-  const segs = segments(splits, 990, 5000);
+test('splitAnalysis: with only one real marker, the comparison is against the closing segment either way — unchanged', () => {
+  // A 2-mile race has exactly one full marker; there was never anything
+  // else to compare it against, before or after this change.
+  const splits = [{ sequence: 1, markerMeters: 1609.34, elapsedSec: 340 }]; // 5:40/mi
+  const segs = segments(splits, 990, 3218.68); // closing ~1mi at 650s = 10:50/mi... just needs to differ clearly
   const analysis = splitAnalysis(segs);
-  assert.equal(analysis.pattern, 'negative');
+  assert.equal(segs.length, 2);
+  assert.equal(analysis.pattern, 'positive');
 });
 
 test('splitAnalysis: null with fewer than two segments', () => {

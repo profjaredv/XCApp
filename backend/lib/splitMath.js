@@ -155,25 +155,28 @@ function segments(splits, finishSec, distanceMeters) {
   return result;
 }
 
-// segs: output of segments() above. Compares PACE, not raw segment time,
-// since segments differ in length (a full mile vs a 1.107mi closer aren't
-// a fair raw-time comparison). When two or more full, equal-length marker
-// segments exist, the comparison uses those (the fairest apples-to-apples
-// read on whether the athlete slowed down) and reports the derived
-// closing segment separately rather than folding it into the headline
-// pattern; with only one real segment, it's compared against the closing
-// segment since there's nothing else to compare.
+// segs: output of segments() above. Compares PACE, not raw segment time —
+// pace already accounts for a segment's own length, which is exactly why
+// the derived closing segment (never a full mile) belongs in this
+// comparison on the same footing as every other segment: there's no
+// length unfairness left for excluding it to correct for. This used to
+// compare only the full, equal-length marker segments and report the
+// closing segment separately, on the theory that a full-mile-vs-full-mile
+// comparison was the fairer one — but once the comparison is pace, not
+// raw time, that theory doesn't hold: a fast or slow closing kick is real
+// pacing information, and hiding it from positive/negative meant a coach
+// could see a fast "Mile 3" pace sitting right next to an "Even split"
+// badge that never looked at it. So: first segment's pace vs the LAST
+// segment's pace, whichever segment that is — the closing one, whenever
+// one exists.
 function splitAnalysis(segs) {
   if (!Array.isArray(segs) || segs.length < 2) return null;
 
   const withPace = segs.filter((s) => s.paceSecPerMile != null);
   if (withPace.length < 2) return null;
 
-  const nonClosing = withPace.filter((s) => !s.isClosing);
-  const comparisonSet = nonClosing.length >= 2 ? nonClosing : withPace;
-
-  const firstPace = comparisonSet[0].paceSecPerMile;
-  const lastPace = comparisonSet[comparisonSet.length - 1].paceSecPerMile;
+  const firstPace = withPace[0].paceSecPerMile;
+  const lastPace = withPace[withPace.length - 1].paceSecPerMile;
   const differentialSec = lastPace - firstPace;
 
   let pattern;
