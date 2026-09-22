@@ -18,14 +18,13 @@ import { useTeamSeasonSeries } from '@/hooks/useTeamSeasonSeries';
 import { useInvalidatePerformanceCache } from '@/hooks/useInvalidatePerformanceCache';
 import { useAvailableSeasons } from '@/hooks/useAvailableSeasons';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
-import RaceVisualization from '@/components/analytics/RaceVisualization';
 import { AnalyticsHeader } from '@/components/analytics/AnalyticsHeader';
 import { DashboardTab } from '@/components/analytics/DashboardTab';
 import { AthletesTab } from '@/components/analytics/AthletesTab';
 import { MeetsTab } from '@/components/analytics/MeetsTab';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
 import { SeasonMode } from '@/components/analytics/types';
-import type { Athlete, Race, RaceResult } from '@/types/analytics';
+import type { Athlete, Race } from '@/types/analytics';
 import { AuthContext } from '@/contexts/AuthContext';
 import { DistanceAnalysisTab } from '@/components/analytics/DistanceAnalysisTab';
 import { RaceComparisonTab } from '@/components/analytics/RaceComparisonTab';
@@ -90,11 +89,6 @@ interface SeasonBreakdown {
 }
 
 const AnalyticsPage = () => {
-  const [selectedRace, setSelectedRace] = useState<{
-    id: string;
-    name: string;
-    results: RaceResult[];
-  } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
   const [genderFilter, setGenderFilter] = useState<'all' | 'M' | 'F'>('all');
@@ -408,10 +402,6 @@ const AnalyticsPage = () => {
     return races.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [athleteAllSeasons?.data?.seasons]);
 
-  const athleteNameMap = useMemo(() => {
-    return new Map(athletes.map((a: Athlete) => [a.id, a.name]));
-  }, [athletes]);
-
   const grades = useMemo(() => {
     const gradeSet = new Set<number>();
     athletes.forEach((athlete: Athlete) => { if (athlete.currentGrade) gradeSet.add(athlete.currentGrade); });
@@ -480,9 +470,6 @@ const AnalyticsPage = () => {
 
   return (
     <div className="container mx-auto py-6 px-4">
-      {selectedRace && (
-        <RaceVisualization race={{ id: selectedRace.id, name: selectedRace.name, results: selectedRace.results }} athleteNameMap={athleteNameMap} onClose={() => setSelectedRace(null)} />
-      )}
       <AnalyticsHeader 
         isLoadingSeasons={isLoadingSeasons}
         availableSeasons={availableSeasons}
@@ -549,7 +536,7 @@ const AnalyticsPage = () => {
               />
             </TabsContent>
             <TabsContent value="meets">
-              <MeetsTab meets={meets} athletes={athletes} setSelectedRace={setSelectedRace} />
+              <MeetsTab meets={meets} athletes={athletes} />
             </TabsContent>
             <TabsContent value="performance">
               <Tabs value={performanceSubTab} onValueChange={setPerformanceSubTab} className="w-full">

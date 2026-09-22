@@ -254,6 +254,10 @@ export interface RaceResult {
   overallFieldSize?: number | null;
   team?: string;
   grade?: number;
+  // Computed by GET /meets/:id (backend/lib/personalRecords.js), scoped
+  // to same-distance results only — comparing a 5K PR against a 3200m
+  // time isn't meaningful. Absent (not false) from any other endpoint
+  // that returns a bare RaceResult, since nothing else computes them.
   pr?: boolean;
   seasonBest?: boolean;
   // ORIGIN data (see backend lib/teamPlace.js) — rank among just our own
