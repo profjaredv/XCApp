@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, validateSplitEntries, planSplitBatchWrite } = require('../lib/splitMath');
+const { markersForRace, closingSegmentLabel, segments, splitAnalysis, overallPaceSecPerMile, validateSplitEntries, planSplitBatchWrite } = require('../lib/splitMath');
 
 // --- markersForRace: every distance in the handoff doc's worked table ---
 
@@ -48,6 +48,59 @@ test('markersForRace: null scheme defaults to MILE', () => {
 test('markersForRace: CUSTOM uses the explicit list, sorted, out-of-range values dropped', () => {
   const markers = markersForRace(8000, 'CUSTOM', [4000, 2000, 9000]);
   assert.deepEqual(markers.map((m) => m.markerMeters), [2000, 4000]);
+});
+
+// --- closingSegmentLabel: is the tail actually close enough to a whole
+// unit to read as "Mile N," or should it just say "Final" ---
+
+test('closingSegmentLabel: 5K reads "Mile 3" — 1.107mi is close enough to a mile', () => {
+  const markers = markersForRace(5000, 'MILE');
+  assert.equal(closingSegmentLabel(5000, 'MILE', markers), 'Mile 3');
+});
+
+test('closingSegmentLabel: 2 mile (3219m) reads "Mile 2" — the classic case, ~1.00mi left', () => {
+  const markers = markersForRace(3219, 'MILE');
+  assert.equal(closingSegmentLabel(3219, 'MILE', markers), 'Mile 2');
+});
+
+test('closingSegmentLabel: 4200m says "Final", not "Mile 3" — only 0.61mi is left after two full miles', () => {
+  const markers = markersForRace(4200, 'MILE');
+  assert.deepEqual(markers.map((m) => m.label), ['Mile 1', 'Mile 2']);
+  assert.equal(closingSegmentLabel(4200, 'MILE', markers), 'Final');
+});
+
+test('closingSegmentLabel: 6K also says "Final" — 0.73mi is still short of a mile', () => {
+  const markers = markersForRace(6000, 'MILE');
+  assert.equal(closingSegmentLabel(6000, 'MILE', markers), 'Final');
+});
+
+test('closingSegmentLabel: 8K reads "Mile 5" — 0.97mi clears the tolerance', () => {
+  const markers = markersForRace(8000, 'MILE');
+  assert.equal(closingSegmentLabel(8000, 'MILE', markers), 'Mile 5');
+});
+
+test('closingSegmentLabel: KM scheme reads "NK" the same way, exact multiples never trip the tolerance', () => {
+  const markers = markersForRace(8000, 'KM');
+  assert.equal(closingSegmentLabel(8000, 'KM', markers), '8K');
+});
+
+test('closingSegmentLabel: CUSTOM always says "Final" — no numbered convention to preserve', () => {
+  const markers = markersForRace(8000, 'CUSTOM', [2000, 4000]);
+  assert.equal(closingSegmentLabel(8000, 'CUSTOM', markers), 'Final');
+});
+
+test('closingSegmentLabel: a race with zero full markers still gets a whole-race closing label', () => {
+  // markersForRace(1609, ...) returns [] — "splits do not apply" — but
+  // segments() still derives one closing segment for the whole distance
+  // (see "segments: no splits at all still returns the closing segment
+  // for the whole race" below), and that segment deserves a real label
+  // too, not null.
+  assert.equal(closingSegmentLabel(1609, 'MILE', []), 'Mile 1');
+});
+
+test('closingSegmentLabel: null distance or no distance to close returns null, not a throw', () => {
+  assert.equal(closingSegmentLabel(0, 'MILE', []), null);
+  assert.equal(closingSegmentLabel(null, 'MILE', []), null);
 });
 
 // --- segments: the exact doc worked example ---

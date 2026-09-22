@@ -68,6 +68,12 @@ export interface RaceSplitsView {
   splitMarkerScheme: SplitMarkerScheme | null;
   splitMarkersMeters: number[];
   markers: SplitMarker[];
+  /** What to call the closing (last-marker-to-tape) column — "Mile N"/"NK"
+   *  only when that segment's own distance is close enough to a whole unit
+   *  to read as one (backend/lib/splitMath.js's closingSegmentLabel);
+   *  "Final" otherwise, e.g. a 4200m race's 0.61mi remainder after two
+   *  full miles. Null when there's no distance to derive it from. */
+  closingLabel: string | null;
   results: RaceSplitRow[];
 }
 
