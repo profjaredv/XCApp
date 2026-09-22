@@ -358,6 +358,7 @@ const SplitsEntryPage: React.FC = () => {
       ...markers.map((m) => m.label),
       ...derivedMarkers.map((m) => `${m.label} split`),
       'Final',
+      'Final Pace',
       'Pace',
       'Finish',
     ];
@@ -368,6 +369,7 @@ const SplitsEntryPage: React.FC = () => {
         Athlete: row.athleteName,
         Gender: row.gender ?? '',
         Final: closingSeg ? formatSplitMMSS(closingSeg.segmentSec) : '',
+        'Final Pace': closingSeg?.paceSecPerMile != null ? `${formatSplitMMSS(closingSeg.paceSecPerMile)}/mi` : '',
         Pace: row.overallPaceSecPerMile != null ? formatSplitMMSS(row.overallPaceSecPerMile) : '',
         Finish: formatSplitMMSS(row.finishSec),
       };
@@ -615,7 +617,16 @@ const SplitsEntryPage: React.FC = () => {
                       );
                     })}
                     <td className={`${derivedCellClass} ${hiddenOnMobile}`}>
-                      {closingSeg ? formatSplitMMSS(closingSeg.segmentSec) : '—'}
+                      {closingSeg ? (
+                        <>
+                          {formatSplitMMSS(closingSeg.segmentSec)}
+                          {closingSeg.paceSecPerMile != null && (
+                            <span className="block text-[10px]">{formatSplitMMSS(closingSeg.paceSecPerMile)}/mi</span>
+                          )}
+                        </>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className={`${derivedCellClass} ${hiddenOnMobile}`}>
                       {row.overallPaceSecPerMile != null ? `${formatSplitMMSS(row.overallPaceSecPerMile)}/mi` : '—'}
@@ -706,7 +717,11 @@ const SplitsEntryPage: React.FC = () => {
                             );
                           })}
                           <td className="text-center p-1 border border-border font-mono">
-                            {closingSeg ? formatSplitMMSS(closingSeg.segmentSec) : '—'}
+                            {closingSeg
+                              ? `${formatSplitMMSS(closingSeg.segmentSec)}${
+                                  closingSeg.paceSecPerMile != null ? ` (${formatSplitMMSS(closingSeg.paceSecPerMile)}/mi)` : ''
+                                }`
+                              : '—'}
                           </td>
                           <td className="text-center p-1 border border-border font-mono">
                             {row.overallPaceSecPerMile != null ? `${formatSplitMMSS(row.overallPaceSecPerMile)}/mi` : '—'}
