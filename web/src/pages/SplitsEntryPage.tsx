@@ -125,15 +125,12 @@ const SplitsEntryPage: React.FC = () => {
     if (!data?.distanceMeters || markers.length === 0) return null;
     return (data.distanceMeters - markers[markers.length - 1].markerMeters) / MILE_METERS;
   }, [data, markers]);
-  // Whole-mile numbering, matching the same "Mile N" / "NK" convention
-  // lib/splitMath.js already uses for the real markers — a 5K's closing
-  // segment (really 1.11mi) reads as "Mile 3," exactly how a coach's own
-  // sheet already labels it, not as a fussy "Final (1.11mi)."
-  const closingLabel = useMemo(() => {
-    if (data?.splitMarkerScheme === 'KM') return `${markers.length + 1}K`;
-    if (data?.splitMarkerScheme === 'CUSTOM') return 'Final';
-    return `Mile ${markers.length + 1}`;
-  }, [data, markers]);
+  // Computed backend-side (lib/splitMath.js's closingSegmentLabel), not
+  // re-derived here: "Mile N" / "NK" only when the closing segment's own
+  // distance is close enough to a whole unit to read as one — a 5K's
+  // 1.107mi closer reads fine as "Mile 3," a 4200m's 0.61mi remainder
+  // after two full miles does not, and says "Final" instead.
+  const closingLabel = data?.closingLabel ?? 'Final';
   const totalCols = 1 + markers.length + derivedMarkers.length + 1 + 1 + 1 + 1;
 
   const availableGenders = useMemo(() => {

@@ -67,6 +67,37 @@ function markersForRace(distanceMeters, scheme, customMarkersMeters) {
   }));
 }
 
+// How close the closing segment's own distance needs to be to a whole
+// unit (mile, or km) before it reads naturally as "the next Mile N"/"NK"
+// the way a coach's own sheet already treats a 5K's 1.107mi closer (see
+// this file's header comment). Below this, calling it "Mile N" overstates
+// it: a 4200m race has two full mile markers and only 0.61mi left after
+// them — that is not "basically a mile," and labelling it one misleads a
+// coach who expects Mile-N paces to be roughly comparable in length. The
+// tolerance only needs a floor: markersForRace's own 400m finish guard
+// already caps how much longer than one unit the closing segment can
+// ever be (at most unit + 400m, ~1.25mi for MILE), so nothing here can
+// run away too far in the other direction.
+const CLOSING_LABEL_MIN_UNIT_FRACTION = 0.8;
+
+// markers: markersForRace's own output for this race, so the numbering
+// ("Mile 3" for a race with 2 full mile markers) always matches what's
+// actually on screen. Returns null when there's no distance to work with.
+function closingSegmentLabel(distanceMeters, scheme, markers) {
+  if (!(distanceMeters > 0)) return null;
+  const resolvedScheme = scheme || 'MILE';
+  if (resolvedScheme === 'CUSTOM') return 'Final';
+
+  const lastMarkerMeters = markers.length > 0 ? markers[markers.length - 1].markerMeters : 0;
+  const closingMeters = distanceMeters - lastMarkerMeters;
+  if (!(closingMeters > 0)) return null;
+
+  const unit = resolvedScheme === 'KM' ? KM_IN_METERS : MILE_IN_METERS;
+  if (closingMeters / unit < CLOSING_LABEL_MIN_UNIT_FRACTION) return 'Final';
+
+  return resolvedScheme === 'KM' ? `${markers.length + 1}K` : `Mile ${markers.length + 1}`;
+}
+
 // splits: [{ sequence, markerMeters, elapsedSec }] for one result, cumulative
 // from the gun. finishSec/distanceMeters come from the Result/Race rows —
 // the app already has them, so the closing segment (last marker to the
@@ -272,6 +303,7 @@ module.exports = {
   EVEN_SPLIT_THRESHOLD,
   formatMetersLabel,
   markersForRace,
+  closingSegmentLabel,
   segments,
   splitAnalysis,
   overallPaceSecPerMile,

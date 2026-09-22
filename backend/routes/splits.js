@@ -3,7 +3,7 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { FULL_COACH } = require('../lib/teamRoles');
-const { markersForRace, segments, splitAnalysis, overallPaceSecPerMile, planSplitBatchWrite } = require('../lib/splitMath');
+const { markersForRace, closingSegmentLabel, segments, splitAnalysis, overallPaceSecPerMile, planSplitBatchWrite } = require('../lib/splitMath');
 const { normalizeDistanceMeters, aggregateSplitsByDistance } = require('../lib/splitAggregates');
 // Shared with routes/analytics.js's strategy session — one shape, one set
 // of answers about how an athlete paces themselves.
@@ -64,6 +64,13 @@ function buildRaceView(race, results, previousByAthleteId) {
     splitMarkerScheme: race.splitMarkerScheme,
     splitMarkersMeters: race.splitMarkersMeters,
     markers,
+    // What to actually call the closing (last-marker-to-tape) column — a
+    // 5K's 1.107mi remainder reads fine as "Mile 3," a 4200m's 0.61mi
+    // remainder does not (see lib/splitMath.js's closingSegmentLabel).
+    // Derived here, once, from the same markers the rest of this response
+    // already used — never re-derived client-side, so the entry grid
+    // can't drift from what the backend actually computed.
+    closingLabel: closingSegmentLabel(race.distanceMeters, race.splitMarkerScheme, markers),
     results: rows,
   };
 }
