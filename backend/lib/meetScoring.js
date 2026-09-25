@@ -29,6 +29,7 @@
 // `results: { include: { athlete } }` and `fieldResults`, and passes it in.
 
 const { finishedFieldResults, matchResultsToFieldResults } = require('./fieldPlacement');
+const { normalizeGender } = require('./gender');
 
 const SCORERS_PER_TEAM = 5;
 const DISPLACERS_PER_TEAM = 2;
@@ -139,7 +140,14 @@ function computeMeetScoring(race) {
   const byGroup = new Map();
   fieldResults.forEach((fr) => {
     const division = fr.division || 'Unknown Division';
-    const gender = fr.gender || null;
+    // Normalized, not the raw column — a source CSV that writes
+    // "Boys"/"Girls" instead of "M"/"F" (a real, observed export format)
+    // used to fail the `stats[division.gender]` lookup this feeds into
+    // (lib/services/performance/calculationService.js's
+    // calculateFieldStanding), silently dropping the whole division from
+    // team scoring and Top 20%-of-field with no error anywhere — the
+    // upload and the athlete-name matching both looked fine.
+    const gender = normalizeGender(fr.gender);
     const key = `${division}::${gender ?? ''}`;
     if (!byGroup.has(key)) byGroup.set(key, { division, gender, rows: [] });
     byGroup.get(key).rows.push(fr);

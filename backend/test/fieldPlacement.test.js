@@ -115,6 +115,29 @@ test('computeRacePlacements: rows with no gender recorded are excluded from over
   });
 });
 
+test('computeRacePlacements: a "Boys"/"Girls" Gender column combines for overall place same as "M"/"F"', () => {
+  // A real, observed export format. Both the grouping key and the
+  // per-match comparison used to key on the raw text — "Boys" here would
+  // never equal the FieldResult's own raw "Boys" reliably if a second
+  // division used different capitalization, and neither ever matched a
+  // caller comparing against normalized 'M'/'F' — leaving overallPlace
+  // null for every athlete on an affected race.
+  const race = {
+    id: 'race1',
+    fieldResults: [
+      fr('g1', 'Mana Voss', 'Boys Gold Varsity', 'Boys', 923.1, 1),
+      fr('g2', 'Someone Faster Elsewhere', 'Boys Gold Varsity', 'Boys', 950, 2),
+      fr('s1', 'Theo Park', 'Boys Silver Varsity', 'boys', 940, 1),
+    ],
+    results: [result('rg1', 'a1', 'Mana Voss', 'M'), result('rs1', 'a2', 'Theo Park', 'M')],
+  };
+
+  const placements = computeRacePlacements(race);
+  assert.equal(placements.get('rg1').overallPlace, 1);
+  assert.equal(placements.get('rg1').overallFieldSize, 3);
+  assert.equal(placements.get('rs1').overallPlace, 2);
+});
+
 test('computeRacePlacements: unfinished field rows never rank or get matched', () => {
   const race = {
     id: 'race1',

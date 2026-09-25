@@ -209,3 +209,31 @@ test('computeMeetScoring: rows with no division and no gender at all still stay 
   assert.equal(scoring[0].division, 'Unknown Division');
   assert.equal(scoring[0].gender, null);
 });
+
+test('computeMeetScoring: a "Boys"/"Girls" Gender column groups and scores same as "M"/"F" — normalized, not the raw text', () => {
+  // A real, observed export format. `stats[division.gender]` in
+  // calculationService.js's calculateFieldStanding keys strictly on
+  // 'M'/'F' — the raw text used to match neither bucket and silently
+  // dropped the whole division from team scoring and Top 20%-of-field,
+  // with the upload and the athlete-name matching both looking fine.
+  const race = {
+    fieldResults: [
+      fr('b1', 'Boy A', 'Home', 'Varsity', 'Boys', 1),
+      fr('b2', 'Boy B', 'Home', 'Varsity', 'Boys', 2),
+      fr('b3', 'Boy C', 'Home', 'Varsity', 'Boys', 3),
+      fr('b4', 'Boy D', 'Home', 'Varsity', 'Boys', 4),
+      fr('b5', 'Boy E', 'Home', 'Varsity', 'Boys', 5),
+      fr('g1', 'Girl A', 'Home', 'Varsity', 'Girls', 1),
+    ],
+    results: [],
+  };
+
+  const scoring = computeMeetScoring(race);
+  assert.equal(scoring.length, 2);
+
+  const boys = scoring.find((d) => d.gender === 'M');
+  const girls = scoring.find((d) => d.gender === 'F');
+  assert.ok(boys, 'a "Boys" column should bucket as gender M, not stay as "Boys"');
+  assert.ok(girls, 'a "Girls" column should bucket as gender F, not stay as "Girls"');
+  assert.equal(boys.scoringTeams[0].score, 1 + 2 + 3 + 4 + 5);
+});

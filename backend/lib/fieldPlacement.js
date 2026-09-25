@@ -23,6 +23,7 @@
 // { athlete } }` and `fieldResults`, and persists what this returns.
 
 const { normalizeAthleteName } = require('./athleteMatching');
+const { normalizeGender } = require('./gender');
 
 function finishedFieldResults(fieldResults) {
   return (fieldResults || []).filter((fr) => fr.status === 'FINISHED' && fr.timeSec != null);
@@ -83,13 +84,19 @@ function computeRacePlacements(race) {
   });
 
   // Group every finished field result (not just our own matches — the
-  // ranking needs the whole field) by gender. Rows with no gender recorded
+  // ranking needs the whole field) by gender. Normalized, not the raw
+  // column — a source CSV writing "Boys"/"Girls" instead of "M"/"F" (a
+  // real, observed export format) used to group into its own literal-
+  // string bucket that nothing else in the app ever matched against,
+  // silently leaving overallPlace/overallFieldSize null for every
+  // athlete on an affected race. Rows with no recognizable gender still
   // can't be grouped into a same-gender cohort and are excluded.
   const byGender = new Map();
   fieldResults.forEach((fr) => {
-    if (!fr.gender) return;
-    if (!byGender.has(fr.gender)) byGender.set(fr.gender, []);
-    byGender.get(fr.gender).push(fr);
+    const gender = normalizeGender(fr.gender);
+    if (!gender) return;
+    if (!byGender.has(gender)) byGender.set(gender, []);
+    byGender.get(gender).push(fr);
   });
 
   byGender.forEach((group, gender) => {
@@ -101,7 +108,7 @@ function computeRacePlacements(race) {
     sorted.forEach((fr, idx) => rankByFieldResultId.set(fr.id, idx + 1));
 
     matchByResultId.forEach((match, resultId) => {
-      if (match.gender !== gender) return;
+      if (normalizeGender(match.gender) !== gender) return;
       const entry = placements.get(resultId);
       entry.overallPlace = rankByFieldResultId.get(match.id) ?? null;
       entry.overallFieldSize = sorted.length;

@@ -42,6 +42,27 @@ test('parseFieldResultsCsv: happy path with School/Gender/Grade/Place', () => {
   });
 });
 
+test('parseFieldResultsCsv: a "Boys"/"Girls" Gender column normalizes to M/F, not the raw text', () => {
+  // A real, observed export format. Every downstream consumer
+  // (lib/meetScoring.js, lib/fieldPlacement.js) keys strictly on 'M'/'F'
+  // — the raw text used to match nothing and silently drop the whole
+  // division from team scoring and overall placement, even though the
+  // athlete-name matching worked fine.
+  const rows = [
+    { 'Athlete Name': 'Jane Doe', Gender: 'Girls', Time: '18:32' },
+    { 'Athlete Name': 'Sam Lee', Gender: 'Boys', Time: '17:01' },
+  ];
+  const { results } = parseFieldResultsCsv(rows);
+  assert.equal(results[0].gender, 'F');
+  assert.equal(results[1].gender, 'M');
+});
+
+test('parseFieldResultsCsv: an unrecognized Gender value normalizes to null, not passed through raw', () => {
+  const rows = [{ 'Athlete Name': 'Jane Doe', Gender: 'Unknown', Time: '18:32' }];
+  const { results } = parseFieldResultsCsv(rows);
+  assert.equal(results[0].gender, null);
+});
+
 test('parseFieldResultsCsv: a DNF/DNS/DQ row with no time is valid, not an error', () => {
   const rows = [{ 'Athlete Name': 'Jo Park', Time: '', Status: 'DNF' }];
   const { results, errors } = parseFieldResultsCsv(rows);
