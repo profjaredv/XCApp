@@ -433,10 +433,39 @@ const SplitsEntryPage: React.FC = () => {
       return;
     }
 
+    // Every cell this import is actually trying to write — a row with an
+    // unreadable or blank column contributes nothing here, so it can't
+    // count as "saved" just because its name matched.
+    const totalCellsAttempted = entries.reduce((sum, e) => sum + e.splits.length, 0);
+    // The backend's own monotonicity check (lib/splitMath.js's
+    // validateSplitEntries) runs against EXISTING + touched values
+    // together, per athlete — one bad value already on file for an
+    // earlier marker silently rejects every later marker this import
+    // tries to write for that same athlete, row by row, not just the one
+    // cell that's actually wrong.
+    const nameByResultId = new Map(rowsAll.map((r) => [r.resultId, r.athleteName]));
+    const labelBySequence = new Map(markers.map((m) => [m.sequence, m.label]));
+
     try {
       const result = await saveBatch.mutateAsync(entries);
+      const flaggedCells = result.flags.length;
+      const savedCells = totalCellsAttempted - flaggedCells;
+      const flagMessages = result.flags.map(
+        (f) => `${nameByResultId.get(f.resultId) ?? f.resultId} (${labelBySequence.get(f.sequence) ?? `marker ${f.sequence}`}): ${f.reason}`
+      );
+      const allErrors = [...errors, ...flagMessages];
+
+      if (totalCellsAttempted > 0 && savedCells <= 0) {
+        // Nothing this import touched actually made it into the race —
+        // every cell was flagged. A "success" toast here would say the
+        // opposite of what happened.
+        toast.error(
+          `Nothing was saved — every value was flagged: ${allErrors.slice(0, 3).join('; ')}${allErrors.length > 3 ? '…' : ''}`
+        );
+        return;
+      }
+
       toast.success(`Imported splits for ${entries.length} athlete${entries.length === 1 ? '' : 's'}.`);
-      const allErrors = [...errors, ...result.flags.map((f) => `${f.resultId}: ${f.reason}`)];
       if (allErrors.length > 0) {
         toast.error(`${allErrors.length} row(s) had issues: ${allErrors.slice(0, 3).join('; ')}${allErrors.length > 3 ? '…' : ''}`);
       }

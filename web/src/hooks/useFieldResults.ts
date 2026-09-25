@@ -22,6 +22,17 @@ export interface FieldResultRace {
   // race has no field data of its own yet.
   availableFromOtherTeam: boolean;
   otherTeamFieldFinisherCount: number | null;
+  // How many of this team's own results (out of ourResultCount) the
+  // upload actually matched to a field finisher, by athlete name — 0 for
+  // both when the race has no field data uploaded yet, so a coach who
+  // uploaded a CSV in a name format that doesn't match the roster (e.g.
+  // "Last, First" from a different export source) can immediately tell
+  // matching failed instead of assuming the upload silently did nothing.
+  // A mismatch here means fieldMeanSec/fieldFinisherCount are fine but
+  // this team's own scoring, standing, and Program-tab numbers see none
+  // of it.
+  ourResultCount: number;
+  ourMatchedCount: number;
 }
 
 export const useFieldResultRaces = (season: number | undefined) => {

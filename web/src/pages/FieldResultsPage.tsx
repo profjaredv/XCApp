@@ -329,6 +329,33 @@ const FieldResultsPage = () => {
                           <AlertCircle className="h-3 w-3" /> {race.fieldFinisherCount} finishers (below 40)
                         </Badge>
                       )}
+                      {/* A CSV can upload and normalize fine while matching
+                          none of this team's own athletes by name (a
+                          different export's "Last, First" vs the roster's
+                          "First Last", say) — the upload looks like it
+                          worked and this team's own scoring/standing sees
+                          none of it. Only shown once there's something of
+                          ours to match against; nothing to flag before
+                          this race's own results exist. */}
+                      {race.hasFieldData && race.ourResultCount > 0 && (
+                        <div className="mt-1">
+                          {race.ourMatchedCount === 0 ? (
+                            <Badge variant="destructive" className="gap-1">
+                              <AlertCircle className="h-3 w-3" /> 0 of {race.ourResultCount} of your athletes matched — check
+                              names
+                            </Badge>
+                          ) : race.ourMatchedCount < race.ourResultCount ? (
+                            <Badge variant="secondary" className="gap-1">
+                              <AlertCircle className="h-3 w-3" /> {race.ourMatchedCount} of {race.ourResultCount} of your
+                              athletes matched
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              All {race.ourResultCount} of your athletes matched
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right space-x-2">
                       {!race.hasFieldData && race.availableFromOtherTeam && (
