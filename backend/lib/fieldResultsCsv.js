@@ -13,6 +13,7 @@
 // database, same pattern as lib/bandAnalytics.js.
 
 const { parseTimeToSeconds } = require('./time');
+const { normalizeGender } = require('./gender');
 
 const VALID_STATUSES = new Set(['FINISHED', 'DNF', 'DNS', 'DQ']);
 
@@ -84,7 +85,15 @@ function parseFieldResultsCsv(rows) {
     results.push({
       athleteName,
       schoolName: (row['School'] || '').trim() || null,
-      gender: (row['Gender'] || '').trim() || null,
+      // Every downstream consumer (lib/meetScoring.js's division buckets,
+      // lib/fieldPlacement.js's overall-place cohorts) keys strictly off
+      // 'M'/'F' — a raw "Boys"/"Girls" from the source CSV (a real,
+      // observed export format) matched nothing in either of those
+      // buckets and silently dropped the whole division from team
+      // scoring and Top 20%-of-field, even though the athlete-name
+      // matching above it worked fine. Same normalizeGender every other
+      // gender column in this app already goes through.
+      gender: normalizeGender(row['Gender']),
       division: (row['Division'] || '').trim() || null,
       grade: Number.isFinite(grade) ? grade : null,
       timeSec,
