@@ -9,12 +9,59 @@ const { computeMeetScoring } = require('../../lib/meetScoring');
 class CalculationService {
   constructor() {
     this.batchSize = 100;
+    // Every reader of this service's output (GET /analytics/overview,
+    // /analytics/program, etc.) reads AthleteSeasonMetrics/
+    // MeetPerformanceMetrics/TeamSeasonMetrics straight from the DB —
+    // nothing caches or coalesces the READ side. So two
+    // calculateAllMetrics runs for the SAME team+season firing close
+    // together (e.g. a coach uploading field results for two different
+    // races back to back — each upload fires one of these, fire-and-
+    // forget, see routes/fieldResults.js) was a real lost-update race:
+    // this is three separate async read/compute/write passes, not one
+    // atomic transaction, so whichever run STARTED FIRST could still
+    // FINISH LAST and silently overwrite the other run's more complete
+    // numbers with its own now-stale, incomplete ones — e.g. a Program
+    // tab "Top 20% of Field" number reflecting only one of two uploaded
+    // races depending on unlucky timing, not both.
+    //
+    // Queuing every call per (teamId, season) key fixes it: a later
+    // trigger always waits for an earlier one to fully finish before it
+    // even starts reading, so by the time it runs it sees everything
+    // that earlier run (and anything else that landed in between)
+    // already committed. Slower under a pile of back-to-back triggers —
+    // each one is a full recompute, and now they run one at a time
+    // instead of racing — but never wrong.
+    this.pendingByKey = new Map();
   }
 
   /**
-   * Calculate and update all performance metrics for a team and season
+   * Calculate and update all performance metrics for a team and season.
+   * Serializes concurrent calls for the same (teamId, season) — see the
+   * constructor comment on this.pendingByKey for why.
    */
   async calculateAllMetrics(teamId, season, skipCache = false) {
+    const key = `${teamId}:${season}`;
+    const previous = this.pendingByKey.get(key) || Promise.resolve();
+    // .catch(() => {}) so one failed run doesn't wedge every run queued
+    // after it — the next one still gets its turn.
+    const run = previous.catch(() => {}).then(() => this._calculateAllMetrics(teamId, season, skipCache));
+    this.pendingByKey.set(key, run);
+    // .finally()'s own returned promise adopts run's rejection too, and
+    // nothing else observes THAT one — .catch(() => {}) here keeps a
+    // failed run from surfacing as an unhandled rejection on top of the
+    // one the actual caller below already sees via `run` itself.
+    run
+      .finally(() => {
+        // Only clear the slot if nothing newer has queued behind this run
+        // in the meantime — an awaited caller further down this same chain
+        // still needs to find it.
+        if (this.pendingByKey.get(key) === run) this.pendingByKey.delete(key);
+      })
+      .catch(() => {});
+    return run;
+  }
+
+  async _calculateAllMetrics(teamId, season, skipCache = false) {
     try {
       logger.info(`Starting metrics calculation for team ${teamId}, season ${season}`);
 
@@ -1067,3 +1114,9 @@ class CalculationService {
 }
 
 module.exports = new CalculationService();
+// Exposed alongside the singleton purely so tests can construct an
+// isolated instance (with a stubbed _calculateAllMetrics) to exercise the
+// queuing behavior in this.pendingByKey without touching Prisma — every
+// real call site keeps requiring this module and getting the singleton
+// above, unchanged.
+module.exports.CalculationService = CalculationService;
