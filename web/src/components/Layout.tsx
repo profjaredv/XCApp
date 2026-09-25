@@ -22,6 +22,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { navFor, navEntry } from '../lib/navigation';
 import { useTeamFeatures } from '@/hooks/useTeamFeatures';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { APP_VERSION } from '@/version';
 
 interface SidebarProps {
   isMobileOpen: boolean;
@@ -288,9 +289,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
             </div>
           </div>
         ) : (
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent transition-opacity duration-300">
-            LeadPack XC
-          </h1>
+          <>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent transition-opacity duration-300">
+              LeadPack XC
+            </h1>
+            {/* A build identifier a coach can point to when reporting "did
+                my fix actually deploy" — see version.ts for why this is a
+                hand-bumped string, not a hash. */}
+            <p className="text-[10px] text-muted-foreground mt-0.5">Version {APP_VERSION}</p>
+          </>
         )}
       </div>
 
