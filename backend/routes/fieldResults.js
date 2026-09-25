@@ -37,7 +37,7 @@ const { requireFeature } = require('../middleware/teamFeatures');
 const { FULL_COACH } = require('../lib/teamRoles');
 const { computeFieldStats } = require('../lib/fieldNormalization');
 const { parseFieldResultsCsv } = require('../lib/fieldResultsCsv');
-const { computeRacePlacements } = require('../lib/fieldPlacement');
+const { computeRacePlacements, finishedFieldResults, matchResultsToFieldResults } = require('../lib/fieldPlacement');
 const perfCache = require('../services/performance/cache');
 const calculationService = require('../services/performance/calculationService');
 
@@ -130,6 +130,11 @@ router.get('/races', authenticate, requireFeature('fieldResults'), requireTeam, 
         fieldMeanSec: true,
         fieldMedianSec: true,
         fieldFinisherCount: true,
+        // Only pulled to compute ourMatchedCount below — never returned
+        // as-is (the privacy posture at the top of this file still
+        // applies: no other school's FieldResult rows leave this route).
+        results: { select: { id: true, athlete: { select: { name: true } } } },
+        fieldResults: true,
       },
       orderBy: { date: 'asc' },
     });
@@ -141,6 +146,20 @@ router.get('/races', authenticate, requireFeature('fieldResults'), requireTeam, 
         // nothing of its own yet — once a team has real data, its own
         // upload always wins.
         const sharedSource = hasFieldData ? null : await findSharedFieldSource(r);
+        // How many of THIS team's own results the upload actually found
+        // in the field, by athlete name (lib/fieldPlacement.js — the same
+        // matcher every other field-results feature uses). A CSV whose
+        // name format doesn't match the roster (e.g. "Last, First" from a
+        // different export source) uploads and computes fine — fieldMeanSec/
+        // fieldFinisherCount don't need a single match — while silently
+        // contributing NOTHING to this team's own scoring, standing, or
+        // Program-tab numbers. ourResultCount is 0 (not null) when this
+        // race simply has no results of its own yet; the frontend tells
+        // that apart from "no field data uploaded" using hasFieldData.
+        const ourResultCount = r.results.length;
+        const ourMatchedCount = hasFieldData
+          ? matchResultsToFieldResults(r.results, finishedFieldResults(r.fieldResults)).size
+          : 0;
         return {
           id: r.id,
           name: r.name,
@@ -172,6 +191,8 @@ router.get('/races', authenticate, requireFeature('fieldResults'), requireTeam, 
           normalizationMet: r.fieldMeanSec != null,
           availableFromOtherTeam: sharedSource != null,
           otherTeamFieldFinisherCount: sharedSource?.fieldFinisherCount ?? null,
+          ourResultCount,
+          ourMatchedCount,
         };
       })
     );
