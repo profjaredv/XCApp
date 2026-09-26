@@ -237,3 +237,30 @@ test('computeMeetScoring: a "Boys"/"Girls" Gender column groups and scores same 
   assert.ok(girls, 'a "Girls" column should bucket as gender F, not stay as "Girls"');
   assert.equal(boys.scoringTeams[0].score, 1 + 2 + 3 + 4 + 5);
 });
+
+test('computeMeetScoring: a blank Gender column still scores correctly when the division text spells it out', () => {
+  // The actual confirmed bug (Ellensburg, 9/25/26): some athletic.net
+  // page layouts have no separate Mens/Womens Results header, so the
+  // Gender column comes back blank for every row — even though the
+  // Division text ("Boys Varsity", "Girls Varsity") says exactly who ran.
+  const race = {
+    fieldResults: [
+      fr('b1', 'Boy A', 'Home', 'Boys Varsity', '', 1),
+      fr('b2', 'Boy B', 'Home', 'Boys Varsity', '', 2),
+      fr('b3', 'Boy C', 'Home', 'Boys Varsity', '', 3),
+      fr('b4', 'Boy D', 'Home', 'Boys Varsity', '', 4),
+      fr('b5', 'Boy E', 'Home', 'Boys Varsity', '', 5),
+      fr('g1', 'Girl A', 'Home', 'Girls Varsity', '', 1),
+    ],
+    results: [],
+  };
+
+  const scoring = computeMeetScoring(race);
+  assert.equal(scoring.length, 2);
+
+  const boys = scoring.find((d) => d.gender === 'M');
+  const girls = scoring.find((d) => d.gender === 'F');
+  assert.ok(boys, 'a blank gender column should still resolve to M from "Boys Varsity"');
+  assert.ok(girls, 'a blank gender column should still resolve to F from "Girls Varsity"');
+  assert.equal(boys.scoringTeams[0].score, 1 + 2 + 3 + 4 + 5);
+});

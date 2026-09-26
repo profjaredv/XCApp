@@ -13,7 +13,7 @@
 // database, same pattern as lib/bandAnalytics.js.
 
 const { parseTimeToSeconds } = require('./time');
-const { normalizeGender } = require('./gender');
+const { resolveFieldResultGender } = require('./gender');
 
 const VALID_STATUSES = new Set(['FINISHED', 'DNF', 'DNS', 'DQ']);
 
@@ -82,19 +82,23 @@ function parseFieldResultsCsv(rows) {
     const placeRaw = (row['Place'] || '').trim();
     const place = placeRaw ? parseInt(placeRaw, 10) : null;
 
+    const division = (row['Division'] || '').trim() || null;
+
     results.push({
       athleteName,
       schoolName: (row['School'] || '').trim() || null,
-      // Every downstream consumer (lib/meetScoring.js's division buckets,
-      // lib/fieldPlacement.js's overall-place cohorts) keys strictly off
-      // 'M'/'F' — a raw "Boys"/"Girls" from the source CSV (a real,
-      // observed export format) matched nothing in either of those
-      // buckets and silently dropped the whole division from team
-      // scoring and Top 20%-of-field, even though the athlete-name
-      // matching above it worked fine. Same normalizeGender every other
-      // gender column in this app already goes through.
-      gender: normalizeGender(row['Gender']),
-      division: (row['Division'] || '').trim() || null,
+      // resolveFieldResultGender (lib/gender.js): the Gender column
+      // first — normalized, so a raw "Boys"/"Girls" (a real, observed
+      // export format) still resolves — falling back to whatever the
+      // Division text itself spells out ("Boys Varsity") when the
+      // column is blank or missing entirely. Every downstream consumer
+      // (lib/meetScoring.js's division buckets, lib/fieldPlacement.js's
+      // overall-place cohorts) keys strictly off 'M'/'F'; either gap
+      // used to silently drop the whole division from team scoring and
+      // Top 20%-of-field, even though the athlete-name matching above it
+      // worked fine.
+      gender: resolveFieldResultGender({ gender: row['Gender'], division }),
+      division,
       grade: Number.isFinite(grade) ? grade : null,
       timeSec,
       place: Number.isFinite(place) ? place : null,

@@ -5,4 +5,4 @@
 // a git hash: the point is something a non-technical user can read and
 // remember ("it said 1.1 before, now it says 1.2"), not something they
 // have to copy back to a developer.
-export const APP_VERSION = '1.0';
+export const APP_VERSION = '1.1';

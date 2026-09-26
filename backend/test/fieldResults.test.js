@@ -63,6 +63,26 @@ test('parseFieldResultsCsv: an unrecognized Gender value normalizes to null, not
   assert.equal(results[0].gender, null);
 });
 
+test('parseFieldResultsCsv: a blank Gender column falls back to the Division text when it spells gender out', () => {
+  // The actual confirmed bug (Ellensburg, 9/25/26): the bookmarklet's
+  // layout without a separate Mens/Womens Results header left Gender
+  // blank for every row it produced, even though Division ("Boys
+  // Varsity") already said who ran it.
+  const rows = [
+    { 'Athlete Name': 'Jane Doe', Division: 'Girls Varsity', Gender: '', Time: '18:32' },
+    { 'Athlete Name': 'Sam Lee', Division: 'Boys Varsity', Time: '17:01' },
+  ];
+  const { results } = parseFieldResultsCsv(rows);
+  assert.equal(results[0].gender, 'F');
+  assert.equal(results[1].gender, 'M');
+});
+
+test('parseFieldResultsCsv: an explicit Gender column wins over the Division text', () => {
+  const rows = [{ 'Athlete Name': 'Jane Doe', Division: 'Boys Varsity', Gender: 'F', Time: '18:32' }];
+  const { results } = parseFieldResultsCsv(rows);
+  assert.equal(results[0].gender, 'F');
+});
+
 test('parseFieldResultsCsv: a DNF/DNS/DQ row with no time is valid, not an error', () => {
   const rows = [{ 'Athlete Name': 'Jo Park', Time: '', Status: 'DNF' }];
   const { results, errors } = parseFieldResultsCsv(rows);

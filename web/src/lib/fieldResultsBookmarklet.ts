@@ -3,9 +3,21 @@
 // athletic.net results page, as a CSV shaped for the Field Results upload
 // box (see FieldResultsPage.tsx / backend/lib/fieldResultsCsv.js — only
 // "Athlete Name" is required, this also fills Division/Gender/School/Grade/
-// Time/Place/Status). Gender is only populated on the results/all layout,
-// which reliably marks each division as Mens/Womens Results; a single-race
-// page has no such marker and leaves it blank rather than guessing.
+// Time/Place/Status). Gender is read straight off a "Mens Results"/"Womens
+// Results" header when the page's layout has one (results/all); when it
+// doesn't, this falls back to the division label itself, which routinely
+// spells the gender out anyway ("Boys Varsity", "Girls JV") — see
+// genderFromLabel below. A confirmed real case (Ellensburg, 9/25/26): a
+// meet's results/all page can ALSO render as the single-race .result-row
+// layout (Layout B) instead of the Angular .event-block layout (Layout A)
+// — same URL, same "every division on one page" content, just a different
+// per-meet template — and Layout B has no Mens/Womens header at all. Before
+// this fallback, that left every row's Gender blank; a blank/unrecognized
+// gender is exactly what routes/fieldResultsCsv.js's normalizeGender turns
+// into null, which lib/meetScoring.js's `stats[division.gender]` lookup
+// then can't bucket into either side — the whole division silently
+// vanished from team scoring and Top 20%-of-field, even though the
+// athlete-name matching and every other column were fine.
 //
 // A results/all page is usually more than one race: Varsity, JV Gold, JV
 // White, Freshman, etc. each get their own section, and our own Race rows
@@ -61,6 +73,17 @@ const BOOKMARKLET_SOURCE = `
     function csvCell(v) {
       return '"' + String(v || '').replace(/"/g, '""') + '"';
     }
+    // "Women"/"Girls" checked before "Men"/"Boys": "women" contains "men"
+    // as a substring, so checking men first would call every women's
+    // label a men's one. A division label routinely spells gender out on
+    // its own ("Boys Varsity", "Girls JV") even on a layout with no
+    // separate Mens/Womens Results header — see this file's header
+    // comment for why that fallback exists at all.
+    function genderFromLabel(label) {
+      if (/women|girl/i.test(label)) return 'F';
+      if (/men|boy/i.test(label)) return 'M';
+      return '';
+    }
 
     var rows = [['Athlete Name', 'Division', 'Gender', 'School', 'Grade', 'Time', 'Place', 'Status']];
     var count = 0;
@@ -90,12 +113,11 @@ const BOOKMARKLET_SOURCE = `
         }
         var fullLabel = genderLabel ? genderLabel + ' - ' + divisionLabel : divisionLabel;
 
-        // "Women" contains "men" as a substring, so check it first —
-        // genderLabel is always "Mens Results" or "Womens Results" (the
-        // toggle-link text was already stripped above).
-        var genderValue = '';
-        if (/women/i.test(genderLabel)) genderValue = 'F';
-        else if (/men/i.test(genderLabel)) genderValue = 'M';
+        // genderLabel is the Mens/Womens Results header when there is one;
+        // genderFromLabel also catches the header's own "Girls"/"Boys"
+        // wording (seen on some meets) and, when there's no header at all,
+        // falls back to whatever the division label itself spells out.
+        var genderValue = genderFromLabel(genderLabel) || genderFromLabel(divisionLabel);
 
         block.querySelectorAll('table.DataTable > tbody > tr').forEach(function (row) {
           var nameEl = row.querySelector('td.athlete-name a');
@@ -139,9 +161,12 @@ const BOOKMARKLET_SOURCE = `
         var gradeMatch = tertiaryText.match(/Yr: (\\d+)/);
         var grade = gradeMatch ? gradeMatch[1] : '';
 
-        // No reliable gender signal on this layout (no Mens/Womens Results
-        // header to read) — left blank rather than guessed.
-        rows.push([name, division, '', school, grade, time, place, 'FINISHED']);
+        // No separate Mens/Womens Results header on this layout — fall
+        // back to whatever the division/section label itself spells out
+        // ("Boys Varsity", "Girls JV"); genderFromLabel returns '' for a
+        // label ('' from the flat-sweep fallback below, or a division
+        // name with no gender word in it) that gives no honest answer.
+        rows.push([name, division, genderFromLabel(division), school, grade, time, place, 'FINISHED']);
         count++;
       };
 
@@ -194,3 +219,9 @@ const BOOKMARKLET_SOURCE = `
 export function buildBookmarkletHref(): string {
   return `javascript:${encodeURIComponent(BOOKMARKLET_SOURCE)}`;
 }
+
+// Exported for tests only, so genderFromLabel's actual regex behavior can
+// be evaluated for real rather than just checked for presence as a
+// string — this source never runs under Node otherwise; it's a
+// `javascript:` bookmarklet meant for a coach's own browser tab.
+export const __TEST_ONLY_BOOKMARKLET_SOURCE = BOOKMARKLET_SOURCE;
