@@ -116,29 +116,51 @@ export function DashboardTab({
               <Target className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {enhancedMetrics.fieldStanding.men.scoredDivisionCount > 0 || enhancedMetrics.fieldStanding.women.scoredDivisionCount > 0 ? (
-                <>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-xs text-muted-foreground">Boys</span>
-                    <span className="text-xl font-bold">{enhancedMetrics.fieldStanding.men.avgTeamScore ?? '—'}</span>
-                  </div>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-xs text-muted-foreground">Girls</span>
-                    <span className="text-xl font-bold">{enhancedMetrics.fieldStanding.women.avgTeamScore ?? '—'}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">Lower is better · scored separately, never combined</p>
-                  {(enhancedMetrics.fieldStanding.men.totalWithFieldData > 0 || enhancedMetrics.fieldStanding.women.totalWithFieldData > 0) && (
-                    <p className="text-xs text-muted-foreground mt-1 pt-1 border-t">
-                      Top 20%/50% of field — Boys {enhancedMetrics.fieldStanding.men.top20Percent ?? '—'}%/{enhancedMetrics.fieldStanding.men.top50Percent ?? '—'}%, Girls {enhancedMetrics.fieldStanding.women.top20Percent ?? '—'}%/{enhancedMetrics.fieldStanding.women.top50Percent ?? '—'}%
-                    </p>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="text-2xl font-bold">—</div>
-                  <p className="text-xs text-muted-foreground">Upload field results to see scoring</p>
-                </>
-              )}
+              {(() => {
+                const { men, women } = enhancedMetrics.fieldStanding;
+                // Team scoring needs 5+ matched, placed finishers in one
+                // division (see meetScoring.js's canScore) — a strictly
+                // higher bar than the field-percentile numbers below, which
+                // only need ANY matched, placed finisher. A team can clear
+                // the second without ever clearing the first, so gating the
+                // whole card on scoredDivisionCount hid real percentile data
+                // (and left this card empty while Program's Top 20% of
+                // Field, which has no such gate, showed it fine).
+                const hasTeamScore = men.scoredDivisionCount > 0 || women.scoredDivisionCount > 0;
+                const hasFieldData = men.totalWithFieldData > 0 || women.totalWithFieldData > 0;
+
+                if (!hasTeamScore && !hasFieldData) {
+                  return (
+                    <>
+                      <div className="text-2xl font-bold">—</div>
+                      <p className="text-xs text-muted-foreground">Upload field results to see scoring</p>
+                    </>
+                  );
+                }
+
+                return (
+                  <>
+                    {hasTeamScore && (
+                      <>
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-xs text-muted-foreground">Boys</span>
+                          <span className="text-xl font-bold">{men.avgTeamScore ?? '—'}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-xs text-muted-foreground">Girls</span>
+                          <span className="text-xl font-bold">{women.avgTeamScore ?? '—'}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">Lower is better · scored separately, never combined</p>
+                      </>
+                    )}
+                    {hasFieldData && (
+                      <p className={`text-xs text-muted-foreground${hasTeamScore ? ' mt-1 pt-1 border-t' : ''}`}>
+                        Top 20%/50% of field — Boys {men.top20Percent ?? '—'}%/{men.top50Percent ?? '—'}%, Girls {women.top20Percent ?? '—'}%/{women.top50Percent ?? '—'}%
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
         ) : (
