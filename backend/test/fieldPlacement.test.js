@@ -138,6 +138,27 @@ test('computeRacePlacements: a "Boys"/"Girls" Gender column combines for overall
   assert.equal(placements.get('rs1').overallPlace, 2);
 });
 
+test('computeRacePlacements: overall place still combines when the Gender column is blank but the division text spells it out', () => {
+  // The actual confirmed bug (Ellensburg, 9/25/26): some athletic.net
+  // page layouts have no separate Mens/Womens Results header, so Gender
+  // comes back blank for every row even though the Division text ("Boys
+  // Gold Varsity", "Boys Silver Varsity") says exactly who ran.
+  const race = {
+    id: 'race1',
+    fieldResults: [
+      fr('g1', 'Mana Voss', 'Boys Gold Varsity', '', 923.1, 1),
+      fr('g2', 'Someone Faster Elsewhere', 'Boys Gold Varsity', '', 950, 2),
+      fr('s1', 'Theo Park', 'Boys Silver Varsity', '', 940, 1),
+    ],
+    results: [result('rg1', 'a1', 'Mana Voss', 'M'), result('rs1', 'a2', 'Theo Park', 'M')],
+  };
+
+  const placements = computeRacePlacements(race);
+  assert.equal(placements.get('rg1').overallPlace, 1);
+  assert.equal(placements.get('rg1').overallFieldSize, 3);
+  assert.equal(placements.get('rs1').overallPlace, 2);
+});
+
 test('computeRacePlacements: unfinished field rows never rank or get matched', () => {
   const race = {
     id: 'race1',
