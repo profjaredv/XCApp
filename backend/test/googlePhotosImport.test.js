@@ -10,7 +10,7 @@ const sharp = require('sharp');
 const prisma = require('../lib/db');
 const photosAccess = require('../lib/photosAccess');
 const googlePhotosImport = require('../lib/googlePhotosImport');
-const { validateGooglePhotosUrl, importGoogleAlbum } = googlePhotosImport;
+const { validateGooglePhotosUrl, importGoogleAlbum, downloadOriginal } = googlePhotosImport;
 const { baseUrlOf } = require('../scrape_google_photos_album');
 
 function stub(obj, method, impl) {
@@ -71,6 +71,76 @@ test('baseUrlOf rejects a non-lh3 URL', () => {
 });
 
 // ---------------------------------------------------------------------------
+// downloadOriginal — the actual bug the first real-world test hit: this
+// reported success while writing nothing anywhere. A bare, header-less
+// fetch to the '=d' URL is the leading suspect, so these pin down the
+// fallback and the sanity check that turns a bad response into a loud
+// failure instead of a silent false "imported".
+// ---------------------------------------------------------------------------
+
+function stubFetch(impl) {
+  const original = global.fetch;
+  global.fetch = impl;
+  return () => {
+    global.fetch = original;
+  };
+}
+
+function fakeResponse(buffer, ok = true, status = 200) {
+  return { ok, status, arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) };
+}
+
+test('downloadOriginal sends a real User-Agent and the album URL as Referer', async (t) => {
+  const jpeg = await tinyJpeg();
+  const bigJpeg = await sharp({ create: { width: 100, height: 100, channels: 3, background: { r: 1, g: 2, b: 3 } } }).jpeg().toBuffer();
+  const seenRequests = [];
+  const restore = stubFetch(async (url, init) => {
+    seenRequests.push({ url, headers: init.headers });
+    return fakeResponse(url.endsWith('=d') ? jpeg : bigJpeg);
+  });
+  t.after(restore);
+
+  await downloadOriginal('https://lh3.googleusercontent.com/pw/abc', 'https://photos.app.goo.gl/real-album');
+
+  assert.ok(seenRequests.length >= 1);
+  for (const req of seenRequests) {
+    assert.ok(req.headers['User-Agent'].includes('Mozilla'));
+    assert.equal(req.headers.Referer, 'https://photos.app.goo.gl/real-album');
+  }
+});
+
+test('downloadOriginal falls back to a large sized rendition when "=d" comes back too small to be real', async (t) => {
+  // This is the actual failure mode suspected in production: '=d' returns
+  // something (not a 404, not an HTTP error) that decodes as an image but
+  // is tiny — a placeholder or a blocked-request response — not the photo.
+  const tooSmall = await tinyJpeg(); // 2x2
+  const real = await sharp({ create: { width: 1200, height: 900, channels: 3, background: { r: 10, g: 10, b: 10 } } }).jpeg().toBuffer();
+  const requestedUrls = [];
+  const restore = stubFetch(async (url) => {
+    requestedUrls.push(url);
+    return fakeResponse(url.endsWith('=d') ? tooSmall : real);
+  });
+  t.after(restore);
+
+  const result = await downloadOriginal('https://lh3.googleusercontent.com/pw/abc', 'https://photos.app.goo.gl/x');
+
+  assert.equal(result.width, 1200);
+  assert.equal(result.height, 900);
+  assert.ok(requestedUrls.some((u) => u.endsWith('=d')));
+  assert.ok(requestedUrls.some((u) => u.includes('=w4096')));
+});
+
+test('downloadOriginal throws a clear error when every attempt fails', async (t) => {
+  const restore = stubFetch(async () => ({ ok: false, status: 403 }));
+  t.after(restore);
+
+  await assert.rejects(
+    () => downloadOriginal('https://lh3.googleusercontent.com/pw/abc', 'https://photos.app.goo.gl/x'),
+    /Could not download a usable image/,
+  );
+});
+
+// ---------------------------------------------------------------------------
 // importGoogleAlbum — orchestration: scraper -> download -> resize -> row
 // ---------------------------------------------------------------------------
 
@@ -106,7 +176,7 @@ test('importGoogleAlbum imports each photo, skips duplicates, and keeps going af
   const restoreScraper = stub(googlePhotosImport, 'runAlbumScraper', async () => urls);
   const restoreDownload = stub(googlePhotosImport, 'downloadOriginal', async (url) => {
     if (url.includes('broken')) throw new Error('404');
-    return jpeg;
+    return { buffer: jpeg, width: 800, height: 600 };
   });
 
   let importCalls = 0;
@@ -144,7 +214,7 @@ test('importGoogleAlbum caps a very large album and reports how many were skippe
 
   const restoreMeet = stubModel('meet', 'findFirst', () => ({ id: 'meet-1', teamId: 'team-1' }));
   const restoreScraper = stub(googlePhotosImport, 'runAlbumScraper', async () => urls);
-  const restoreDownload = stub(googlePhotosImport, 'downloadOriginal', async () => jpeg);
+  const restoreDownload = stub(googlePhotosImport, 'downloadOriginal', async () => ({ buffer: jpeg, width: 800, height: 600 }));
   const restoreImport = stub(photosAccess, 'importReadyPhoto', async () => ({ duplicate: false, photoId: 'p' }));
 
   t.after(() => {

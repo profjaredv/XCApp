@@ -304,27 +304,6 @@ export const LoadModule: React.FC = () => {
             <Plus className="h-4 w-4" />
           </Button>
         </div>
-
-        <div className="space-y-1.5 border-t border-ink-border pt-3">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Import from Google Photos</div>
-          <input
-            value={googleAlbumUrl}
-            onChange={(e) => setGoogleAlbumUrl(e.target.value)}
-            placeholder="Public album link"
-            disabled={importingAlbum}
-            className="w-full rounded-md bg-ink-border/40 px-2 py-1.5 text-xs text-ink-foreground outline-none placeholder:text-ink-muted disabled:opacity-60"
-          />
-          <Button
-            size="sm"
-            variant="secondary"
-            className="w-full gap-1.5"
-            disabled={!loadMeetId || !googleAlbumUrl.trim() || importingAlbum}
-            onClick={handleGoogleImport}
-          >
-            {importingAlbum ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
-            {importingAlbum ? 'Importing…' : `Import into ${state.meets.find((m) => m.id === loadMeetId)?.name || 'this meet'}`}
-          </Button>
-        </div>
       </div>
 
       <div
@@ -373,40 +352,86 @@ export const LoadModule: React.FC = () => {
             <Button size="sm" variant="secondary" disabled={!loadMeetId} onClick={() => fileInputRef.current?.click()}>
               Browse files
             </Button>
+
+            <div className="mt-2 flex w-full max-w-sm items-center gap-2 text-[11px] text-ink-muted">
+              <div className="h-px flex-1 bg-ink-border" />
+              or
+              <div className="h-px flex-1 bg-ink-border" />
+            </div>
+            <div className="flex w-full max-w-sm items-center gap-1.5">
+              <input
+                value={googleAlbumUrl}
+                onChange={(e) => setGoogleAlbumUrl(e.target.value)}
+                placeholder="Paste a public Google Photos album link"
+                disabled={importingAlbum}
+                className="min-w-0 flex-1 rounded-md bg-ink-border/40 px-2 py-1.5 text-xs text-ink-foreground outline-none placeholder:text-ink-muted disabled:opacity-60"
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                className="shrink-0 gap-1.5"
+                disabled={!loadMeetId || !googleAlbumUrl.trim() || importingAlbum}
+                onClick={handleGoogleImport}
+              >
+                {importingAlbum ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
+                {importingAlbum ? 'Importing…' : 'Import'}
+              </Button>
+            </div>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <div className="grid grid-cols-[repeat(auto-fill,120px)] gap-2">
-              {files.map((f) => {
-                const photo = f.photoId ? state.photos.find((p) => p.id === f.photoId) : undefined;
-                return (
-                  <div key={f.id} className="relative aspect-[3/2] overflow-hidden rounded-md bg-ink-border/30" title={f.name}>
-                    {f.status === 'done' && photo && (
-                      <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-                    )}
-                    {f.status !== 'done' && (
-                      <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
-                        <span className="truncate text-[10px] text-ink-muted">{f.name}</span>
-                        {f.status === 'error' ? (
-                          <button
-                            type="button"
-                            onClick={() => retryFile(currentBatch!.id, loadMeetId, f.id)}
-                            className="flex items-center gap-1 rounded bg-destructive/20 px-1.5 py-0.5 text-[10px] text-destructive"
-                          >
-                            <RotateCcw className="h-2.5 w-2.5" /> Retry
-                          </button>
-                        ) : f.status === 'duplicate' ? (
-                          <span className="text-[10px] text-ink-muted">Duplicate — skipped</span>
-                        ) : (
-                          <div className="w-full">
-                            <Progress value={f.progress} className="h-1" />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex items-center gap-1.5 border-b border-ink-border px-3 py-1.5">
+              <input
+                value={googleAlbumUrl}
+                onChange={(e) => setGoogleAlbumUrl(e.target.value)}
+                placeholder="Paste another public Google Photos album link"
+                disabled={importingAlbum}
+                className="min-w-0 flex-1 rounded-md bg-ink-border/40 px-2 py-1 text-xs text-ink-foreground outline-none placeholder:text-ink-muted disabled:opacity-60"
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                className="shrink-0 gap-1.5"
+                disabled={!loadMeetId || !googleAlbumUrl.trim() || importingAlbum}
+                onClick={handleGoogleImport}
+              >
+                {importingAlbum ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
+                {importingAlbum ? 'Importing…' : 'Import'}
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <div className="grid grid-cols-[repeat(auto-fill,120px)] gap-2">
+                {files.map((f) => {
+                  const photo = f.photoId ? state.photos.find((p) => p.id === f.photoId) : undefined;
+                  return (
+                    <div key={f.id} className="relative aspect-[3/2] overflow-hidden rounded-md bg-ink-border/30" title={f.name}>
+                      {f.status === 'done' && photo && (
+                        <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      )}
+                      {f.status !== 'done' && (
+                        <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
+                          <span className="truncate text-[10px] text-ink-muted">{f.name}</span>
+                          {f.status === 'error' ? (
+                            <button
+                              type="button"
+                              onClick={() => retryFile(currentBatch!.id, loadMeetId, f.id)}
+                              className="flex items-center gap-1 rounded bg-destructive/20 px-1.5 py-0.5 text-[10px] text-destructive"
+                            >
+                              <RotateCcw className="h-2.5 w-2.5" /> Retry
+                            </button>
+                          ) : f.status === 'duplicate' ? (
+                            <span className="text-[10px] text-ink-muted">Duplicate — skipped</span>
+                          ) : (
+                            <div className="w-full">
+                              <Progress value={f.progress} className="h-1" />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
