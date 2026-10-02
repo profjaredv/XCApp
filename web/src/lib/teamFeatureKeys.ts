@@ -6,4 +6,4 @@
 // exists only so plain modules (lib/navigation.ts) can name a feature
 // without importing the data-fetching hook that reads it.
 
-export type TeamFeatureKey = 'attendance' | 'equipment' | 'fieldResults' | 'reflections';
+export type TeamFeatureKey = 'attendance' | 'equipment' | 'fieldResults' | 'reflections' | 'photos';

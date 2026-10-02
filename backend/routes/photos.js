@@ -4,6 +4,8 @@ const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const prisma = require('../lib/db');
 const r2 = require('../lib/r2');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/teamFeatures');
+const { resolvePhotosTeam, requirePhotosFeatureEnabled } = require('../middleware/photosTeam');
 const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
 const { resolveActiveSeason, deriveGrade } = require('../lib/season');
 const photosAccess = require('../lib/photosAccess');
@@ -14,10 +16,11 @@ const { MAX_PICKS } = photosAccess;
 // side; the actual PNG/PDF render stays client-side on a <canvas>, see
 // web/src/pages/photos/lib/collageRender.ts).
 //
-// Every handler resolves req.photosTeamId and req.photoActor once (below)
-// and then calls into lib/photosAccess.js for every read/write — this file
-// never touches prisma.photo.* / prisma.photoAthlete.* / prisma.pick.*
-// directly, matching that module's own contract.
+// Every handler resolves req.photosTeamId and req.photoActor once (below,
+// or in middleware/photosTeam.js) and then calls into lib/photosAccess.js
+// for every read/write — this file never touches prisma.photo.* /
+// prisma.photoAthlete.* / prisma.pick.* directly, matching that module's
+// own contract.
 //
 // Two different "which team" resolutions are in play, because a parent is
 // never a TeamMember (see routes/guardian.js) and so has no req.user.teamId
@@ -25,8 +28,15 @@ const { MAX_PICKS } = photosAccess;
 //   - Admin-only routes (authorize/finalize/hide/delete) require a real
 //     team membership already — `requireTeam` + `requireRole(ANY_COACH)`.
 //   - Routes everyone (coach, athlete, AND guardian) can reach resolve the
-//     team from `resolvePhotosTeam` instead, which falls back to an
-//     approved GuardianLink's athlete's team when req.user.teamId is null.
+//     team from `resolvePhotosTeam` instead (middleware/photosTeam.js),
+//     which falls back to an approved GuardianLink's athlete's team when
+//     req.user.teamId is null.
+//
+// Gated behind the 'photos' team feature (lib/teamFeatures.js), same as
+// attendance/equipment/etc. The shared requireFeature middleware covers
+// the first group fine; the second needs requirePhotosFeatureEnabled
+// (also middleware/photosTeam.js), since requireFeature's own
+// req.user.teamId check always no-ops for a guardian.
 
 const MAX_FILES_PER_AUTHORIZE = 60;
 
@@ -42,26 +52,6 @@ const authorizeLimiter = rateLimit({
   keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
   message: { msg: 'Too many upload batches in a row. Try again in an hour.' },
 });
-
-async function resolvePhotosTeam(req, res, next) {
-  try {
-    if (req.user.teamId) {
-      req.photosTeamId = req.user.teamId;
-      return next();
-    }
-    const link = await prisma.guardianLink.findFirst({
-      where: { userId: req.user.id, status: 'approved' },
-      select: { athlete: { select: { teamId: true } } },
-    });
-    if (!link) {
-      return res.status(403).json({ msg: 'No team membership or approved guardian link found for this account.' });
-    }
-    req.photosTeamId = link.athlete.teamId;
-    next();
-  } catch (error) {
-    next(error);
-  }
-}
 
 async function attachPhotoActor(req, res, next) {
   try {
@@ -86,7 +76,7 @@ function sendAccessError(res, error, fallbackMessage) {
 // coach, its own linked athlete (if any), and which athletes it holds an
 // approved guardian link for. The frontend builds its Actor from this
 // instead of a dev-only role toggle.
-router.get('/me', authenticate, resolvePhotosTeam, attachPhotoActor, async (req, res) => {
+router.get('/me', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   res.json({
     userId: req.photoActor.userId,
     isCoach: req.photoActor.isCoach,
@@ -102,7 +92,7 @@ router.get('/me', authenticate, resolvePhotosTeam, attachPhotoActor, async (req,
 // but the spec's initials chips and roster search ("Small initials chips
 // on a thumbnail show who else is tagged") need real names for everyone,
 // not only coaches, so Photos carries its own minimal roster read.
-router.get('/roster', authenticate, resolvePhotosTeam, async (req, res) => {
+router.get('/roster', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
   try {
     const seasonYear = await resolveActiveSeason(req.photosTeamId);
     const athletes = await prisma.athlete.findMany({ where: { teamId: req.photosTeamId }, orderBy: { name: 'asc' } });
@@ -124,7 +114,7 @@ router.get('/roster', authenticate, resolvePhotosTeam, async (req, res) => {
 // same `Meet` rows routes/meetOps.js manages, but open to everyone
 // resolvePhotosTeam lets through (coach, athlete, or guardian), not just
 // team members.
-router.get('/meets', authenticate, resolvePhotosTeam, async (req, res) => {
+router.get('/meets', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
   try {
     const meets = await prisma.meet.findMany({ where: { teamId: req.photosTeamId }, orderBy: { date: 'asc' } });
     res.json(meets.map((m) => ({ id: m.id, name: m.name, date: m.date })));
@@ -137,7 +127,7 @@ router.get('/meets', authenticate, resolvePhotosTeam, async (req, res) => {
 // same tier as uploading. Auto-resolves the team's active season rather
 // than asking the coach to pick one, matching the spec's "Load, made dead
 // easy" principle.
-router.post('/meets', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.post('/meets', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { name, date } = req.body || {};
   if (!name || !String(name).trim() || !date) {
     return res.status(400).json({ msg: 'name and date are required.' });
@@ -157,7 +147,7 @@ router.post('/meets', authenticate, requireTeam, requireRole(ANY_COACH), async (
 // [{ sha256, width, height, bytes, takenAt }] }. Admin-only (super admin,
 // coach, volunteer coach — spec's "coach" definition), so a real team
 // membership is required up front.
-router.post('/authorize', authenticate, requireTeam, requireRole(ANY_COACH), authorizeLimiter, attachPhotoActor, async (req, res) => {
+router.post('/authorize', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), authorizeLimiter, attachPhotoActor, async (req, res) => {
   const { meetId, files } = req.body || {};
   if (!meetId || !Array.isArray(files) || files.length === 0) {
     return res.status(400).json({ msg: 'meetId and a non-empty files array are required.' });
@@ -185,7 +175,7 @@ router.post('/authorize', authenticate, requireTeam, requireRole(ANY_COACH), aut
 });
 
 // POST /api/photos/finalize — Load module, step 4. Body: { photoIds: [...] }.
-router.post('/finalize', authenticate, requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.post('/finalize', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   const { photoIds } = req.body || {};
   if (!Array.isArray(photoIds) || photoIds.length === 0) {
     return res.status(400).json({ msg: 'photoIds is required.' });
@@ -207,7 +197,7 @@ router.post('/finalize', authenticate, requireTeam, requireRole(ANY_COACH), asyn
 // everyone on the team's Photos (coach, athlete, or approved guardian);
 // `status=hidden` is a coach-only review list, enforced inside
 // listTeamPhotos itself since a guardian has no team-role to gate on.
-router.get('/', authenticate, resolvePhotosTeam, attachPhotoActor, async (req, res) => {
+router.get('/', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { meetId, status } = req.query;
   try {
     const photos = await photosAccess.listTeamPhotos(prisma, req.photosTeamId, req.photoActor, {
@@ -247,7 +237,7 @@ router.get('/', authenticate, resolvePhotosTeam, attachPhotoActor, async (req, r
 
 // GET /api/photos/:id/original — a short-lived presigned GET for the full
 // original, used by collage export (Build module) and print/download.
-router.get('/:id/original', authenticate, resolvePhotosTeam, attachPhotoActor, async (req, res) => {
+router.get('/:id/original', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   try {
     const photo = await photosAccess.getTeamPhoto(prisma, req.photosTeamId, req.params.id);
     if (!photo || photo.status === 'HIDDEN') {
@@ -261,7 +251,7 @@ router.get('/:id/original', authenticate, resolvePhotosTeam, attachPhotoActor, a
 });
 
 // POST /api/photos/:id/tags — Tag module. Body: { athleteId }.
-router.post('/:id/tags', authenticate, resolvePhotosTeam, attachPhotoActor, async (req, res) => {
+router.post('/:id/tags', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { athleteId } = req.body || {};
   if (!athleteId) return res.status(400).json({ msg: 'athleteId is required.' });
   try {
@@ -273,7 +263,7 @@ router.post('/:id/tags', authenticate, resolvePhotosTeam, attachPhotoActor, asyn
 });
 
 // DELETE /api/photos/:id/tags/:athleteId
-router.delete('/:id/tags/:athleteId', authenticate, resolvePhotosTeam, attachPhotoActor, async (req, res) => {
+router.delete('/:id/tags/:athleteId', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   try {
     const result = await photosAccess.untagPhoto(prisma, req.photosTeamId, req.params.id, req.params.athleteId, req.photoActor);
     res.json(result);
@@ -284,7 +274,7 @@ router.delete('/:id/tags/:athleteId', authenticate, resolvePhotosTeam, attachPho
 
 // GET /api/photos/picks — Build module's left panel (every athlete's picks
 // for the active season, in position order).
-router.get('/picks', authenticate, resolvePhotosTeam, async (req, res) => {
+router.get('/picks', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
   try {
     const season = await photosAccess.resolveActiveSeasonRow(prisma, req.photosTeamId);
     const byAthlete = await photosAccess.listPicksForTeam(prisma, req.photosTeamId, season.id);
@@ -301,7 +291,7 @@ router.get('/picks', authenticate, resolvePhotosTeam, async (req, res) => {
 // PUT /api/photos/picks/:athleteId — Build module. Replaces this athlete's
 // whole pick list for the active season. Body: { photoIds: [...] } in
 // position order (index 0 = position 1).
-router.put('/picks/:athleteId', authenticate, resolvePhotosTeam, attachPhotoActor, async (req, res) => {
+router.put('/picks/:athleteId', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { photoIds } = req.body || {};
   if (!Array.isArray(photoIds)) return res.status(400).json({ msg: 'photoIds array is required.' });
   if (photoIds.length > MAX_PICKS) return res.status(400).json({ msg: `At most ${MAX_PICKS} picks.` });
@@ -316,7 +306,7 @@ router.put('/picks/:athleteId', authenticate, resolvePhotosTeam, attachPhotoActo
 // POST /api/photos/:id/hide and /unhide — coach only, reversible (spec:
 // "Opt-out hides photos rather than deleting them, so a coach can reverse
 // it" — the same reversibility applies to a coach's own manual hide).
-router.post('/:id/hide', authenticate, requireTeam, requireRole(ANY_COACH), attachPhotoActor, async (req, res) => {
+router.post('/:id/hide', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), attachPhotoActor, async (req, res) => {
   try {
     const photo = await photosAccess.setPhotoHidden(prisma, req.photosTeamId, req.params.id, true, req.photoActor);
     res.json({ id: photo.id, status: photo.status.toLowerCase() });
@@ -325,7 +315,7 @@ router.post('/:id/hide', authenticate, requireTeam, requireRole(ANY_COACH), atta
   }
 });
 
-router.post('/:id/unhide', authenticate, requireTeam, requireRole(ANY_COACH), attachPhotoActor, async (req, res) => {
+router.post('/:id/unhide', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), attachPhotoActor, async (req, res) => {
   try {
     const photo = await photosAccess.setPhotoHidden(prisma, req.photosTeamId, req.params.id, false, req.photoActor);
     res.json({ id: photo.id, status: photo.status.toLowerCase() });
@@ -337,7 +327,7 @@ router.post('/:id/unhide', authenticate, requireTeam, requireRole(ANY_COACH), at
 // DELETE /api/photos/:id — head-coach-only permanent delete (removes the
 // row and all three R2 objects), same destructive-action tier as deleting
 // results or clearing a season elsewhere in this app.
-router.delete('/:id', authenticate, requireTeam, requireRole(DESTRUCTIVE), attachPhotoActor, async (req, res) => {
+router.delete('/:id', authenticate, requireFeature('photos'), requireTeam, requireRole(DESTRUCTIVE), attachPhotoActor, async (req, res) => {
   try {
     await photosAccess.deleteTeamPhoto(prisma, req.photosTeamId, req.params.id, req.photoActor);
     res.status(204).send();
@@ -349,7 +339,7 @@ router.delete('/:id', authenticate, requireTeam, requireRole(DESTRUCTIVE), attac
 // POST /api/photos/athletes/:athleteId/opt-out — Body: { optOut: boolean }.
 // A coach, the athlete themself, or their guardian may toggle this (spec:
 // "A parent or coach can set photos_opt_out for an athlete").
-router.post('/athletes/:athleteId/opt-out', authenticate, resolvePhotosTeam, attachPhotoActor, async (req, res) => {
+router.post('/athletes/:athleteId/opt-out', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { optOut } = req.body || {};
   try {
     const athlete = await photosAccess.setAthleteOptOut(

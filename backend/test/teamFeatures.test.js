@@ -136,20 +136,26 @@ test('every route of an optional feature carries the gate', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const gated = {
-    'attendance.js': 'attendance',
-    'equipment.js': 'equipment',
-    'fieldResults.js': 'fieldResults',
-    'raceReflections.js': 'reflections',
+    'attendance.js': [`requireFeature('attendance')`],
+    'equipment.js': [`requireFeature('equipment')`],
+    'fieldResults.js': [`requireFeature('fieldResults')`],
+    'raceReflections.js': [`requireFeature('reflections')`],
+    // photos.js carries two gates for the same feature: requireFeature
+    // itself for the routes already behind requireTeam, and
+    // requirePhotosFeatureEnabled (its own guardian-aware equivalent —
+    // see that file) for the routes a guardian account reaches, where
+    // requireFeature's req.user.teamId check would always no-op.
+    'photos.js': [`requireFeature('photos')`, 'requirePhotosFeatureEnabled'],
   };
 
-  for (const [file, key] of Object.entries(gated)) {
+  for (const [file, patterns] of Object.entries(gated)) {
     const source = fs.readFileSync(path.join(__dirname, '..', 'routes', file), 'utf8');
     const routes = source.match(/^router\.(get|post|put|patch|delete)\([^\n]*$/gm) || [];
     assert.ok(routes.length > 0, `${file} has routes`);
     for (const route of routes) {
       assert.ok(
-        route.includes(`requireFeature('${key}')`),
-        `${file}: ${route.slice(0, 60)}… is missing requireFeature('${key}')`
+        patterns.some((p) => route.includes(p)),
+        `${file}: ${route.slice(0, 60)}… is missing its feature gate (${patterns.join(' or ')})`
       );
     }
   }
