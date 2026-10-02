@@ -6,21 +6,40 @@ const { chromium } = require('playwright');
 // the calling app itself created, so it cannot read an arbitrary shared
 // album at all. Scraping the public share page is the only way in, the
 // same reasoning (and the same tool) this codebase already uses for
-// Athletic.net — see scrape_roster_playwright.js, whose own header comment
-// notes "Cloudflare blocks probing it live from this dev environment": this
-// script has the identical constraint against photos.google.com, so its
-// selectors are the best evidence available (the lh3.googleusercontent.com
-// URL shape Google Photos content has used for years, not a page-specific
-// CSS class that could be renamed at any time) rather than something
-// verified against a real live album from this sandbox. Diagnostics on
-// failure matter here more than almost anywhere else in this codebase.
+// Athletic.net — see scrape_roster_playwright.js.
+//
+// Unlike that script, this one HAS been run against a real, live, public
+// album from this dev sandbox (reachable once Chromium is pointed at the
+// sandbox's own CA and launched with --ignore-certificate-errors for that
+// one-off check — neither of which belongs in this file, since production
+// has no intercepting proxy in front of it). That live run is what found
+// the real bug fixed here: this used to only ever see the ~30 photos the
+// virtualized grid had rendered as <img> DOM nodes, confirmed against a
+// 188-photo album and matching a real user report of a 197-photo import
+// stopping at 30. See collectEmbeddedPhotoUrls below for the fix.
 //
 // A share page is a JS-rendered gallery, not static HTML with the photo
 // list embedded — a plain `fetch` of the page would see an empty shell, so
 // this always needs a real rendered browser, unlike (say) a server-side
-// HTML scrape. The gallery is also virtualized: only photos currently
-// scrolled into view exist in the DOM, so this scrolls to the bottom
-// repeatedly until no new images appear.
+// HTML scrape.
+//
+// The visible <img> grid is virtualized (only photos currently scrolled
+// into view exist as <img> DOM nodes), but — confirmed against a real
+// 188-photo album — Google still ships the *full* photo list up front in
+// the page's own hydration payload, long before any of it is scrolled
+// into view. So rather than relying on scrolling to coax the grid into
+// rendering every photo as an <img> (which plateaued at the first ~30
+// photos' worth of DOM nodes no matter how far or how long this scrolled
+// the real inner scroll container — not the window, which share pages
+// don't scroll at all), this reads the complete set straight out of
+// page.content() via a regex for the lh3.googleusercontent.com/pw/<id>
+// shape (the "pw/" prefix is specific to shared-album photo content, as
+// opposed to lh3.googleusercontent.com/a/<id> contributor avatar images,
+// which also appear on the page and must not be swept in). Scrolling is
+// kept as a secondary pass — cheap, and a safety net for an album large
+// enough that Google paginates the rest in over the network rather than
+// in the initial payload — but the HTML-embedded list is what actually
+// finds every photo.
 
 const NAV_TIMEOUT = 45000;
 const IMAGE_SELECTOR_TIMEOUT = 20000;
@@ -68,6 +87,41 @@ async function collectImageUrls(page) {
   return new Set(urls.map(baseUrlOf).filter(Boolean));
 }
 
+// The actual fix: the full album is already in the page's own HTML (its
+// hydration payload), not just whatever the virtualized grid currently
+// has rendered as <img> nodes — see the header comment. "/pw/" is the
+// path Google Photos uses for shared-album photo content specifically;
+// "/a/" (contributor avatars) and others must not match here.
+const EMBEDDED_PHOTO_URL_RE = /https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_-]+/g;
+
+function extractEmbeddedPhotoUrlsFromHtml(html) {
+  return new Set(html.match(EMBEDDED_PHOTO_URL_RE) || []);
+}
+
+async function collectEmbeddedPhotoUrls(page) {
+  return extractEmbeddedPhotoUrlsFromHtml(await page.content());
+}
+
+// Finds whichever element actually owns the scroll — a share page's own
+// <html>/<body> never scrolls; the gallery lives in an inner container
+// (a <c-wiz> in current markup, but that's not a selector worth pinning
+// to) that's the tallest scrollHeight-over-clientHeight element on the
+// page.
+async function scrollGalleryContainer(page) {
+  await page.evaluate(() => {
+    let best = null;
+    for (const el of document.querySelectorAll('*')) {
+      if (el.scrollHeight > el.clientHeight + 50 && el.clientHeight > 200) {
+        if (!best || el.scrollHeight > best.scrollHeight) best = el;
+      }
+    }
+    if (best) {
+      best.scrollTop = best.scrollHeight;
+      best.dispatchEvent(new Event('scroll', { bubbles: true }));
+    }
+  });
+}
+
 async function scrapeAlbumPhotoUrls(albumUrl) {
   console.error(`Starting Playwright Google Photos album scrape: ${albumUrl}`);
 
@@ -112,18 +166,25 @@ async function scrapeAlbumPhotoUrls(albumUrl) {
       );
     }
 
-    // Scroll to the bottom repeatedly to force the virtualized grid to
-    // render every photo, stopping once a few consecutive scrolls add
-    // nothing new (rather than a fixed count, since album size varies
-    // wildly) or the safety ceiling is hit.
-    const seen = new Set(await collectImageUrls(page));
+    // Primary source: the full photo list already sitting in the page's
+    // own HTML (see header comment) — this alone finds virtually the
+    // whole album with no scrolling at all.
+    const seen = new Set(await collectEmbeddedPhotoUrls(page));
+    for (const url of await collectImageUrls(page)) seen.add(url);
+
+    // Secondary pass: scroll the actual gallery container (not the
+    // window — share pages don't scroll there) a bit further, re-reading
+    // both sources each round, in case a very large album streams in the
+    // rest over the network rather than shipping it all up front.
+    // Stops once a few consecutive scrolls add nothing new, or the
+    // safety ceiling is hit.
     let stableRounds = 0;
     for (let i = 0; i < MAX_SCROLL_ITERATIONS && stableRounds < SCROLL_STABLE_ROUNDS; i++) {
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await scrollGalleryContainer(page);
       await page.waitForTimeout(SCROLL_SETTLE_MS);
-      const current = await collectImageUrls(page);
       const before = seen.size;
-      for (const url of current) seen.add(url);
+      for (const url of await collectEmbeddedPhotoUrls(page)) seen.add(url);
+      for (const url of await collectImageUrls(page)) seen.add(url);
       stableRounds = seen.size === before ? stableRounds + 1 : 0;
     }
 
@@ -160,4 +221,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { scrapeAlbumPhotoUrls, baseUrlOf };
+module.exports = { scrapeAlbumPhotoUrls, baseUrlOf, extractEmbeddedPhotoUrlsFromHtml };
