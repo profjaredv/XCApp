@@ -257,7 +257,7 @@ export const LoadModule: React.FC = () => {
   const complete = files.length > 0 && done + duplicates + errors === files.length;
 
   return (
-    <div className="flex h-full min-h-0 flex-1">
+    <div className="flex h-full min-h-0 min-w-0 flex-1">
       <div className="hidden w-56 shrink-0 flex-col gap-3 border-r border-ink-border p-3 md:flex">
         <div className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Meets</div>
         <ul className="space-y-0.5">
@@ -307,7 +307,7 @@ export const LoadModule: React.FC = () => {
       </div>
 
       <div
-        className="relative flex min-h-0 flex-1 flex-col"
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col"
         onDragOver={(e) => {
           e.preventDefault();
           setDragOver(true);
@@ -329,18 +329,18 @@ export const LoadModule: React.FC = () => {
         {files.length === 0 ? (
           <div
             className={cn(
-              'm-4 flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed text-center transition-colors',
+              'm-4 flex min-w-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border-2 border-dashed p-4 text-center transition-colors',
               dragOver ? 'border-accent bg-accent/10' : 'border-ink-border',
             )}
           >
             <Upload className="h-8 w-8 text-ink-muted" />
             <div className="text-sm text-ink-foreground">Drop a folder or files anywhere on the window</div>
-            <div className="text-xs text-ink-muted">
+            <div className="max-w-full text-xs text-ink-muted">
               Uploading into{' '}
               <select
                 value={loadMeetId}
                 onChange={(e) => setLoadMeetId(e.target.value)}
-                className="rounded bg-ink-border/40 px-1 py-0.5 text-ink-foreground"
+                className="max-w-[12rem] rounded bg-ink-border/40 px-1 py-0.5 text-ink-foreground"
               >
                 {state.meets.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -358,7 +358,7 @@ export const LoadModule: React.FC = () => {
               or
               <div className="h-px flex-1 bg-ink-border" />
             </div>
-            <div className="flex w-full max-w-sm items-center gap-1.5">
+            <div className="flex w-full max-w-sm flex-col items-stretch gap-1.5 sm:flex-row sm:items-center">
               <input
                 value={googleAlbumUrl}
                 onChange={(e) => setGoogleAlbumUrl(e.target.value)}
@@ -379,8 +379,8 @@ export const LoadModule: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex items-center gap-1.5 border-b border-ink-border px-3 py-1.5">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex flex-col items-stretch gap-1.5 border-b border-ink-border px-3 py-1.5 sm:flex-row sm:items-center">
               <input
                 value={googleAlbumUrl}
                 onChange={(e) => setGoogleAlbumUrl(e.target.value)}
