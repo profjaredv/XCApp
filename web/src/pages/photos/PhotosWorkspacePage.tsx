@@ -39,7 +39,7 @@ const WorkspaceInner: React.FC = () => {
   return (
     <div className="dark fixed inset-0 flex flex-col bg-ink text-ink-foreground">
       <TopBar />
-      <div className="min-h-0 flex-1 pb-16 md:pb-0">
+      <div className="min-h-0 min-w-0 flex-1 pb-16 md:pb-0">
         {state.module === 'load' && <LoadModule />}
         {state.module === 'tag' && <TagModule />}
         {state.module === 'build' && <BuildModule />}
