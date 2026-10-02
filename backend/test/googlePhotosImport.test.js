@@ -298,3 +298,106 @@ test('importGoogleAlbum reports a clear error when the scraper finds nothing', a
     /No photos were found/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// onFound / onItemStatus — the progress hooks routes/photos.js uses to
+// drive lib/googlePhotosImportJobs.js so the Load module can show a tile
+// per photo filling in live, instead of one spinner for the whole import.
+// ---------------------------------------------------------------------------
+
+test('importGoogleAlbum calls onFound once with the post-truncation count, before any downloads start', async (t) => {
+  const jpeg = await tinyJpeg();
+  const urls = ['https://lh3.googleusercontent.com/pw/1', 'https://lh3.googleusercontent.com/pw/2'];
+
+  const restoreMeet = stubModel('meet', 'findFirst', () => ({ id: 'meet-1', teamId: 'team-1' }));
+  const restoreScraper = stub(googlePhotosImport, 'runAlbumScraper', async () => urls);
+  const restoreDownload = stub(googlePhotosImport, 'downloadOriginal', async () => ({ buffer: jpeg, width: 800, height: 600 }));
+  const restoreImport = stub(photosAccess, 'importReadyPhoto', async () => ({ duplicate: false, photoId: 'p' }));
+  t.after(() => {
+    restoreMeet();
+    restoreScraper();
+    restoreDownload();
+    restoreImport();
+  });
+
+  const foundCalls = [];
+  await importGoogleAlbum(prisma, {
+    teamId: 'team-1',
+    meetId: 'meet-1',
+    albumUrl: 'https://photos.app.goo.gl/real-album',
+    uploadedById: 'coach-1',
+    onFound: (args) => foundCalls.push(args),
+  });
+
+  assert.equal(foundCalls.length, 1);
+  assert.deepEqual(foundCalls[0], { total: 2, importing: 2, truncated: 0 });
+});
+
+test('importGoogleAlbum reports each item going queued -> downloading -> its outcome, by stable index', async (t) => {
+  const jpeg = await tinyJpeg();
+  const urls = ['https://lh3.googleusercontent.com/pw/ok', 'https://lh3.googleusercontent.com/pw/dup', 'https://lh3.googleusercontent.com/pw/broken'];
+
+  const restoreMeet = stubModel('meet', 'findFirst', () => ({ id: 'meet-1', teamId: 'team-1' }));
+  const restoreScraper = stub(googlePhotosImport, 'runAlbumScraper', async () => urls);
+  const restoreDownload = stub(googlePhotosImport, 'downloadOriginal', async (url) => {
+    if (url.includes('broken')) throw new Error('404');
+    return { buffer: jpeg, width: 800, height: 600 };
+  });
+  // importReadyPhoto only sees the downloaded buffer, not the source URL,
+  // so there's no reliable way to make exactly one item come back a
+  // "duplicate" from here — this test sticks to what's guaranteed
+  // regardless of worker interleaving: every item reaches exactly one
+  // terminal status, every item passes through 'downloading' first, and
+  // the one download stubbed to fail (by URL, not by call order) lands on
+  // 'error'.
+  const restoreImport = stub(photosAccess, 'importReadyPhoto', async () => ({ duplicate: false, photoId: 'p' }));
+  t.after(() => {
+    restoreMeet();
+    restoreScraper();
+    restoreDownload();
+    restoreImport();
+  });
+
+  const byIndex = new Map();
+  await importGoogleAlbum(prisma, {
+    teamId: 'team-1',
+    meetId: 'meet-1',
+    albumUrl: 'https://photos.app.goo.gl/real-album',
+    uploadedById: 'coach-1',
+    onItemStatus: (index, patch) => {
+      if (!byIndex.has(index)) byIndex.set(index, []);
+      byIndex.get(index).push(patch.status);
+    },
+  });
+
+  assert.equal(byIndex.size, 3);
+  for (const statuses of byIndex.values()) {
+    assert.equal(statuses[0], 'downloading');
+    assert.ok(['done', 'duplicate', 'error'].includes(statuses[statuses.length - 1]));
+  }
+  // The one download stubbed to fail is deterministically index 2 (its URL
+  // contains "broken" regardless of worker interleaving).
+  assert.deepEqual(byIndex.get(2), ['downloading', 'error']);
+});
+
+test('importGoogleAlbum omitting onFound/onItemStatus still works (both default to no-ops)', async (t) => {
+  const jpeg = await tinyJpeg();
+  const restoreMeet = stubModel('meet', 'findFirst', () => ({ id: 'meet-1', teamId: 'team-1' }));
+  const restoreScraper = stub(googlePhotosImport, 'runAlbumScraper', async () => ['https://lh3.googleusercontent.com/pw/1']);
+  const restoreDownload = stub(googlePhotosImport, 'downloadOriginal', async () => ({ buffer: jpeg, width: 800, height: 600 }));
+  const restoreImport = stub(photosAccess, 'importReadyPhoto', async () => ({ duplicate: false, photoId: 'p' }));
+  t.after(() => {
+    restoreMeet();
+    restoreScraper();
+    restoreDownload();
+    restoreImport();
+  });
+
+  const summary = await importGoogleAlbum(prisma, {
+    teamId: 'team-1',
+    meetId: 'meet-1',
+    albumUrl: 'https://photos.app.goo.gl/real-album',
+    uploadedById: 'coach-1',
+  });
+  assert.equal(summary.imported, 1);
+});

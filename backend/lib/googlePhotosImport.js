@@ -158,8 +158,21 @@ async function downloadOriginal(baseUrl, refererUrl) {
  * (a download that 404s, a file that isn't actually an image) don't abort
  * the batch — the same "one bad file doesn't sink 400 good ones" principle
  * as the regular upload pipeline's per-file retry.
+ *
+ * `onFound` and `onItemStatus` are optional progress hooks — the route
+ * (routes/photos.js) uses them to drive lib/googlePhotosImportJobs.js so
+ * the frontend can poll real per-photo progress instead of waiting on one
+ * request for the whole album. Both default to no-ops so every existing
+ * caller (and every test that calls this directly) is unaffected.
+ * `onItemStatus(index, patch)` fires at least twice per photo — once with
+ * `{ status: 'downloading' }` when its turn starts, once with its outcome
+ * — `index` is its position in the (post-truncation) import list, stable
+ * for the whole run.
  */
-async function importGoogleAlbum(prisma, { teamId, meetId, albumUrl, uploadedById }) {
+async function importGoogleAlbum(
+  prisma,
+  { teamId, meetId, albumUrl, uploadedById, onFound = () => {}, onItemStatus = () => {} },
+) {
   const meet = await prisma.meet.findFirst({ where: { id: meetId, teamId } });
   if (!meet) {
     const err = new Error('Meet not found.');
@@ -178,12 +191,15 @@ async function importGoogleAlbum(prisma, { teamId, meetId, albumUrl, uploadedByI
 
   const toImport = urls.slice(0, MAX_PHOTOS_PER_IMPORT);
   const truncated = urls.length - toImport.length;
+  onFound({ total: urls.length, importing: toImport.length, truncated });
   const summary = { imported: 0, duplicates: 0, failed: 0, failedDetails: [] };
 
   let next = 0;
   async function worker() {
     while (next < toImport.length) {
-      const url = toImport[next++];
+      const index = next++;
+      const url = toImport[index];
+      onItemStatus(index, { status: 'downloading' });
       try {
         const { buffer: originalBuffer, width, height } = await module.exports.downloadOriginal(url, albumUrl);
         const sha256 = crypto.createHash('sha256').update(originalBuffer).digest('hex');
@@ -211,11 +227,17 @@ async function importGoogleAlbum(prisma, { teamId, meetId, albumUrl, uploadedByI
           width,
           height,
         });
-        if (result.duplicate) summary.duplicates += 1;
-        else summary.imported += 1;
+        if (result.duplicate) {
+          summary.duplicates += 1;
+          onItemStatus(index, { status: 'duplicate', photoId: result.photoId });
+        } else {
+          summary.imported += 1;
+          onItemStatus(index, { status: 'done', photoId: result.photoId });
+        }
       } catch (error) {
         summary.failed += 1;
         summary.failedDetails.push(error.message);
+        onItemStatus(index, { status: 'error', error: error.message });
         console.error(`Google Photos import: failed on ${url}: ${error.message}`);
       }
     }

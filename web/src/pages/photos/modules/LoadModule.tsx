@@ -22,6 +22,15 @@ const UPLOAD_CONCURRENCY = 4;
 const PREP_CONCURRENCY = 6;
 // Mirrors backend/routes/photos.js's MAX_FILES_PER_AUTHORIZE.
 const MAX_FILES_PER_AUTHORIZE = 60;
+// How often the Load module polls a Google Photos import job for progress
+// — frequent enough that tiles visibly fill in as photos land, not so
+// frequent it hammers the server over what can be a several-minute import.
+const GOOGLE_IMPORT_POLL_MS = 1500;
+// LoadBatch ids for a Google Photos import all share this prefix, so the
+// tile grid can tell one apart from a regular drag-and-drop batch (e.g. to
+// skip the "Retry" affordance below, which only makes sense for a real
+// local File this tab still has in memory).
+const GOOGLE_IMPORT_BATCH_PREFIX = 'google-';
 
 /** Runs `worker` over indices [0, count) with at most `concurrency` in flight at once. */
 async function runPool(count: number, concurrency: number, worker: (index: number) => Promise<void>): Promise<void> {
@@ -221,30 +230,105 @@ export const LoadModule: React.FC = () => {
     startBatch(Array.from(e.dataTransfer.files));
   }
 
-  // Runs entirely server-side (backend/lib/googlePhotosImport.js) — there's
-  // no per-file progress to show, just a wait and a final tally. Can take
-  // a few minutes for a large album.
+  // Runs entirely server-side (backend/lib/googlePhotosImport.js) as a
+  // background job — the POST only creates it and returns a jobId; this
+  // polls GET .../google-album/:jobId for live per-photo status and
+  // renders it into a LoadBatch the same tile grid below already knows
+  // how to draw, so a Google import looks and behaves like watching a
+  // regular upload batch fill in. Deliberately a plain async loop kicked
+  // off from the click handler (not a useEffect) — same shape as
+  // runBatch's fire-and-forget upload loop above, so it keeps running
+  // server-side progress or not if the user switches to another module
+  // mid-import; `dispatch` comes from the Provider, which outlives this
+  // component's mount/unmount either way.
+  const pollGoogleImport = useCallback(
+    async (jobId: string, batchId: string) => {
+      let lastSettledCount = 0;
+      for (;;) {
+        let snapshot;
+        try {
+          snapshot = await photosService.getGoogleAlbumImportProgress(jobId);
+        } catch (error) {
+          console.error('Lost track of Google Photos import job:', error);
+          toast.error("Lost track of that import — check the Tag module for whatever made it in before this happened.");
+          break;
+        }
+
+        if (snapshot.status === 'scraping') {
+          await new Promise((r) => setTimeout(r, GOOGLE_IMPORT_POLL_MS));
+          continue;
+        }
+
+        const files: LoadBatchFile[] = snapshot.items.map((item, i) => ({
+          id: item.id,
+          name: `Photo ${i + 1}`,
+          status: item.status === 'downloading' ? 'uploading' : item.status,
+          progress: item.status === 'done' || item.status === 'duplicate' ? 100 : item.status === 'downloading' ? 60 : 0,
+          photoId: item.photoId,
+        }));
+        dispatch({ type: 'SET_BATCH_FILES', batchId, files });
+
+        const settledCount = files.filter((f) => f.status === 'done' || f.status === 'duplicate').length;
+        if (settledCount > lastSettledCount) {
+          lastSettledCount = settledCount;
+          // Pulls in the real thumbUrl for every photo that just landed,
+          // so its tile swaps from a progress bar to the actual picture —
+          // the "building in real time" the Load module is going for.
+          await refreshPhotos();
+        }
+
+        if (snapshot.status === 'done') {
+          const summary = snapshot.summary!;
+          const parts = [`${summary.imported} added`];
+          if (summary.duplicates > 0) parts.push(`${summary.duplicates} already had`);
+          if (summary.failed > 0) parts.push(`${summary.failed} failed`);
+          if (summary.truncated > 0) parts.push(`${summary.truncated} skipped (album too large for one import)`);
+          if (summary.failed > 0) {
+            toast.warning(`Google Photos import: ${parts.join(', ')}.`, { description: summary.failedDetails[0] });
+          } else {
+            toast.success(`Google Photos import: ${parts.join(', ')}.`);
+          }
+          break;
+        }
+        if (snapshot.status === 'error') {
+          toast.error(snapshot.error || "Couldn't import that album.");
+          break;
+        }
+
+        await new Promise((r) => setTimeout(r, GOOGLE_IMPORT_POLL_MS));
+      }
+      setImportingAlbum(false);
+    },
+    [dispatch, refreshPhotos],
+  );
+
   async function handleGoogleImport() {
     const url = googleAlbumUrl.trim();
-    if (!loadMeetId || !url || importingAlbum) return;
+    const meetId = loadMeetId;
+    if (!meetId || !url || importingAlbum) return;
     setImportingAlbum(true);
+    setGoogleAlbumUrl('');
     try {
-      const summary = await photosService.importGoogleAlbum(loadMeetId, url);
-      await refreshPhotos();
-      const parts = [`${summary.imported} added`];
-      if (summary.duplicates > 0) parts.push(`${summary.duplicates} already had`);
-      if (summary.failed > 0) parts.push(`${summary.failed} failed`);
-      if (summary.truncated > 0) parts.push(`${summary.truncated} skipped (album too large for one import)`);
-      if (summary.failed > 0) {
-        toast.warning(`Google Photos import: ${parts.join(', ')}.`, { description: summary.failedDetails[0] });
-      } else {
-        toast.success(`Google Photos import: ${parts.join(', ')}.`);
-      }
-      setGoogleAlbumUrl('');
+      const { jobId } = await photosService.startGoogleAlbumImport(meetId, url);
+      const batchId = `google-${jobId}`;
+      // Starts with no files — the single "Finding photos…" placeholder
+      // tile below stands in until the scrape reports back a real count,
+      // at which point pollGoogleImport replaces it wholesale with one
+      // tile per photo.
+      dispatch({
+        type: 'START_BATCH',
+        batch: {
+          id: batchId,
+          meetId,
+          files: [{ id: 'scraping', name: 'Finding photos in that album…', status: 'queued', progress: 0 }],
+          paused: false,
+          startedAt: new Date().toISOString(),
+        },
+      });
+      void pollGoogleImport(jobId, batchId);
     } catch (error) {
-      console.error('Google Photos import failed:', error);
-      toast.error(getApiErrorMessage(error, "Couldn't import that album."));
-    } finally {
+      console.error('Google Photos import failed to start:', error);
+      toast.error(getApiErrorMessage(error, "Couldn't start that import."));
       setImportingAlbum(false);
     }
   }
@@ -411,7 +495,15 @@ export const LoadModule: React.FC = () => {
                       {f.status !== 'done' && (
                         <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
                           <span className="truncate text-[10px] text-ink-muted">{f.name}</span>
-                          {f.status === 'error' ? (
+                          {f.status === 'error' && currentBatch!.id.startsWith(GOOGLE_IMPORT_BATCH_PREFIX) ? (
+                            // No local File to retry from for a Google
+                            // import — re-running the same album link is
+                            // the retry path, and is cheap: the hash
+                            // dedupe check (backend/lib/photosAccess.js)
+                            // instantly skips everything that already
+                            // landed.
+                            <span className="text-[10px] text-destructive">Failed — try the link again</span>
+                          ) : f.status === 'error' ? (
                             <button
                               type="button"
                               onClick={() => retryFile(currentBatch!.id, loadMeetId, f.id)}

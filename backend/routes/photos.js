@@ -10,6 +10,7 @@ const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
 const { resolveActiveSeason, deriveGrade, isEnrolled } = require('../lib/season');
 const photosAccess = require('../lib/photosAccess');
 const { importGoogleAlbum, validateGooglePhotosUrl } = require('../lib/googlePhotosImport');
+const googlePhotosImportJobs = require('../lib/googlePhotosImportJobs');
 const { MAX_PICKS } = photosAccess;
 
 // LeadPack Photos (build spec: docs/leadpack-photos-build-spec.md), Phases
@@ -243,9 +244,13 @@ router.post('/finalize', authenticate, requireFeature('photos'), requireTeam, re
 // Photos" option. Body: { meetId, albumUrl }. Admin-only, same tier as a
 // regular upload; this one just fetches the bytes itself instead of
 // handing a browser presigned PUT urls (see lib/googlePhotosImport.js).
-// Synchronous: the whole import runs within this one request, so a large
-// album can take a few minutes — there is no background job queue here
-// yet, by design scope, not oversight.
+//
+// Runs as a background job, not within this request — a large album can
+// take several minutes just to scrape, let alone download and resize
+// every photo, and the Load module shows live per-photo progress (a tile
+// per photo, filling in as each one lands) rather than one spinner for
+// the whole thing. This responds with a jobId as soon as the job is
+// created; GET .../google-album/:jobId (below) is what the frontend polls.
 router.post('/import/google-album', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), googleImportLimiter, async (req, res) => {
   const { meetId, albumUrl } = req.body || {};
   if (!meetId || !albumUrl) {
@@ -258,17 +263,61 @@ router.post('/import/google-album', authenticate, requireFeature('photos'), requ
     });
   }
 
-  try {
-    const summary = await importGoogleAlbum(prisma, {
-      teamId: req.user.teamId,
-      meetId,
-      albumUrl: validatedUrl,
-      uploadedById: req.user.id,
-    });
-    res.json(summary);
-  } catch (error) {
-    sendAccessError(res, error, 'Error in POST /photos/import/google-album:');
+  // Checked synchronously here too, not just inside importGoogleAlbum
+  // itself, so a bad meetId fails fast as a normal 404 response instead of
+  // only surfacing on the job's first poll.
+  const meet = await prisma.meet.findFirst({ where: { id: meetId, teamId: req.user.teamId } });
+  if (!meet) {
+    return res.status(404).json({ msg: 'Meet not found.' });
   }
+
+  const job = googlePhotosImportJobs.createJob({ teamId: req.user.teamId, meetId });
+  res.status(202).json({ jobId: job.id });
+
+  // Everything from here on runs after the response above has already
+  // gone out — this *is* the background job, driving the job record that
+  // the GET route below reads. Errors land in the job record, not an HTTP
+  // response; there's no request left to send one to.
+  importGoogleAlbum(prisma, {
+    teamId: req.user.teamId,
+    meetId,
+    albumUrl: validatedUrl,
+    uploadedById: req.user.id,
+    onFound: ({ total, importing }) => {
+      googlePhotosImportJobs.updateJob(job.id, {
+        status: 'running',
+        total,
+        items: Array.from({ length: importing }, (_, i) => ({ id: `item-${i}`, status: 'queued' })),
+      });
+    },
+    onItemStatus: (index, patch) => googlePhotosImportJobs.setItemStatus(job.id, index, patch),
+  })
+    .then((summary) => {
+      googlePhotosImportJobs.finishJob(job.id, { status: 'done', summary });
+    })
+    .catch((error) => {
+      console.error('Error in background Google Photos import:', error.message);
+      googlePhotosImportJobs.finishJob(job.id, { status: 'error', error: error.message });
+    });
+});
+
+// GET /api/photos/import/google-album/:jobId — polled by the Load module
+// while a background import (above) runs, roughly every couple seconds,
+// to drive its per-photo tile grid. Same access tier as starting the
+// import; a job also carries its own teamId so one team can never poll
+// another's job even with a guessed/leaked id.
+router.get('/import/google-album/:jobId', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), (req, res) => {
+  const job = googlePhotosImportJobs.getJob(req.params.jobId);
+  if (!job || job.teamId !== req.user.teamId) {
+    return res.status(404).json({ msg: 'No import job found with that id (it may have finished long ago, or the server restarted).' });
+  }
+  res.json({
+    status: job.status,
+    total: job.total,
+    items: job.items,
+    summary: job.summary,
+    error: job.error,
+  });
 });
 
 // GET /api/photos?meetId=&status=hidden — Tag module's grid. Open to

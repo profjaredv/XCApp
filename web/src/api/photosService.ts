@@ -47,6 +47,21 @@ export interface GoogleAlbumImportSummary {
   truncated: number;
 }
 
+export interface GoogleAlbumImportItem {
+  id: string;
+  status: 'queued' | 'downloading' | 'done' | 'duplicate' | 'error';
+  photoId?: string;
+  error?: string;
+}
+
+export interface GoogleAlbumImportProgress {
+  status: 'scraping' | 'running' | 'done' | 'error';
+  total: number;
+  items: GoogleAlbumImportItem[];
+  summary: GoogleAlbumImportSummary | null;
+  error: string | null;
+}
+
 export interface FinalizeResult {
   ok: boolean;
   alreadyReady?: boolean;
@@ -149,12 +164,18 @@ export const photosService = {
     return response.data.results;
   },
 
-  // Runs entirely server-side (download, resize, upload) — see
-  // backend/lib/googlePhotosImport.js. One request for the whole album, so
-  // this can take a few minutes for a large one; there's no progress
-  // stream, just the final tally.
-  async importGoogleAlbum(meetId: string, albumUrl: string): Promise<GoogleAlbumImportSummary> {
-    const response = await api.post<GoogleAlbumImportSummary>('/photos/import/google-album', { meetId, albumUrl });
+  // Runs entirely server-side (scrape, download, resize, upload) as a
+  // background job — see backend/lib/googlePhotosImport.js and
+  // routes/photos.js. This returns as soon as the job is created; the
+  // Load module polls getGoogleAlbumImportProgress for live per-photo
+  // status instead of waiting on one request for the whole album.
+  async startGoogleAlbumImport(meetId: string, albumUrl: string): Promise<{ jobId: string }> {
+    const response = await api.post<{ jobId: string }>('/photos/import/google-album', { meetId, albumUrl });
+    return response.data;
+  },
+
+  async getGoogleAlbumImportProgress(jobId: string): Promise<GoogleAlbumImportProgress> {
+    const response = await api.get<GoogleAlbumImportProgress>(`/photos/import/google-album/${jobId}`);
     return response.data;
   },
 };

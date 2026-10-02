@@ -100,6 +100,11 @@ export type Action =
   | { type: 'REDO' }
   | { type: 'ADD_MEET'; meet: Meet }
   | { type: 'START_BATCH'; batch: LoadBatch }
+  // A wholesale replace of one batch's files, not a per-file patch — used
+  // by the Google Photos import poll (modules/LoadModule.tsx), which gets
+  // back a full snapshot of every item's status on each tick rather than
+  // one file's delta the way a direct upload's XHR progress does.
+  | { type: 'SET_BATCH_FILES'; batchId: string; files: LoadBatchFile[] }
   | { type: 'UPDATE_FILE'; batchId: string; fileId: string; patch: Partial<LoadBatchFile> }
   | { type: 'FILE_READY'; batchId: string; fileId: string; photo: Photo }
   | { type: 'SET_BATCH_PAUSED'; batchId: string; paused: boolean }
@@ -236,6 +241,11 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
       return { ...state, meets: [...state.meets, action.meet] };
     case 'START_BATCH':
       return { ...state, loadBatches: [...state.loadBatches, action.batch] };
+    case 'SET_BATCH_FILES':
+      return {
+        ...state,
+        loadBatches: state.loadBatches.map((b) => (b.id === action.batchId ? { ...b, files: action.files } : b)),
+      };
     case 'UPDATE_FILE': {
       return {
         ...state,
