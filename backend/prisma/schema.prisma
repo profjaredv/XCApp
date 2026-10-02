@@ -71,6 +71,8 @@ model User {
   createdAttendanceSessions AttendanceSession[]      @relation("AttendanceSessionCreator")
   teamRequests              TeamRequest[]            @relation("TeamRequester")
   teamRequestsResolved      TeamRequest[]            @relation("TeamRequestResolver")
+  uploadedPhotos            Photo[]                  @relation("PhotoUploader")
+  photoTagsMade             PhotoAthlete[]           @relation("PhotoAthleteTagger")
 
   @@index([teamId])
   @@map("users")
@@ -137,6 +139,7 @@ model Team {
   claim                   TeamClaim?
   attendanceSessions      AttendanceSession[]
   paceZones               PaceZone[]
+  photos                  Photo[]
 
   @@index([coachUid])
   @@map("teams")
@@ -314,6 +317,12 @@ model Athlete {
   // signed up yet, or a claim is still pending coach approval. Set only by
   // an accepted AthleteInvite or an approved AthleteClaim, never directly.
   userId            String?  @unique @map("user_id") @db.Uuid
+  // LeadPack Photos build spec, "Opt-out and removal": set by a parent or
+  // coach. From then on any photo tagged with this athlete disappears from
+  // every grid but the coach's, and collage generation skips them — see
+  // routes/photos.js and lib/photosAccess.js, never a bare `where` clause
+  // on PhotoAthlete, so this rule can't be forgotten at a second call site.
+  photosOptOut      Boolean  @default(false) @map("photos_opt_out")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -337,6 +346,9 @@ model Athlete {
   intervalSessionEntries   IntervalSessionEntry[]
   coachUpAcknowledgements  CoachUpAcknowledgement[]
   attendanceRecords        AttendanceRecord[]
+  photoTags                PhotoAthlete[]
+  photoPicks               Pick[]
+  collages                 Collage[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -629,6 +641,7 @@ model Meet {
   season Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   races  Race[]
   plan   MeetPlan?
+  photos Photo[]
 
   @@unique([teamId, seasonId, athleticMeetId])
   @@index([seasonId, date])
@@ -973,6 +986,8 @@ model Season {
   equipmentAssignments EquipmentAssignment[]
   intervalSessions     IntervalSession[]
   attendanceSessions   AttendanceSession[]
+  picks                Pick[]
+  collages             Collage[]
 
   @@unique([teamId, year, sport])
   @@index([teamId])
@@ -1771,4 +1786,121 @@ model PaceZone {
   @@unique([teamId, abbreviation])
   @@index([teamId])
   @@map("pace_zones")
+}
+
+// ---------------------------------------------------------------------------
+// LeadPack Photos (build spec: docs/leadpack-photos-build-spec.md)
+//
+// Image bytes live only in R2, never here — these four tables (plus
+// Athlete.photosOptOut above) are pointers, tags and picks. Reuses this
+// app's existing Team/Meet/Season/User/Athlete rather than the spec's
+// placeholder names, per the spec's own instruction to read the real
+// schema and adapt.
+//
+// Every one of these is read and written through lib/photosAccess.js,
+// never a bare `prisma.photo.*` call in a route — that module is the one
+// place `team_id` scoping is enforced, because a cross-team leak here is
+// the worst failure this feature could have (student photos).
+// ---------------------------------------------------------------------------
+
+enum PhotoStatus {
+  PENDING // row exists, upload to R2 not yet confirmed — never shown in any grid
+  READY // all three R2 objects confirmed present
+  HIDDEN // a coach's explicit hide — removed from every grid, coach's included
+}
+
+// 'self' | 'parent' | 'coach' — who actually made this tag, for the audit
+// trail the spec's tagging rules depend on (rule 3: "a tag can be removed
+// by whoever made it, or by a coach").
+enum PhotoTagSource {
+  SELF
+  PARENT
+  COACH
+}
+
+model Photo {
+  id         String      @id @default(uuid()) @db.Uuid
+  teamId     String      @map("team_id") @db.Uuid
+  meetId     String      @map("meet_id") @db.Uuid
+  // R2 key of the original — teams/{team_id}/photos/{id}/orig.jpg. Thumb
+  // and web-size keys are derived from this by naming convention (see
+  // lib/r2.js), never stored as their own columns.
+  objectKey  String      @unique @map("object_key")
+  sha256     String // dedupe re-uploads within a team
+  takenAt    DateTime?   @map("taken_at") @db.Timestamptz(6) // from EXIF when present
+  width      Int?
+  height     Int?
+  bytes      BigInt?
+  status     PhotoStatus @default(PENDING)
+  uploadedBy String?     @map("uploaded_by") @db.Uuid
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  team     Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  meet     Meet           @relation(fields: [meetId], references: [id], onDelete: Cascade)
+  uploader User?          @relation("PhotoUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+  tags     PhotoAthlete[]
+  picks    Pick[]
+
+  @@unique([teamId, sha256])
+  @@index([meetId, takenAt])
+  @@index([teamId, status])
+  @@map("photos")
+}
+
+// Who is in a photo. One row per (photo, athlete) — a four-athlete group
+// shot is one `photos` row and four of these, never a duplicated photo.
+model PhotoAthlete {
+  photoId   String         @map("photo_id") @db.Uuid
+  athleteId String         @map("athlete_id") @db.Uuid
+  taggedBy  String?        @map("tagged_by") @db.Uuid
+  source    PhotoTagSource
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  photo   Photo   @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  tagger  User?   @relation("PhotoAthleteTagger", fields: [taggedBy], references: [id], onDelete: SetNull)
+  picks   Pick[]
+
+  @@id([photoId, athleteId])
+  @@index([athleteId])
+  @@map("photo_athletes")
+}
+
+// An athlete's 3-5 chosen photos for one season's collage, in slot order.
+// The composite FK to PhotoAthlete is the database-enforced version of
+// rule 5 ("picks must come from the athlete's own tagged photos") — a pick
+// cannot exist for a (photo, athlete) pair that was never tagged.
+model Pick {
+  athleteId String   @map("athlete_id") @db.Uuid
+  seasonId  String   @map("season_id") @db.Uuid
+  photoId   String   @map("photo_id") @db.Uuid
+  position  Int // 1-5
+  createdAt DateTime @default(now()) @map("created_at")
+
+  athlete      Athlete      @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  season       Season       @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  photo        Photo        @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  photoAthlete PhotoAthlete @relation(fields: [photoId, athleteId], references: [photoId, athleteId], onDelete: Cascade)
+
+  @@id([athleteId, seasonId, position])
+  @@unique([athleteId, seasonId, photoId])
+  @@map("picks")
+}
+
+model Collage {
+  id          String   @id @default(uuid()) @db.Uuid
+  athleteId   String   @map("athlete_id") @db.Uuid
+  seasonId    String   @map("season_id") @db.Uuid
+  template    String // '3' | '4' | '5' — which fixed template rendered this
+  // R2 key of the rendered PNG —
+  // teams/{team_id}/collages/{athlete_id}/{season_id}-v{n}.png.
+  objectKey   String   @map("object_key")
+  version     Int      @default(1)
+  generatedAt DateTime @default(now()) @map("generated_at")
+
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  season  Season  @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@index([athleteId, seasonId])
+  @@map("collages")
 }
