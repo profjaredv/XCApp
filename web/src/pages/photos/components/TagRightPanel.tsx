@@ -20,7 +20,7 @@ function initialsOf(athlete: Athlete | undefined): string {
 }
 
 export const TagRightPanel: React.FC<TagRightPanelProps> = ({ photos, selectedPhotoId, tags, athletes, meets }) => {
-  const { actor, tagPhoto, untagPhoto, hideSelected, setSelection } = usePhotosWorkspace();
+  const { actor, tagPhoto, untagPhoto, hidePhoto } = usePhotosWorkspace();
   const [addQuery, setAddQuery] = useState('');
   const athletesById = new Map(athletes.map((a) => [a.id, a]));
 
@@ -113,10 +113,7 @@ export const TagRightPanel: React.FC<TagRightPanelProps> = ({ photos, selectedPh
           size="sm"
           variant="outline"
           className="mt-auto gap-1.5 border-ink-border text-ink-foreground hover:bg-ink-border/40"
-          onClick={() => {
-            setSelection([photo.id], photo.id);
-            hideSelected();
-          }}
+          onClick={() => hidePhoto(photo.id)}
         >
           <EyeOff className="h-3.5 w-3.5" /> Hide photo
         </Button>

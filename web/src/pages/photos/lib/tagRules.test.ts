@@ -5,12 +5,14 @@ import {
   canHidePhoto,
   canPickPhoto,
   isPhotoVisible,
+  tagSourceFor,
   type Actor,
 } from './tagRules';
 import type { Athlete, Photo } from '../state/types';
 
-const coach: Actor = { userId: 'coach-1', isCoach: true, linkedAthleteIds: [] };
-const parent: Actor = { userId: 'parent-1', isCoach: false, linkedAthleteIds: ['athlete-1', 'athlete-2'] };
+const coach: Actor = { userId: 'coach-1', isCoach: true, role: 'coach', linkedAthleteIds: [] };
+const parent: Actor = { userId: 'parent-1', isCoach: false, role: 'guardian', linkedAthleteIds: ['athlete-1', 'athlete-2'] };
+const athleteSelf: Actor = { userId: 'athlete-1', isCoach: false, role: 'athlete', linkedAthleteIds: ['athlete-1'] };
 
 describe('canTagAthlete', () => {
   it('lets a coach tag any athlete', () => {
@@ -20,6 +22,14 @@ describe('canTagAthlete', () => {
   it('lets a parent tag only their own linked athletes', () => {
     expect(canTagAthlete(parent, 'athlete-1')).toBe(true);
     expect(canTagAthlete(parent, 'athlete-99')).toBe(false);
+  });
+});
+
+describe('tagSourceFor', () => {
+  it('records coach, guardian and athlete tags with distinct provenance', () => {
+    expect(tagSourceFor(coach)).toBe('coach');
+    expect(tagSourceFor(parent)).toBe('parent');
+    expect(tagSourceFor(athleteSelf)).toBe('self');
   });
 });
 

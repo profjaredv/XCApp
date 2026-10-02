@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { placeholderWebUrl } from '../data/placeholderPhoto';
 import type { Photo } from '../state/types';
@@ -10,6 +10,8 @@ interface LoupeProps {
   onNavigate: (photoId: string) => void;
 }
 
+const SWIPE_THRESHOLD_PX = 50;
+
 // The spec's loupe prefetches the neighbors so Space/arrow stepping never
 // shows a blank frame — here that just means rendering <img> for the
 // adjacent photos off-screen so the browser has already decoded them.
@@ -18,6 +20,7 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
   const photo = photos[index];
   const prev = index > 0 ? photos[index - 1] : null;
   const next = index < photos.length - 1 ? photos[index + 1] : null;
+  const touchStartX = useRef<number | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -31,8 +34,27 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
 
   if (!photo) return null;
 
+  // The phone layout promises "swipe between photos in the loupe" — a
+  // plain left/right drag distance is enough here, no gesture library.
+  function handleTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX;
+  }
+  function handleTouchEnd(e: React.TouchEvent) {
+    if (touchStartX.current === null) return;
+    const delta = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return;
+    if (delta > 0 && prev) onNavigate(prev.id);
+    else if (delta < 0 && next) onNavigate(next.id);
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+      onClick={onClose}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       <button
         type="button"
         onClick={(e) => {

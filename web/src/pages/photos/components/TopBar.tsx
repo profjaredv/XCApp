@@ -78,16 +78,21 @@ export const TopBar: React.FC = () => {
 
       {/* Dev-only: Phase 1 has no real guardian/role wiring yet, so this
           stands in for "sign in as a coach" vs. "sign in as a family" —
-          see the comment on DEV_FAMILY_LINKED_ATHLETE_IDS. */}
-      <select
-        value={state.previewRole}
-        onChange={(e) => setPreviewRole(e.target.value as 'coach' | 'family')}
-        className="rounded-md border border-ink-border bg-transparent px-1.5 py-1 text-[11px] text-ink-muted"
-        title="Preview as (dev only)"
-      >
-        <option value="coach">Preview: Coach</option>
-        <option value="family">Preview: Family</option>
-      </select>
+          see the comment on DEV_FAMILY_LINKED_ATHLETE_IDS. Gated on the
+          build mode itself (not just "not linked from nav"), so it can't
+          be exercised by a production user even if the route it lives on
+          is ever reached — e.g. before Phase 2's real feature flag lands. */}
+      {import.meta.env.DEV && (
+        <select
+          value={state.previewRole}
+          onChange={(e) => setPreviewRole(e.target.value as 'coach' | 'family')}
+          className="rounded-md border border-ink-border bg-transparent px-1.5 py-1 text-[11px] text-ink-muted"
+          title="Preview as (dev only)"
+        >
+          <option value="coach">Preview: Coach</option>
+          <option value="family">Preview: Family</option>
+        </select>
+      )}
 
       <button
         type="button"

@@ -29,6 +29,10 @@ export function useWorkspaceKeyboard(onOpenArmPalette: () => void, armPaletteOpe
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (armPaletteOpen) return; // the palette owns its own keys while open
+      // Checked first so Ctrl/Cmd+Z in a text field (the meet-name input, a
+      // collage header field) does native text undo instead of reversing
+      // the last photo mutation.
+      if (isTypingTarget(e.target)) return;
 
       const mod = e.metaKey || e.ctrlKey;
 
@@ -45,10 +49,10 @@ export function useWorkspaceKeyboard(onOpenArmPalette: () => void, armPaletteOpe
         return;
       }
 
-      if (isTypingTarget(e.target)) return;
-
-      // Everything below operates on a grid, which only Tag and Build have.
-      if (state.module !== 'tag' && state.module !== 'build') return;
+      // Everything below acts on the Tag grid specifically (gridOrderRef is
+      // only kept current while PhotoGrid is mounted, which only Tag does —
+      // Build has its own click-driven picker, not these shortcuts).
+      if (state.module !== 'tag') return;
 
       if (mod && e.key.toLowerCase() === 'a') {
         e.preventDefault();

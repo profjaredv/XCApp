@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { Search } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
-import { searchAthletes, tagCountForAthlete } from '../lib/selectors';
+import { coverage, searchAthletes, tagCountForAthlete } from '../lib/selectors';
 import { TimeWindowJump } from './TimeWindowJump';
 import type { Athlete, Meet, Photo, PhotoAthleteTags } from '../state/types';
 import type { TagFilter } from '../state/reducer';
@@ -23,18 +23,39 @@ function meetCounts(meetId: string, photos: Photo[], tags: PhotoAthleteTags) {
 export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags, athletes }) => {
   const { state, actor, setMeetFilter, setTagFilter, setSearch, armAthlete } = usePhotosWorkspace();
   const [query, setQuery] = useState('');
+  const [coverageOpen, setCoverageOpen] = useState(false);
 
   const SAVED_FILTERS: { key: TagFilter; label: string }[] = [
     { key: 'untagged', label: 'Untagged' },
     { key: 'mine', label: 'Mine' },
   ];
 
+  // "Latest meet" should mean the latest one anybody has actually loaded
+  // photos for — meets are created ahead of the meet day itself (Load's
+  // "new meet" button), so the chronologically-last meet is routinely an
+  // empty one nobody has uploaded to yet, which made the "defaults to the
+  // most recent meet" families/TimeWindowJump stand-in land on a blank grid.
+  const meetsWithPhotos = meets.filter((m) => photos.some((p) => p.meetId === m.id));
+  const latestMeetWithPhotos = meetsWithPhotos[meetsWithPhotos.length - 1] ?? meets[meets.length - 1];
+  const currentMeet = meets.find((m) => m.id === state.meetFilter) ?? latestMeetWithPhotos;
+
+  // The family <select> below always shows a meet (defaulting to the
+  // latest), so the grid must actually be filtered to match — otherwise a
+  // family sees "County Dual #2" selected while the grid still shows all
+  // ~2000 photos from every meet. Hooks can't live inside the `if
+  // (!actor.isCoach)` branch below (actor.isCoach itself can change at
+  // runtime via the preview-role switch), so this stays unconditional and
+  // no-ops for a coach.
+  useEffect(() => {
+    if (!actor.isCoach && state.meetFilter === null && currentMeet) setMeetFilter(currentMeet.id);
+  }, [actor.isCoach, state.meetFilter, currentMeet, setMeetFilter]);
+
   if (!actor.isCoach) {
     // Families skip the roster and arming entirely — see the Tag module
     // description's "families skip arming" note. A guardian of more than
     // one athlete still gets to switch who they're tagging for.
     const own = athletes.filter((a) => actor.linkedAthleteIds.includes(a.id));
-    const currentMeet = meets.find((m) => m.id === state.meetFilter) ?? meets[meets.length - 1];
+
     return (
       <div className="flex h-full flex-col gap-4 p-3">
         <div>
@@ -75,6 +96,8 @@ export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags,
       </div>
     );
   }
+
+  const coverageRows = coverage(athletes, tags, photos);
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-3">
@@ -146,6 +169,36 @@ export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags,
             </button>
           ))}
         </div>
+      </div>
+
+      <div>
+        <button
+          type="button"
+          onClick={() => setCoverageOpen((o) => !o)}
+          className="flex w-full items-center gap-1 px-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted hover:text-ink-foreground"
+        >
+          {coverageOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          Needs photos ({coverageRows.length})
+        </button>
+        {coverageOpen && (
+          <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
+            {coverageRows.map(({ athlete, taggedCount }) => (
+              <li key={athlete.id}>
+                <button
+                  type="button"
+                  onClick={() => armAthlete(athlete.id)}
+                  className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-sm hover:bg-ink-border/40"
+                >
+                  <span className="truncate">{athlete.preferredName || athlete.name}</span>
+                  <span className="shrink-0 text-xs opacity-70">{taggedCount} tagged</span>
+                </button>
+              </li>
+            ))}
+            {coverageRows.length === 0 && (
+              <li className="px-2 py-1 text-xs text-ink-muted">Everyone has at least 3 tagged photos.</li>
+            )}
+          </ul>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">

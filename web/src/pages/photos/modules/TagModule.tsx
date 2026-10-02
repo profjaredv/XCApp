@@ -22,10 +22,15 @@ export const TagModule: React.FC = () => {
     tagFilter: state.tagFilter,
     armedAthleteId: state.armedAthleteId,
     timeWindow: state.timeWindow,
+    batchFilterPhotoIds: state.batchFilterPhotoIds,
   });
 
   const selectedPhotoId = state.selectedPhotoIds[state.selectedPhotoIds.length - 1] ?? null;
   const armedPicks = state.armedAthleteId ? state.picks[state.armedAthleteId] : undefined;
+  // The filmstrip is a real (non-virtualized) render of every matching
+  // photo, so it only gets a meet-scoped list — "All meets" can be ~2000
+  // photos, which is what the main grid's virtualizer exists for.
+  const filmStripPhotos = state.meetFilter ? photos : [];
 
   function handleToggleTagImmediate(photoId: string) {
     const athleteId = state.armedAthleteId;
@@ -49,7 +54,14 @@ export const TagModule: React.FC = () => {
           meets={state.meets}
         />
       }
-      filmStrip={<FilmStrip photos={photos} selectedId={selectedPhotoId} onSelect={(id) => setSelection([id], id)} />}
+      filmStrip={
+        <FilmStrip
+          photos={filmStripPhotos}
+          scoped={Boolean(state.meetFilter)}
+          selectedId={selectedPhotoId}
+          onSelect={(id) => setSelection([id], id)}
+        />
+      }
       center={
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-ink-border px-3 py-1.5">

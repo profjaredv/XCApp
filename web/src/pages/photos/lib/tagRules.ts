@@ -8,14 +8,20 @@ import type { Athlete, Photo, PhotoAthlete, TagSource } from '../state/types';
 export interface Actor {
   userId: string;
   isCoach: boolean;
-  // Athletes this account may tag on its own authority: a coach needs
-  // none (isCoach covers it); a family account lists its linked/guarded
-  // athlete ids.
+  // Distinguishes an athlete tagging themselves ('self' tags) from a
+  // guardian tagging on a linked child's behalf ('parent' tags) — both are
+  // non-coach accounts, but the spec's audit trail (photo_athletes.source)
+  // needs to tell them apart.
+  role: 'coach' | 'athlete' | 'guardian';
+  // Athletes this account may tag or pick for on its own authority: a
+  // coach needs none (isCoach covers it); an athlete or guardian account
+  // lists its own linked/guarded athlete ids.
   linkedAthleteIds: string[];
 }
 
 export function tagSourceFor(actor: Actor): TagSource {
-  if (actor.isCoach) return 'coach';
+  if (actor.role === 'coach') return 'coach';
+  if (actor.role === 'guardian') return 'parent';
   return 'self';
 }
 
@@ -24,6 +30,9 @@ export function canTagAthlete(actor: Actor, athleteId: string): boolean {
   if (actor.isCoach) return true;
   return actor.linkedAthleteIds.includes(athleteId);
 }
+
+/** Picks/swaps/reorders are the same "may act for this athlete" authority as tagging. */
+export const canManageAthlete = canTagAthlete;
 
 /** Rule 3: a tag can be removed by whoever made it, or by a coach. */
 export function canRemoveTag(actor: Actor, tag: PhotoAthlete): boolean {

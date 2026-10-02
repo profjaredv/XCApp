@@ -15,15 +15,20 @@ export interface VisiblePhotosArgs {
   tagFilter: TagFilter;
   armedAthleteId: string | null;
   timeWindow: { start: string; end: string } | null;
+  /** "Tag these now" — scope to one just-finished upload batch. */
+  batchFilterPhotoIds?: string[] | null;
 }
 
 /** The single pipeline every grid (Tag's grid, Build's "tagged photos" list) filters through. */
 export function visiblePhotos(args: VisiblePhotosArgs): Photo[] {
-  const { photos, tags, athletesByIdMap, actor, meetFilter, tagFilter, armedAthleteId, timeWindow } = args;
+  const { photos, tags, athletesByIdMap, actor, meetFilter, tagFilter, armedAthleteId, timeWindow, batchFilterPhotoIds } =
+    args;
+  const batchSet = batchFilterPhotoIds ? new Set(batchFilterPhotoIds) : null;
 
   return photos
     .filter((p) => isPhotoVisible(p, tags[p.id], athletesByIdMap, actor))
     .filter((p) => !meetFilter || p.meetId === meetFilter)
+    .filter((p) => !batchSet || batchSet.has(p.id))
     .filter((p) => {
       if (tagFilter === 'all') return true;
       const entries = tags[p.id] ?? [];

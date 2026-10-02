@@ -5,16 +5,19 @@ import type { Photo } from '../state/types';
 
 interface FilmStripProps {
   photos: Photo[];
+  /** True once the caller has actually scoped `photos` to one meet. */
+  scoped: boolean;
   selectedId: string | null;
   onSelect: (photoId: string) => void;
 }
 
 const MAX_RENDERED = 400;
 
-// Not virtualized: capped to one meet's worth of photos (callers pass a
-// meet-scoped slice), which never approaches the count the main grid
-// needs windowing for.
-export const FilmStrip: React.FC<FilmStripProps> = ({ photos, selectedId, onSelect }) => {
+// Not virtualized: the caller is required to pass a meet-scoped list (a
+// season tops out around 300 photos per meet, well under MAX_RENDERED),
+// never "All meets" — that's the ~2000-photo case the main grid's
+// virtualizer exists for, and this component doesn't window.
+export const FilmStrip: React.FC<FilmStripProps> = ({ photos, scoped, selectedId, onSelect }) => {
   const stripRef = useRef<HTMLDivElement>(null);
   const shown = photos.slice(0, MAX_RENDERED);
 
@@ -23,6 +26,10 @@ export const FilmStrip: React.FC<FilmStripProps> = ({ photos, selectedId, onSele
     const el = stripRef.current?.querySelector(`[data-photo-id="${selectedId}"]`);
     el?.scrollIntoView({ inline: 'center', block: 'nearest' });
   }, [selectedId]);
+
+  if (!scoped) {
+    return <div className="flex h-full items-center px-3 text-xs text-ink-muted">Select a meet to see its filmstrip.</div>;
+  }
 
   if (photos.length === 0) {
     return <div className="flex h-full items-center px-3 text-xs text-ink-muted">No photos in this view.</div>;

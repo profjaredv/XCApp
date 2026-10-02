@@ -14,14 +14,17 @@ function nextPhotoSeed() {
 }
 
 export const LoadModule: React.FC = () => {
-  const { state, dispatch, setModule, setMeetFilter } = usePhotosWorkspace();
+  const { state, dispatch, setModule, setBatchFilter } = usePhotosWorkspace();
   const [loadMeetId, setLoadMeetId] = useState(state.meets[state.meets.length - 1]?.id ?? '');
   const [newMeetName, setNewMeetName] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const currentBatch = state.loadBatches.find((b) => b.meetId === loadMeetId);
+  // Most RECENT matching batch — re-dropping into a meet that already has
+  // one appends a new batch, and `find` alone would keep pinning the UI
+  // (progress, pause, "Tag these now") to the first, now-stale one.
+  const currentBatch = [...state.loadBatches].reverse().find((b) => b.meetId === loadMeetId);
 
   const processFile = useCallback(
     (batchId: string, fileId: string) => {
@@ -270,7 +273,11 @@ export const LoadModule: React.FC = () => {
                 size="sm"
                 className="gap-1.5 bg-accent text-accent-foreground hover:bg-accent/90"
                 onClick={() => {
-                  setMeetFilter(loadMeetId);
+                  // Scoped to just this batch's photos, per the spec's
+                  // "Tag these now" — not every photo ever uploaded to
+                  // this meet, which setMeetFilter alone would show.
+                  const photoIds = files.map((f) => f.photoId).filter((id): id is string => Boolean(id));
+                  setBatchFilter(photoIds, loadMeetId);
                   setModule('tag');
                 }}
               >

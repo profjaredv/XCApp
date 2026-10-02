@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -12,12 +12,20 @@ interface BuildRightPanelProps {
   photosById: Map<string, Photo>;
   tags: PhotoAthleteTags;
   picks: string[];
+  exportBlocked: boolean;
   onExport: () => void;
 }
 
 const TEMPLATE_SIZES: TemplateSize[] = [3, 4, 5];
 
-export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({ athlete, photosById, tags, picks, onExport }) => {
+export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
+  athlete,
+  photosById,
+  tags,
+  picks,
+  exportBlocked,
+  onExport,
+}) => {
   const { state, setBuildTemplate, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
   const dragIndexRef = React.useRef<number | null>(null);
 
@@ -42,40 +50,65 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({ athlete, photo
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-3">
       <div>
         <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-          Picks ({picks.length}/5) — click a photo to swap it, drag to reorder
+          Picks ({picks.length}/5) — click a photo to swap it, drag or use the arrows to reorder
         </div>
         <div className="flex flex-wrap gap-1.5">
           {picks.map((photoId, index) => {
             const photo = photosById.get(photoId);
             if (!photo) return null;
             return (
-              <div
-                key={photoId}
-                draggable
-                onDragStart={() => {
-                  dragIndexRef.current = index;
-                }}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => {
-                  if (dragIndexRef.current !== null) reorderPick(athlete.id, dragIndexRef.current, index);
-                  dragIndexRef.current = null;
-                }}
-                onClick={() => cycleSlot(index)}
-                className="relative h-12 w-16 cursor-pointer overflow-hidden rounded ring-1 ring-ink-border/60 hover:ring-accent"
-                title="Click to swap, drag to reorder"
-              >
-                <img src={placeholderThumbUrl(photo.seed, 64, 48)} alt="" className="h-full w-full object-cover" />
+              // Not itself a button — it holds three independent controls
+              // (swap, remove, reorder), and a button can't contain another
+              // button, so each gets its own focusable sibling here instead
+              // of one wrapper intercepting every interaction.
+              <div key={photoId} className="relative h-12 w-16">
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removePick(athlete.id, photoId);
+                  draggable
+                  onDragStart={() => {
+                    dragIndexRef.current = index;
                   }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => {
+                    if (dragIndexRef.current !== null) reorderPick(athlete.id, dragIndexRef.current, index);
+                    dragIndexRef.current = null;
+                  }}
+                  onClick={() => cycleSlot(index)}
+                  aria-label={`Pick ${index + 1} of ${picks.length}. Activate to swap for another tagged photo.`}
+                  className="h-full w-full overflow-hidden rounded ring-1 ring-ink-border/60 hover:ring-accent"
+                >
+                  <img src={placeholderThumbUrl(photo.seed, 64, 48)} alt="" className="h-full w-full object-cover" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removePick(athlete.id, photoId)}
                   className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center bg-ink/80 text-ink-foreground"
-                  aria-label="Remove pick"
+                  aria-label={`Remove pick ${index + 1}`}
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
+                {picks.length > 1 && (
+                  <div className="absolute bottom-0 left-0 flex">
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      onClick={() => reorderPick(athlete.id, index, index - 1)}
+                      className="flex h-4 w-4 items-center justify-center bg-ink/80 text-ink-foreground disabled:opacity-30"
+                      aria-label={`Move pick ${index + 1} earlier`}
+                    >
+                      <ChevronLeft className="h-2.5 w-2.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === picks.length - 1}
+                      onClick={() => reorderPick(athlete.id, index, index + 1)}
+                      className="flex h-4 w-4 items-center justify-center bg-ink/80 text-ink-foreground disabled:opacity-30"
+                      aria-label={`Move pick ${index + 1} later`}
+                    >
+                      <ChevronRight className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -146,10 +179,16 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({ athlete, photo
         />
       </div>
 
+      {exportBlocked && (
+        <p className="text-xs text-ink-muted">
+          This athlete has opted out of photos — collages aren't generated for them.
+        </p>
+      )}
+
       <Button
         size="sm"
         className="mt-auto gap-1.5 bg-accent text-accent-foreground hover:bg-accent/90"
-        disabled={picks.length < 3}
+        disabled={picks.length < 3 || exportBlocked}
         onClick={onExport}
       >
         <Download className="h-3.5 w-3.5" /> Export PNG

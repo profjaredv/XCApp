@@ -2,7 +2,15 @@ import React, { useCallback, useMemo, useReducer, useRef } from 'react';
 import { buildSeed } from '../data/seed';
 import { workspaceReducer, type WorkspaceState, type BuildHeader } from './reducer';
 import type { Module, Photo, PhotoAthlete, PreviewRole, TemplateSize } from './types';
-import { canHidePhoto, canPickPhoto, canRemoveTag, canTagAthlete, tagSourceFor, type Actor } from '../lib/tagRules';
+import {
+  canHidePhoto,
+  canManageAthlete,
+  canPickPhoto,
+  canRemoveTag,
+  canTagAthlete,
+  tagSourceFor,
+  type Actor,
+} from '../lib/tagRules';
 import { PhotosWorkspaceCtx, type GridOrder, type PhotosWorkspaceValue } from './PhotosWorkspaceContext';
 import type { TagFilter } from './reducer';
 
@@ -34,6 +42,7 @@ function initialState(): WorkspaceState {
     buildAthleteId: null,
     buildTemplateSize: 3,
     buildHeader: { name: '', team: 'LeadPack XC', season: '2026 Cross Country' },
+    batchFilterPhotoIds: null,
 
     past: [],
     future: [],
@@ -54,8 +63,8 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   const actor: Actor = useMemo(
     () =>
       state.previewRole === 'coach'
-        ? { userId: 'dev-coach', isCoach: true, linkedAthleteIds: [] }
-        : { userId: 'dev-family', isCoach: false, linkedAthleteIds: DEV_FAMILY_LINKED_ATHLETE_IDS },
+        ? { userId: 'dev-coach', isCoach: true, role: 'coach', linkedAthleteIds: [] }
+        : { userId: 'dev-family', isCoach: false, role: 'guardian', linkedAthleteIds: DEV_FAMILY_LINKED_ATHLETE_IDS },
     [state.previewRole],
   );
 
@@ -64,7 +73,15 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   }, []);
 
   const setModule = useCallback((module: Module) => dispatch({ type: 'SET_MODULE', module }), []);
-  const setPreviewRole = useCallback((role: PreviewRole) => dispatch({ type: 'SET_PREVIEW_ROLE', role }), []);
+  const setPreviewRole = useCallback(
+    (role: PreviewRole) =>
+      dispatch({
+        type: 'SET_PREVIEW_ROLE',
+        role,
+        defaultArmedAthleteId: role === 'family' ? (DEV_FAMILY_LINKED_ATHLETE_IDS[0] ?? null) : null,
+      }),
+    [],
+  );
   const armAthlete = useCallback((athleteId: string | null) => dispatch({ type: 'ARM_ATHLETE', athleteId }), []);
   const setSelection = useCallback(
     (photoIds: string[], anchorId: string | null) => dispatch({ type: 'SET_SELECTION', photoIds, anchorId }),
@@ -154,7 +171,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
 
   const togglePickSelected = useCallback(() => {
     const athleteId = state.armedAthleteId;
-    if (!athleteId) return;
+    if (!athleteId || !canManageAthlete(actor, athleteId)) return;
     const before = state.picks[athleteId];
     let after = before ? [...before] : [];
     for (const photoId of state.selectedPhotoIds) {
@@ -175,7 +192,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         photoChanges: [],
       },
     });
-  }, [state.armedAthleteId, state.picks, state.selectedPhotoIds, state.tags]);
+  }, [actor, state.armedAthleteId, state.picks, state.selectedPhotoIds, state.tags]);
 
   const hideSelected = useCallback(() => {
     if (!canHidePhoto(actor)) return;
@@ -193,6 +210,29 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     });
   }, [actor, state.photos, state.selectedPhotoIds]);
 
+  // A standalone single-photo hide, independent of the current selection —
+  // TagRightPanel's "Hide photo" button targets the photo it's showing,
+  // not whatever setSelection([photo.id]) *will* put in state next render
+  // (React batches, so hideSelected() run right after would still see the
+  // old selection).
+  const hidePhoto = useCallback(
+    (photoId: string) => {
+      if (!canHidePhoto(actor)) return;
+      const photo = state.photos.find((p) => p.id === photoId);
+      if (!photo || photo.status === 'hidden') return;
+      dispatch({
+        type: 'APPLY_HISTORY_ENTRY',
+        entry: {
+          label: 'Hide photo',
+          tagChanges: [],
+          pickChanges: [],
+          photoChanges: [{ photoId, before: photo.status, after: 'hidden' }],
+        },
+      });
+    },
+    [actor, state.photos],
+  );
+
   const addMeet = useCallback((name: string, date: string) => {
     const id = `meet-${Date.now()}`;
     dispatch({ type: 'ADD_MEET', meet: { id, name, date } });
@@ -202,10 +242,14 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   const setBuildAthlete = useCallback((athleteId: string | null) => dispatch({ type: 'SET_BUILD_ATHLETE', athleteId }), []);
   const setBuildTemplate = useCallback((size: TemplateSize) => dispatch({ type: 'SET_BUILD_TEMPLATE', size }), []);
   const setBuildHeader = useCallback((patch: Partial<BuildHeader>) => dispatch({ type: 'SET_BUILD_HEADER', patch }), []);
+  const setBatchFilter = useCallback(
+    (photoIds: string[], meetId: string) => dispatch({ type: 'SET_BATCH_FILTER', photoIds, meetId }),
+    [],
+  );
 
   const addPick = useCallback(
     (athleteId: string, photoId: string) => {
-      if (!canPickPhoto(state.tags[photoId], athleteId)) return;
+      if (!canManageAthlete(actor, athleteId) || !canPickPhoto(state.tags[photoId], athleteId)) return;
       const before = state.picks[athleteId];
       if (before?.includes(photoId)) return;
       if (before && before.length >= 5) return;
@@ -215,11 +259,12 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         entry: { label: 'Add pick', tagChanges: [], pickChanges: [{ athleteId, before, after }], photoChanges: [] },
       });
     },
-    [state.picks, state.tags],
+    [actor, state.picks, state.tags],
   );
 
   const removePick = useCallback(
     (athleteId: string, photoId: string) => {
+      if (!canManageAthlete(actor, athleteId)) return;
       const before = state.picks[athleteId];
       if (!before?.includes(photoId)) return;
       const after = before.filter((id) => id !== photoId);
@@ -233,12 +278,12 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         },
       });
     },
-    [state.picks],
+    [actor, state.picks],
   );
 
   const swapPick = useCallback(
     (athleteId: string, position: number, photoId: string) => {
-      if (!canPickPhoto(state.tags[photoId], athleteId)) return;
+      if (!canManageAthlete(actor, athleteId) || !canPickPhoto(state.tags[photoId], athleteId)) return;
       const before = state.picks[athleteId] ?? [];
       const after = [...before];
       after[position] = photoId;
@@ -247,11 +292,12 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         entry: { label: 'Swap pick', tagChanges: [], pickChanges: [{ athleteId, before, after }], photoChanges: [] },
       });
     },
-    [state.picks, state.tags],
+    [actor, state.picks, state.tags],
   );
 
   const reorderPick = useCallback(
     (athleteId: string, fromIndex: number, toIndex: number) => {
+      if (!canManageAthlete(actor, athleteId)) return;
       const before = state.picks[athleteId];
       if (!before || fromIndex === toIndex) return;
       const after = [...before];
@@ -262,7 +308,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         entry: { label: 'Reorder picks', tagChanges: [], pickChanges: [{ athleteId, before, after }], photoChanges: [] },
       });
     },
-    [state.picks],
+    [actor, state.picks],
   );
 
   const value: PhotosWorkspaceValue = {
@@ -287,12 +333,14 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     untagSelected,
     togglePickSelected,
     hideSelected,
+    hidePhoto,
     undo,
     redo,
     addMeet,
     setBuildAthlete,
     setBuildTemplate,
     setBuildHeader,
+    setBatchFilter,
     addPick,
     removePick,
     swapPick,

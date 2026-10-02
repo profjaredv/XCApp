@@ -11,8 +11,9 @@ interface PhotoThumbProps {
   taggedWithArmed: boolean;
   pickedForArmed: boolean;
   initials: string[];
+  /** Capture time plus tag/pick state — the thumbnail's only accessible name. */
+  label: string;
   onClick: (e: React.MouseEvent) => void;
-  onMouseEnter?: () => void;
   onDoubleClick?: () => void;
 }
 
@@ -23,16 +24,17 @@ export const PhotoThumb: React.FC<PhotoThumbProps> = React.memo(function PhotoTh
   taggedWithArmed,
   pickedForArmed,
   initials,
+  label,
   onClick,
-  onMouseEnter,
   onDoubleClick,
 }) {
   return (
     <button
       type="button"
       data-photo-id={photo.id}
+      aria-label={label}
+      aria-pressed={selected}
       onClick={onClick}
-      onMouseEnter={onMouseEnter}
       onDoubleClick={onDoubleClick}
       className={cn(
         'group relative overflow-hidden rounded-md outline-offset-2 transition-shadow',

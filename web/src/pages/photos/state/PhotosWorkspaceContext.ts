@@ -32,6 +32,7 @@ export interface PhotosWorkspaceValue {
   untagSelected: () => void;
   togglePickSelected: () => void;
   hideSelected: () => void;
+  hidePhoto: (photoId: string) => void;
   undo: () => void;
   redo: () => void;
 
@@ -39,6 +40,7 @@ export interface PhotosWorkspaceValue {
   setBuildAthlete: (athleteId: string | null) => void;
   setBuildTemplate: (size: TemplateSize) => void;
   setBuildHeader: (patch: Partial<BuildHeader>) => void;
+  setBatchFilter: (photoIds: string[], meetId: string) => void;
   addPick: (athleteId: string, photoId: string) => void;
   removePick: (athleteId: string, photoId: string) => void;
   swapPick: (athleteId: string, position: number, photoId: string) => void;

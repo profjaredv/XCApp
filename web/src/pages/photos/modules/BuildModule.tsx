@@ -6,6 +6,8 @@ import { BuildRightPanel } from '../components/BuildRightPanel';
 import { CollagePreview } from '../components/CollagePreview';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { renderCollage } from '../lib/collageRender';
+import { athletesById as buildAthletesById } from '../lib/selectors';
+import { isPhotoVisible } from '../lib/tagRules';
 
 const EXPORT_W = 2550;
 const EXPORT_H = 3300;
@@ -18,12 +20,25 @@ export const BuildModule: React.FC = () => {
   const athleteId = state.buildAthleteId ?? linkedDefault;
   const athlete = state.athletes.find((a) => a.id === athleteId);
 
-  const picks = (athlete && state.picks[athlete.id]) || [];
-  const photosById = new Map(state.photos.map((p) => [p.id, p]));
-  const pickedPhotos = picks.map((id) => photosById.get(id));
+  const athletesByIdMap = buildAthletesById(state.athletes);
+  // Same rule the Tag grid enforces: a hidden photo, or one tagged with an
+  // opted-out athlete, must not surface here either — not in the preview,
+  // not in the exported PNG. Picks and the "add from tagged" list both
+  // read from this filtered map, never the raw photo list.
+  const visiblePhotosById = new Map(
+    state.photos
+      .filter((p) => isPhotoVisible(p, state.tags[p.id], athletesByIdMap, actor))
+      .map((p) => [p.id, p] as const),
+  );
+
+  const picks = ((athlete && state.picks[athlete.id]) || []).filter((id) => visiblePhotosById.has(id));
+  const pickedPhotos = picks.map((id) => visiblePhotosById.get(id));
+  const exportBlocked = Boolean(athlete?.photosOptOut);
 
   async function handleExport() {
-    if (!athlete) return;
+    // The spec's opt-out rule: an opted-out athlete is "skipped by collage
+    // generation" outright, not just hidden from grids.
+    if (!athlete || athlete.photosOptOut) return;
     const canvas = exportCanvasRef.current;
     if (!canvas) return;
     await renderCollage(
@@ -31,7 +46,7 @@ export const BuildModule: React.FC = () => {
       EXPORT_W,
       EXPORT_H,
       state.buildTemplateSize,
-      picks.map((id) => photosById.get(id)?.seed ?? 0),
+      picks.map((id) => visiblePhotosById.get(id)?.seed ?? 0),
       {
         name: state.buildHeader.name || athlete.preferredName || athlete.name,
         team: state.buildHeader.team,
@@ -41,7 +56,9 @@ export const BuildModule: React.FC = () => {
     const url = canvas.toDataURL('image/png');
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${(athlete.preferredName || athlete.name).replace(/\s+/g, '-').toLowerCase()}-collage.png`;
+    // Opaque id only — the spec's privacy rule bars an athlete's name from
+    // ever appearing in a key, URL, or download filename.
+    link.download = `leadpack-photos-collage-${athlete.id}.png`;
     link.click();
     toast.success('Collage exported', { description: `${EXPORT_W}×${EXPORT_H}px, ready to print at letter size.` });
   }
@@ -54,9 +71,10 @@ export const BuildModule: React.FC = () => {
       rightPanel={
         <BuildRightPanel
           athlete={athlete}
-          photosById={photosById}
+          photosById={visiblePhotosById}
           tags={state.tags}
           picks={picks}
+          exportBlocked={exportBlocked}
           onExport={handleExport}
         />
       }

@@ -28,7 +28,7 @@ import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
 import SplitsEntryPage from '../pages/SplitsEntryPage';
 import RaceLiveTimerPage from '../pages/RaceLiveTimerPage';
-import PhotosWorkspacePage from '../pages/photos/PhotosWorkspacePage';
+import PhotosDevGate from '../pages/photos/PhotosDevGate';
 import LandingPage from '../pages/LandingPage';
 // Enhanced analytics now integrated into main analytics page
 import ProtectedRoute from './ProtectedRoute';
@@ -227,7 +227,7 @@ export const router = createBrowserRouter([
               // that shares the sidebar chrome.
               {
                 path: 'photos',
-                element: <PhotosWorkspacePage />,
+                element: <PhotosDevGate />,
               },
               // Splits entry grid (C6) - standalone without Layout too,
               // opened full screen from a race's context menu. Its own
