@@ -325,6 +325,15 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     return meet.id;
   }, []);
 
+  // Re-fetches the team's photos and folds in whatever the client doesn't
+  // already know — see reducer.ts's PHOTOS_REFRESHED. The one caller today
+  // is a Google Photos album import (modules/LoadModule.tsx), which adds
+  // rows server-side without a local FILE_READY-style id to dispatch.
+  const refreshPhotos = useCallback(async () => {
+    const { photos, tags } = await photosService.listPhotos();
+    dispatch({ type: 'PHOTOS_REFRESHED', photos, tags });
+  }, []);
+
   const setBuildAthlete = useCallback((athleteId: string | null) => dispatch({ type: 'SET_BUILD_ATHLETE', athleteId }), []);
   const setBuildTemplate = useCallback((size: TemplateSize) => dispatch({ type: 'SET_BUILD_TEMPLATE', size }), []);
   const setBuildHeader = useCallback((patch: Partial<BuildHeader>) => dispatch({ type: 'SET_BUILD_HEADER', patch }), []);
@@ -411,6 +420,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     undo,
     redo,
     addMeet,
+    refreshPhotos,
     setBuildAthlete,
     setBuildTemplate,
     setBuildHeader,

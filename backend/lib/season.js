@@ -64,6 +64,33 @@ function hasGraduated(graduationYear, season) {
   return graduationYear <= season;
 }
 
+// "Is this specific athlete on the roster for this season?" — the
+// single-athlete counterpart to the batch logic routes/athletes.js's GET /
+// and routes/photos.js's GET /roster each compute for a whole roster at
+// once (an explicit SeasonRoster row wins when the team keeps one, else
+// having raced this season or still being enrolled by grade). Used where
+// enforcing it server-side matters more than listing it: LeadPack Photos
+// tagging and picks must not let someone tag or pick a season a graduated
+// senior isn't actually part of, even from a stale cached roster or a
+// direct API call.
+async function isAthleteOnSeasonRoster(athleteId, teamId, season) {
+  const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId }, select: { graduationYear: true } });
+  if (!athlete) return false;
+
+  const seasonRow = await prisma.season.findFirst({ where: { teamId, year: season }, select: { id: true } });
+  if (seasonRow) {
+    const rosterEntry = await prisma.seasonRoster.findFirst({ where: { seasonId: seasonRow.id, athleteId } });
+    if (rosterEntry) return rosterEntry.isActive;
+    // No row for THIS athlete, but the team might still keep an explicit
+    // roster for others — check before falling back to the inferred rule.
+    const anyRosterForSeason = await prisma.seasonRoster.findFirst({ where: { seasonId: seasonRow.id }, select: { id: true } });
+    if (anyRosterForSeason) return false;
+  }
+
+  const raceCount = await prisma.result.count({ where: { teamId, athleteId, race: { season } } });
+  return raceCount > 0 || isEnrolled(athlete.graduationYear, season);
+}
+
 // Seasons this team actually has race data for, newest first.
 async function listSeasonsWithData(teamId) {
   const races = await prisma.race.findMany({
@@ -191,6 +218,7 @@ module.exports = {
   deriveGraduationYear,
   isEnrolled,
   hasGraduated,
+  isAthleteOnSeasonRoster,
   listSeasonsWithData,
   resolveActiveSeason,
   resolveTodaySeasonState,

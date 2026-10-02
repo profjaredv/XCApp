@@ -12,7 +12,7 @@
 const crypto = require('crypto');
 const { hasTeamRole } = require('../middleware/auth');
 const { ANY_COACH } = require('./teamRoles');
-const { resolveActiveSeason } = require('./season');
+const { resolveActiveSeason, isAthleteOnSeasonRoster } = require('./season');
 const { authorizeTag, canManageAthlete, canRemoveTag, canHidePhoto } = require('./photoTagRules');
 const r2 = require('./r2');
 
@@ -234,6 +234,15 @@ async function tagPhoto(prisma, teamId, photoId, athleteId, actor) {
     err.statusCode = 404;
     throw err;
   }
+  // Tagging is locked to the current season's roster, not everyone who
+  // has ever worn the uniform — a graduated senior from three seasons ago
+  // showing up in the armed-athlete search was the actual bug report.
+  const seasonYear = await resolveActiveSeason(teamId);
+  if (!(await isAthleteOnSeasonRoster(athleteId, teamId, seasonYear))) {
+    const err = new Error('That athlete is not on this season\'s roster.');
+    err.statusCode = 409;
+    throw err;
+  }
 
   return prisma.photoAthlete.upsert({
     where: { photoId_athleteId: { photoId, athleteId } },
@@ -374,6 +383,32 @@ async function setAthleteOptOut(prisma, teamId, athleteId, optOut, actor) {
   return prisma.athlete.update({ where: { id: athleteId }, data: { photosOptOut: Boolean(optOut) } });
 }
 
+// --- Import (Google Photos album) -----------------------------------------
+
+/**
+ * Creates a photo row directly as READY from bytes the server already has
+ * in hand (lib/googlePhotosImport.js). Unlike the browser upload path
+ * (authorize -> presigned PUT -> finalize), there is no separate client to
+ * hand a presigned URL to — the server downloaded the original itself, so
+ * it uploads all three objects itself too, and marks the row ready right
+ * away rather than re-checking R2 for what it just wrote.
+ */
+async function importReadyPhoto(prisma, { teamId, meetId, uploadedById, originalBuffer, thumbBuffer, webBuffer, sha256, width, height }) {
+  const existing = await findExistingByHash(prisma, teamId, sha256);
+  if (existing) return { duplicate: true, photoId: existing.id };
+
+  const photo = await createPendingPhoto(prisma, { teamId, meetId, sha256, uploadedById, width, height });
+
+  await Promise.all([
+    r2.putObject(photo.objectKey, originalBuffer, 'image/jpeg'),
+    r2.putObject(r2.photoThumbKey(teamId, photo.id), thumbBuffer, 'image/webp'),
+    r2.putObject(r2.photoWebKey(teamId, photo.id), webBuffer, 'image/webp'),
+  ]);
+
+  await prisma.photo.update({ where: { id: photo.id }, data: { status: 'READY' } });
+  return { duplicate: false, photoId: photo.id };
+}
+
 module.exports = {
   MAX_PICKS,
   resolveActor,
@@ -391,4 +426,5 @@ module.exports = {
   setPhotoHidden,
   deleteTeamPhoto,
   setAthleteOptOut,
+  importReadyPhoto,
 };

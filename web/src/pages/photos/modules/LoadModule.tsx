@@ -1,9 +1,10 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { Plus, RotateCcw, Tags, Upload } from 'lucide-react';
+import { ImageDown, Loader2, Plus, RotateCcw, Tags, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import { getApiErrorMessage } from '@/lib/apiError';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { photosService, type AuthorizeFile } from '../../../api/photosService';
 import { hashFile, putWithProgress } from '../lib/uploadPipeline';
@@ -35,10 +36,12 @@ async function runPool(count: number, concurrency: number, worker: (index: numbe
 }
 
 export const LoadModule: React.FC = () => {
-  const { state, dispatch, setModule, setBatchFilter, addMeet } = usePhotosWorkspace();
+  const { state, dispatch, setModule, setBatchFilter, addMeet, refreshPhotos } = usePhotosWorkspace();
   const [loadMeetId, setLoadMeetId] = useState(state.meets[state.meets.length - 1]?.id ?? '');
   const [newMeetName, setNewMeetName] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [googleAlbumUrl, setGoogleAlbumUrl] = useState('');
+  const [importingAlbum, setImportingAlbum] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -218,6 +221,34 @@ export const LoadModule: React.FC = () => {
     startBatch(Array.from(e.dataTransfer.files));
   }
 
+  // Runs entirely server-side (backend/lib/googlePhotosImport.js) — there's
+  // no per-file progress to show, just a wait and a final tally. Can take
+  // a few minutes for a large album.
+  async function handleGoogleImport() {
+    const url = googleAlbumUrl.trim();
+    if (!loadMeetId || !url || importingAlbum) return;
+    setImportingAlbum(true);
+    try {
+      const summary = await photosService.importGoogleAlbum(loadMeetId, url);
+      await refreshPhotos();
+      const parts = [`${summary.imported} added`];
+      if (summary.duplicates > 0) parts.push(`${summary.duplicates} already had`);
+      if (summary.failed > 0) parts.push(`${summary.failed} failed`);
+      if (summary.truncated > 0) parts.push(`${summary.truncated} skipped (album too large for one import)`);
+      if (summary.failed > 0) {
+        toast.warning(`Google Photos import: ${parts.join(', ')}.`, { description: summary.failedDetails[0] });
+      } else {
+        toast.success(`Google Photos import: ${parts.join(', ')}.`);
+      }
+      setGoogleAlbumUrl('');
+    } catch (error) {
+      console.error('Google Photos import failed:', error);
+      toast.error(getApiErrorMessage(error, "Couldn't import that album."));
+    } finally {
+      setImportingAlbum(false);
+    }
+  }
+
   const files = currentBatch?.files ?? [];
   const done = files.filter((f) => f.status === 'done').length;
   const duplicates = files.filter((f) => f.status === 'duplicate').length;
@@ -271,6 +302,27 @@ export const LoadModule: React.FC = () => {
             aria-label="Add meet"
           >
             <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="space-y-1.5 border-t border-ink-border pt-3">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Import from Google Photos</div>
+          <input
+            value={googleAlbumUrl}
+            onChange={(e) => setGoogleAlbumUrl(e.target.value)}
+            placeholder="Public album link"
+            disabled={importingAlbum}
+            className="w-full rounded-md bg-ink-border/40 px-2 py-1.5 text-xs text-ink-foreground outline-none placeholder:text-ink-muted disabled:opacity-60"
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            className="w-full gap-1.5"
+            disabled={!loadMeetId || !googleAlbumUrl.trim() || importingAlbum}
+            onClick={handleGoogleImport}
+          >
+            {importingAlbum ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
+            {importingAlbum ? 'Importing…' : `Import into ${state.meets.find((m) => m.id === loadMeetId)?.name || 'this meet'}`}
           </Button>
         </div>
       </div>

@@ -29,6 +29,7 @@ const {
   deleteTeamPhoto,
   setAthleteOptOut,
   resolveActor,
+  importReadyPhoto,
 } = photosAccess;
 
 function stub(model, method, impl) {
@@ -341,9 +342,12 @@ test('tagPhoto 404s on a photo from another team even for a coach', async () => 
 test('tagPhoto upserts with the resolved source and the real tagger id, never a client-supplied one', async () => {
   const actor = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: ['athlete-2'], linkedAthleteIds: ['athlete-2'] };
   let seenCreate;
+  const restoreSeason = withActiveSeason({ id: 'season-1', teamId: 'team-1', year: 2026 });
   const restores = [
     stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
     stub('athlete', 'findFirst', () => ({ id: 'athlete-2', teamId: 'team-1' })),
+    stub('seasonRoster', 'findFirst', () => null), // no explicit roster for the team -> fall back to the inferred rule
+    stub('result', 'count', () => 1), // "raced this season" is enough to count as on the roster
     stub('photoAthlete', 'upsert', (args) => {
       seenCreate = args.create;
       return args.create;
@@ -353,6 +357,49 @@ test('tagPhoto upserts with the resolved source and the real tagger id, never a 
     await tagPhoto(prisma, 'team-1', 'photo-1', 'athlete-2', actor);
     assert.deepEqual(seenCreate, { photoId: 'photo-1', athleteId: 'athlete-2', taggedBy: 'parent-1', source: 'PARENT' });
   } finally {
+    restoreSeason();
+    restores.forEach((r) => r());
+  }
+});
+
+test('tagPhoto refuses an athlete who is not on the current season\'s roster (rule: locked to the current season)', async () => {
+  // The actual bug report: a graduated senior from a past season was
+  // still tag-eligible, because nothing but team membership was checked.
+  const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restoreSeason = withActiveSeason({ id: 'season-1', teamId: 'team-1', year: 2026 });
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
+    // graduationYear in the past relative to the active season, and no
+    // explicit roster row and no results this season — neither raced nor
+    // still enrolled.
+    stub('athlete', 'findFirst', () => ({ id: 'athlete-grad', teamId: 'team-1', graduationYear: 2022 })),
+    stub('seasonRoster', 'findFirst', () => null),
+    stub('result', 'count', () => 0),
+  ];
+  try {
+    await assert.rejects(
+      () => tagPhoto(prisma, 'team-1', 'photo-1', 'athlete-grad', actor),
+      /not on this season's roster/,
+    );
+  } finally {
+    restoreSeason();
+    restores.forEach((r) => r());
+  }
+});
+
+test('tagPhoto allows an athlete explicitly marked active on this season\'s roster, even off the inferred rule', async () => {
+  const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restoreSeason = withActiveSeason({ id: 'season-1', teamId: 'team-1', year: 2026 });
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
+    stub('athlete', 'findFirst', () => ({ id: 'athlete-1', teamId: 'team-1', graduationYear: 2022 })),
+    stub('seasonRoster', 'findFirst', () => ({ athleteId: 'athlete-1', seasonId: 'season-1', isActive: true })),
+    stub('photoAthlete', 'upsert', (args) => args.create),
+  ];
+  try {
+    await tagPhoto(prisma, 'team-1', 'photo-1', 'athlete-1', actor);
+  } finally {
+    restoreSeason();
     restores.forEach((r) => r());
   }
 });
@@ -506,4 +553,70 @@ test('setAthleteOptOut lets a guardian opt out their own linked athlete', async 
 test('setAthleteOptOut refuses a guardian acting on an athlete they have no link to', async () => {
   const actor = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: ['athlete-2'], linkedAthleteIds: ['athlete-2'] };
   await assert.rejects(() => setAthleteOptOut(prisma, 'team-1', 'athlete-99', true, actor), /cannot change/);
+});
+
+// ---------------------------------------------------------------------------
+// importReadyPhoto (Google Photos album import)
+// ---------------------------------------------------------------------------
+
+test('importReadyPhoto skips a hash the team already has, without touching R2', async () => {
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'existing-photo', teamId: 'team-1' })),
+    stubR2('putObject', () => {
+      throw new Error('should not upload a duplicate');
+    }),
+  ];
+  try {
+    const result = await importReadyPhoto(prisma, {
+      teamId: 'team-1',
+      meetId: 'meet-1',
+      uploadedById: 'coach-1',
+      originalBuffer: Buffer.from('x'),
+      thumbBuffer: Buffer.from('y'),
+      webBuffer: Buffer.from('z'),
+      sha256: 'dupe-hash',
+      width: 100,
+      height: 100,
+    });
+    assert.deepEqual(result, { duplicate: true, photoId: 'existing-photo' });
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
+test('importReadyPhoto uploads all three objects and marks the row ready directly, no R2 re-check', async () => {
+  const putKeys = [];
+  let updatedTo;
+  const restores = [
+    stub('photo', 'findFirst', () => null), // no existing hash
+    stub('photo', 'create', (args) => args.data),
+    stub('photo', 'update', (args) => {
+      updatedTo = args.data.status;
+      return { ...args.data };
+    }),
+    stubR2('putObject', (key) => {
+      putKeys.push(key);
+    }),
+  ];
+  try {
+    const result = await importReadyPhoto(prisma, {
+      teamId: 'team-1',
+      meetId: 'meet-1',
+      uploadedById: 'coach-1',
+      originalBuffer: Buffer.from('orig'),
+      thumbBuffer: Buffer.from('thumb'),
+      webBuffer: Buffer.from('web'),
+      sha256: 'new-hash',
+      width: 800,
+      height: 600,
+    });
+    assert.equal(result.duplicate, false);
+    assert.equal(putKeys.length, 3);
+    assert.ok(putKeys.some((k) => k.endsWith('orig.jpg')));
+    assert.ok(putKeys.some((k) => k.endsWith('thumb.webp')));
+    assert.ok(putKeys.some((k) => k.endsWith('web.webp')));
+    assert.equal(updatedTo, 'READY');
+  } finally {
+    restores.forEach((r) => r());
+  }
 });
