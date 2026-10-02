@@ -11,7 +11,7 @@ const prisma = require('../lib/db');
 const photosAccess = require('../lib/photosAccess');
 const googlePhotosImport = require('../lib/googlePhotosImport');
 const { validateGooglePhotosUrl, importGoogleAlbum, downloadOriginal } = googlePhotosImport;
-const { baseUrlOf } = require('../scrape_google_photos_album');
+const { baseUrlOf, extractEmbeddedPhotoUrlsFromHtml } = require('../scrape_google_photos_album');
 
 function stub(obj, method, impl) {
   const original = obj[method];
@@ -68,6 +68,55 @@ test('baseUrlOf strips the size suffix', () => {
 
 test('baseUrlOf rejects a non-lh3 URL', () => {
   assert.equal(baseUrlOf('https://example.com/photo.jpg'), null);
+});
+
+// ---------------------------------------------------------------------------
+// extractEmbeddedPhotoUrlsFromHtml — the actual fix for the real-world bug
+// where a 197-photo album only ever imported 30: the virtualized gallery
+// only ever has ~30 photos rendered as <img> DOM nodes at once, but the
+// full list is already in the page's own HTML (its hydration payload).
+// Confirmed against a real live album in development; this pins the
+// extraction regex so it keeps finding every photo URL embedded in the
+// page and keeps ignoring contributor avatar images, which live under a
+// different lh3.googleusercontent.com path and are not album content.
+// ---------------------------------------------------------------------------
+
+test('extractEmbeddedPhotoUrlsFromHtml finds every "/pw/" photo URL embedded in the page, however it is wrapped', () => {
+  const html = `
+    <html><body>
+      <img src="https://lh3.googleusercontent.com/pw/AAA111=w200-h150-no">
+      <script>var data = ["https://lh3.googleusercontent.com/pw/BBB222", "unrelated"];</script>
+      <div data-src="https://lh3.googleusercontent.com/pw/CCC333=d"></div>
+    </body></html>
+  `;
+  const urls = extractEmbeddedPhotoUrlsFromHtml(html);
+  assert.deepEqual(
+    [...urls].sort(),
+    ['https://lh3.googleusercontent.com/pw/AAA111', 'https://lh3.googleusercontent.com/pw/BBB222', 'https://lh3.googleusercontent.com/pw/CCC333'].sort(),
+  );
+});
+
+test('extractEmbeddedPhotoUrlsFromHtml ignores contributor avatar images (a different lh3 path, not album content)', () => {
+  const html = `
+    <img src="https://lh3.googleusercontent.com/a/ACg8ocLFnsRMYo98G2UNrtpCj6403ouUNKxEjFXlLJmWKkPU3YU-=s64">
+    <img src="https://lh3.googleusercontent.com/ogw/default-user=s64">
+    <img src="https://lh3.googleusercontent.com/pw/RealPhoto1">
+  `;
+  const urls = extractEmbeddedPhotoUrlsFromHtml(html);
+  assert.deepEqual([...urls], ['https://lh3.googleusercontent.com/pw/RealPhoto1']);
+});
+
+test('extractEmbeddedPhotoUrlsFromHtml collapses the same photo seen at multiple rendered sizes', () => {
+  const html = `
+    <img src="https://lh3.googleusercontent.com/pw/SamePhoto=w200-h150-no">
+    <img src="https://lh3.googleusercontent.com/pw/SamePhoto=w512-h384">
+  `;
+  const urls = extractEmbeddedPhotoUrlsFromHtml(html);
+  assert.deepEqual([...urls], ['https://lh3.googleusercontent.com/pw/SamePhoto']);
+});
+
+test('extractEmbeddedPhotoUrlsFromHtml returns an empty set when nothing matches', () => {
+  assert.deepEqual([...extractEmbeddedPhotoUrlsFromHtml('<html><body>No photos here</body></html>')], []);
 });
 
 // ---------------------------------------------------------------------------
