@@ -93,14 +93,64 @@ function runAlbumScraper(albumUrl) {
   });
 }
 
-// '=d' is Google Photos' long-standing URL convention for the original,
-// unmodified file rather than a resized rendition — see
-// scrape_google_photos_album.js's header comment for why there's no more
-// official way to ask for it.
-async function downloadOriginal(baseUrl) {
-  const response = await fetch(`${baseUrl}=d`);
-  if (!response.ok) throw new Error(`Download failed (HTTP ${response.status}).`);
-  return Buffer.from(await response.arrayBuffer());
+// A bare `fetch` with no headers reads as an obvious script to a CDN, and
+// the first real-world test of this feature came back reporting success
+// while writing nothing anywhere — the strong suspicion is that Google's
+// '=d' (original-file) tier checks something an anonymous headless-browser
+// page load satisfies by just being a browser (a Referer, a real
+// User-Agent) that Node's bare fetch sends none of, even though the exact
+// same account-less, cookie-less browser context successfully rendered
+// thumbnails from the exact same page a moment earlier in
+// scrape_google_photos_album.js. Sent here too, not proof the theory is
+// right — but cheap, and the kind of thing that silently breaks scraping
+// either way.
+const USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+// A real meet photo is never this small; a blocked or placeholder response
+// that still happens to decode as an image usually is. This is what turns
+// "reported success, wrote nothing" into a loud, debuggable failure instead
+// of silently importing garbage — which is exactly what shipped the first
+// time, since nothing checked that the bytes downloaded were actually a
+// real photo.
+const MIN_VALID_DIMENSION_PX = 64;
+
+async function fetchImageBytes(url, refererUrl) {
+  const response = await fetch(url, {
+    headers: { 'User-Agent': USER_AGENT, Referer: refererUrl, Accept: 'image/*,*/*;q=0.8' },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length === 0) throw new Error('empty response body');
+  return buffer;
+}
+
+/**
+ * Downloads one photo at the best quality this scraping approach can
+ * reliably get, returning both the bytes and their decoded dimensions (so
+ * the caller never has to decode twice). Tries '=d' — Google Photos' own
+ * long-standing convention for the original, unmodified file — first, and
+ * falls back to a large sized rendition (`=w4096-h4096`, the same kind of
+ * request the share page's own lightbox view uses, well above anything
+ * this app needs for its own thumb/web derivatives) if '=d' comes back
+ * empty, non-image, or suspiciously tiny.
+ */
+async function downloadOriginal(baseUrl, refererUrl) {
+  const attempts = [`${baseUrl}=d`, `${baseUrl}=w4096-h4096`];
+  let lastError = new Error('no attempt ran');
+  for (const url of attempts) {
+    try {
+      const buffer = await fetchImageBytes(url, refererUrl);
+      const metadata = await sharp(buffer).metadata();
+      if (!metadata.width || !metadata.height || metadata.width < MIN_VALID_DIMENSION_PX || metadata.height < MIN_VALID_DIMENSION_PX) {
+        throw new Error(`decoded as ${metadata.width ?? '?'}x${metadata.height ?? '?'}px — too small to be a real photo`);
+      }
+      return { buffer, width: metadata.width, height: metadata.height };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(`Could not download a usable image (${lastError.message}).`);
 }
 
 /**
@@ -135,9 +185,8 @@ async function importGoogleAlbum(prisma, { teamId, meetId, albumUrl, uploadedByI
     while (next < toImport.length) {
       const url = toImport[next++];
       try {
-        const originalBuffer = await module.exports.downloadOriginal(url);
+        const { buffer: originalBuffer, width, height } = await module.exports.downloadOriginal(url, albumUrl);
         const sha256 = crypto.createHash('sha256').update(originalBuffer).digest('hex');
-        const metadata = await sharp(originalBuffer).metadata();
         const [thumbBuffer, webBuffer] = await Promise.all([
           sharp(originalBuffer)
             .rotate() // auto-orient from EXIF before resizing, same as a phone photo shot in portrait
@@ -159,19 +208,24 @@ async function importGoogleAlbum(prisma, { teamId, meetId, albumUrl, uploadedByI
           thumbBuffer,
           webBuffer,
           sha256,
-          width: metadata.width,
-          height: metadata.height,
+          width,
+          height,
         });
         if (result.duplicate) summary.duplicates += 1;
         else summary.imported += 1;
       } catch (error) {
         summary.failed += 1;
         summary.failedDetails.push(error.message);
+        console.error(`Google Photos import: failed on ${url}: ${error.message}`);
       }
     }
   }
 
+  console.error(`Google Photos import: found ${urls.length} photo(s) in album, importing up to ${toImport.length}.`);
   await Promise.all(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, toImport.length) }, worker));
+  console.error(
+    `Google Photos import: done — ${summary.imported} imported, ${summary.duplicates} duplicate, ${summary.failed} failed.`,
+  );
 
   return { ...summary, total: urls.length, truncated };
 }
