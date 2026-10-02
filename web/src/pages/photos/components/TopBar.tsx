@@ -76,12 +76,12 @@ export const TopBar: React.FC = () => {
         </button>
       </div>
 
-      {/* Dev-only: Phase 1 has no real guardian/role wiring yet, so this
-          stands in for "sign in as a coach" vs. "sign in as a family" —
-          see the comment on DEV_FAMILY_LINKED_ATHLETE_IDS. Gated on the
-          build mode itself (not just "not linked from nav"), so it can't
-          be exercised by a production user even if the route it lives on
-          is ever reached — e.g. before Phase 2's real feature flag lands. */}
+      {/* Dev-only: lets a reviewer preview the family experience against
+          real data without a second real account — see
+          PhotosWorkspaceProvider's devPreviewRole/devFamilyAthleteIds,
+          which borrow real ids off the loaded roster. A production build
+          never renders this (import.meta.env.DEV is false), so a real
+          user always gets their own actual role from GET /photos/me. */}
       {import.meta.env.DEV && (
         <select
           value={state.previewRole}

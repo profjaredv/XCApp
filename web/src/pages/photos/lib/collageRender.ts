@@ -1,5 +1,4 @@
 import { templateFor } from './templates';
-import { placeholderWebUrl } from '../data/placeholderPhoto';
 import type { TemplateSize } from '../state/types';
 
 export interface CollageHeaderText {
@@ -8,9 +7,15 @@ export interface CollageHeaderText {
   season: string;
 }
 
+// crossOrigin is required for the canvas this draws onto to stay
+// "untainted" — without it, drawImage still renders on screen but
+// canvas.toDataURL() (the export in modules/BuildModule.tsx) throws a
+// SecurityError. This only works if R2's bucket CORS rule allows GET (not
+// just PUT) from this app's origin — see backend/.env.example.
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = reject;
     img.src = src;
@@ -37,7 +42,7 @@ export async function renderCollage(
   pageWidth: number,
   pageHeight: number,
   templateSize: TemplateSize,
-  photoSeeds: number[],
+  photoUrls: string[],
   header: CollageHeaderText,
 ): Promise<void> {
   canvas.width = pageWidth;
@@ -50,7 +55,7 @@ export async function renderCollage(
   ctx.fillStyle = '#f7f6f2';
   ctx.fillRect(0, 0, pageWidth, pageHeight);
 
-  const images = await Promise.all(photoSeeds.map((seed) => loadImage(placeholderWebUrl(seed))));
+  const images = await Promise.all(photoUrls.map((url) => (url ? loadImage(url) : Promise.resolve(null))));
 
   template.slots.forEach((rect, i) => {
     const img = images[i];

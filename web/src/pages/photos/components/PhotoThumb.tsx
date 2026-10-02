@@ -1,7 +1,6 @@
 import React from 'react';
 import { Check, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { placeholderThumbUrl } from '../data/placeholderPhoto';
 import type { Photo } from '../state/types';
 
 interface PhotoThumbProps {
@@ -43,9 +42,10 @@ export const PhotoThumb: React.FC<PhotoThumbProps> = React.memo(function PhotoTh
       style={{ width: size, height: size * 0.667 }}
     >
       <img
-        src={placeholderThumbUrl(photo.seed, Math.round(size), Math.round(size * 0.667))}
+        src={photo.thumbUrl}
         alt=""
         draggable={false}
+        loading="lazy"
         className="h-full w-full select-none object-cover"
       />
 

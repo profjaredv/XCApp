@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { placeholderWebUrl } from '../data/placeholderPhoto';
 import type { Photo } from '../state/types';
 
 interface LoupeProps {
@@ -95,15 +94,15 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
       )}
 
       <img
-        src={placeholderWebUrl(photo.seed)}
+        src={photo.webUrl}
         alt=""
         className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       />
       {/* Prefetch the neighbors so stepping never shows a blank frame. */}
       <div className="hidden">
-        {prev && <img src={placeholderWebUrl(prev.seed)} alt="" />}
-        {next && <img src={placeholderWebUrl(next.seed)} alt="" />}
+        {prev && <img src={prev.webUrl} alt="" />}
+        {next && <img src={next.webUrl} alt="" />}
       </div>
     </div>
   );

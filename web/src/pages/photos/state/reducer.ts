@@ -24,6 +24,9 @@ export interface BuildHeader {
 }
 
 export interface WorkspaceState {
+  loading: boolean;
+  bootstrapError: string | null;
+
   athletes: Athlete[];
   meets: Meet[];
   photos: Photo[];
@@ -66,6 +69,15 @@ interface HistoryEntry {
 }
 
 export type Action =
+  | {
+      type: 'BOOTSTRAPPED';
+      athletes: Athlete[];
+      meets: Meet[];
+      photos: Photo[];
+      tags: PhotoAthleteTags;
+      picks: AthletePicks;
+    }
+  | { type: 'BOOTSTRAP_FAILED'; error: string }
   | { type: 'SET_MODULE'; module: Module }
   | { type: 'SET_PREVIEW_ROLE'; role: PreviewRole; defaultArmedAthleteId: string | null }
   | { type: 'ARM_ATHLETE'; athleteId: string | null }
@@ -135,6 +147,19 @@ function applyBackward(state: WorkspaceState, entry: HistoryEntry): WorkspaceSta
 
 export function workspaceReducer(state: WorkspaceState, action: Action): WorkspaceState {
   switch (action.type) {
+    case 'BOOTSTRAPPED':
+      return {
+        ...state,
+        loading: false,
+        bootstrapError: null,
+        athletes: action.athletes,
+        meets: action.meets,
+        photos: action.photos,
+        tags: action.tags,
+        picks: action.picks,
+      };
+    case 'BOOTSTRAP_FAILED':
+      return { ...state, loading: false, bootstrapError: action.error };
     case 'SET_MODULE':
       return { ...state, module: action.module, selectedPhotoIds: [], anchorPhotoId: null, loupePhotoId: null };
     case 'SET_PREVIEW_ROLE': {

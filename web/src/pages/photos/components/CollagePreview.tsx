@@ -23,8 +23,8 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
     useEffect(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const seeds = photos.map((p) => p?.seed ?? 0);
-      void renderCollage(canvas, PAGE_W, PAGE_H, templateSize, seeds, header);
+      const urls = photos.map((p) => p?.webUrl ?? '');
+      void renderCollage(canvas, PAGE_W, PAGE_H, templateSize, urls, header);
     }, [canvasRef, templateSize, photos, header]);
 
     return (

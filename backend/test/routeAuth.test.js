@@ -14,7 +14,21 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const ROUTES_DIR = path.join(__dirname, '..', 'routes');
 
-const GUARD_NAMES = new Set(['requireTeam', 'requireRole', 'requireLinkedAthlete', 'requireApprovedGuardianLink', 'requireSuperAdmin']);
+const GUARD_NAMES = new Set([
+  'requireTeam',
+  'requireRole',
+  'requireLinkedAthlete',
+  'requireApprovedGuardianLink',
+  'requireSuperAdmin',
+  // routes/photos.js's own guard for routes coach, athlete, AND guardian
+  // accounts can all reach: a parent is never a TeamMember (see
+  // requireApprovedGuardianLink above), so requireTeam can't apply to
+  // them. resolvePhotosTeam rejects (403) anyone with neither a real team
+  // membership nor an approved GuardianLink — the same "this boundary
+  // grants no access by itself, it only establishes which team's photos
+  // this account may touch" shape as requireApprovedGuardianLink.
+  'resolvePhotosTeam',
+]);
 
 // Routes that intentionally carry no guard beyond `authenticate`, and why.
 // This is a real allowlist, not an escape hatch — every entry is a route

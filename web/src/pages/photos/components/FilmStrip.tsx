@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { placeholderThumbUrl } from '../data/placeholderPhoto';
 import type { Photo } from '../state/types';
 
 interface FilmStripProps {
@@ -48,7 +47,7 @@ export const FilmStrip: React.FC<FilmStripProps> = ({ photos, scoped, selectedId
             selectedId === photo.id && 'ring-2 ring-accent',
           )}
         >
-          <img src={placeholderThumbUrl(photo.seed, 64, 48)} alt="" className="h-full w-full object-cover" draggable={false} />
+          <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" draggable={false} loading="lazy" />
         </button>
       ))}
       {photos.length > MAX_RENDERED && (

@@ -1,111 +1,221 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Plus, RotateCcw, Tags, Upload } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
-import { placeholderThumbUrl } from '../data/placeholderPhoto';
+import { photosService, type AuthorizeFile } from '../../../api/photosService';
+import { hashFile, putWithProgress } from '../lib/uploadPipeline';
+import { makeThumb, makeWeb } from '../lib/resize';
+import { readCaptureTime, readImageDimensions } from '../lib/exif';
 import type { LoadBatch, LoadBatchFile, Photo } from '../state/types';
 
-let photoCounter = 0;
-function nextPhotoSeed() {
-  photoCounter += 1;
-  return Date.now() % 1_000_000 + photoCounter;
+// A few photos in parallel (spec: "the browser... uploads all three
+// objects directly to R2, a few photos in parallel") — enough to fill a
+// typical connection without the browser opening hundreds of sockets at
+// once for a 400-photo meet.
+const UPLOAD_CONCURRENCY = 4;
+// Hashing/EXIF-reading is CPU/IO-bound, not network-bound, so it can run
+// at a higher concurrency than the actual uploads.
+const PREP_CONCURRENCY = 6;
+// Mirrors backend/routes/photos.js's MAX_FILES_PER_AUTHORIZE.
+const MAX_FILES_PER_AUTHORIZE = 60;
+
+/** Runs `worker` over indices [0, count) with at most `concurrency` in flight at once. */
+async function runPool(count: number, concurrency: number, worker: (index: number) => Promise<void>): Promise<void> {
+  let next = 0;
+  async function runner() {
+    while (next < count) {
+      const i = next++;
+      await worker(i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, count) }, runner));
 }
 
 export const LoadModule: React.FC = () => {
-  const { state, dispatch, setModule, setBatchFilter } = usePhotosWorkspace();
+  const { state, dispatch, setModule, setBatchFilter, addMeet } = usePhotosWorkspace();
   const [loadMeetId, setLoadMeetId] = useState(state.meets[state.meets.length - 1]?.id ?? '');
   const [newMeetName, setNewMeetName] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Real File objects, keyed by `${batchId}:${fileId}` — kept out of Redux
+  // state, which only tracks what the UI renders (status/progress), not
+  // raw bytes. Cleared per file once it's done so a 400-photo batch
+  // doesn't hold every original in memory for longer than it has to.
+  const filesRef = useRef(new Map<string, File>());
 
   // Most RECENT matching batch — re-dropping into a meet that already has
   // one appends a new batch, and `find` alone would keep pinning the UI
   // (progress, pause, "Tag these now") to the first, now-stale one.
   const currentBatch = [...state.loadBatches].reverse().find((b) => b.meetId === loadMeetId);
 
-  const processFile = useCallback(
-    (batchId: string, fileId: string) => {
-      const tick = () => {
-        const batch = stateRef.current.loadBatches.find((b) => b.id === batchId);
-        if (!batch) return;
-        if (batch.paused) {
-          setTimeout(tick, 250);
-          return;
-        }
-        const file = batch.files.find((f) => f.id === fileId);
-        if (!file || file.status === 'error' || file.status === 'duplicate') return;
-
-        const nextProgress = Math.min(100, file.progress + 15 + Math.random() * 15);
-        if (nextProgress >= 100) {
-          // ~8% chance of a simulated duplicate (re-running the same batch
-          // skips it silently, per the spec) and a ~4% chance of a transient
-          // upload error that the per-file Retry button recovers from.
-          const roll = Math.random();
-          if (roll < 0.08) {
-            dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { status: 'duplicate', progress: 100 } });
-            return;
-          }
-          if (roll < 0.12) {
-            dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { status: 'error', progress: nextProgress } });
-            return;
-          }
-          const photo: Photo = {
-            id: `photo-load-${batchId}-${fileId}`,
-            meetId: loadMeetId,
-            takenAt: new Date().toISOString(),
-            width: 1600,
-            height: 1067,
-            status: 'ready',
-            seed: nextPhotoSeed(),
-          };
-          dispatch({ type: 'FILE_READY', batchId, fileId, photo });
-          return;
-        }
-        dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { status: 'uploading', progress: nextProgress } });
-        setTimeout(tick, 200 + Math.random() * 200);
-      };
-      tick();
+  const isPaused = useCallback(
+    (batchId: string) => stateRef.current.loadBatches.find((b) => b.id === batchId)?.paused ?? false,
+    [],
+  );
+  const waitWhilePaused = useCallback(
+    async (batchId: string) => {
+      while (isPaused(batchId)) await new Promise((r) => setTimeout(r, 250));
     },
-    [dispatch, loadMeetId],
+    [isPaused],
   );
 
-  function startBatch(names: string[]) {
-    if (!loadMeetId || names.length === 0) return;
+  const uploadResult = useCallback(
+    async (
+      batchId: string,
+      meetId: string,
+      fileId: string,
+      file: File,
+      meta: AuthorizeFile,
+      result: { photoId: string; duplicate: boolean; putUrls: { original: string; thumb: string; web: string } | null },
+    ) => {
+      if (result.duplicate) {
+        dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { status: 'duplicate', progress: 100 } });
+        filesRef.current.delete(`${batchId}:${fileId}`);
+        return;
+      }
+      if (!result.putUrls) {
+        dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { status: 'error', progress: 0 } });
+        return;
+      }
+
+      try {
+        await waitWhilePaused(batchId);
+        dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { status: 'uploading', progress: 1 } });
+
+        const [thumbBlob, webBlob] = await Promise.all([makeThumb(file), makeWeb(file)]);
+        const totalBytes = file.size + thumbBlob.size + webBlob.size;
+        const loadedByPart = { original: 0, thumb: 0, web: 0 };
+        const report = () => {
+          const loaded = loadedByPart.original + loadedByPart.thumb + loadedByPart.web;
+          dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { progress: Math.min(99, Math.round((loaded / totalBytes) * 100)) } });
+        };
+
+        await Promise.all([
+          putWithProgress(result.putUrls.original, file, 'image/jpeg', (loaded) => {
+            loadedByPart.original = loaded;
+            report();
+          }),
+          putWithProgress(result.putUrls.thumb, thumbBlob, 'image/webp', (loaded) => {
+            loadedByPart.thumb = loaded;
+            report();
+          }),
+          putWithProgress(result.putUrls.web, webBlob, 'image/webp', (loaded) => {
+            loadedByPart.web = loaded;
+            report();
+          }),
+        ]);
+
+        const finalizeResults = await photosService.finalizeUpload([result.photoId]);
+        if (!finalizeResults[result.photoId]?.ok) throw new Error('The server could not confirm the upload landed.');
+
+        const photo: Photo = {
+          id: result.photoId,
+          meetId,
+          takenAt: meta.takenAt ?? new Date().toISOString(),
+          width: meta.width ?? 0,
+          height: meta.height ?? 0,
+          status: 'ready',
+          // Instant local preview — no need to wait for a presigned GET
+          // round-trip for a photo this tab just uploaded itself. A later
+          // reload gets the real presigned URL from GET /api/photos.
+          thumbUrl: URL.createObjectURL(thumbBlob),
+          webUrl: URL.createObjectURL(webBlob),
+        };
+        dispatch({ type: 'FILE_READY', batchId, fileId, photo });
+        filesRef.current.delete(`${batchId}:${fileId}`);
+      } catch (error) {
+        console.error('Upload failed for', file.name, error);
+        dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { status: 'error', progress: 0 } });
+      }
+    },
+    [dispatch, waitWhilePaused],
+  );
+
+  const retryFile = useCallback(
+    (batchId: string, meetId: string, fileId: string) => {
+      const file = filesRef.current.get(`${batchId}:${fileId}`);
+      if (!file) return;
+      dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { status: 'queued', progress: 0 } });
+      void (async () => {
+        try {
+          const [sha256, dims, takenAt] = await Promise.all([hashFile(file), readImageDimensions(file), readCaptureTime(file)]);
+          const meta: AuthorizeFile = { sha256, width: dims?.width, height: dims?.height, bytes: file.size, takenAt: takenAt ?? undefined };
+          const [result] = await photosService.authorizeUpload(meetId, [meta]);
+          await uploadResult(batchId, meetId, fileId, file, meta, result);
+        } catch (error) {
+          console.error('Retry failed for', file.name, error);
+          dispatch({ type: 'UPDATE_FILE', batchId, fileId, patch: { status: 'error', progress: 0 } });
+        }
+      })();
+    },
+    [dispatch, uploadResult],
+  );
+
+  const runBatch = useCallback(
+    async (batchId: string, meetId: string, files: File[]) => {
+      const fileIds = files.map((_, i) => `file-${batchId}-${i}`);
+      files.forEach((file, i) => filesRef.current.set(`${batchId}:${fileIds[i]}`, file));
+
+      // Step 1 (Select): hash + EXIF, a few at a time.
+      const prepared: Array<{ fileId: string; file: File; meta: AuthorizeFile } | null> = new Array(files.length).fill(null);
+      await runPool(files.length, PREP_CONCURRENCY, async (i) => {
+        await waitWhilePaused(batchId);
+        const file = files[i];
+        const [sha256, dims, takenAt] = await Promise.all([hashFile(file), readImageDimensions(file), readCaptureTime(file)]);
+        prepared[i] = {
+          fileId: fileIds[i],
+          file,
+          meta: { sha256, width: dims?.width, height: dims?.height, bytes: file.size, takenAt: takenAt ?? undefined },
+        };
+      });
+      const ready = prepared.filter((p): p is NonNullable<typeof p> => p !== null);
+
+      // Step 2 (Authorize), in chunks the backend will accept in one call.
+      for (let start = 0; start < ready.length; start += MAX_FILES_PER_AUTHORIZE) {
+        const chunk = ready.slice(start, start + MAX_FILES_PER_AUTHORIZE);
+        await waitWhilePaused(batchId);
+        let results;
+        try {
+          results = await photosService.authorizeUpload(meetId, chunk.map((p) => p.meta));
+        } catch (error) {
+          console.error('Authorize failed for a batch chunk:', error);
+          chunk.forEach((p) => dispatch({ type: 'UPDATE_FILE', batchId, fileId: p.fileId, patch: { status: 'error', progress: 0 } }));
+          continue;
+        }
+        // Step 3 (Resize and upload) + Step 4 (Finalize), a few at a time.
+        await runPool(chunk.length, UPLOAD_CONCURRENCY, (j) =>
+          uploadResult(batchId, meetId, chunk[j].fileId, chunk[j].file, chunk[j].meta, results[j]),
+        );
+      }
+    },
+    [dispatch, waitWhilePaused, uploadResult],
+  );
+
+  function startBatch(droppedFiles: File[]) {
+    if (!loadMeetId) return;
+    const jpegFiles = droppedFiles.filter((f) => f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name));
+    const skipped = droppedFiles.length - jpegFiles.length;
+    if (skipped > 0) {
+      toast.error(`Skipped ${skipped} file${skipped === 1 ? '' : 's'} — only JPEG originals are supported.`);
+    }
+    if (jpegFiles.length === 0) return;
+
     const batchId = `batch-${Date.now()}`;
-    const files: LoadBatchFile[] = names.map((name, i) => ({
-      id: `file-${batchId}-${i}`,
-      name,
-      status: 'queued',
-      progress: 0,
-    }));
+    const files: LoadBatchFile[] = jpegFiles.map((f, i) => ({ id: `file-${batchId}-${i}`, name: f.name, status: 'queued', progress: 0 }));
     const batch: LoadBatch = { id: batchId, meetId: loadMeetId, files, paused: false, startedAt: new Date().toISOString() };
     dispatch({ type: 'START_BATCH', batch });
-    // A few photos at a time, matching the spec's "a few photos in
-    // parallel" — not all 400 at once.
-    const CONCURRENCY = 4;
-    files.slice(0, CONCURRENCY).forEach((f) => processFile(batchId, f.id));
-    let nextIndex = CONCURRENCY;
-    const launchNext = () => {
-      if (nextIndex >= files.length) return;
-      const f = files[nextIndex++];
-      processFile(batchId, f.id);
-      setTimeout(launchNext, 300);
-    };
-    setTimeout(launchNext, 300);
+    void runBatch(batchId, loadMeetId, jpegFiles);
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    const files = Array.from(e.dataTransfer.files).map((f) => f.name);
-    startBatch(files.length > 0 ? files : simulatedNames(24));
-  }
-
-  function simulatedNames(count: number): string[] {
-    return Array.from({ length: count }, (_, i) => `IMG_${1000 + Math.floor(Math.random() * 9000) + i}.jpg`);
+    startBatch(Array.from(e.dataTransfer.files));
   }
 
   const files = currentBatch?.files ?? [];
@@ -147,11 +257,16 @@ export const LoadModule: React.FC = () => {
             variant="secondary"
             className="h-8 w-8 shrink-0 p-0"
             disabled={!newMeetName.trim()}
-            onClick={() => {
-              const id = `meet-${Date.now()}`;
-              dispatch({ type: 'ADD_MEET', meet: { id, name: newMeetName.trim(), date: new Date().toISOString() } });
-              setLoadMeetId(id);
+            onClick={async () => {
+              const name = newMeetName.trim();
               setNewMeetName('');
+              try {
+                const id = await addMeet(name, new Date().toISOString());
+                setLoadMeetId(id);
+              } catch (error) {
+                console.error('Failed to create meet:', error);
+                toast.error("Couldn't create that meet.");
+              }
             }}
             aria-label="Add meet"
           >
@@ -169,6 +284,17 @@ export const LoadModule: React.FC = () => {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/jpeg"
+          className="hidden"
+          onChange={(e) => {
+            startBatch(Array.from(e.target.files ?? []));
+            e.target.value = '';
+          }}
+        />
         {files.length === 0 ? (
           <div
             className={cn(
@@ -192,55 +318,43 @@ export const LoadModule: React.FC = () => {
                 ))}
               </select>
             </div>
-            <Button size="sm" variant="secondary" onClick={() => startBatch(simulatedNames(24))}>
-              Simulate a batch
+            <Button size="sm" variant="secondary" disabled={!loadMeetId} onClick={() => fileInputRef.current?.click()}>
+              Browse files
             </Button>
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <div className="grid grid-cols-[repeat(auto-fill,120px)] gap-2">
-              {files.map((f) => (
-                <div
-                  key={f.id}
-                  className="relative aspect-[3/2] overflow-hidden rounded-md bg-ink-border/30"
-                  title={f.name}
-                >
-                  {f.status === 'done' && f.photoId && (
-                    <img
-                      src={placeholderThumbUrl(
-                        state.photos.find((p) => p.id === f.photoId)?.seed ?? 0,
-                        120,
-                        80,
-                      )}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  )}
-                  {f.status !== 'done' && (
-                    <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
-                      <span className="truncate text-[10px] text-ink-muted">{f.name}</span>
-                      {f.status === 'error' ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            dispatch({ type: 'UPDATE_FILE', batchId: currentBatch!.id, fileId: f.id, patch: { status: 'queued', progress: 0 } });
-                            processFile(currentBatch!.id, f.id);
-                          }}
-                          className="flex items-center gap-1 rounded bg-destructive/20 px-1.5 py-0.5 text-[10px] text-destructive"
-                        >
-                          <RotateCcw className="h-2.5 w-2.5" /> Retry
-                        </button>
-                      ) : f.status === 'duplicate' ? (
-                        <span className="text-[10px] text-ink-muted">Duplicate — skipped</span>
-                      ) : (
-                        <div className="w-full">
-                          <Progress value={f.progress} className="h-1" />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
+              {files.map((f) => {
+                const photo = f.photoId ? state.photos.find((p) => p.id === f.photoId) : undefined;
+                return (
+                  <div key={f.id} className="relative aspect-[3/2] overflow-hidden rounded-md bg-ink-border/30" title={f.name}>
+                    {f.status === 'done' && photo && (
+                      <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    )}
+                    {f.status !== 'done' && (
+                      <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
+                        <span className="truncate text-[10px] text-ink-muted">{f.name}</span>
+                        {f.status === 'error' ? (
+                          <button
+                            type="button"
+                            onClick={() => retryFile(currentBatch!.id, loadMeetId, f.id)}
+                            className="flex items-center gap-1 rounded bg-destructive/20 px-1.5 py-0.5 text-[10px] text-destructive"
+                          >
+                            <RotateCcw className="h-2.5 w-2.5" /> Retry
+                          </button>
+                        ) : f.status === 'duplicate' ? (
+                          <span className="text-[10px] text-ink-muted">Duplicate — skipped</span>
+                        ) : (
+                          <div className="w-full">
+                            <Progress value={f.progress} className="h-1" />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

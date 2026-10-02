@@ -36,7 +36,7 @@ export interface PhotosWorkspaceValue {
   undo: () => void;
   redo: () => void;
 
-  addMeet: (name: string, date: string) => string;
+  addMeet: (name: string, date: string) => Promise<string>;
   setBuildAthlete: (athleteId: string | null) => void;
   setBuildTemplate: (size: TemplateSize) => void;
   setBuildHeader: (patch: Partial<BuildHeader>) => void;

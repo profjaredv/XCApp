@@ -46,7 +46,7 @@ export const BuildModule: React.FC = () => {
       EXPORT_W,
       EXPORT_H,
       state.buildTemplateSize,
-      picks.map((id) => visiblePhotosById.get(id)?.seed ?? 0),
+      picks.map((id) => visiblePhotosById.get(id)?.webUrl ?? ''),
       {
         name: state.buildHeader.name || athlete.preferredName || athlete.name,
         team: state.buildHeader.team,

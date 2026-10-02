@@ -65,7 +65,7 @@ describe('isPhotoVisible', () => {
     ['athlete-1', { id: 'athlete-1', name: 'A', photosOptOut: false }],
     ['athlete-2', { id: 'athlete-2', name: 'B', photosOptOut: true }],
   ]);
-  const photo: Photo = { id: 'p1', meetId: 'm1', takenAt: '', width: 1, height: 1, status: 'ready', seed: 1 };
+  const photo: Photo = { id: 'p1', meetId: 'm1', takenAt: '', width: 1, height: 1, status: 'ready', thumbUrl: '', webUrl: '' };
 
   it('shows an untagged photo to anyone so it can be claimed', () => {
     expect(isPhotoVisible(photo, undefined, athletesById, parent)).toBe(true);

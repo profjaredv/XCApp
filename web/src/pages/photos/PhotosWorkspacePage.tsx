@@ -19,6 +19,23 @@ const WorkspaceInner: React.FC = () => {
 
   useWorkspaceKeyboard(() => setArmPaletteOpen(true), armPaletteOpen);
 
+  if (state.loading) {
+    return (
+      <div className="dark fixed inset-0 flex items-center justify-center bg-ink text-sm text-ink-muted">
+        Loading photos…
+      </div>
+    );
+  }
+
+  if (state.bootstrapError) {
+    return (
+      <div className="dark fixed inset-0 flex flex-col items-center justify-center gap-2 bg-ink text-center text-ink-foreground">
+        <div className="text-sm">Couldn't load LeadPack Photos.</div>
+        <div className="text-xs text-ink-muted">{state.bootstrapError}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="dark fixed inset-0 flex flex-col bg-ink text-ink-foreground">
       <TopBar />

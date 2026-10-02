@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
-import { placeholderThumbUrl } from '../data/placeholderPhoto';
 import type { Athlete, Photo, PhotoAthleteTags, TemplateSize } from '../state/types';
 
 interface BuildRightPanelProps {
@@ -77,7 +76,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
                   aria-label={`Pick ${index + 1} of ${picks.length}. Activate to swap for another tagged photo.`}
                   className="h-full w-full overflow-hidden rounded ring-1 ring-ink-border/60 hover:ring-accent"
                 >
-                  <img src={placeholderThumbUrl(photo.seed, 64, 48)} alt="" className="h-full w-full object-cover" />
+                  <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
                 </button>
                 <button
                   type="button"
@@ -130,7 +129,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
                   onClick={() => addPick(athlete.id, photoId)}
                   className="group relative h-12 w-16 overflow-hidden rounded ring-1 ring-ink-border/60 hover:ring-accent"
                 >
-                  <img src={placeholderThumbUrl(photo.seed, 64, 48)} alt="" className="h-full w-full object-cover" />
+                  <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
                   <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40">
                     <Plus className="h-4 w-4 text-white opacity-0 group-hover:opacity-100" />
                   </span>

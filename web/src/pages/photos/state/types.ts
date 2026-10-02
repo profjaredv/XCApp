@@ -1,8 +1,6 @@
-// LeadPack Photos — Phase 1 (interface prototype) types.
-//
-// These mirror the spec's Neon data model (photos, photo_athletes, picks)
-// closely enough that Phase 2 can swap the seeded store for real fetches
-// without reshaping every component. `source` matches the spec's tagging
+// LeadPack Photos types — mirror the spec's Neon data model (photos,
+// photo_athletes, picks) closely enough that the real API (api/photosService.ts)
+// needs no reshaping to fit. `source` matches the spec's tagging
 // provenance column exactly.
 
 export type TagSource = 'self' | 'parent' | 'coach';
@@ -20,8 +18,10 @@ export interface Photo {
   width: number;
   height: number;
   status: 'pending' | 'ready' | 'hidden';
-  // Deterministic seed used to render a placeholder thumbnail/web image.
-  seed: number;
+  // Presigned R2 GET URLs (backend/lib/r2.js), short-lived (60 minutes) —
+  // never cached beyond this session's in-memory state.
+  thumbUrl: string;
+  webUrl: string;
 }
 
 export interface PhotoAthleteTags {
