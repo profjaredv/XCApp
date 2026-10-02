@@ -37,15 +37,8 @@ async function main() {
   const sha256 = crypto.createHash('sha256').update(testBytes).digest('hex');
 
   console.log('Creating pending photo row...');
-  const photo = await createPendingPhoto(prisma, {
-    teamId,
-    meetId: meet.id,
-    objectKey: `pending-${crypto.randomUUID()}`, // replaced below once we have the real id
-    sha256,
-    uploadedById: null,
-  });
-  const objectKey = r2.photoOriginalKey(teamId, photo.id);
-  await prisma.photo.update({ where: { id: photo.id }, data: { objectKey } });
+  const photo = await createPendingPhoto(prisma, { teamId, meetId: meet.id, sha256, uploadedById: null });
+  const objectKey = photo.objectKey;
   console.log(`  photos row: ${photo.id}`);
   console.log(`  object key: ${objectKey}`);
 
@@ -60,7 +53,7 @@ async function main() {
 
   console.log('Finalizing the photo row...');
   const finalized = await finalizeTeamPhoto(prisma, teamId, photo.id);
-  if (!finalized) throw new Error('finalizeTeamPhoto returned false.');
+  if (!finalized.ok) throw new Error(`finalizeTeamPhoto did not succeed: ${JSON.stringify(finalized)}`);
   const readyRow = await getTeamPhoto(prisma, teamId, photo.id);
   if (readyRow?.status !== 'READY') throw new Error(`Expected status READY, got ${readyRow?.status}`);
 
