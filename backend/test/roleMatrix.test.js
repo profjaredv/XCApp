@@ -50,6 +50,10 @@ const DESTRUCTIVE_ROUTES = [
   'dataManagement.js POST /clear/:season',
   'seasons.js DELETE /:id/results',
   'teams.js DELETE /:athleticTeamId/results',
+  // LeadPack Photos: permanently removes the row and all three R2 objects
+  // (vs. hide, which is reversible and stays ANY_COACH) — the same
+  // irreversible-data-loss tier as the routes above.
+  'photos.js DELETE /:id',
 ];
 
 const id = (r) => `${r.file} ${r.method} ${r.path}`;
@@ -121,6 +125,15 @@ const VOLUNTEER_WRITE_ROUTES = [
   'intervalSessions.js PUT /entries/:entryId',
   'intervalSessions.js DELETE /:id',
   'intervalSessions.js DELETE /entries/:entryId',
+  // LeadPack Photos build spec, "Decisions": "Only authorized admins
+  // upload: super admin, coach, and volunteer coach" — volunteer coaches
+  // are explicitly meant to run the Load module at a meet, same as a paid
+  // coach, including reversing their own hide.
+  'photos.js POST /authorize',
+  'photos.js POST /finalize',
+  'photos.js POST /:id/hide',
+  'photos.js POST /:id/unhide',
+  'photos.js POST /meets',
 ];
 
 test('volunteers get team-wide write access only where it is intended', () => {

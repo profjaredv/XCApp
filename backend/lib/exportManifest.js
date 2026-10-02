@@ -122,6 +122,15 @@ const TEAM_EXPORT = [
   { key: 'equipment', model: 'equipment', where: direct, label: 'Equipment' },
   { key: 'equipmentAssignments', model: 'equipmentAssignment', where: via('equipment'), label: 'Equipment assignments' },
 
+  // --- photos (LeadPack Photos build spec) ---
+  // Pointer/metadata rows only — image bytes live in R2, never in Neon, so
+  // there is nothing binary to export here, same as AthleteAliasId's
+  // Athletic.net URLs above.
+  { key: 'photos', model: 'photo', where: direct, label: 'Meet photos (metadata only — bytes live in R2)' },
+  { key: 'photoAthletes', model: 'photoAthlete', where: via('photo'), label: 'Photo tags' },
+  { key: 'picks', model: 'pick', where: via('athlete'), label: 'Collage picks' },
+  { key: 'collages', model: 'collage', where: via('athlete'), label: 'Generated collages (metadata only — bytes live in R2)' },
+
   // --- things this app computed ---
   { key: 'teamSeasonMetrics', model: 'teamSeasonMetrics', where: direct, label: 'Team season metrics', derived: true },
   { key: 'athleteSeasonMetrics', model: 'athleteSeasonMetrics', where: direct, label: 'Athlete season metrics', derived: true },
@@ -162,6 +171,12 @@ const ATHLETE_EXPORT = [
   { key: 'seasonRoster', model: 'seasonRoster', where: byAthlete, label: 'Season roster entries' },
   { key: 'equipmentAssignments', model: 'equipmentAssignment', where: byAthlete, label: 'Equipment assigned' },
   { key: 'seasonMetrics', model: 'athleteSeasonMetrics', where: byAthlete, label: 'Season metrics', derived: true },
+  // No `photos` entry: a Photo can depict several athletes at once, so it
+  // is not "this athlete's data" the way a tag or a pick is — it stays a
+  // team-level asset, available through the team export instead.
+  { key: 'photoTags', model: 'photoAthlete', where: byAthlete, label: 'Photos she is tagged in' },
+  { key: 'picks', model: 'pick', where: byAthlete, label: 'Collage picks' },
+  { key: 'collages', model: 'collage', where: byAthlete, label: 'Generated collages' },
 ];
 
 module.exports = {

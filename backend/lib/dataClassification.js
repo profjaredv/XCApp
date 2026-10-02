@@ -278,6 +278,26 @@ const CLASSIFICATION = {
     what: 'A request from a signed-in person to be matched to a roster entry.',
     why: 'An identity assertion about a student, pending coach approval.',
   },
+  Photo: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'A meet photo, stored privately and never publicly reachable.',
+    why: 'Depicts students. Delivered only through short-lived signed links to this team\'s own signed-in members, never indexed or shared publicly — see the LeadPack Photos build spec\'s privacy rules.',
+  },
+  PhotoAthlete: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'Which athletes a photo has been tagged with, and who tagged it.',
+    why: 'The specific fact that this student appears in this photo — the most identifying record this feature keeps. An athlete who opts out disappears from every grid but the coach\'s.',
+  },
+  Pick: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'The 3 to 5 photos an athlete or parent chose for her season collage.',
+    why: 'A selection a coach can also make on the athlete\'s behalf, so unlike a training log it is never private from the coach.',
+  },
+  Collage: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'The rendered season-collage image generated from an athlete\'s picks.',
+    why: 'A coach can generate this on the athlete\'s behalf, so like Pick it is never private from the coach.',
+  },
 
   // --- Athlete-authored: hers ---------------------------------------------
   TrainingLog: {
