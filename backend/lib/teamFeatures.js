@@ -51,6 +51,12 @@ const FEATURES = [
     description: 'Let athletes write about their own races after a meet.',
     default: true,
   },
+  {
+    key: 'photos',
+    label: 'Photos',
+    description: 'Upload meet photos, let families tag and pick them, and build printable collages.',
+    default: true,
+  },
 ];
 
 const FEATURE_KEYS = FEATURES.map((f) => f.key);

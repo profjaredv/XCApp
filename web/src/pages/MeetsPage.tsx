@@ -21,10 +21,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Loader2, CalendarDays, Download, Trash2 } from 'lucide-react';
+import { Plus, Loader2, CalendarDays, Download, Trash2, Camera } from 'lucide-react';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
 import { formatDateShort, todayIso } from '@/lib/formatUtils';
 import {
   useMeets,
@@ -55,6 +56,7 @@ const MeetsPage: React.FC = () => {
   const seasonId = selectedSeason?.id ?? null;
 
   const { data: meets = [], isLoading: meetsLoading } = useMeets(seasonId);
+  const photosEnabled = useFeatureEnabled('photos');
 
   const createMeet = useCreateMeet(seasonId);
   const [newMeetOpen, setNewMeetOpen] = useState(false);
@@ -98,7 +100,15 @@ const MeetsPage: React.FC = () => {
   if (!isCoachViewer) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl md:text-4xl font-bold">Meets</h1>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h1 className="text-3xl md:text-4xl font-bold">Meets</h1>
+          {photosEnabled && (
+            <Button variant="outline" onClick={() => navigate(teamPath('/photos'))}>
+              <Camera className="h-4 w-4 mr-2" />
+              Photos
+            </Button>
+          )}
+        </div>
         {meetsLoading ? (
           <p className="text-muted-foreground">Loading…</p>
         ) : meets.length === 0 ? (
@@ -149,6 +159,12 @@ const MeetsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-3xl md:text-4xl font-bold">Meets</h1>
         <div className="flex items-center gap-2">
+          {photosEnabled && (
+            <Button variant="outline" onClick={() => navigate(teamPath('/photos'))}>
+              <Camera className="h-4 w-4 mr-2" />
+              Photos
+            </Button>
+          )}
           <Button variant="outline" onClick={() => setCalendarImportOpen(true)}>
             <CalendarDays className="h-4 w-4 mr-2" />
             Import from Athletic.net

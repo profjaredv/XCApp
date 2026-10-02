@@ -227,10 +227,18 @@ export const router = createBrowserRouter([
               // ProtectedRoute above (same as every other route in this
               // block) — the real per-team authorization (coach, athlete,
               // or approved guardian) happens server-side, in
-              // backend/routes/photos.js's resolvePhotosTeam, not here.
+              // backend/middleware/photosTeam.js's resolvePhotosTeam, not
+              // here. FeatureGate here is the same tidiness-not-the-rule
+              // layer as attendance/equipment below it — the backend's own
+              // requirePhotosFeatureEnabled is what actually closes the
+              // API when a team turns Photos off.
               {
                 path: 'photos',
-                element: <PhotosWorkspacePage />,
+                element: (
+                  <FeatureGate feature="photos">
+                    <PhotosWorkspacePage />
+                  </FeatureGate>
+                ),
               },
               // Splits entry grid (C6) - standalone without Layout too,
               // opened full screen from a race's context menu. Its own

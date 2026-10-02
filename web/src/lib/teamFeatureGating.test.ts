@@ -42,7 +42,7 @@ describe('optional-feature surfaces', () => {
 
   it('guards the pages themselves, not just the nav', () => {
     const router = code(read('router/index.tsx'));
-    for (const feature of ['attendance', 'equipment', 'fieldResults']) {
+    for (const feature of ['attendance', 'equipment', 'fieldResults', 'photos']) {
       expect(router, `${feature} route is unguarded`).toContain(`<FeatureGate feature="${feature}"`);
     }
   });
@@ -51,6 +51,17 @@ describe('optional-feature surfaces', () => {
     const schedule = code(read('pages/SchedulePage.tsx'));
     expect(schedule).toContain("useFeatureEnabled('attendance')");
     expect(schedule).toContain('attendanceEnabled &&');
+  });
+
+  it('hides the Photos button on Meets, for both the coach and the family view', () => {
+    // Photos needs both audiences, so unlike attendance/equipment it can't
+    // be a 'setup' or 'spine' NAV_ITEMS entry (spine must stay unswitchable;
+    // setup is coach-only) — it's an inline button on Meets instead, same
+    // shape as Attendance's button on Schedule.
+    const meetsPage = code(read('pages/MeetsPage.tsx'));
+    expect(meetsPage).toContain("useFeatureEnabled('photos')");
+    const occurrences = meetsPage.match(/photosEnabled &&/g) ?? [];
+    expect(occurrences.length, 'expected one gated button per view (coach and family)').toBe(2);
   });
 
   it('hides reflections from both the athlete and the coach when they are off', () => {
