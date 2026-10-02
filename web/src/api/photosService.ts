@@ -38,6 +38,15 @@ export interface AuthorizeResult {
   putUrls: { original: string; thumb: string; web: string } | null;
 }
 
+export interface GoogleAlbumImportSummary {
+  imported: number;
+  duplicates: number;
+  failed: number;
+  failedDetails: string[];
+  total: number;
+  truncated: number;
+}
+
 export interface FinalizeResult {
   ok: boolean;
   alreadyReady?: boolean;
@@ -138,5 +147,14 @@ export const photosService = {
   async finalizeUpload(photoIds: string[]): Promise<Record<string, FinalizeResult>> {
     const response = await api.post<{ results: Record<string, FinalizeResult> }>('/photos/finalize', { photoIds });
     return response.data.results;
+  },
+
+  // Runs entirely server-side (download, resize, upload) — see
+  // backend/lib/googlePhotosImport.js. One request for the whole album, so
+  // this can take a few minutes for a large one; there's no progress
+  // stream, just the final tally.
+  async importGoogleAlbum(meetId: string, albumUrl: string): Promise<GoogleAlbumImportSummary> {
+    const response = await api.post<GoogleAlbumImportSummary>('/photos/import/google-album', { meetId, albumUrl });
+    return response.data;
   },
 };

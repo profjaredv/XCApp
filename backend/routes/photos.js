@@ -7,8 +7,9 @@ const { authenticate, requireTeam, requireRole } = require('../middleware/auth')
 const { requireFeature } = require('../middleware/teamFeatures');
 const { resolvePhotosTeam, requirePhotosFeatureEnabled } = require('../middleware/photosTeam');
 const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
-const { resolveActiveSeason, deriveGrade } = require('../lib/season');
+const { resolveActiveSeason, deriveGrade, isEnrolled } = require('../lib/season');
 const photosAccess = require('../lib/photosAccess');
+const { importGoogleAlbum, validateGooglePhotosUrl } = require('../lib/googlePhotosImport');
 const { MAX_PICKS } = photosAccess;
 
 // LeadPack Photos (build spec: docs/leadpack-photos-build-spec.md), Phases
@@ -51,6 +52,19 @@ const authorizeLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
   message: { msg: 'Too many upload batches in a row. Try again in an hour.' },
+});
+
+// A Google Photos album import is a much heavier, slower operation (a
+// real headless browser load plus up to MAX_PHOTOS_PER_IMPORT downloads
+// and resizes) than a normal upload batch — a low ceiling here is about
+// not running several of these at once, not about normal day-to-day use.
+const googleImportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
+  message: { msg: 'Too many album imports in a row. Try again in an hour.' },
 });
 
 async function attachPhotoActor(req, res, next) {
@@ -96,14 +110,46 @@ router.get('/roster', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabl
   try {
     const seasonYear = await resolveActiveSeason(req.photosTeamId);
     const athletes = await prisma.athlete.findMany({ where: { teamId: req.photosTeamId }, orderBy: { name: 'asc' } });
+
+    // "On the roster" for this season — the same determination
+    // routes/athletes.js's GET / makes, kept in sync by hand rather than a
+    // shared helper (that route's version does more besides — invites,
+    // captaincy — that Photos has no use for). An explicit SeasonRoster
+    // row wins when the team keeps one; otherwise inferred from having
+    // raced this season or still being enrolled by grade. Without this,
+    // tagging offered every athlete who ever wore the uniform, graduated
+    // seniors included, instead of just this season's team.
+    const athleteIds = athletes.map((a) => a.id);
+    const [raceCounts, seasonRow] = await Promise.all([
+      prisma.result.groupBy({
+        by: ['athleteId'],
+        where: { teamId: req.photosTeamId, athleteId: { in: athleteIds }, race: { season: seasonYear } },
+        _count: { _all: true },
+      }),
+      prisma.season.findFirst({ where: { teamId: req.photosTeamId, year: seasonYear }, select: { id: true } }),
+    ]);
+    const raceCountByAthlete = new Map(raceCounts.map((r) => [r.athleteId, r._count._all]));
+    const rosterEntries = seasonRow ? await prisma.seasonRoster.findMany({ where: { seasonId: seasonRow.id } }) : [];
+    const rosterEntryByAthlete = new Map(rosterEntries.map((entry) => [entry.athleteId, entry]));
+    const hasExplicitRoster = rosterEntries.length > 0;
+
+    const onCurrentRoster = athletes.filter((a) => {
+      const rosterEntry = rosterEntryByAthlete.get(a.id);
+      if (hasExplicitRoster) return Boolean(rosterEntry && rosterEntry.isActive);
+      return (raceCountByAthlete.get(a.id) ?? 0) > 0 || isEnrolled(a.graduationYear, seasonYear);
+    });
+
     res.json(
-      athletes.map((a) => ({
-        id: a.id,
-        name: a.name,
-        preferredName: a.preferredName,
-        grade: deriveGrade(a.graduationYear, seasonYear),
-        photosOptOut: a.photosOptOut,
-      })),
+      onCurrentRoster.map((a) => {
+        const rosterEntry = rosterEntryByAthlete.get(a.id);
+        return {
+          id: a.id,
+          name: a.name,
+          preferredName: a.preferredName,
+          grade: rosterEntry?.grade ?? deriveGrade(a.graduationYear, seasonYear),
+          photosOptOut: a.photosOptOut,
+        };
+      }),
     );
   } catch (error) {
     sendAccessError(res, error, 'Error in GET /photos/roster:');
@@ -190,6 +236,38 @@ router.post('/finalize', authenticate, requireFeature('photos'), requireTeam, re
   } catch (error) {
     console.error('Error in POST /photos/finalize:', error.message);
     res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/photos/import/google-album — Load module's "Import from Google
+// Photos" option. Body: { meetId, albumUrl }. Admin-only, same tier as a
+// regular upload; this one just fetches the bytes itself instead of
+// handing a browser presigned PUT urls (see lib/googlePhotosImport.js).
+// Synchronous: the whole import runs within this one request, so a large
+// album can take a few minutes — there is no background job queue here
+// yet, by design scope, not oversight.
+router.post('/import/google-album', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), googleImportLimiter, async (req, res) => {
+  const { meetId, albumUrl } = req.body || {};
+  if (!meetId || !albumUrl) {
+    return res.status(400).json({ msg: 'meetId and albumUrl are required.' });
+  }
+  const validatedUrl = validateGooglePhotosUrl(albumUrl);
+  if (!validatedUrl) {
+    return res.status(400).json({
+      msg: 'That does not look like a public Google Photos share link (expected photos.google.com/share/... or photos.app.goo.gl/...).',
+    });
+  }
+
+  try {
+    const summary = await importGoogleAlbum(prisma, {
+      teamId: req.user.teamId,
+      meetId,
+      albumUrl: validatedUrl,
+      uploadedById: req.user.id,
+    });
+    res.json(summary);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in POST /photos/import/google-album:');
   }
 });
 

@@ -78,6 +78,12 @@ export type Action =
       picks: AthletePicks;
     }
   | { type: 'BOOTSTRAP_FAILED'; error: string }
+  // A merge, not a replace: a Google Photos import (modules/LoadModule.tsx)
+  // adds rows server-side without the client ever learning their ids the
+  // way a direct upload does (FILE_READY), so this just re-fetches and
+  // folds the result in — never touches athletes/meets/picks or any
+  // locally in-flight optimistic edit to an existing photo.
+  | { type: 'PHOTOS_REFRESHED'; photos: Photo[]; tags: PhotoAthleteTags }
   | { type: 'SET_MODULE'; module: Module }
   | { type: 'SET_PREVIEW_ROLE'; role: PreviewRole; defaultArmedAthleteId: string | null }
   | { type: 'ARM_ATHLETE'; athleteId: string | null }
@@ -160,6 +166,16 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
       };
     case 'BOOTSTRAP_FAILED':
       return { ...state, loading: false, bootstrapError: action.error };
+    case 'PHOTOS_REFRESHED': {
+      const knownIds = new Set(state.photos.map((p) => p.id));
+      const newPhotos = action.photos.filter((p) => !knownIds.has(p.id));
+      if (newPhotos.length === 0) return state;
+      const tags = { ...state.tags };
+      for (const p of newPhotos) {
+        if (action.tags[p.id]) tags[p.id] = action.tags[p.id];
+      }
+      return { ...state, photos: [...state.photos, ...newPhotos], tags };
+    }
     case 'SET_MODULE':
       return { ...state, module: action.module, selectedPhotoIds: [], anchorPhotoId: null, loupePhotoId: null };
     case 'SET_PREVIEW_ROLE': {

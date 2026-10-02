@@ -88,6 +88,14 @@ async function deleteObject(key) {
   await getClient().send(new DeleteObjectCommand({ Bucket: getBucketName(), Key: key }));
 }
 
+// The one case bytes DO pass through this server instead of a browser-held
+// presigned URL: importing from a public Google Photos album. The server
+// fetches the image itself (lib/googlePhotosImport.js), so it uploads it
+// itself too — there's no browser in that flow to hand a presigned PUT to.
+async function putObject(key, body, contentType) {
+  await getClient().send(new PutObjectCommand({ Bucket: getBucketName(), Key: key, Body: body, ContentType: contentType }));
+}
+
 module.exports = {
   photoOriginalKey,
   photoThumbKey,
@@ -97,4 +105,5 @@ module.exports = {
   presignGetUrl,
   objectExists,
   deleteObject,
+  putObject,
 };
