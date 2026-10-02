@@ -28,6 +28,7 @@ import CoachesToolsPage from '../pages/CoachesToolsPage';
 import RaceVisualizationPage from '../pages/RaceVisualizationPage';
 import SplitsEntryPage from '../pages/SplitsEntryPage';
 import RaceLiveTimerPage from '../pages/RaceLiveTimerPage';
+import PhotosWorkspacePage from '../pages/photos/PhotosWorkspacePage';
 import LandingPage from '../pages/LandingPage';
 // Enhanced analytics now integrated into main analytics page
 import ProtectedRoute from './ProtectedRoute';
@@ -218,6 +219,15 @@ export const router = createBrowserRouter([
                     <AttendanceSessionPage />
                   </FeatureGate>
                 ),
+              },
+              // LeadPack Photos — Phase 1 interface prototype (seeded data,
+              // no backend yet). Standalone without Layout, same as
+              // race-visualization and interval-sessions: it's a dedicated
+              // dark workspace with its own module switcher, not a screen
+              // that shares the sidebar chrome.
+              {
+                path: 'photos',
+                element: <PhotosWorkspacePage />,
               },
               // Splits entry grid (C6) - standalone without Layout too,
               // opened full screen from a race's context menu. Its own
