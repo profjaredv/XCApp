@@ -2,6 +2,7 @@ import React from 'react';
 import { ImagePlus, Tags, LayoutTemplate } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
+import { canReachModule } from '../lib/tagRules';
 import type { Module } from '../state/types';
 
 const TABS: { key: Module; label: string; icon: typeof Tags }[] = [
@@ -15,7 +16,7 @@ export const MobileTabBar: React.FC = () => {
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 flex h-16 border-t border-ink-border bg-ink pb-[env(safe-area-inset-bottom)] md:hidden">
-      {TABS.filter((t) => t.key !== 'load' || actor.isCoach).map(({ key, label, icon: Icon }) => (
+      {TABS.filter((t) => canReachModule(actor, t.key)).map(({ key, label, icon: Icon }) => (
         <button
           key={key}
           type="button"

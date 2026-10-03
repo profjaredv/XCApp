@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Redo2, Undo2, User, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
+import { canReachModule } from '../lib/tagRules';
 import type { Module } from '../state/types';
 
 const MODULES: { key: Module; label: string }[] = [
@@ -21,7 +22,7 @@ export const TopBar: React.FC = () => {
       <span className="text-sm font-semibold text-ink-foreground">LeadPack Photos</span>
 
       <div className="hidden items-center gap-1 rounded-full bg-ink-border/40 p-0.5 md:flex">
-        {MODULES.filter((m) => m.key !== 'load' || actor.isCoach).map((m) => (
+        {MODULES.filter((m) => canReachModule(actor, m.key)).map((m) => (
           <button
             key={m.key}
             type="button"

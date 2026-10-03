@@ -135,6 +135,7 @@ const VOLUNTEER_WRITE_ROUTES = [
   'photos.js POST /:id/unhide',
   'photos.js POST /meets',
   'photos.js POST /import/google-album',
+  'photos.js PUT /tag-password',
 ];
 
 test('volunteers get team-wide write access only where it is intended', () => {

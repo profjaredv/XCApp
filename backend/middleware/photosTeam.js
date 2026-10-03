@@ -16,6 +16,12 @@ const { isFeatureEnabled } = require('../lib/teamFeatures');
 // requireApprovedGuardianLink.
 async function resolvePhotosTeam(req, res, next) {
   try {
+    // Already resolved by authenticateUserOrVolunteer's volunteer branch
+    // (middleware/photosVolunteer.js) — there's no req.user to read in
+    // that case at all.
+    if (req.photosTeamId) {
+      return next();
+    }
     if (req.user.teamId) {
       req.photosTeamId = req.user.teamId;
       return next();

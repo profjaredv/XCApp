@@ -44,6 +44,8 @@ const EXCLUDED_MODELS = {
     'Internal plumbing for matching future imports, not data the team created. The link it remembers is a public Athletic.net URL, and the athlete it points at is exported in full.',
   TrainingLogImportBatch:
     'Bookkeeping for the undo button, not training data. What it records — where a log came from — travels on each training log\'s own `source` column, which IS exported.',
+  PhotoVolunteerSession:
+    'Exists only to carry a live session token (the no-account Photos tagging path) — not data the team created, and the tags made through it are already exported via PhotoAthlete.',
 };
 
 /**

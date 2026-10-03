@@ -110,6 +110,15 @@ model Team {
   // instead of silently disappearing. See lib/teamFeatures.js.
   features Json?
 
+  // A shared "meet day" password that unlocks Photos tagging (view + tag,
+  // nothing else — no upload, no build, no hide/delete) with no account at
+  // all. Null means the coach never set one, which keeps this door closed
+  // entirely (see POST /api/photos/volunteer-login) — every existing team
+  // starts this way. Plain text, same risk posture as joinCode above: a
+  // low-stakes shared code a coach can rotate any time, not a personal
+  // account credential.
+  photosTagPassword String? @map("photos_tag_password")
+
   coach                   User?                    @relation("TeamCoach", fields: [coachUid], references: [id])
   members                 User[]                   @relation("TeamUsers")
   teamMembers             TeamMember[]
@@ -140,6 +149,7 @@ model Team {
   attendanceSessions      AttendanceSession[]
   paceZones               PaceZone[]
   photos                  Photo[]
+  photoVolunteerSessions  PhotoVolunteerSession[]
 
   @@index([coachUid])
   @@map("teams")
@@ -1809,13 +1819,17 @@ enum PhotoStatus {
   HIDDEN // a coach's explicit hide — removed from every grid, coach's included
 }
 
-// 'self' | 'parent' | 'coach' — who actually made this tag, for the audit
-// trail the spec's tagging rules depend on (rule 3: "a tag can be removed
-// by whoever made it, or by a coach").
+// 'self' | 'parent' | 'coach' | 'volunteer' — who actually made this tag,
+// for the audit trail the spec's tagging rules depend on (rule 3: "a tag
+// can be removed by whoever made it, or by a coach"). VOLUNTEER is a tag
+// made through the no-account password-gated path (lib/photoTagRules.js,
+// PhotoVolunteerSession below) — always paired with taggedBy: null, since
+// there's no real account to attribute it to.
 enum PhotoTagSource {
   SELF
   PARENT
   COACH
+  VOLUNTEER
 }
 
 model Photo {
@@ -1885,6 +1899,25 @@ model Pick {
   @@id([athleteId, seasonId, position])
   @@unique([athleteId, seasonId, photoId])
   @@map("picks")
+}
+
+// One row per device that unlocked tagging with the team's shared password
+// (Team.photosTagPassword) instead of a real account — see
+// POST /api/photos/volunteer-login and middleware/photosVolunteer.js. No
+// expiry: the token is meant to stick around on that phone for the whole
+// season, the same "remember this device" choice the spec makes for a
+// browser upload batch. A coach rotating or clearing the team's password
+// does not revoke tokens already issued — see that route's own comment.
+model PhotoVolunteerSession {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  token     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@map("photo_volunteer_sessions")
 }
 
 model Collage {

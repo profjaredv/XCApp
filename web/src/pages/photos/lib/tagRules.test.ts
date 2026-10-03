@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canTagAthlete,
+  canManageAthlete,
   canRemoveTag,
   canHidePhoto,
   canPickPhoto,
@@ -13,6 +14,9 @@ import type { Athlete, Photo } from '../state/types';
 const coach: Actor = { userId: 'coach-1', isCoach: true, role: 'coach', linkedAthleteIds: [] };
 const parent: Actor = { userId: 'parent-1', isCoach: false, role: 'guardian', linkedAthleteIds: ['athlete-1', 'athlete-2'] };
 const athleteSelf: Actor = { userId: 'athlete-1', isCoach: false, role: 'athlete', linkedAthleteIds: ['athlete-1'] };
+// Unlocked tagging with the team's shared password (middleware/photosVolunteer.js
+// on the backend) instead of any account — no userId, no linked athletes.
+const volunteer: Actor = { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [] };
 
 describe('canTagAthlete', () => {
   it('lets a coach tag any athlete', () => {
@@ -23,13 +27,32 @@ describe('canTagAthlete', () => {
     expect(canTagAthlete(parent, 'athlete-1')).toBe(true);
     expect(canTagAthlete(parent, 'athlete-99')).toBe(false);
   });
+
+  it('lets a volunteer (password, no account) tag any athlete — the password is the whole authorization', () => {
+    expect(canTagAthlete(volunteer, 'athlete-1')).toBe(true);
+    expect(canTagAthlete(volunteer, 'athlete-99')).toBe(true);
+  });
+});
+
+describe('canManageAthlete (picks/opt-out)', () => {
+  it('mirrors tagging authority for a coach or a linked account', () => {
+    expect(canManageAthlete(coach, 'athlete-99')).toBe(true);
+    expect(canManageAthlete(parent, 'athlete-1')).toBe(true);
+    expect(canManageAthlete(parent, 'athlete-99')).toBe(false);
+  });
+
+  it('does NOT extend to a volunteer, unlike canTagAthlete — picks and opt-out stay account-only', () => {
+    expect(canManageAthlete(volunteer, 'athlete-1')).toBe(false);
+    expect(canManageAthlete(volunteer, 'athlete-99')).toBe(false);
+  });
 });
 
 describe('tagSourceFor', () => {
-  it('records coach, guardian and athlete tags with distinct provenance', () => {
+  it('records coach, guardian, athlete and volunteer tags with distinct provenance', () => {
     expect(tagSourceFor(coach)).toBe('coach');
     expect(tagSourceFor(parent)).toBe('parent');
     expect(tagSourceFor(athleteSelf)).toBe('self');
+    expect(tagSourceFor(volunteer)).toBe('volunteer');
   });
 });
 
@@ -42,12 +65,18 @@ describe('canRemoveTag', () => {
     expect(canRemoveTag(parent, { athleteId: 'athlete-1', source: 'parent', taggedBy: 'parent-1' })).toBe(true);
     expect(canRemoveTag(parent, { athleteId: 'athlete-1', source: 'coach', taggedBy: 'coach-1' })).toBe(false);
   });
+
+  it('lets a volunteer remove another volunteer-made tag (both taggedBy: null), but not a real account\'s tag', () => {
+    expect(canRemoveTag(volunteer, { athleteId: 'athlete-1', source: 'volunteer', taggedBy: null })).toBe(true);
+    expect(canRemoveTag(volunteer, { athleteId: 'athlete-1', source: 'parent', taggedBy: 'parent-1' })).toBe(false);
+  });
 });
 
 describe('canHidePhoto', () => {
   it('is coach-only', () => {
     expect(canHidePhoto(coach)).toBe(true);
     expect(canHidePhoto(parent)).toBe(false);
+    expect(canHidePhoto(volunteer)).toBe(false);
   });
 });
 

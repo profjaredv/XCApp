@@ -298,6 +298,11 @@ const CLASSIFICATION = {
     what: 'The rendered season-collage image generated from an athlete\'s picks.',
     why: 'A coach can generate this on the athlete\'s behalf, so like Pick it is never private from the coach.',
   },
+  PhotoVolunteerSession: {
+    class: CLASSES.OPERATIONAL,
+    what: 'A device that unlocked Photos tagging with the team\'s shared password instead of an account.',
+    why: 'An access token, not a record about any student — names no one. The tags a volunteer session makes (PhotoAthlete, above) are the student data; this is only how that device got in.',
+  },
 
   // --- Athlete-authored: hers ---------------------------------------------
   TrainingLog: {

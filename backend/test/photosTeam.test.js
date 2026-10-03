@@ -30,6 +30,16 @@ function stub(model, method, impl) {
   };
 }
 
+test('resolvePhotosTeam no-ops when req.photosTeamId is already set (the volunteer-session path — no req.user to read at all)', async () => {
+  const req = { photosTeamId: 'team-from-volunteer-session' };
+  let nexted = false;
+  await resolvePhotosTeam(req, mockRes(), () => {
+    nexted = true;
+  });
+  assert.equal(nexted, true);
+  assert.equal(req.photosTeamId, 'team-from-volunteer-session');
+});
+
 test('resolvePhotosTeam uses req.user.teamId directly for a real team member', async () => {
   const req = { user: { id: 'coach-1', teamId: 'team-1' } };
   let nexted = false;

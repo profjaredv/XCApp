@@ -6,6 +6,8 @@ const r2 = require('../lib/r2');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/teamFeatures');
 const { resolvePhotosTeam, requirePhotosFeatureEnabled } = require('../middleware/photosTeam');
+const { authenticateUserOrVolunteer } = require('../middleware/photosVolunteer');
+const photosVolunteerAccess = require('../lib/photosVolunteerAccess');
 const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
 const { resolveActiveSeason, deriveGrade, isEnrolled } = require('../lib/season');
 const photosAccess = require('../lib/photosAccess');
@@ -70,6 +72,14 @@ const googleImportLimiter = rateLimit({
 
 async function attachPhotoActor(req, res, next) {
   try {
+    if (req.isPhotoVolunteer) {
+      // See lib/photoTagRules.js: isVolunteer only ever unlocks
+      // authorizeTag. userId stays null — there's no account to
+      // attribute a volunteer's tags to (photo_athletes.tagged_by is
+      // nullable for exactly this).
+      req.photoActor = { userId: null, isCoach: false, isVolunteer: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+      return next();
+    }
     const teamId = req.photosTeamId || req.user.teamId;
     req.photosTeamId = teamId;
     req.photoActor = await photosAccess.resolveActor(prisma, req.user, teamId);
@@ -87,14 +97,69 @@ function sendAccessError(res, error, fallbackMessage) {
   return res.status(500).json({ msg: 'Server error' });
 }
 
+// Brute-force protection on the one endpoint that checks a password
+// against nothing but req.body — keyed by IP, since by definition there's
+// no authenticated user yet at this point.
+const volunteerLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { msg: 'Too many attempts. Try again in a few minutes.' },
+});
+
+// POST /api/photos/volunteer-login — no account, no Authorization header:
+// the team's shared tagging password (set by a coach via PUT
+// /tag-password below) is the only credential. Body: { athleticTeamId,
+// password }. Returns a long-lived opaque token the frontend stores
+// locally and sends back as X-Photos-Volunteer-Token on every Photos
+// request from then on (see middleware/photosVolunteer.js).
+router.post('/volunteer-login', volunteerLoginLimiter, async (req, res) => {
+  const { athleticTeamId, password } = req.body || {};
+  if (!athleticTeamId || !password || typeof password !== 'string') {
+    return res.status(400).json({ msg: 'athleticTeamId and password are required.' });
+  }
+  const result = await photosVolunteerAccess.verifyVolunteerLogin(prisma, { athleticTeamId, password });
+  if (!result.ok) {
+    return res.status(401).json({ msg: 'Incorrect password.' });
+  }
+  res.json({ token: result.token });
+});
+
+// GET /api/photos/tag-password — whether this team currently has one set.
+// Deliberately never echoes the password itself back, even to a coach —
+// there's nothing to display it for, and it keeps this response safe to
+// log or cache without that being a credential leak.
+router.get('/tag-password', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
+  res.json(await photosVolunteerAccess.getTagPasswordStatus(prisma, req.user.teamId));
+});
+
+// PUT /api/photos/tag-password — a coach sets, changes, or clears
+// (password: null) the team's shared tagging password. Coach-only, same
+// tier as every other Photos admin action. Rotating or clearing the
+// password does not revoke sessions already issued (see
+// PhotoVolunteerSession's own header comment) — a coach who wants that
+// has nothing finer-grained to reach for yet than disabling the Photos
+// feature entirely, which does cut off every volunteer session along
+// with everything else.
+router.put('/tag-password', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
+  const { password } = req.body || {};
+  if (password !== null && (typeof password !== 'string' || password.trim().length === 0)) {
+    return res.status(400).json({ msg: 'password must be a non-empty string, or null to turn tagging-by-password off.' });
+  }
+  res.json(await photosVolunteerAccess.setTagPassword(prisma, req.user.teamId, password));
+});
+
 // GET /api/photos/me — this account's Photos context: whether it's a
 // coach, its own linked athlete (if any), and which athletes it holds an
 // approved guardian link for. The frontend builds its Actor from this
 // instead of a dev-only role toggle.
-router.get('/me', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+router.get('/me', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   res.json({
     userId: req.photoActor.userId,
     isCoach: req.photoActor.isCoach,
+    isVolunteer: Boolean(req.photoActor.isVolunteer),
     selfAthleteId: req.photoActor.selfAthleteId,
     guardianAthleteIds: req.photoActor.guardianAthleteIds,
   });
@@ -107,7 +172,7 @@ router.get('/me', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, 
 // but the spec's initials chips and roster search ("Small initials chips
 // on a thumbnail show who else is tagged") need real names for everyone,
 // not only coaches, so Photos carries its own minimal roster read.
-router.get('/roster', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
+router.get('/roster', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
   try {
     const seasonYear = await resolveActiveSeason(req.photosTeamId);
     const athletes = await prisma.athlete.findMany({ where: { teamId: req.photosTeamId }, orderBy: { name: 'asc' } });
@@ -161,7 +226,7 @@ router.get('/roster', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabl
 // same `Meet` rows routes/meetOps.js manages, but open to everyone
 // resolvePhotosTeam lets through (coach, athlete, or guardian), not just
 // team members.
-router.get('/meets', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
+router.get('/meets', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
   try {
     const meets = await prisma.meet.findMany({ where: { teamId: req.photosTeamId }, orderBy: { date: 'asc' } });
     res.json(meets.map((m) => ({ id: m.id, name: m.name, date: m.date })));
@@ -324,7 +389,7 @@ router.get('/import/google-album/:jobId', authenticate, requireFeature('photos')
 // everyone on the team's Photos (coach, athlete, or approved guardian);
 // `status=hidden` is a coach-only review list, enforced inside
 // listTeamPhotos itself since a guardian has no team-role to gate on.
-router.get('/', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+router.get('/', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { meetId, status } = req.query;
   try {
     const photos = await photosAccess.listTeamPhotos(prisma, req.photosTeamId, req.photoActor, {
@@ -364,7 +429,7 @@ router.get('/', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, at
 
 // GET /api/photos/:id/original — a short-lived presigned GET for the full
 // original, used by collage export (Build module) and print/download.
-router.get('/:id/original', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+router.get('/:id/original', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   try {
     const photo = await photosAccess.getTeamPhoto(prisma, req.photosTeamId, req.params.id);
     if (!photo || photo.status === 'HIDDEN') {
@@ -378,7 +443,7 @@ router.get('/:id/original', authenticate, resolvePhotosTeam, requirePhotosFeatur
 });
 
 // POST /api/photos/:id/tags — Tag module. Body: { athleteId }.
-router.post('/:id/tags', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+router.post('/:id/tags', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { athleteId } = req.body || {};
   if (!athleteId) return res.status(400).json({ msg: 'athleteId is required.' });
   try {
@@ -390,7 +455,7 @@ router.post('/:id/tags', authenticate, resolvePhotosTeam, requirePhotosFeatureEn
 });
 
 // DELETE /api/photos/:id/tags/:athleteId
-router.delete('/:id/tags/:athleteId', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+router.delete('/:id/tags/:athleteId', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   try {
     const result = await photosAccess.untagPhoto(prisma, req.photosTeamId, req.params.id, req.params.athleteId, req.photoActor);
     res.json(result);

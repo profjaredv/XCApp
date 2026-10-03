@@ -82,3 +82,32 @@ test('only a coach may hide a photo', () => {
   assert.equal(canHidePhoto(guardian), false);
   assert.equal(canHidePhoto(selfAthlete), false);
 });
+
+// A volunteer unlocked the Tag module with the team's shared password
+// (middleware/photosVolunteer.js) instead of an account — no userId, no
+// linked athletes. isVolunteer is meant to unlock exactly one thing:
+// tagging any athlete. Everything else (picks/opt-out via
+// canManageAthlete, hiding a photo) must stay exactly as closed to a
+// volunteer as to any other non-coach, non-linked account.
+const volunteer = { userId: null, isCoach: false, isVolunteer: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+
+test('a volunteer (password, no account) may tag any athlete, and it records as volunteer', () => {
+  assert.deepEqual(authorizeTag(volunteer, 'athlete-1'), { allowed: true, source: 'VOLUNTEER' });
+  assert.deepEqual(authorizeTag(volunteer, 'athlete-99'), { allowed: true, source: 'VOLUNTEER' });
+});
+
+test('a volunteer may not manage picks or opt-out for any athlete — isVolunteer only unlocks tagging', () => {
+  assert.equal(canManageAthlete(volunteer, 'athlete-1'), false);
+  assert.equal(canManageAthlete(volunteer, 'athlete-99'), false);
+});
+
+test('a volunteer may not hide a photo', () => {
+  assert.equal(canHidePhoto(volunteer), false);
+});
+
+test('a volunteer may remove another volunteer-made tag (both taggedBy: null), but not a real account\'s tag', () => {
+  const tagMadeByAnotherVolunteer = { athleteId: 'athlete-1', taggedBy: null, source: 'VOLUNTEER' };
+  const tagMadeByAGuardian = { athleteId: 'athlete-2', taggedBy: 'parent-1', source: 'PARENT' };
+  assert.equal(canRemoveTag(volunteer, tagMadeByAnotherVolunteer), true);
+  assert.equal(canRemoveTag(volunteer, tagMadeByAGuardian), false);
+});
