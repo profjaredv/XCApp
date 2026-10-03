@@ -401,3 +401,58 @@ test('importGoogleAlbum omitting onFound/onItemStatus still works (both default 
   });
   assert.equal(summary.imported, 1);
 });
+
+// ---------------------------------------------------------------------------
+// Phase-labeled failures — a bare error message like R2's own "Access
+// Denied" doesn't say whether it happened talking to Google or talking to
+// R2, and those point at completely different fixes. Each failure is
+// prefixed with which phase it happened in.
+// ---------------------------------------------------------------------------
+
+test('a download failure is labeled "download failed: ..."', async (t) => {
+  const restoreMeet = stubModel('meet', 'findFirst', () => ({ id: 'meet-1', teamId: 'team-1' }));
+  const restoreScraper = stub(googlePhotosImport, 'runAlbumScraper', async () => ['https://lh3.googleusercontent.com/pw/1']);
+  const restoreDownload = stub(googlePhotosImport, 'downloadOriginal', async () => {
+    throw new Error('Could not download a usable image (HTTP 403).');
+  });
+  t.after(() => {
+    restoreMeet();
+    restoreScraper();
+    restoreDownload();
+  });
+
+  const summary = await importGoogleAlbum(prisma, {
+    teamId: 'team-1',
+    meetId: 'meet-1',
+    albumUrl: 'https://photos.app.goo.gl/real-album',
+    uploadedById: 'coach-1',
+  });
+  assert.equal(summary.failedDetails[0], 'download failed: Could not download a usable image (HTTP 403).');
+});
+
+test('an R2 upload failure (e.g. a credential or bucket-policy problem) is labeled "upload failed: ..." — not mistaken for a Google-side failure', async (t) => {
+  const jpeg = await tinyJpeg();
+  const restoreMeet = stubModel('meet', 'findFirst', () => ({ id: 'meet-1', teamId: 'team-1' }));
+  const restoreScraper = stub(googlePhotosImport, 'runAlbumScraper', async () => ['https://lh3.googleusercontent.com/pw/1']);
+  const restoreDownload = stub(googlePhotosImport, 'downloadOriginal', async () => ({ buffer: jpeg, width: 800, height: 600 }));
+  const restoreImport = stub(photosAccess, 'importReadyPhoto', async () => {
+    // The exact shape an AWS SDK v3 S3-compatible client throws for an R2
+    // AccessDenied response: a bare "Access Denied" message with nothing
+    // in it to say which operation failed.
+    throw new Error('Access Denied');
+  });
+  t.after(() => {
+    restoreMeet();
+    restoreScraper();
+    restoreDownload();
+    restoreImport();
+  });
+
+  const summary = await importGoogleAlbum(prisma, {
+    teamId: 'team-1',
+    meetId: 'meet-1',
+    albumUrl: 'https://photos.app.goo.gl/real-album',
+    uploadedById: 'coach-1',
+  });
+  assert.equal(summary.failedDetails[0], 'upload failed: Access Denied');
+});

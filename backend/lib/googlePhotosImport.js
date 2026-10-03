@@ -200,9 +200,17 @@ async function importGoogleAlbum(
       const index = next++;
       const url = toImport[index];
       onItemStatus(index, { status: 'downloading' });
+      // Tracked so a failure's message says which phase it happened in —
+      // "download failed" (Google's side, or this server's network) reads
+      // very differently from "upload failed" (R2's side: a credential,
+      // bucket policy, or quota problem), and a bare error message like R2's
+      // own "Access Denied" doesn't say which on its own.
+      let phase = 'download';
       try {
         const { buffer: originalBuffer, width, height } = await module.exports.downloadOriginal(url, albumUrl);
         const sha256 = crypto.createHash('sha256').update(originalBuffer).digest('hex');
+
+        phase = 'resize';
         const [thumbBuffer, webBuffer] = await Promise.all([
           sharp(originalBuffer)
             .rotate() // auto-orient from EXIF before resizing, same as a phone photo shot in portrait
@@ -216,6 +224,7 @@ async function importGoogleAlbum(
             .toBuffer(),
         ]);
 
+        phase = 'upload';
         const result = await photosAccess.importReadyPhoto(prisma, {
           teamId,
           meetId,
@@ -236,9 +245,10 @@ async function importGoogleAlbum(
         }
       } catch (error) {
         summary.failed += 1;
-        summary.failedDetails.push(error.message);
-        onItemStatus(index, { status: 'error', error: error.message });
-        console.error(`Google Photos import: failed on ${url}: ${error.message}`);
+        const message = `${phase} failed: ${error.message}`;
+        summary.failedDetails.push(message);
+        onItemStatus(index, { status: 'error', error: message });
+        console.error(`Google Photos import: ${message} — ${url}`);
       }
     }
   }
