@@ -154,6 +154,39 @@ test('authorizeUpload creates a pending row and presigns three PUT urls for a ne
   }
 });
 
+test('authorizeUpload resumes a PENDING row from an interrupted previous attempt with fresh PUT urls, instead of treating it as an already-uploaded duplicate', async () => {
+  // Same bug class as importReadyPhoto's PENDING-resume case: a browser
+  // tab closing mid-upload (or a PUT that failed) can leave a row stuck
+  // at PENDING, and (teamId, sha256) being a hard unique constraint means
+  // there's no way to create a second row for that same hash to retry
+  // with — so this has to resume the existing row rather than skip it.
+  let createCalled = false;
+  const restores = [
+    stub('meet', 'findFirst', () => ({ id: 'meet-1', teamId: 'team-1' })),
+    stub('photo', 'findFirst', () => ({ id: 'stuck-photo', teamId: 'team-1', status: 'PENDING', objectKey: 'teams/team-1/photos/stuck-photo/orig.jpg' })),
+    stub('photo', 'create', () => {
+      createCalled = true;
+      throw new Error('must not try to insert a second row for a hash the team already has a (PENDING) row for');
+    }),
+    stubR2('presignPutUrl', (key) => `https://signed/${key}`),
+  ];
+  try {
+    const results = await authorizeUpload(prisma, {
+      teamId: 'team-1',
+      meetId: 'meet-1',
+      uploadedById: 'coach-1',
+      files: [{ sha256: 'stuck-hash' }],
+    });
+    assert.equal(createCalled, false);
+    assert.strictEqual(results.length, 1);
+    assert.strictEqual(results[0].photoId, 'stuck-photo');
+    assert.strictEqual(results[0].duplicate, false);
+    assert.ok(results[0].putUrls.original.includes('stuck-photo'));
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
 test('authorizeUpload refuses a meetId that does not belong to this team', async () => {
   const restore = stub('meet', 'findFirst', () => null);
   try {
@@ -618,5 +651,82 @@ test('importReadyPhoto uploads all three objects and marks the row ready directl
     assert.equal(updatedTo, 'READY');
   } finally {
     restores.forEach((r) => r());
+  }
+});
+
+test('importReadyPhoto resumes a row stuck at PENDING from an interrupted previous attempt, instead of treating it as an already-imported duplicate forever', async () => {
+  // The real production bug: an earlier attempt's R2 writes failed after
+  // the row was already created (teamId+sha256 is a hard unique
+  // constraint, so the row has to exist before those writes are even
+  // attempted — see importReadyPhoto's own header comment). Every later
+  // re-run found that same row by hash and reported "duplicate" without
+  // ever checking whether it actually had real R2 objects — so the photo
+  // was never visible anywhere (listTeamPhotos only returns READY), and
+  // never got retried either. This is what "188 already had, 0 failed"
+  // with nothing actually showing up in the Tag module turned out to mean.
+  const putKeys = [];
+  let updatedId;
+  let createCalled = false;
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'stuck-photo', teamId: 'team-1', objectKey: 'teams/team-1/photos/stuck-photo/orig.jpg', status: 'PENDING' })),
+    stub('photo', 'create', () => {
+      createCalled = true;
+      throw new Error('must not try to insert a second row for a hash the team already has a (PENDING) row for');
+    }),
+    stub('photo', 'update', (args) => {
+      updatedId = args.where.id;
+      return { ...args.data };
+    }),
+    stubR2('putObject', (key) => {
+      putKeys.push(key);
+    }),
+  ];
+  try {
+    const result = await importReadyPhoto(prisma, {
+      teamId: 'team-1',
+      meetId: 'meet-1',
+      uploadedById: 'coach-1',
+      originalBuffer: Buffer.from('orig'),
+      thumbBuffer: Buffer.from('thumb'),
+      webBuffer: Buffer.from('web'),
+      sha256: 'stuck-hash',
+      width: 800,
+      height: 600,
+    });
+    assert.equal(createCalled, false);
+    assert.equal(result.duplicate, false);
+    assert.equal(result.photoId, 'stuck-photo');
+    assert.equal(putKeys.length, 3);
+    assert.ok(putKeys.every((k) => k.includes('stuck-photo')));
+    assert.equal(updatedId, 'stuck-photo');
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
+test('importReadyPhoto still treats a READY (or HIDDEN) existing row as a genuine duplicate, no re-upload', async () => {
+  for (const status of ['READY', 'HIDDEN']) {
+    const restores = [
+      stub('photo', 'findFirst', () => ({ id: 'real-photo', teamId: 'team-1', status })),
+      stubR2('putObject', () => {
+        throw new Error('must not re-upload a photo that is already READY or HIDDEN');
+      }),
+    ];
+    try {
+      const result = await importReadyPhoto(prisma, {
+        teamId: 'team-1',
+        meetId: 'meet-1',
+        uploadedById: 'coach-1',
+        originalBuffer: Buffer.from('x'),
+        thumbBuffer: Buffer.from('y'),
+        webBuffer: Buffer.from('z'),
+        sha256: 'real-hash',
+        width: 100,
+        height: 100,
+      });
+      assert.deepEqual(result, { duplicate: true, photoId: 'real-photo' });
+    } finally {
+      restores.forEach((r) => r());
+    }
   }
 });

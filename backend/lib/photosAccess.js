@@ -100,6 +100,15 @@ async function createPendingPhoto(prisma, { teamId, meetId, sha256, uploadedById
  * exists (dedupe), else insert a `pending` row and return presigned PUT
  * URLs for its three objects. `meetId` is verified to belong to this team
  * before any row is created.
+ *
+ * An existing row stuck at PENDING is a previous upload that never
+ * finished (the browser closed, a PUT failed) — not a real duplicate, and
+ * `(teamId, sha256)` being a hard DB unique constraint means there's no
+ * way to insert a second row for the same hash to retry with. So this
+ * hands back fresh presigned PUT URLs for that same existing row instead
+ * of `duplicate: true`, which would otherwise leave it stuck at PENDING,
+ * invisible in every grid, forever — see importReadyPhoto below for the
+ * same bug in the Google Photos import path, where it actually happened.
  */
 async function authorizeUpload(prisma, { teamId, meetId, uploadedById, files }) {
   const meet = await prisma.meet.findFirst({ where: { id: meetId, teamId } });
@@ -112,21 +121,23 @@ async function authorizeUpload(prisma, { teamId, meetId, uploadedById, files }) 
   const results = [];
   for (const file of files) {
     const existing = await findExistingByHash(prisma, teamId, file.sha256);
-    if (existing) {
+    if (existing && existing.status !== 'PENDING') {
       results.push({ photoId: existing.id, duplicate: true, putUrls: null });
       continue;
     }
 
-    const photo = await createPendingPhoto(prisma, {
-      teamId,
-      meetId,
-      sha256: file.sha256,
-      uploadedById,
-      takenAt: file.takenAt,
-      width: file.width,
-      height: file.height,
-      bytes: file.bytes,
-    });
+    const photo =
+      existing ||
+      (await createPendingPhoto(prisma, {
+        teamId,
+        meetId,
+        sha256: file.sha256,
+        uploadedById,
+        takenAt: file.takenAt,
+        width: file.width,
+        height: file.height,
+        bytes: file.bytes,
+      }));
 
     const [originalPutUrl, thumbPutUrl, webPutUrl] = await Promise.all([
       r2.presignPutUrl(photo.objectKey, 'image/jpeg'),
@@ -392,12 +403,35 @@ async function setAthleteOptOut(prisma, teamId, athleteId, optOut, actor) {
  * hand a presigned URL to — the server downloaded the original itself, so
  * it uploads all three objects itself too, and marks the row ready right
  * away rather than re-checking R2 for what it just wrote.
+ *
+ * A real bug this already hit in production: `(teamId, sha256)` is a hard
+ * DB unique constraint (schema.prisma), so the row has to be created
+ * *before* the R2 writes below, with no way to insert it again later if
+ * those writes fail. The first time an R2 write failed partway (an R2
+ * credential problem, in the one real case so far), the row it already
+ * created was left stuck at PENDING forever — and every later re-import
+ * found that same row by hash and reported it as an ordinary duplicate,
+ * without ever checking it actually had real R2 objects behind it. That's
+ * what "188 already had, 0 failed" with nothing actually visible in the
+ * Tag module turned out to mean: a stuck PENDING row isn't a photo, but
+ * nothing here knew the difference.
+ *
+ * So an existing PENDING row (as opposed to READY or HIDDEN, both of
+ * which really do mean "this photo is already here") is treated as an
+ * interrupted previous attempt, not a duplicate — this resumes it, using
+ * that same row's id and object key, instead of trying to insert a second
+ * row for the same hash and hitting the unique constraint. Idempotent
+ * either way: re-writing the same three R2 objects for a row that did
+ * make it to READY last time around has no bad effect, since they're
+ * last-write-wins keyed by this row's own id.
  */
 async function importReadyPhoto(prisma, { teamId, meetId, uploadedById, originalBuffer, thumbBuffer, webBuffer, sha256, width, height }) {
   const existing = await findExistingByHash(prisma, teamId, sha256);
-  if (existing) return { duplicate: true, photoId: existing.id };
+  if (existing && existing.status !== 'PENDING') {
+    return { duplicate: true, photoId: existing.id };
+  }
 
-  const photo = await createPendingPhoto(prisma, { teamId, meetId, sha256, uploadedById, width, height });
+  const photo = existing || (await createPendingPhoto(prisma, { teamId, meetId, sha256, uploadedById, width, height }));
 
   await Promise.all([
     r2.putObject(photo.objectKey, originalBuffer, 'image/jpeg'),
