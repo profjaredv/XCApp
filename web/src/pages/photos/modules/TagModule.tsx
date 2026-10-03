@@ -101,7 +101,17 @@ export const TagModule: React.FC = () => {
       }
     >
       {state.loupePhotoId && (
-        <Loupe photos={photos} photoId={state.loupePhotoId} onClose={closeLoupe} onNavigate={openLoupe} />
+        <Loupe
+          photos={photos}
+          photoId={state.loupePhotoId}
+          onClose={closeLoupe}
+          onNavigate={openLoupe}
+          tags={state.tags}
+          athletes={state.athletes}
+          actor={actor}
+          onTag={tagPhoto}
+          onUntag={untagPhoto}
+        />
       )}
     </ModuleShell>
   );
