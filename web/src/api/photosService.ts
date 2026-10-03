@@ -6,8 +6,11 @@ import type { Athlete, Meet, Photo, PhotoAthlete, TagSource } from '../pages/pho
 // GuardianLink's team) server-side — nothing here ever sends a teamId.
 
 export interface PhotosMe {
-  userId: string;
+  userId: string | null;
   isCoach: boolean;
+  // Unlocked tagging with the team's shared password instead of signing
+  // in — see lib/photosVolunteer.ts and middleware/photosVolunteer.js.
+  isVolunteer: boolean;
   selfAthleteId: string | null;
   guardianAthleteIds: string[];
 }
@@ -176,6 +179,25 @@ export const photosService = {
 
   async getGoogleAlbumImportProgress(jobId: string): Promise<GoogleAlbumImportProgress> {
     const response = await api.get<GoogleAlbumImportProgress>(`/photos/import/google-album/${jobId}`);
+    return response.data;
+  },
+
+  // No account, no Authorization header — see PhotosTagInPage.tsx and
+  // lib/photosVolunteer.ts, which stores the returned token and attaches
+  // it (as X-Photos-Volunteer-Token) to every subsequent Photos request.
+  async volunteerLogin(athleticTeamId: string, password: string): Promise<{ token: string }> {
+    const response = await api.post<{ token: string }>('/photos/volunteer-login', { athleticTeamId, password });
+    return response.data;
+  },
+
+  // Coach-only: the Load module's "Tagging password" control.
+  async getTagPasswordStatus(): Promise<{ enabled: boolean }> {
+    const response = await api.get<{ enabled: boolean }>('/photos/tag-password');
+    return response.data;
+  },
+
+  async setTagPassword(password: string | null): Promise<{ enabled: boolean }> {
+    const response = await api.put<{ enabled: boolean }>('/photos/tag-password', { password });
     return response.data;
   },
 };

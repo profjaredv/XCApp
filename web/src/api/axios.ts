@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { getAdminTeamId, getPreviewAthleteId } from '../lib/impersonation';
 import { getJWTToken } from '../lib/auth';
+import { getStoredVolunteerToken } from '../lib/photosVolunteer';
 
 // Export the axios instance as both default and named export
 export const api = axios.create({
@@ -62,6 +63,15 @@ api.interceptors.request.use((config) => {
   const previewAthleteId = getPreviewAthleteId();
   if (previewAthleteId) {
     config.headers.set('X-Preview-Athlete-Id', previewAthleteId);
+  }
+  // No-account Photos tagging (lib/photosVolunteer.ts). Only meaningful
+  // when there's no real Authorization header (middleware/photosVolunteer.js
+  // tries a real Bearer token first) — sent unconditionally here anyway,
+  // same as the two headers above: the server is what decides whether it
+  // means anything, by looking the token up, never trusted on its own.
+  const volunteerToken = getStoredVolunteerToken();
+  if (volunteerToken) {
+    config.headers.set('X-Photos-Volunteer-Token', volunteerToken);
   }
   return config;
 });

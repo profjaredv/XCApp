@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
+import { TagPasswordControl } from '../components/TagPasswordControl';
 import { photosService, type AuthorizeFile } from '../../../api/photosService';
 import { hashFile, putWithProgress } from '../lib/uploadPipeline';
 import { makeThumb, makeWeb } from '../lib/resize';
@@ -388,6 +389,8 @@ export const LoadModule: React.FC = () => {
             <Plus className="h-4 w-4" />
           </Button>
         </div>
+
+        <TagPasswordControl />
       </div>
 
       <div

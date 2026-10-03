@@ -147,12 +147,26 @@ test('every route of an optional feature carries the gate', () => {
     // requireFeature's req.user.teamId check would always no-op.
     'photos.js': [`requireFeature('photos')`, 'requirePhotosFeatureEnabled'],
   };
+  // POST /volunteer-login is the one deliberate, documented exception: it
+  // resolves which team this is from the request body itself (there's no
+  // account, so no req.user.teamId and no req.photosTeamId yet to gate
+  // on) — it can't carry either pattern before that lookup happens. Every
+  // route a volunteer session can actually use after logging in (GET
+  // /me, /roster, /meets, /, /:id/original, POST/DELETE /:id/tags) still
+  // goes through requirePhotosFeatureEnabled like anything else a
+  // guardian reaches, so turning Photos off for a team still closes the
+  // API for an already-logged-in volunteer, same as for anyone else.
+  const ungatedExceptions = {
+    'photos.js': [`router.post('/volunteer-login'`],
+  };
 
   for (const [file, patterns] of Object.entries(gated)) {
     const source = fs.readFileSync(path.join(__dirname, '..', 'routes', file), 'utf8');
     const routes = source.match(/^router\.(get|post|put|patch|delete)\([^\n]*$/gm) || [];
     assert.ok(routes.length > 0, `${file} has routes`);
+    const exceptions = ungatedExceptions[file] || [];
     for (const route of routes) {
+      if (exceptions.some((e) => route.includes(e))) continue;
       assert.ok(
         patterns.some((p) => route.includes(p)),
         `${file}: ${route.slice(0, 60)}… is missing its feature gate (${patterns.join(' or ')})`

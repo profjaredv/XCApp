@@ -12,8 +12,12 @@
 
 /**
  * @typedef {Object} PhotoActor
- * @property {string} userId
+ * @property {string|null} userId - null for a volunteer actor (no account)
  * @property {boolean} isCoach
+ * @property {boolean} [isVolunteer] - unlocked the Tag module with the team's shared
+ *   password instead of an account (middleware/photosVolunteer.js) — tagging only,
+ *   never hide/delete/upload/build, and never widens canManageAthlete (picks,
+ *   opt-out): those stay off-limits unless isCoach or genuinely linked.
  * @property {string|null} selfAthleteId - this account's own linked Athlete, if any
  * @property {string[]} guardianAthleteIds - athletes this account has an approved GuardianLink for
  * @property {string[]} linkedAthleteIds - selfAthleteId + guardianAthleteIds, flattened (visibility/pick authority)
@@ -22,6 +26,7 @@
 /** Rule 1 + 2: who may tag athleteId, and what source that tag records. */
 function authorizeTag(actor, athleteId) {
   if (actor.isCoach) return { allowed: true, source: 'COACH' };
+  if (actor.isVolunteer) return { allowed: true, source: 'VOLUNTEER' };
   if (actor.selfAthleteId === athleteId) return { allowed: true, source: 'SELF' };
   if (actor.guardianAthleteIds.includes(athleteId)) return { allowed: true, source: 'PARENT' };
   return { allowed: false, source: null };

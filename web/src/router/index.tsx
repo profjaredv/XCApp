@@ -29,6 +29,7 @@ import RaceVisualizationPage from '../pages/RaceVisualizationPage';
 import SplitsEntryPage from '../pages/SplitsEntryPage';
 import RaceLiveTimerPage from '../pages/RaceLiveTimerPage';
 import PhotosWorkspacePage from '../pages/photos/PhotosWorkspacePage';
+import PhotosTagInPage from '../pages/photos/PhotosTagInPage';
 import LandingPage from '../pages/LandingPage';
 // Enhanced analytics now integrated into main analytics page
 import ProtectedRoute from './ProtectedRoute';
@@ -108,6 +109,15 @@ export const router = createBrowserRouter([
       {
         path: '/join-team',
         element: <JoinTeamPage />,
+      },
+      // No-account Photos tagging — public on purpose, same reasoning as
+      // /claim/:token above: the credential this page checks (the team's
+      // shared tagging password) is its own authorization, not a signed-in
+      // session. See PhotosTagInPage.tsx and routes/photos.js's
+      // POST /volunteer-login.
+      {
+        path: '/photos-tag-in/:athleticTeamId',
+        element: <PhotosTagInPage />,
       },
       {
         path: '/fix-coach-role',

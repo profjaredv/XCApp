@@ -3,12 +3,15 @@
 // needs no reshaping to fit. `source` matches the spec's tagging
 // provenance column exactly.
 
-export type TagSource = 'self' | 'parent' | 'coach';
+export type TagSource = 'self' | 'parent' | 'coach' | 'volunteer';
 
 export interface PhotoAthlete {
   athleteId: string;
   source: TagSource;
-  taggedBy: string;
+  // null for a tag made through the no-account, password-gated path
+  // (lib/tagRules.ts's 'volunteer' role) — there's no account to
+  // attribute it to.
+  taggedBy: string | null;
 }
 
 export interface Photo {

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { isAuthError } from '@/lib/apiError';
 import { photosService } from '../../../api/photosService';
 import type { PhotosMe } from '../../../api/photosService';
 import { workspaceReducer, type WorkspaceState, type BuildHeader, type HistoryEntry } from './reducer';
@@ -116,7 +117,16 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
           photosService.roster(),
           photosService.meets(),
           photosService.listPhotos(),
-          photosService.picks(),
+          // GET /picks is deliberately out of reach for a volunteer
+          // session (no-account tagging — see lib/tagRules.ts's
+          // canManageAthlete) — its 401 there is expected, not a real
+          // bootstrap failure, so it degrades to no picks rather than
+          // failing every other call in this Promise.all. Any other kind
+          // of failure (network, 500) still surfaces normally.
+          photosService.picks().catch((error) => {
+            if (isAuthError(error)) return {};
+            throw error;
+          }),
         ]);
         if (cancelled) return;
         setMe(meResult);
@@ -139,6 +149,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
       return { userId: 'dev-family', isCoach: false, role: 'guardian', linkedAthleteIds: devFamilyAthleteIds };
     }
     if (!me) return { userId: '', isCoach: false, role: 'guardian', linkedAthleteIds: [] };
+    if (me.isVolunteer) return { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [] };
     if (me.isCoach) return { userId: me.userId, isCoach: true, role: 'coach', linkedAthleteIds: [] };
     const linkedAthleteIds = [me.selfAthleteId, ...me.guardianAthleteIds].filter((id): id is string => Boolean(id));
     return { userId: me.userId, isCoach: false, role: me.selfAthleteId ? 'athlete' : 'guardian', linkedAthleteIds };

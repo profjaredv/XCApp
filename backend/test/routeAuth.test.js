@@ -84,6 +84,16 @@ const ALLOWED_UNGUARDED = new Set([
   // team/user/athlete id at all (see lib/pageViewLogging.js) — there is no
   // cross-team or cross-user surface here to guard against.
   'pageViews.js POST /',
+  // No account exists yet — same shape as profile.js POST /join-team
+  // above, except the credential here is the team's own shared tagging
+  // password (Team.photosTagPassword, set by a coach via PUT
+  // /tag-password), checked against req.body inside the handler itself
+  // (lib/photosVolunteerAccess.js), not by a middleware. Rate-limited at
+  // 20/15min/IP (volunteerLoginLimiter) against brute force, and the row
+  // it creates (PhotoVolunteerSession) is scoped to whichever team's
+  // password actually matched — never a body-supplied team id trusted
+  // outright.
+  'photos.js POST /volunteer-login',
 ]);
 
 function collectRouteMiddlewareNames(routeLayer) {
