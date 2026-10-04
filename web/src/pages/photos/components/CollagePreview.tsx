@@ -24,7 +24,13 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       const canvas = canvasRef.current;
       if (!canvas) return;
       const urls = photos.map((p) => p?.webUrl ?? '');
-      void renderCollage(canvas, PAGE_W, PAGE_H, templateSize, urls, header);
+      // Preview only — never the export canvas, so this doesn't need (and
+      // must not request) crossOrigin-loaded images; see collageRender.ts's
+      // own comment on why that matters. Logged, not thrown: a blank slot
+      // here is already visible as the gray placeholder box.
+      renderCollage(canvas, PAGE_W, PAGE_H, templateSize, urls, header).catch((error) =>
+        console.error('Collage preview failed to render:', error),
+      );
     }, [canvasRef, templateSize, photos, header]);
 
     return (
