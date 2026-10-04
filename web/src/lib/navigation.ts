@@ -2,7 +2,7 @@ import type { ComponentType } from 'react';
 import type { TeamFeatureKey } from './teamFeatureKeys';
 import {
   Home, ClipboardList, Users, CalendarDays, LayoutDashboard, TrendingUp,
-  Database, Package, Upload, Settings, Gauge, Flag, Trophy,
+  Database, Package, Upload, Settings, Gauge, Flag, Trophy, Camera,
 } from 'lucide-react';
 
 // The sidebar spine, as data.
@@ -67,6 +67,11 @@ export const NAV_ITEMS: NavEntry[] = [
   { key: 'equipment', label: 'Equipment', path: '/equipment', icon: Package, audience: ['coach'], section: 'setup', feature: 'equipment' },
   { key: 'field-results', label: 'Field Results', path: '/field-results', icon: Upload, audience: ['coach'], section: 'setup', feature: 'fieldResults' },
   { key: 'settings', label: 'Settings', path: '/settings', icon: Settings, audience: ['coach'], section: 'setup' },
+  // A coach-only shortcut alongside the rest of Setup. Family/athlete
+  // access still goes through the Photos button on Meets (MeetsPage.tsx —
+  // see teamFeatureGating.test.ts), since 'setup' is coach-only and this
+  // entry doesn't change that; the two just cover different audiences.
+  { key: 'photos', label: 'Photos', path: '/photos', icon: Camera, audience: ['coach'], section: 'setup', feature: 'photos' },
 
   { key: 'my-progress', label: 'My Progress', path: '/me', icon: Gauge, audience: ['athlete'], section: 'spine' },
   { key: 'my-group', label: 'My Group', path: '/groups', icon: Users, audience: ['athlete'], section: 'spine' },
