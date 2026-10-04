@@ -26,6 +26,7 @@ describe('optional-feature surfaces', () => {
     const byKey = Object.fromEntries(NAV_ITEMS.map((i) => [i.key, i]));
     expect(byKey.equipment.feature).toBe('equipment');
     expect(byKey['field-results'].feature).toBe('fieldResults');
+    expect(byKey.photos.feature).toBe('photos');
   });
 
   it('leaves the spine unswitchable — roster, schedule and season are what the app is', () => {
@@ -54,10 +55,12 @@ describe('optional-feature surfaces', () => {
   });
 
   it('hides the Photos button on Meets, for both the coach and the family view', () => {
-    // Photos needs both audiences, so unlike attendance/equipment it can't
-    // be a 'setup' or 'spine' NAV_ITEMS entry (spine must stay unswitchable;
-    // setup is coach-only) — it's an inline button on Meets instead, same
-    // shape as Attendance's button on Schedule.
+    // Photos needs both audiences, and 'setup' is coach-only (spine must
+    // stay unswitchable, so it can't live there either) — so a family's
+    // only path to it is this inline button on Meets, same shape as
+    // Attendance's button on Schedule. The 'setup' NAV_ITEMS entry
+    // (navigation.ts) is a coach-only shortcut alongside it, not a
+    // replacement — it doesn't reach a family account at all.
     const meetsPage = code(read('pages/MeetsPage.tsx'));
     expect(meetsPage).toContain("useFeatureEnabled('photos')");
     const occurrences = meetsPage.match(/photosEnabled &&/g) ?? [];
