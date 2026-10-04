@@ -96,6 +96,19 @@ async function putObject(key, body, contentType) {
   await getClient().send(new PutObjectCommand({ Bucket: getBucketName(), Key: key, Body: body, ContentType: contentType }));
 }
 
+// The other case bytes pass through this server rather than a presigned
+// URL: zipping up an athlete's photos for download (routes/photos.js's
+// GET /athletes/:id/download) — the server itself is the one assembling
+// the archive, so it needs the original bytes directly rather than
+// handing out a per-photo link. Returns the SDK's own Node Readable
+// (archiver's append() takes a stream directly), not a buffered Promise —
+// a season's worth of full-res originals is too much to hold in memory at
+// once.
+async function getObjectStream(key) {
+  const response = await getClient().send(new GetObjectCommand({ Bucket: getBucketName(), Key: key }));
+  return response.Body;
+}
+
 module.exports = {
   photoOriginalKey,
   photoThumbKey,
@@ -106,4 +119,5 @@ module.exports = {
   objectExists,
   deleteObject,
   putObject,
+  getObjectStream,
 };

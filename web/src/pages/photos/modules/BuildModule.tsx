@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ModuleShell } from '../components/ModuleShell';
 import { BuildLeftPanel } from '../components/BuildLeftPanel';
@@ -8,6 +8,8 @@ import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { renderCollage } from '../lib/collageRender';
 import { athletesById as buildAthletesById } from '../lib/selectors';
 import { isPhotoVisible } from '../lib/tagRules';
+import { photosService } from '../../../api/photosService';
+import type { AthleteBuildStats } from '../state/types';
 
 const EXPORT_W = 2550;
 const EXPORT_H = 3300;
@@ -15,10 +17,50 @@ const EXPORT_H = 3300;
 export const BuildModule: React.FC = () => {
   const { state, actor } = usePhotosWorkspace();
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [stats, setStats] = useState<AthleteBuildStats | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const linkedDefault = !actor.isCoach ? actor.linkedAthleteIds[0] : undefined;
   const athleteId = state.buildAthleteId ?? linkedDefault;
   const athlete = state.athletes.find((a) => a.id === athleteId);
+
+  // Printed onto the collage itself (the stat strip + results block in
+  // collageRender.ts), so both the preview and the export need the same
+  // object — fetched once per athlete, not per render.
+  useEffect(() => {
+    if (!athleteId) {
+      setStats(null);
+      return;
+    }
+    let cancelled = false;
+    setStats(null);
+    photosService
+      .getAthleteBuildStats(athleteId)
+      .then((result) => {
+        if (!cancelled) setStats(result);
+      })
+      .catch((error) => {
+        console.error('Failed to load athlete build stats:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [athleteId]);
+
+  async function handleDownload() {
+    if (!athleteId) return;
+    setDownloading(true);
+    try {
+      await photosService.downloadAthletePhotos(athleteId);
+    } catch (error) {
+      console.error('Photo folder download failed:', error);
+      toast.error("Couldn't download that athlete's photos.", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   const athletesByIdMap = buildAthletesById(state.athletes);
   // Same rule the Tag grid enforces: a hidden photo, or one tagged with an
@@ -54,6 +96,7 @@ export const BuildModule: React.FC = () => {
           season: state.buildHeader.season,
         },
         true, // requireExportableCanvas — this is the canvas toDataURL() reads below
+        stats,
       );
       const url = canvas.toDataURL('image/png');
       const link = document.createElement('a');
@@ -84,6 +127,8 @@ export const BuildModule: React.FC = () => {
           picks={picks}
           exportBlocked={exportBlocked}
           onExport={handleExport}
+          onDownload={handleDownload}
+          downloading={downloading}
         />
       }
       center={
@@ -97,6 +142,7 @@ export const BuildModule: React.FC = () => {
                 team: state.buildHeader.team,
                 season: state.buildHeader.season,
               }}
+              stats={stats}
             />
           </div>
         ) : (

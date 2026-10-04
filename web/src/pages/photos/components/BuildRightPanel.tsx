@@ -13,6 +13,8 @@ interface BuildRightPanelProps {
   picks: string[];
   exportBlocked: boolean;
   onExport: () => void;
+  onDownload: () => void;
+  downloading: boolean;
 }
 
 const TEMPLATE_SIZES: TemplateSize[] = [3, 4, 5];
@@ -24,6 +26,8 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   picks,
   exportBlocked,
   onExport,
+  onDownload,
+  downloading,
 }) => {
   const { state, setBuildTemplate, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
   const dragIndexRef = React.useRef<number | null>(null);
@@ -184,14 +188,19 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
         </p>
       )}
 
-      <Button
-        size="sm"
-        className="mt-auto gap-1.5 bg-accent text-accent-foreground hover:bg-accent/90"
-        disabled={picks.length < 3 || exportBlocked}
-        onClick={onExport}
-      >
-        <Download className="h-3.5 w-3.5" /> Export PNG
-      </Button>
+      <div className="mt-auto flex flex-col gap-1.5">
+        <Button
+          size="sm"
+          className="gap-1.5 bg-accent text-accent-foreground hover:bg-accent/90"
+          disabled={picks.length < 3 || exportBlocked}
+          onClick={onExport}
+        >
+          <Download className="h-3.5 w-3.5" /> Export PNG
+        </Button>
+        <Button size="sm" variant="outline" className="gap-1.5" disabled={downloading} onClick={onDownload}>
+          <Download className="h-3.5 w-3.5" /> {downloading ? 'Downloading…' : 'Download photos (ZIP)'}
+        </Button>
+      </div>
     </div>
   );
 };
