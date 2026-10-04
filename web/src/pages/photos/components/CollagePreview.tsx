@@ -1,11 +1,15 @@
 import React, { useEffect, useRef } from 'react';
 import { renderCollage, type CollageHeaderText } from '../lib/collageRender';
-import type { Photo, TemplateSize } from '../state/types';
+import type { AthleteBuildStats, Photo, TemplateSize } from '../state/types';
 
 interface CollagePreviewProps {
   templateSize: TemplateSize;
   photos: (Photo | undefined)[];
   header: CollageHeaderText;
+  // null while stats are still loading, or for an athlete with no race
+  // results yet — renderCollage degrades gracefully, drawing nothing for
+  // the stat strip/results block rather than failing.
+  stats?: AthleteBuildStats | null;
   scale?: number;
 }
 
@@ -16,7 +20,7 @@ const PAGE_W = 850;
 const PAGE_H = 1100;
 
 export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreviewProps>(
-  ({ templateSize, photos, header }, ref) => {
+  ({ templateSize, photos, header, stats = null }, ref) => {
     const innerRef = useRef<HTMLCanvasElement>(null);
     const canvasRef = (ref as React.RefObject<HTMLCanvasElement>) ?? innerRef;
 
@@ -28,10 +32,10 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       // must not request) crossOrigin-loaded images; see collageRender.ts's
       // own comment on why that matters. Logged, not thrown: a blank slot
       // here is already visible as the gray placeholder box.
-      renderCollage(canvas, PAGE_W, PAGE_H, templateSize, urls, header).catch((error) =>
+      renderCollage(canvas, PAGE_W, PAGE_H, templateSize, urls, header, false, stats).catch((error) =>
         console.error('Collage preview failed to render:', error),
       );
-    }, [canvasRef, templateSize, photos, header]);
+    }, [canvasRef, templateSize, photos, header, stats]);
 
     return (
       <canvas

@@ -72,3 +72,36 @@ export interface LoadBatch {
   paused: boolean;
   startedAt: string;
 }
+
+// The running-stats block the Build module prints onto a collage
+// (backend/lib/photoBuildStats.js) — reuses the app's own existing
+// per-athlete computations (AthleteSeasonMetrics, lib/athleteJourney.js's
+// computePRs) rather than re-deriving them, so a number here never
+// disagrees with the same number shown anywhere else in the app.
+export interface AthleteBestByDistance {
+  distanceMeters: number;
+  distanceLabel: string | null;
+  timeSec: number;
+  raceName: string;
+  date: string;
+}
+
+export interface AthleteRaceResult {
+  raceName: string;
+  date: string;
+  distanceMeters: number | null;
+  distanceLabel: string | null;
+  timeSec: number;
+}
+
+export interface AthleteBuildStats {
+  name: string;
+  season: number;
+  /** Career best 5K, not season-best — null if this athlete has no 5K result yet. */
+  careerBest5kSec: number | null;
+  totalMiles: number | null;
+  averagePaceSecPerMile: number | null;
+  totalRaces: number;
+  bestByDistance: AthleteBestByDistance[];
+  races: AthleteRaceResult[];
+}

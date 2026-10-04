@@ -1,5 +1,6 @@
 import { templateFor } from './templates';
-import type { TemplateSize } from '../state/types';
+import { formatRaceTime, formatPace, formatRaceDate, formatDistance, formatMiles } from './raceFormat';
+import type { AthleteBuildStats, TemplateSize } from '../state/types';
 
 export interface CollageHeaderText {
   name: string;
@@ -44,6 +45,134 @@ function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: numb
   ctx.restore();
 }
 
+/** Truncates text with an ellipsis so it fits maxWidth, rather than overflowing into the next column. */
+function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let truncated = text;
+  while (truncated.length > 1 && ctx.measureText(`${truncated}…`).width > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+  return `${truncated}…`;
+}
+
+const INK = '#1f2a22';
+const MUTED = '#4b5a4f';
+const RULE = '#cfcabd';
+
+function drawStatStrip(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, pageW: number, pageH: number, stats: AthleteBuildStats | null) {
+  if (!stats) return;
+  const parts: string[] = [];
+  if (stats.careerBest5kSec != null) parts.push(`PR ${formatRaceTime(stats.careerBest5kSec)} (5K)`);
+  if (stats.totalMiles != null) parts.push(formatMiles(stats.totalMiles));
+  if (stats.averagePaceSecPerMile != null) parts.push(`${formatPace(stats.averagePaceSecPerMile)} avg`);
+  parts.push(`${stats.totalRaces} race${stats.totalRaces === 1 ? '' : 's'}`);
+  if (parts.length === 0) return;
+
+  const x = rect.x * pageW;
+  const y = rect.y * pageH + rect.h * pageH * 0.5;
+  ctx.fillStyle = MUTED;
+  ctx.textBaseline = 'middle';
+  ctx.font = `${Math.round(pageH * 0.0165)}px system-ui, sans-serif`;
+  ctx.fillText(parts.join('   ·   '), x, y);
+}
+
+/**
+ * "Best by distance" (one line) + the season's full race list (a table,
+ * split into two columns once there are more rows than one column can
+ * hold cleanly) — the bottom third of the page. Never throws: a missing
+ * or short stats object just draws less, the same "degrade, don't break"
+ * choice as a missing photo drawing a gray box instead of failing the
+ * whole render.
+ */
+function drawResultsBlock(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, pageW: number, pageH: number, stats: AthleteBuildStats | null) {
+  if (!stats || (stats.bestByDistance.length === 0 && stats.races.length === 0)) return;
+
+  const left = rect.x * pageW;
+  const top = rect.y * pageH;
+  const width = rect.w * pageW;
+  const labelSize = Math.round(pageH * 0.0125);
+  const rowSize = Math.round(pageH * 0.0125);
+  let cursorY = top;
+
+  ctx.textBaseline = 'top';
+
+  // --- Best by distance: one line, e.g. "5K 17:32  ·  2 Mile 11:05" ---
+  if (stats.bestByDistance.length > 0) {
+    ctx.fillStyle = MUTED;
+    ctx.font = `700 ${labelSize}px system-ui, sans-serif`;
+    ctx.fillText('SEASON BEST BY DISTANCE', left, cursorY);
+    cursorY += labelSize * 1.6;
+
+    ctx.fillStyle = INK;
+    ctx.font = `${rowSize}px system-ui, sans-serif`;
+    const line = stats.bestByDistance
+      .map((d) => `${formatDistance(d.distanceLabel, d.distanceMeters)} ${formatRaceTime(d.timeSec)}`)
+      .join('   ·   ');
+    ctx.fillText(truncateToWidth(ctx, line, width), left, cursorY);
+    cursorY += rowSize * 1.9;
+  }
+
+  if (stats.races.length === 0) return;
+
+  ctx.strokeStyle = RULE;
+  ctx.lineWidth = Math.max(1, pageH * 0.0006);
+  ctx.beginPath();
+  ctx.moveTo(left, cursorY);
+  ctx.lineTo(left + width, cursorY);
+  ctx.stroke();
+  cursorY += rowSize * 0.9;
+
+  ctx.fillStyle = MUTED;
+  ctx.font = `700 ${labelSize}px system-ui, sans-serif`;
+  ctx.fillText('RACES THIS SEASON', left, cursorY);
+  cursorY += labelSize * 1.6;
+
+  // Two columns once there are enough rows that one column would run out
+  // of room — keeps a short season (a handful of meets) as one easy-to-
+  // scan list instead of an oddly sparse second column.
+  const tableTop = cursorY;
+  const tableHeight = top + rect.h * pageH - tableTop;
+  const rowHeight = rowSize * 1.45;
+  const maxRowsPerColumn = Math.max(1, Math.floor(tableHeight / rowHeight));
+  const twoColumns = stats.races.length > maxRowsPerColumn;
+  const columnCount = twoColumns ? 2 : 1;
+  const rowsPerColumn = Math.ceil(stats.races.length / columnCount);
+  const shown = stats.races.slice(0, rowsPerColumn * columnCount);
+  const overflow = stats.races.length - shown.length;
+  const columnWidth = width / columnCount - (twoColumns ? pageW * 0.015 : 0);
+  const dateColW = columnWidth * 0.16;
+  const timeColW = columnWidth * 0.2;
+  const nameColW = columnWidth - dateColW - timeColW;
+
+  ctx.font = `${rowSize}px system-ui, sans-serif`;
+  shown.forEach((race, i) => {
+    const col = Math.floor(i / rowsPerColumn);
+    const rowInCol = i % rowsPerColumn;
+    const x = left + col * (columnWidth + pageW * 0.015);
+    const y = tableTop + rowInCol * rowHeight;
+
+    ctx.fillStyle = MUTED;
+    ctx.fillText(formatRaceDate(race.date), x, y);
+
+    ctx.fillStyle = INK;
+    ctx.fillText(truncateToWidth(ctx, race.raceName, nameColW - pageW * 0.01), x + dateColW, y);
+
+    ctx.fillStyle = MUTED;
+    ctx.textAlign = 'right';
+    ctx.fillText(formatRaceTime(race.timeSec), x + dateColW + nameColW + timeColW, y);
+    ctx.textAlign = 'left';
+  });
+
+  if (overflow > 0) {
+    const noteY = tableTop + Math.min(rowsPerColumn, maxRowsPerColumn) * rowHeight;
+    if (noteY < top + rect.h * pageH) {
+      ctx.fillStyle = MUTED;
+      ctx.font = `italic ${rowSize}px system-ui, sans-serif`;
+      ctx.fillText(`+${overflow} more this season`, left, noteY);
+    }
+  }
+}
+
 export async function renderCollage(
   canvas: HTMLCanvasElement,
   pageWidth: number,
@@ -55,6 +184,10 @@ export async function renderCollage(
   // handleExport) — see loadImage's own comment on why the preview must
   // not set this.
   requireExportableCanvas = false,
+  // null while stats are still loading, or for an athlete with no race
+  // results yet — the stat strip and results block simply draw nothing in
+  // that case, same "degrade, don't break" choice as a missing photo.
+  stats: AthleteBuildStats | null = null,
 ): Promise<void> {
   canvas.width = pageWidth;
   canvas.height = pageHeight;
@@ -99,13 +232,17 @@ export async function renderCollage(
   const h = template.header;
   const headerX = h.x * pageWidth;
   const headerY = h.y * pageHeight;
-  ctx.fillStyle = '#1f2a22';
+  ctx.fillStyle = INK;
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.font = `${Math.round(pageHeight * 0.032)}px system-ui, sans-serif`;
   ctx.fillText(header.name || 'Athlete Name', headerX, headerY);
-  ctx.fillStyle = '#4b5a4f';
+  ctx.fillStyle = MUTED;
   ctx.font = `${Math.round(pageHeight * 0.016)}px system-ui, sans-serif`;
   ctx.fillText(`${header.team} · ${header.season}`, headerX, headerY + pageHeight * 0.042);
+
+  drawStatStrip(ctx, template.statStrip, pageWidth, pageHeight, stats);
+  drawResultsBlock(ctx, template.resultsBlock, pageWidth, pageHeight, stats);
 
   // The export canvas (requireExportableCanvas) is the one place a failed
   // load is worth refusing over, rather than just drawing a gray box and

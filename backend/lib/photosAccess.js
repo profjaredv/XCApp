@@ -394,6 +394,38 @@ async function setAthleteOptOut(prisma, teamId, athleteId, optOut, actor) {
   return prisma.athlete.update({ where: { id: athleteId }, data: { photosOptOut: Boolean(optOut) } });
 }
 
+// --- Download (an athlete's own folder) -------------------------------------
+
+/**
+ * Every READY, non-hidden photo this athlete is tagged in — the "download
+ * my athlete's folder" feature (routes/photos.js streams these originals
+ * into a ZIP). Coach or the athlete's own linked account only, same
+ * authority as picks/opt-out — deliberately NOT available to a volunteer
+ * session (lib/photoTagRules.js's isVolunteer only ever unlocks tagging).
+ *
+ * An opted-out athlete can still download their own photos — opt-out
+ * means "don't show me to other people's grids," not "deny this family
+ * their own pictures" — so this does not check photosOptOut at all.
+ */
+async function listAthletePhotosForDownload(prisma, teamId, athleteId, actor) {
+  if (!actor.isCoach && !canManageAthlete(actor, athleteId)) {
+    const err = new Error('This account cannot download that athlete\'s photos.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId }, select: { id: true } });
+  if (!athlete) {
+    const err = new Error('Athlete not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  return prisma.photo.findMany({
+    where: { teamId, status: 'READY', tags: { some: { athleteId } } },
+    select: { id: true, objectKey: true, takenAt: true, meet: { select: { name: true } } },
+    orderBy: { takenAt: 'asc' },
+  });
+}
+
 // --- Import (Google Photos album) -----------------------------------------
 
 /**
@@ -461,4 +493,5 @@ module.exports = {
   deleteTeamPhoto,
   setAthleteOptOut,
   importReadyPhoto,
+  listAthletePhotosForDownload,
 };

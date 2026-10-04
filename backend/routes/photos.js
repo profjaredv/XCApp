@@ -1,5 +1,8 @@
 const express = require('express');
 const router = express.Router();
+// archiver 8 exports classes, not the classic archiver('zip') factory —
+// same import shape as routes/export.js.
+const { ZipArchive } = require('archiver');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const prisma = require('../lib/db');
 const r2 = require('../lib/r2');
@@ -11,6 +14,7 @@ const photosVolunteerAccess = require('../lib/photosVolunteerAccess');
 const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
 const { resolveActiveSeason, deriveGrade, isEnrolled } = require('../lib/season');
 const photosAccess = require('../lib/photosAccess');
+const photoBuildStats = require('../lib/photoBuildStats');
 const { importGoogleAlbum, validateGooglePhotosUrl } = require('../lib/googlePhotosImport');
 const googlePhotosImportJobs = require('../lib/googlePhotosImportJobs');
 const { MAX_PICKS } = photosAccess;
@@ -545,6 +549,74 @@ router.post('/athletes/:athleteId/opt-out', authenticate, resolvePhotosTeam, req
   } catch (error) {
     sendAccessError(res, error, 'Error in POST /photos/athletes/:athleteId/opt-out:');
   }
+});
+
+// GET /api/photos/athletes/:athleteId/build-stats — the running-stats
+// block the Build module prints onto a collage (name, career PR, this
+// season's miles/avg pace/race count, best time per distance, and the
+// season's full race list) — see lib/photoBuildStats.js for where each
+// number actually comes from. Coach or the athlete's own linked account;
+// not reachable by a volunteer session (authenticate, not
+// authenticateUserOrVolunteer — same reasoning as the download route
+// below).
+router.get('/athletes/:athleteId/build-stats', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    const stats = await photoBuildStats.getAthleteBuildStats(prisma, req.photosTeamId, req.params.athleteId, req.photoActor);
+    res.json(stats);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/athletes/:athleteId/build-stats:');
+  }
+});
+
+// GET /api/photos/athletes/:athleteId/download — "download my athlete's
+// folder": every READY photo this athlete is tagged in, full resolution,
+// as one ZIP. Coach or the athlete's own linked account; deliberately not
+// reachable by a volunteer session (authenticate, not
+// authenticateUserOrVolunteer — see lib/photoTagRules.js's isVolunteer,
+// which only ever unlocks tagging, never a bulk export of originals).
+router.get('/athletes/:athleteId/download', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  let photos;
+  try {
+    photos = await photosAccess.listAthletePhotosForDownload(prisma, req.photosTeamId, req.params.athleteId, req.photoActor);
+  } catch (error) {
+    return sendAccessError(res, error, 'Error in GET /photos/athletes/:athleteId/download:');
+  }
+  if (photos.length === 0) {
+    return res.status(404).json({ msg: 'No photos found for that athlete yet.' });
+  }
+
+  // Built before touching response headers — see routes/export.js's
+  // sendZip for why: constructing the archive is the thing that can still
+  // fail cleanly with a normal JSON error response, so everything that
+  // can throw happens before the headers that commit this response to
+  // being a ZIP.
+  const archive = new ZipArchive({ zlib: { level: 6 } }); // level 6: JPEGs barely compress further, not worth the CPU of level 9 on a season's worth of full-res originals
+  // Opaque id only in both the filename and the per-photo entry names —
+  // the spec's privacy rule bars an athlete's name from ever appearing in
+  // a key, URL, or download filename (same rule the collage PNG export
+  // already follows).
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="leadpack-photos-${req.params.athleteId}.zip"`);
+
+  archive.on('error', (err) => {
+    console.error('Photo download archive failed:', err.message);
+    res.destroy();
+  });
+  archive.pipe(res);
+
+  for (const photo of photos) {
+    try {
+      const stream = await r2.getObjectStream(photo.objectKey);
+      archive.append(stream, { name: `${photo.id}.jpg` });
+    } catch (error) {
+      // One missing/unreadable object (e.g. a row whose upload never
+      // actually finished) must not sink the rest of the download — same
+      // "one bad file doesn't fail the batch" principle as everywhere
+      // else in this feature.
+      console.error(`Photo download: skipped ${photo.id} (${error.message})`);
+    }
+  }
+  await archive.finalize();
 });
 
 module.exports = router;

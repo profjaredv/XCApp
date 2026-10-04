@@ -30,6 +30,7 @@ const {
   setAthleteOptOut,
   resolveActor,
   importReadyPhoto,
+  listAthletePhotosForDownload,
 } = photosAccess;
 
 function stub(model, method, impl) {
@@ -728,5 +729,62 @@ test('importReadyPhoto still treats a READY (or HIDDEN) existing row as a genuin
     } finally {
       restores.forEach((r) => r());
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// listAthletePhotosForDownload ("download my athlete's folder")
+// ---------------------------------------------------------------------------
+
+test('listAthletePhotosForDownload lets a coach download any athlete on the team', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1' }));
+  let queryArgs;
+  const restorePhoto = stub('photo', 'findMany', (args) => {
+    queryArgs = args;
+    return [{ id: 'photo-1', objectKey: 'teams/team-1/photos/photo-1/orig.jpg' }];
+  });
+  try {
+    const photos = await listAthletePhotosForDownload(prisma, 'team-1', 'athlete-1', coach);
+    assert.equal(photos.length, 1);
+    assert.deepEqual(queryArgs.where, { teamId: 'team-1', status: 'READY', tags: { some: { athleteId: 'athlete-1' } } });
+  } finally {
+    restoreAthlete();
+    restorePhoto();
+  }
+});
+
+test('listAthletePhotosForDownload lets a guardian download their own linked athlete, even if opted out', async () => {
+  // Opt-out means "don't show me to OTHER people's grids" — it must never
+  // block the family's own access to their own photos.
+  const guardian = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: ['athlete-2'], linkedAthleteIds: ['athlete-2'] };
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-2' }));
+  const restorePhoto = stub('photo', 'findMany', () => [{ id: 'photo-1', objectKey: 'teams/team-1/photos/photo-1/orig.jpg' }]);
+  try {
+    const photos = await listAthletePhotosForDownload(prisma, 'team-1', 'athlete-2', guardian);
+    assert.equal(photos.length, 1);
+  } finally {
+    restoreAthlete();
+    restorePhoto();
+  }
+});
+
+test('listAthletePhotosForDownload refuses a guardian with no link to this athlete', async () => {
+  const guardian = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: ['athlete-2'], linkedAthleteIds: ['athlete-2'] };
+  await assert.rejects(() => listAthletePhotosForDownload(prisma, 'team-1', 'athlete-99', guardian), /cannot download/);
+});
+
+test('listAthletePhotosForDownload refuses a volunteer session (tagging-only, no bulk export)', async () => {
+  const volunteer = { userId: null, isCoach: false, isVolunteer: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  await assert.rejects(() => listAthletePhotosForDownload(prisma, 'team-1', 'athlete-1', volunteer), /cannot download/);
+});
+
+test('listAthletePhotosForDownload 404s an athlete from another team', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restore = stub('athlete', 'findFirst', () => null);
+  try {
+    await assert.rejects(() => listAthletePhotosForDownload(prisma, 'team-1', 'athlete-of-another-team', coach), /Athlete not found/);
+  } finally {
+    restore();
   }
 });

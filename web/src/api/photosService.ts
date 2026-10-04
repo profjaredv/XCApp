@@ -1,5 +1,6 @@
 import api from './api';
-import type { Athlete, Meet, Photo, PhotoAthlete, TagSource } from '../pages/photos/state/types';
+import { downloadBlobFile } from '../lib/downloadBlob';
+import type { Athlete, AthleteBuildStats, Meet, Photo, PhotoAthlete, TagSource } from '../pages/photos/state/types';
 
 // Backend routes: backend/routes/photos.js. Every call is scoped by the
 // authenticated session's team (or, for a guardian, their approved
@@ -71,6 +72,11 @@ export interface FinalizeResult {
   reason?: string;
   missing?: { original: boolean; thumb: boolean; web: boolean };
 }
+
+// AthleteBuildStats and its nested types live in state/types.ts (the
+// shape this whole feature's UI reads), re-exported here just so a
+// caller only importing from photosService doesn't also need that path.
+export type { AthleteBuildStats, AthleteBestByDistance, AthleteRaceResult } from '../pages/photos/state/types';
 
 function toPhoto(p: ApiPhoto): Photo {
   return {
@@ -199,5 +205,17 @@ export const photosService = {
   async setTagPassword(password: string | null): Promise<{ enabled: boolean }> {
     const response = await api.put<{ enabled: boolean }>('/photos/tag-password', { password });
     return response.data;
+  },
+
+  async getAthleteBuildStats(athleteId: string): Promise<AthleteBuildStats> {
+    const response = await api.get<AthleteBuildStats>(`/photos/athletes/${athleteId}/build-stats`);
+    return response.data;
+  },
+
+  // "Download my athlete's folder" — a ZIP of every photo this athlete is
+  // tagged in, full resolution. See lib/downloadBlob.ts for why this goes
+  // through axios as a blob rather than a plain link.
+  downloadAthletePhotos(athleteId: string): Promise<void> {
+    return downloadBlobFile(api, `/photos/athletes/${athleteId}/download`, `leadpack-photos-${athleteId}.zip`, 'zip');
   },
 };
