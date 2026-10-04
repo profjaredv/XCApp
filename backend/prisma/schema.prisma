@@ -1869,6 +1869,13 @@ model PhotoAthlete {
   taggedBy  String?        @map("tagged_by") @db.Uuid
   source    PhotoTagSource
   createdAt DateTime       @default(now()) @map("created_at")
+  // Where this athlete's collage crop should center on this photo — the
+  // Build module's "move the photo to see faces" control. Normalized
+  // (0-1 each), null means the default center crop. Lives on the tag
+  // itself (not on Pick) so it survives a photo being swapped out of a
+  // slot and back in, and isn't wiped by setPicks' delete/recreate.
+  focalX    Float?         @map("focal_x")
+  focalY    Float?         @map("focal_y")
 
   photo   Photo   @relation(fields: [photoId], references: [id], onDelete: Cascade)
   athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)

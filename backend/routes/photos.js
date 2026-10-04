@@ -420,6 +420,8 @@ router.get('/', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFea
             athleteId: t.athleteId,
             source: t.source.toLowerCase(),
             taggedBy: t.taggedBy,
+            focalX: t.focalX,
+            focalY: t.focalY,
           })),
         };
       }),
@@ -465,6 +467,23 @@ router.delete('/:id/tags/:athleteId', authenticateUserOrVolunteer, resolvePhotos
     res.json(result);
   } catch (error) {
     sendAccessError(res, error, 'Error in DELETE /photos/:id/tags/:athleteId:');
+  }
+});
+
+// PUT /api/photos/:id/tags/:athleteId/focal — Build module's "move the
+// photo to see faces" drag. Body: { focalX, focalY }, each 0-1. Plain
+// authenticate (not the volunteer-session middleware): a no-account
+// tagging session can tag a photo but never touches collage layout.
+router.put('/:id/tags/:athleteId/focal', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  const { focalX, focalY } = req.body || {};
+  if (typeof focalX !== 'number' || typeof focalY !== 'number') {
+    return res.status(400).json({ msg: 'focalX and focalY (numbers) are required.' });
+  }
+  try {
+    const tag = await photosAccess.setPhotoFocal(prisma, req.photosTeamId, req.params.id, req.params.athleteId, focalX, focalY, req.photoActor);
+    res.json({ athleteId: tag.athleteId, focalX: tag.focalX, focalY: tag.focalY });
+  } catch (error) {
+    sendAccessError(res, error, 'Error in PUT /photos/:id/tags/:athleteId/focal:');
   }
 });
 

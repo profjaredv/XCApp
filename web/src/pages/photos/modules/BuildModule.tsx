@@ -5,7 +5,7 @@ import { BuildLeftPanel } from '../components/BuildLeftPanel';
 import { BuildRightPanel } from '../components/BuildRightPanel';
 import { CollagePreview } from '../components/CollagePreview';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
-import { renderCollage } from '../lib/collageRender';
+import { renderCollage, type FocalPoint } from '../lib/collageRender';
 import { athletesById as buildAthletesById } from '../lib/selectors';
 import { isPhotoVisible } from '../lib/tagRules';
 import { photosService } from '../../../api/photosService';
@@ -15,7 +15,7 @@ const EXPORT_W = 2550;
 const EXPORT_H = 3300;
 
 export const BuildModule: React.FC = () => {
-  const { state, actor } = usePhotosWorkspace();
+  const { state, actor, setPhotoFocal } = usePhotosWorkspace();
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
   const [stats, setStats] = useState<AthleteBuildStats | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -77,6 +77,20 @@ export const BuildModule: React.FC = () => {
   const pickedPhotos = picks.map((id) => visiblePhotosById.get(id));
   const exportBlocked = Boolean(athlete?.photosOptOut);
 
+  // Each pick's crop position for this athlete — lives on the tag, not
+  // the pick, so it survives a swap-out/swap-back. Aligned 1:1 with
+  // `picks`/`pickedPhotos`.
+  const focalPoints: (FocalPoint | undefined)[] = picks.map((photoId) => {
+    const tag = state.tags[photoId]?.find((t) => t.athleteId === athlete?.id);
+    return tag?.focalX != null && tag?.focalY != null ? { x: tag.focalX, y: tag.focalY } : undefined;
+  });
+
+  function handleFocalChange(index: number, focal: FocalPoint) {
+    const photoId = picks[index];
+    if (!athlete || !photoId) return;
+    setPhotoFocal(photoId, athlete.id, focal.x, focal.y);
+  }
+
   async function handleExport() {
     // The spec's opt-out rule: an opted-out athlete is "skipped by collage
     // generation" outright, not just hidden from grids.
@@ -97,6 +111,7 @@ export const BuildModule: React.FC = () => {
         },
         true, // requireExportableCanvas — this is the canvas toDataURL() reads below
         stats,
+        focalPoints,
       );
       const url = canvas.toDataURL('image/png');
       const link = document.createElement('a');
@@ -133,7 +148,7 @@ export const BuildModule: React.FC = () => {
       }
       center={
         athlete ? (
-          <div className="flex h-full items-center justify-center bg-ink/40 p-6">
+          <div className="flex h-full flex-col items-center justify-center gap-2 bg-ink/40 p-6">
             <CollagePreview
               templateSize={state.buildTemplateSize}
               photos={pickedPhotos}
@@ -143,7 +158,10 @@ export const BuildModule: React.FC = () => {
                 season: state.buildHeader.season,
               }}
               stats={stats}
+              focalPoints={focalPoints}
+              onFocalChange={handleFocalChange}
             />
+            {picks.length > 0 && <p className="text-xs text-ink-muted">Drag a photo to reposition it within its frame.</p>}
           </div>
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-ink-muted">
