@@ -127,6 +127,7 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
   const next = index < photos.length - 1 ? photos[index + 1] : null;
   const touchStartX = useRef<number | null>(null);
   const athletesById = new Map(athletes.map((a) => [a.id, a]));
+  const [keyboardInset, setKeyboardInset] = useState(0);
 
   // Tagging is per-photo — stepping to the next photo always lands back on
   // the plain view, not mid-search for whichever athlete was being typed
@@ -134,6 +135,29 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
   useEffect(() => {
     setSearchOpen(false);
   }, [photoId]);
+
+  // On a phone, focusing the @-search input (LoupeTagSearch) pops the
+  // on-screen keyboard, which eats the bottom of the visual viewport —
+  // visualViewport shrinks, but the layout viewport (and this fixed
+  // inset-0 overlay) doesn't, so the photo and search box can end up
+  // sitting half under the keyboard. Shifting the content up by half of
+  // whatever height the keyboard took re-centers it in the space that's
+  // actually still visible.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    function update() {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardInset(inset);
+    }
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -213,7 +237,8 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
       )}
 
       <div
-        className="relative flex max-h-[85vh] max-w-[90vw] flex-col items-center"
+        className="relative flex max-h-[85vh] max-w-[90vw] flex-col items-center transition-transform duration-150 ease-out"
+        style={keyboardInset > 0 ? { transform: `translateY(-${keyboardInset / 2}px)` } : undefined}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Tapping the photo itself is the "tap an area to tag" gesture —
