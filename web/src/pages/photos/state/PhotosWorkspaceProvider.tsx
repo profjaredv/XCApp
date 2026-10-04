@@ -405,6 +405,27 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     [actor, state.picks, applyEntry],
   );
 
+  // Build module's "move the photo to see faces" drag — a cosmetic
+  // per-tag crop offset, not an editorial change, so it bypasses the
+  // undo/redo history entirely (like setBuildHeader). Rolls back to the
+  // previous offset on a failed save, since unlike the history-tracked
+  // mutations there's no syncHistoryEntry reconciliation path for it.
+  const setPhotoFocal = useCallback(
+    (photoId: string, athleteId: string, focalX: number, focalY: number) => {
+      if (!canManageAthlete(actor, athleteId)) return;
+      const previousTag = state.tags[photoId]?.find((t) => t.athleteId === athleteId);
+      const previousFocalX = previousTag?.focalX ?? 0.5;
+      const previousFocalY = previousTag?.focalY ?? 0.5;
+      dispatch({ type: 'SET_PHOTO_FOCAL', photoId, athleteId, focalX, focalY });
+      photosService.setPhotoFocal(photoId, athleteId, focalX, focalY).catch((error) => {
+        console.error("Failed to save photo's position:", error);
+        toast.error("Couldn't save that photo's position.");
+        dispatch({ type: 'SET_PHOTO_FOCAL', photoId, athleteId, focalX: previousFocalX, focalY: previousFocalY });
+      });
+    },
+    [actor, state.tags],
+  );
+
   const value: PhotosWorkspaceValue = {
     state,
     actor,
@@ -440,6 +461,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     removePick,
     swapPick,
     reorderPick,
+    setPhotoFocal,
     dispatch,
   };
 

@@ -8,6 +8,12 @@ export interface CollageHeaderText {
   season: string;
 }
 
+/** A photo's chosen crop position within its slot — see coverFitOffset below. */
+export interface FocalPoint {
+  x: number;
+  y: number;
+}
+
 // crossOrigin: 'anonymous' is required for the canvas this draws onto to
 // stay "untainted" so canvas.toDataURL() (the export in
 // modules/BuildModule.tsx) doesn't throw a SecurityError — but setting it
@@ -30,18 +36,48 @@ function loadImage(src: string, anonymous: boolean): Promise<HTMLImageElement> {
   });
 }
 
-/** Cover-fit, centered — the spec's cropping rule (no face/subject detection). */
-function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number) {
-  const scale = Math.max(w / img.width, h / img.height);
-  const drawW = img.width * scale;
-  const drawH = img.height * scale;
-  const dx = x + (w - drawW) / 2;
-  const dy = y + (h - drawH) / 2;
+/**
+ * Cover-fit math shared with components/CollagePreview.tsx's drag
+ * handler, so the two never disagree about where a given focal point
+ * puts the image. focalX/focalY (each 0-1, default 0.5 = centered) say
+ * where, along whichever axis the cover crop overflows, the crop sits —
+ * 0 pins it to the top/left of the overflow, 1 to the bottom/right. When
+ * an axis has no overflow (the frame and image share that axis's aspect
+ * exactly), its focal value has no visible effect.
+ */
+export function coverFitOffset(frameW: number, frameH: number, imgW: number, imgH: number, focalX = 0.5, focalY = 0.5) {
+  const scale = Math.max(frameW / imgW, frameH / imgH);
+  const drawW = imgW * scale;
+  const drawH = imgH * scale;
+  const overflowX = drawW - frameW;
+  const overflowY = drawH - frameH;
+  return {
+    drawW,
+    drawH,
+    overflowX,
+    overflowY,
+    dx: -overflowX * focalX,
+    dy: -overflowY * focalY,
+  };
+}
+
+/** Cover-fit, offset by the athlete's chosen focal point — the Build module's "move to see faces" control. */
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  focalX = 0.5,
+  focalY = 0.5,
+) {
+  const { drawW, drawH, dx, dy } = coverFitOffset(w, h, img.width, img.height, focalX, focalY);
   ctx.save();
   ctx.beginPath();
   ctx.rect(x, y, w, h);
   ctx.clip();
-  ctx.drawImage(img, dx, dy, drawW, drawH);
+  ctx.drawImage(img, x + dx, y + dy, drawW, drawH);
   ctx.restore();
 }
 
@@ -188,6 +224,11 @@ export async function renderCollage(
   // results yet — the stat strip and results block simply draw nothing in
   // that case, same "degrade, don't break" choice as a missing photo.
   stats: AthleteBuildStats | null = null,
+  // Per-slot crop position, aligned 1:1 with photoUrls — the Build
+  // module's "move the photo to see faces" drag (components/CollagePreview.tsx).
+  // undefined/missing entries default to centered, same as no focal point
+  // ever having been saved for that photo.
+  focalPoints: (FocalPoint | undefined)[] = [],
 ): Promise<void> {
   canvas.width = pageWidth;
   canvas.height = pageHeight;
@@ -226,7 +267,8 @@ export async function renderCollage(
       ctx.fillRect(rect.x * pageWidth, rect.y * pageHeight, rect.w * pageWidth, rect.h * pageHeight);
       return;
     }
-    drawCover(ctx, img, rect.x * pageWidth, rect.y * pageHeight, rect.w * pageWidth, rect.h * pageHeight);
+    const focal = focalPoints[i];
+    drawCover(ctx, img, rect.x * pageWidth, rect.y * pageHeight, rect.w * pageWidth, rect.h * pageHeight, focal?.x, focal?.y);
   });
 
   const h = template.header;

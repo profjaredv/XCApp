@@ -24,6 +24,7 @@ const {
   listTeamPhotos,
   tagPhoto,
   untagPhoto,
+  setPhotoFocal,
   setPicks,
   setPhotoHidden,
   deleteTeamPhoto,
@@ -466,6 +467,80 @@ test('untagPhoto lets a coach remove any tag', async () => {
     const result = await untagPhoto(prisma, 'team-1', 'photo-1', 'athlete-2', actor);
     assert.deepEqual(result, { ok: true, removed: true });
     assert.strictEqual(deleted, true);
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
+// ---------------------------------------------------------------------------
+// setPhotoFocal
+// ---------------------------------------------------------------------------
+
+test('setPhotoFocal refuses an athlete this actor cannot manage', async () => {
+  const actor = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  await assert.rejects(
+    () => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-99', 0.2, 0.8, actor),
+    /cannot reposition/,
+  );
+});
+
+test('setPhotoFocal 404s on a photo from another team even for a coach', async () => {
+  const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restore = stub('photo', 'findFirst', () => null);
+  try {
+    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, actor), /not found/);
+  } finally {
+    restore();
+  }
+});
+
+test('setPhotoFocal 404s when the athlete has no tag on this photo', async () => {
+  const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
+    stub('photoAthlete', 'findUnique', () => null),
+  ];
+  try {
+    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, actor), /not tagged/);
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
+test('setPhotoFocal clamps out-of-range values into 0-1 before saving', async () => {
+  const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  let savedData;
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
+    stub('photoAthlete', 'findUnique', () => ({ photoId: 'photo-1', athleteId: 'athlete-1' })),
+    stub('photoAthlete', 'update', (args) => {
+      savedData = args.data;
+      return { athleteId: 'athlete-1', ...args.data };
+    }),
+  ];
+  try {
+    const result = await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 1.4, -0.3, actor);
+    assert.deepEqual(savedData, { focalX: 1, focalY: 0 });
+    assert.deepEqual(result, { athleteId: 'athlete-1', focalX: 1, focalY: 0 });
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
+test('setPhotoFocal lets a guardian reposition their own linked athlete', async () => {
+  const actor = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: ['athlete-2'], linkedAthleteIds: ['athlete-2'] };
+  let savedData;
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
+    stub('photoAthlete', 'findUnique', () => ({ photoId: 'photo-1', athleteId: 'athlete-2' })),
+    stub('photoAthlete', 'update', (args) => {
+      savedData = args.data;
+      return { athleteId: 'athlete-2', ...args.data };
+    }),
+  ];
+  try {
+    await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-2', 0.3, 0.7, actor);
+    assert.deepEqual(savedData, { focalX: 0.3, focalY: 0.7 });
   } finally {
     restores.forEach((r) => r());
   }
