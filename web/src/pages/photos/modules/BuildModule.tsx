@@ -41,26 +41,34 @@ export const BuildModule: React.FC = () => {
     if (!athlete || athlete.photosOptOut) return;
     const canvas = exportCanvasRef.current;
     if (!canvas) return;
-    await renderCollage(
-      canvas,
-      EXPORT_W,
-      EXPORT_H,
-      state.buildTemplateSize,
-      picks.map((id) => visiblePhotosById.get(id)?.webUrl ?? ''),
-      {
-        name: state.buildHeader.name || athlete.preferredName || athlete.name,
-        team: state.buildHeader.team,
-        season: state.buildHeader.season,
-      },
-    );
-    const url = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
-    link.href = url;
-    // Opaque id only — the spec's privacy rule bars an athlete's name from
-    // ever appearing in a key, URL, or download filename.
-    link.download = `leadpack-photos-collage-${athlete.id}.png`;
-    link.click();
-    toast.success('Collage exported', { description: `${EXPORT_W}×${EXPORT_H}px, ready to print at letter size.` });
+    try {
+      await renderCollage(
+        canvas,
+        EXPORT_W,
+        EXPORT_H,
+        state.buildTemplateSize,
+        picks.map((id) => visiblePhotosById.get(id)?.webUrl ?? ''),
+        {
+          name: state.buildHeader.name || athlete.preferredName || athlete.name,
+          team: state.buildHeader.team,
+          season: state.buildHeader.season,
+        },
+        true, // requireExportableCanvas — this is the canvas toDataURL() reads below
+      );
+      const url = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = url;
+      // Opaque id only — the spec's privacy rule bars an athlete's name
+      // from ever appearing in a key, URL, or download filename.
+      link.download = `leadpack-photos-collage-${athlete.id}.png`;
+      link.click();
+      toast.success('Collage exported', { description: `${EXPORT_W}×${EXPORT_H}px, ready to print at letter size.` });
+    } catch (error) {
+      console.error('Collage export failed:', error);
+      toast.error("Couldn't export that collage.", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
   }
 
   return (
