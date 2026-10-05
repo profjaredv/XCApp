@@ -15,6 +15,34 @@ function normalizeAthleteName(name) {
   return (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+/**
+ * Every normalized full-name string a results page might print for this
+ * athlete: the legal `name`, `preferredName` as-is (already a full name
+ * when it came from a roster CSV's "Preferred Name"/"Nickname" column —
+ * see lib/rosterCsv.js), and — when `preferredName` is just a bare
+ * nickname with no surname of its own (the common case: a coach typing
+ * "Finn" into the Athletes page's one-field "Preferred name" box, or a
+ * merge carrying that over from a duplicate profile) — that nickname
+ * paired with `name`'s own surname, the same pairing
+ * lib/resultImport.js's nameCandidates does from the opposite direction
+ * for a parsed results row. Without this, "Finn" never matches a results
+ * page's "Finn Woods-Vallejo" when the roster's legal name is "Finley
+ * Woods-Vallejo" — the actual reported bug this fixes.
+ */
+function athleteNameCandidates(name, preferredName) {
+  const candidates = new Set();
+  if (name) candidates.add(name);
+  if (preferredName) {
+    candidates.add(preferredName);
+    if (!preferredName.includes(' ')) {
+      const parts = (name || '').trim().split(/\s+/);
+      const surname = parts.length > 1 ? parts.slice(1).join(' ') : '';
+      if (surname) candidates.add(`${preferredName} ${surname}`);
+    }
+  }
+  return [...candidates].map(normalizeAthleteName).filter(Boolean);
+}
+
 // byAthleticId: Map<athleticAthleteId, athlete>  (Athlete.athleticAthleteId)
 // byAliasId:    Map<athleticAthleteId, athlete>  (AthleteAliasId — ids retired
 //               by a merge; optional, so existing callers keep working)
@@ -40,4 +68,4 @@ function matchAthlete({ athleticAthleteId, name }, { byAthleticId, byAliasId, by
   return null;
 }
 
-module.exports = { normalizeAthleteName, matchAthlete };
+module.exports = { normalizeAthleteName, matchAthlete, athleteNameCandidates };

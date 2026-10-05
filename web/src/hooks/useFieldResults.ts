@@ -33,6 +33,11 @@ export interface FieldResultRace {
   // of it.
   ourResultCount: number;
   ourMatchedCount: number;
+  // Display name (preferredName if set, else legal name) of each of our
+  // own athletes whose result didn't match any field finisher — empty
+  // whenever ourMatchedCount === ourResultCount. Lets a coach actually see
+  // who to go check, instead of just the count.
+  unmatchedAthleteNames: string[];
 }
 
 export const useFieldResultRaces = (season: number | undefined) => {
