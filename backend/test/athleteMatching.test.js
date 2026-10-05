@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeAthleteName, matchAthlete } = require('../lib/athleteMatching');
+const { normalizeAthleteName, matchAthlete, athleteNameCandidates } = require('../lib/athleteMatching');
 
 test('normalizeAthleteName', () => {
   assert.equal(normalizeAthleteName('Jack Smith'), 'jack smith');
@@ -129,4 +129,36 @@ test('an unknown profile link with no alias and no name match is still a new ath
     { byAthleticId: new Map(), byAliasId: new Map(), byName: new Map() }
   );
   assert.equal(match, null);
+});
+
+// --- athleteNameCandidates ---------------------------------------------
+// The actual reported bug: lib/fieldPlacement.js's results matcher only
+// ever compared the legal name, so a merge that carried over a bare
+// nickname ("Finn" for legal name "Finley Woods-Vallejo") never matched a
+// results page listing "Finn Woods-Vallejo".
+
+test('athleteNameCandidates: no preferredName — just the legal name, normalized', () => {
+  assert.deepEqual(athleteNameCandidates('Jane Doe', null), ['jane doe']);
+});
+
+test('athleteNameCandidates: a bare one-word nickname is paired with the legal name\'s surname', () => {
+  const candidates = athleteNameCandidates('Finley Woods-Vallejo', 'Finn');
+  assert.ok(candidates.includes('finley woods-vallejo'));
+  assert.ok(candidates.includes('finn'));
+  assert.ok(candidates.includes('finn woods-vallejo'));
+});
+
+test('athleteNameCandidates: a preferredName that already includes a surname (CSV roster import) is used as-is, not re-paired', () => {
+  const candidates = athleteNameCandidates('Alexandra Smith', 'Alex Doe');
+  assert.deepEqual(candidates.sort(), ['alex doe', 'alexandra smith']);
+});
+
+test('athleteNameCandidates: a single-token legal name has no surname to pair with, so only the bare nickname is offered', () => {
+  const candidates = athleteNameCandidates('Finley', 'Finn');
+  assert.deepEqual(candidates.sort(), ['finley', 'finn']);
+});
+
+test('athleteNameCandidates: never returns duplicate or empty candidates', () => {
+  assert.deepEqual(athleteNameCandidates('Jane Doe', 'Jane Doe'), ['jane doe']);
+  assert.deepEqual(athleteNameCandidates(null, null), []);
 });

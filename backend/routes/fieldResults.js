@@ -74,7 +74,7 @@ async function recomputeRacePlacements(raceId) {
     where: { id: raceId },
     include: {
       fieldResults: true,
-      results: { include: { athlete: { select: { id: true, name: true, gender: true } } } },
+      results: { include: { athlete: { select: { id: true, name: true, preferredName: true, gender: true } } } },
     },
   });
   if (!race) return;
@@ -133,7 +133,7 @@ router.get('/races', authenticate, requireFeature('fieldResults'), requireTeam, 
         // Only pulled to compute ourMatchedCount below — never returned
         // as-is (the privacy posture at the top of this file still
         // applies: no other school's FieldResult rows leave this route).
-        results: { select: { id: true, athlete: { select: { name: true } } } },
+        results: { select: { id: true, athlete: { select: { name: true, preferredName: true } } } },
         fieldResults: true,
       },
       orderBy: { date: 'asc' },
@@ -157,9 +157,17 @@ router.get('/races', authenticate, requireFeature('fieldResults'), requireTeam, 
         // race simply has no results of its own yet; the frontend tells
         // that apart from "no field data uploaded" using hasFieldData.
         const ourResultCount = r.results.length;
-        const ourMatchedCount = hasFieldData
-          ? matchResultsToFieldResults(r.results, finishedFieldResults(r.fieldResults)).size
-          : 0;
+        const matched = hasFieldData ? matchResultsToFieldResults(r.results, finishedFieldResults(r.fieldResults)) : null;
+        const ourMatchedCount = matched ? matched.size : 0;
+        // Which of our own athletes the upload didn't find — so a coach
+        // can actually see who to go fix, instead of just a count. Only
+        // meaningful once there's field data to have matched against;
+        // an unmatched name here is always one of THIS team's own
+        // athletes, never another school's (the privacy posture at the
+        // top of this file), so it's safe to send as-is.
+        const unmatchedAthleteNames = matched
+          ? r.results.filter((res) => !matched.has(res.id)).map((res) => res.athlete.preferredName || res.athlete.name)
+          : [];
         return {
           id: r.id,
           name: r.name,
@@ -193,6 +201,7 @@ router.get('/races', authenticate, requireFeature('fieldResults'), requireTeam, 
           otherTeamFieldFinisherCount: sharedSource?.fieldFinisherCount ?? null,
           ourResultCount,
           ourMatchedCount,
+          unmatchedAthleteNames,
         };
       })
     );

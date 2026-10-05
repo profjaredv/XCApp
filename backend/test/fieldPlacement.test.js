@@ -1,13 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { computeRacePlacements } = require('../lib/fieldPlacement');
+const { computeRacePlacements, matchResultsToFieldResults } = require('../lib/fieldPlacement');
 
 function fr(id, athleteName, division, gender, timeSec, place) {
   return { id, athleteName, division, gender, timeSec, place, status: 'FINISHED' };
 }
 
-function result(id, athleteId, athleteName, gender) {
-  return { id, athlete: { id: athleteId, name: athleteName, gender } };
+function result(id, athleteId, athleteName, gender, preferredName) {
+  return { id, athlete: { id: athleteId, name: athleteName, preferredName: preferredName ?? null, gender } };
 }
 
 test('computeRacePlacements: single division gets place, no overall (nothing to distinguish)', () => {
@@ -177,4 +177,38 @@ test('computeRacePlacements: unfinished field rows never rank or get matched', (
     overallFieldSize: null,
   });
   assert.equal(placements.has('r2'), false);
+});
+
+// The actual bug report: an athlete merged from a duplicate profile whose
+// name on Athletic.net was slightly different ("Finn" vs the roster's
+// legal "Finley") never matched, because only `athlete.name` was ever
+// compared — the merge's carried-over `preferredName` was never consulted.
+test('matchResultsToFieldResults falls back to preferredName when the legal name does not match the field', () => {
+  const fieldResults = [fr('f1', 'Finn Woods-Vallejo', 'Boys Varsity', 'M', 1100, 4)];
+  const results = [result('r1', 'a1', 'Finley Woods-Vallejo', 'M', 'Finn')];
+
+  const matched = matchResultsToFieldResults(results, fieldResults);
+  assert.equal(matched.get('r1'), fieldResults[0]);
+});
+
+test('matchResultsToFieldResults still matches on the legal name when there is no preferredName', () => {
+  const fieldResults = [fr('f1', 'Jane Doe', 'Girls Varsity', 'F', 1100, 4)];
+  const results = [result('r1', 'a1', 'Jane Doe', 'F')];
+
+  const matched = matchResultsToFieldResults(results, fieldResults);
+  assert.equal(matched.get('r1'), fieldResults[0]);
+});
+
+test('matchResultsToFieldResults never lets two of our own results both claim the same field row', () => {
+  const fieldResults = [fr('f1', 'Finn Woods-Vallejo', 'Boys Varsity', 'M', 1100, 4)];
+  const results = [
+    result('r1', 'a1', 'Finley Woods-Vallejo', 'M', 'Finn'),
+    // A second of our own results that also happens to resolve to this
+    // same field row (contrived, but exercises the "claimed once" guard).
+    result('r2', 'a2', 'Finn Woods-Vallejo', 'M'),
+  ];
+
+  const matched = matchResultsToFieldResults(results, fieldResults);
+  const claimedBy = [matched.has('r1'), matched.has('r2')].filter(Boolean).length;
+  assert.equal(claimedBy, 1);
 });

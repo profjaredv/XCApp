@@ -354,6 +354,18 @@ const FieldResultsPage = () => {
                               All {race.ourResultCount} of your athletes matched
                             </span>
                           )}
+                          {/* Who specifically didn't match, not just how many
+                              — usually a name-format mismatch between the
+                              roster and the CSV/results page (a nickname the
+                              roster doesn't have on file, "Last, First" order,
+                              a misspelling). */}
+                          {race.unmatchedAthleteNames.length > 0 && (
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              Didn&apos;t match: {race.unmatchedAthleteNames.slice(0, 5).join(', ')}
+                              {race.unmatchedAthleteNames.length > 5 &&
+                                ` +${race.unmatchedAthleteNames.length - 5} more`}
+                            </div>
+                          )}
                         </div>
                       )}
                     </TableCell>
