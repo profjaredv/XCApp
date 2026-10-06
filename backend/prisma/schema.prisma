@@ -150,6 +150,8 @@ model Team {
   paceZones               PaceZone[]
   photos                  Photo[]
   photoVolunteerSessions  PhotoVolunteerSession[]
+  trackMeets              TrackMeet[]
+  trackResults            TrackResult[]
 
   @@index([coachUid])
   @@map("teams")
@@ -257,6 +259,19 @@ model TeamMember {
   // stay intact. requireRole treats an inactive row as no access at all.
   active   Boolean  @default(true)
   joinedAt DateTime @default(now()) @map("joined_at")
+  // LeadPack Track & Field handoff, Section 1b: null (every pre-existing
+  // row, migrated this way on purpose) means this row's role applies to
+  // every sport the team runs — "XC" or "TRACK" narrows it to one. The
+  // track head coach may not be the XC head coach, and without this a
+  // track-only COACH/HEAD_COACH invite would get destructive authority
+  // over XC results/training logs/race reflections too — the staff-side
+  // version of the over-broad-access problem the captain allowlist exists
+  // to prevent on the athlete side. Enforced in lib/groupPermissions.js's
+  // decideSportScopedAccess, reusing the same shape as the existing
+  // group-leader scoping rather than a second permission system. One row
+  // per (team, user) still — this narrows what the row can touch, it
+  // doesn't multiply rows.
+  sport    String?
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -359,6 +374,7 @@ model Athlete {
   photoTags                PhotoAthlete[]
   photoPicks               Pick[]
   collages                 Collage[]
+  trackResults             TrackResult[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -456,6 +472,12 @@ model StaffInvite {
   teamId      String    @map("team_id") @db.Uuid
   email       String
   role        TeamRole // HEAD_COACH | COACH | VOLUNTEER_COACH — never ATHLETE, that's AthleteInvite's job
+  // LeadPack Track & Field handoff, Section 1b: same null-means-unrestricted,
+  // "XC" | "TRACK" narrows meaning as TeamMember.sport above — set here so
+  // a head coach can invite a track-only coach with the scope already
+  // correct on the resulting TeamMember row, rather than inviting them
+  // unrestricted and narrowing after the fact.
+  sport       String?
   token       String    @unique @default(uuid())
   status      String    @default("pending") // pending | accepted | revoked
   invitedById String    @map("invited_by") @db.Uuid
@@ -1936,4 +1958,140 @@ model Collage {
 
   @@index([athleteId, seasonId])
   @@map("collages")
+}
+
+// ---------------------------------------------------------------------------
+// LeadPack Track & Field (docs/leadpack-track-field-handoff.md)
+//
+// Built parallel to Race/Result, not merged into them (Section 3 of the
+// handoff): Result already carries deep inline documentation about
+// XC-specific semantics (division matching against FieldResult, overall
+// placement logic) that doesn't apply to track, and track breaks the
+// "lower time always wins" assumption XC's whole results stack is built
+// on — a mark can be a time, a distance, or a height, "better" flips
+// direction by event, and a result can belong to four athletes at once
+// (a relay). Everything upstream of this (TeamMember/Group/PracticePlan/
+// Meet/MeetEntry/MeetPlan/RaceReflection/Equipment/the claim-and-checkout
+// gate) is explicitly documented as transferring unchanged (Section 0) —
+// it's sport-agnostic by construction, built on Season.sport, not
+// rebuilt here. Season itself needs no change: `sport` already exists
+// and already defaults to "XC"; a Track season is just a Season row with
+// sport: "TRACK" under the same Team as the XC seasons (Section 1 — one
+// team, two sports, same athletic_team_id, no Team-splitting needed).
+// ---------------------------------------------------------------------------
+
+enum EventCategory {
+  SPRINT
+  MIDDLE_DISTANCE
+  DISTANCE
+  HURDLES
+  RELAY
+  JUMP
+  THROW
+  MULTI
+}
+
+// FEET_INCHES: US high school field events (long jump, shot put, etc.) are
+// recorded in feet/inches on Athletic.net, not meters — a long jump of
+// 18'6" reads as "18-06", not "5.64". Stored as total inches internally
+// (an integer-valued Float, same storage type as every other mark unit —
+// see TrackResult.markValue), converted to a display string at render
+// time. The parser that does that conversion (not yet written — blocked
+// on real scraped field-event strings, see NOTES.md) gets a test table
+// built from real examples before anything trusts it, same discipline as
+// lib/distance.js's.
+enum MarkUnit {
+  SECONDS
+  METERS
+  FEET_INCHES
+  POINTS // multi-event aggregate score
+}
+
+enum ScoringDirection {
+  LOWER_BETTER
+  HIGHER_BETTER
+}
+
+// Reference data, not user-created rows — a fixed, enumerable set unlike
+// XC's free-text distance. Seeded by scripts/seedTrackEvents.js from a
+// WIAA-typical outdoor list; see that script's own header for why the
+// list it seeds is explicitly flagged provisional rather than treated as
+// confirmed (Section 2: "confirm the exact contested event list... before
+// treating the seed as final — event offerings vary by classification and
+// some leagues don't run every event. Don't hardcode confidence you don't
+// have").
+model Event {
+  id               String        @id @default(uuid()) @db.Uuid
+  name             String        @unique // "100 Meters", "Long Jump", "4x400 Relay"
+  category         EventCategory
+  unit             MarkUnit
+  scoringDirection ScoringDirection @map("scoring_direction")
+  isRelay          Boolean       @default(false) @map("is_relay")
+  relayLegCount    Int?          @map("relay_leg_count") // 4 for 4x100/4x200/4x400/4x800
+  isMultiEvent     Boolean       @default(false) @map("is_multi_event")
+  sortOrder        Int           @default(0) @map("sort_order") // for a sane event order in the UI
+
+  results TrackResult[]
+
+  @@map("events")
+}
+
+model TrackMeet {
+  id             String   @id @default(uuid()) @db.Uuid
+  teamId         String   @map("team_id") @db.Uuid
+  name           String
+  date           DateTime @db.Date
+  season         Int
+  location       String?
+  sourceUrl      String?  @map("source_url")
+  athleticMeetId String?  @map("athletic_meet_id")
+
+  team    Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  results TrackResult[]
+
+  @@index([teamId, season])
+  @@map("track_meets")
+}
+
+model TrackResult {
+  id              String    @id @default(uuid()) @db.Uuid
+  teamId          String    @map("team_id") @db.Uuid
+  trackMeetId     String    @map("track_meet_id") @db.Uuid
+  eventId         String    @map("event_id") @db.Uuid
+  // Nullable: null for a relay result, which belongs to the team, not to
+  // one person — see relayAthleteIds below. An athlete's individual
+  // journey (PR progression) pulls relay appearances from
+  // relayAthleteIds, never from this field.
+  // Nullable per the above; onDelete: SetNull rather than Cascade — an
+  // athlete leaving the roster must not take their race history with
+  // them, same reasoning as every other athlete-authored result row in
+  // this schema (Result itself is the one exception, and that's XC's own
+  // long-standing choice, not a pattern to copy here).
+  athleteId       String?   @map("athlete_id") @db.Uuid
+  gender          String?
+  grade           Int?
+  round           String?   @default("FINAL") // PRELIM | SEMI | FINAL
+  // Unitless on its own — always read through Event.unit. Never compare
+  // two markValues without checking they share a unit; that's the same
+  // category of bug as comparing feet to meters, or a 100m time to a
+  // discus throw's inches.
+  markValue       Float?    @map("mark_value")
+  wind            Float? // m/s, when the page reports it; sprints/jumps only
+  place           Int?
+  // FINISHED | DNF | DNS | DQ | NM (no mark — a common field-event
+  // outcome when every attempt fouls, distinct from DNF). A plain String,
+  // not ResultStatus (which has no NM case and belongs to XC's Result) —
+  // exclude FINISHED-only rows from PR/average calculations identically
+  // for DNF and NM.
+  status          String    @default("FINISHED")
+  relayAthleteIds String[]  @default([]) @map("relay_athlete_ids")
+
+  team      Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  trackMeet TrackMeet @relation(fields: [trackMeetId], references: [id], onDelete: Cascade)
+  event     Event     @relation(fields: [eventId], references: [id])
+  athlete   Athlete?  @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+
+  @@index([teamId, eventId])
+  @@index([athleteId])
+  @@map("track_results")
 }
