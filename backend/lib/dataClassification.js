@@ -120,6 +120,11 @@ const CLASSIFICATION = {
     what: 'Reusable workout definitions.',
     why: 'A plan, written before anyone runs it.',
   },
+  Event: {
+    class: CLASSES.OPERATIONAL,
+    what: 'The fixed catalog of track & field events — 100 Meters, Long Jump, and so on.',
+    why: 'A shared lookup table, same as Course. No student appears in it.',
+  },
   // --- Directory: publishable by the school -------------------------------
   Athlete: {
     class: CLASSES.DIRECTORY,
@@ -180,6 +185,16 @@ const CLASSIFICATION = {
     class: CLASSES.DIRECTORY,
     what: 'The seasons a team has run.',
     why: 'Dates of a school activity.',
+  },
+  TrackMeet: {
+    class: CLASSES.DIRECTORY,
+    what: 'Track & field meet name, date and location — the Meet of the track side.',
+    why: 'A public schedule, same reasoning as Meet. Contains no student data of its own.',
+  },
+  TrackResult: {
+    class: CLASSES.DIRECTORY,
+    what: 'A track or field mark, place and round — the Result of the track side.',
+    why: 'Participation and performance in an officially recognized sport — directory information, same as Result, whether the row names one athlete or (for a relay) several.',
   },
 
   // --- Education records: school-sourced, protected ------------------------

@@ -38,6 +38,7 @@ const EXCLUDED_MODELS = {
   AthleteClaim: 'Exists only to carry a live token.',
   TeamClaim: 'Exists only to carry a live token.',
   Course: 'A shared lookup table, not team-owned. Course names travel on the races that reference them.',
+  Event: 'A shared lookup table, not team-owned, same as Course. Event names travel on the track results that reference them.',
   TeamRequest:
     'A coach\'s request to LeadPack to create their team — correspondence with us, like Feedback, not data the team created.',
   AthleteAliasId:
@@ -104,6 +105,10 @@ const TEAM_EXPORT = [
   { key: 'raceReflections', model: 'raceReflection', where: via('athlete'), label: 'Race reflections' },
   { key: 'meetGroups', model: 'meetGroup', where: direct, label: 'Meet groups' },
   { key: 'meetGroupRaces', model: 'meetGroupRace', where: via('meetGroup'), label: 'Meet group races' },
+
+  // --- racing (track & field — LeadPack Track & Field handoff) ---
+  { key: 'trackMeets', model: 'trackMeet', where: direct, label: 'Track meets' },
+  { key: 'trackResults', model: 'trackResult', where: direct, label: 'Track results' },
 
   // --- training ---
   { key: 'groups', model: 'group', where: direct, label: 'Training groups' },
@@ -172,6 +177,16 @@ const ATHLETE_EXPORT = [
   { key: 'groupMemberships', model: 'groupMembership', where: byAthlete, label: 'Group memberships' },
   { key: 'seasonRoster', model: 'seasonRoster', where: byAthlete, label: 'Season roster entries' },
   { key: 'equipmentAssignments', model: 'equipmentAssignment', where: byAthlete, label: 'Equipment assigned' },
+  // Individual results only — a relay result carries no athleteId (it
+  // belongs to the team, not one person; see schema.prisma's TrackResult
+  // comment), and this file's own scoping test deliberately only accepts
+  // a direct athleteId or single-relation filter, not an OR across both.
+  // Same acceptable-narrowing precedent as FieldResult being absent from
+  // this list entirely: an export can be right rather than complete. A
+  // relay appearance still surfaces on the athlete's own PR-progression
+  // view (Section 5), which queries relayAthleteIds directly rather than
+  // going through this generic export manifest.
+  { key: 'trackResults', model: 'trackResult', where: byAthlete, label: 'Track results (individual events)' },
   { key: 'seasonMetrics', model: 'athleteSeasonMetrics', where: byAthlete, label: 'Season metrics', derived: true },
   // No `photos` entry: a Photo can depict several athletes at once, so it
   // is not "this athlete's data" the way a tag or a pick is — it stays a

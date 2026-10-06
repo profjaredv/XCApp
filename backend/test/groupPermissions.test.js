@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { decideCanManageGroup } = require('../lib/groupPermissions');
+const { decideCanManageGroup, decideCanAccessSportScopedResource } = require('../lib/groupPermissions');
 
 test('decideCanManageGroup', async (t) => {
   await t.test('the team owner can always manage any group', () => {
@@ -58,5 +58,84 @@ test('decideCanManageGroup', async (t) => {
 
   await t.test('no membership and not the owner: denied', () => {
     assert.equal(decideCanManageGroup({ isOwner: false, membership: null, isGroupLeader: false }), false);
+  });
+});
+
+test('decideCanAccessSportScopedResource', async (t) => {
+  await t.test('the team owner can always access any sport, with no membership row', () => {
+    assert.equal(
+      decideCanAccessSportScopedResource({ isOwner: true, membership: null, resourceSport: 'TRACK' }),
+      true
+    );
+  });
+
+  await t.test('a sport: null membership (every pre-existing row) is unrestricted across sports', () => {
+    assert.equal(
+      decideCanAccessSportScopedResource({
+        isOwner: false,
+        membership: { active: true, sport: null },
+        resourceSport: 'TRACK',
+      }),
+      true
+    );
+    assert.equal(
+      decideCanAccessSportScopedResource({
+        isOwner: false,
+        membership: { active: true, sport: null },
+        resourceSport: 'XC',
+      }),
+      true
+    );
+  });
+
+  await t.test('a TRACK-scoped membership can access a TRACK resource', () => {
+    assert.equal(
+      decideCanAccessSportScopedResource({
+        isOwner: false,
+        membership: { active: true, sport: 'TRACK' },
+        resourceSport: 'TRACK',
+      }),
+      true
+    );
+  });
+
+  await t.test('a TRACK-scoped membership is denied an XC resource — the whole point of Section 1b', () => {
+    assert.equal(
+      decideCanAccessSportScopedResource({
+        isOwner: false,
+        membership: { active: true, sport: 'TRACK' },
+        resourceSport: 'XC',
+      }),
+      false
+    );
+  });
+
+  await t.test('an XC-scoped membership is denied a TRACK resource', () => {
+    assert.equal(
+      decideCanAccessSportScopedResource({
+        isOwner: false,
+        membership: { active: true, sport: 'XC' },
+        resourceSport: 'TRACK',
+      }),
+      false
+    );
+  });
+
+  await t.test('an inactive membership is denied even when the sport matches', () => {
+    assert.equal(
+      decideCanAccessSportScopedResource({
+        isOwner: false,
+        membership: { active: false, sport: 'TRACK' },
+        resourceSport: 'TRACK',
+      }),
+      false
+    );
+  });
+
+  await t.test('no membership and not the owner: denied', () => {
+    assert.equal(
+      decideCanAccessSportScopedResource({ isOwner: false, membership: null, resourceSport: 'TRACK' }),
+      false
+    );
   });
 });
