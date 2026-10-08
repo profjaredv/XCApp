@@ -33,6 +33,7 @@ import { athleteService } from '@/api/athleteService';
 import { trainingLogService, type TrainingLogType } from '@/api/trainingLogService';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
+import { RacePredictionCard } from '@/components/predictions/RacePredictionCard';
 import { ImportWorkoutsDialog } from '@/components/training/ImportWorkoutsDialog';
 import { WhoCanSeeMyStuff } from '@/components/privacy/WhoCanSeeMyStuff';
 import { AthleteExportButton } from '@/components/AthleteExportButton';
@@ -234,6 +235,10 @@ const MyProgressPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Same card the coach sees on this athlete's profile — their own
+          predicted time for whichever meet is entered above. */}
+      {linkedAthlete && <RacePredictionCard athleteId={linkedAthlete.id} />}
 
       {/* Same card the coach sees on this athlete's profile — the athlete
           always knows which training group, captain's group and cross

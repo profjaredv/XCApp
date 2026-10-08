@@ -133,6 +133,7 @@ model Team {
   teamSeasonMetrics       TeamSeasonMetrics[]
   athleteSeasonMetrics    AthleteSeasonMetrics[]
   meetPerformanceMetrics  MeetPerformanceMetrics[]
+  racePredictions         RacePrediction[]
   aiInsightSnapshots      AiInsightSnapshot[]
   athleteInvites          AthleteInvite[]
   athleteClaims           AthleteClaim[]
@@ -359,6 +360,7 @@ model Athlete {
   photoTags                PhotoAthlete[]
   photoPicks               Pick[]
   collages                 Collage[]
+  racePredictions          RacePrediction[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
   // Jack Smith is a normal occurrence on a 120-person roster. Kept as a
@@ -790,6 +792,7 @@ model Race {
   raceReflections        RaceReflection[]
   bestPaceForAthletes    AthleteSeasonMetrics[]   @relation("BestPaceRace")
   bestTime5kForAthletes  AthleteSeasonMetrics[]   @relation("BestTime5kRace")
+  predictions            RacePrediction[]
 
   @@unique([teamId, name, date, distance])
   @@index([teamId])
@@ -799,6 +802,86 @@ model Race {
   @@index([courseId])
   @@index([meetId])
   @@map("races")
+}
+
+// A prediction for one athlete's next race, built from this season's
+// course-adjusted pace trend (lib/courseDifficulty.js's
+// computeSeasonAdjustedPaces — fitness improvement with the course factored
+// out), that race's own course-difficulty rating when known (added back to
+// turn a course-neutral trend into a prediction for THIS course), and the
+// athlete's own recent split shape (how they tend to distribute a race
+// across its markers). See lib/racePrediction.js for the actual math —
+// this table only stores the result.
+//
+// Frozen on first computation, not recomputed on every view: the whole
+// point is comparing a prediction made BEFORE the race to what actually
+// happened, so recomputing it after seeing more data (or after the race
+// itself) would be hindsight, not a prediction. A coach can force a
+// recompute (POST .../recompute) if real new data should supersede a
+// stale one before the gun goes off — that's a deliberate overwrite, not
+// automatic.
+//
+// actual*/error/scoredAt are null until calculationService's recalc pass
+// (triggered by every result-affecting write — scrape import, manual
+// entry, etc.) finds a FINISHED result for this exact (athleteId, raceId)
+// and scores it. One athlete, one race, one prediction — @@unique enforces
+// that a recompute overwrites rather than accumulates rows.
+model RacePrediction {
+  id        String @id @default(uuid()) @db.Uuid
+  teamId    String @map("team_id") @db.Uuid
+  athleteId String @map("athlete_id") @db.Uuid
+  raceId    String @map("race_id") @db.Uuid
+  // Denormalized from the race at creation time — lets the calibration
+  // hook in calculationService filter "this team's season" the same way
+  // every other metrics table already does, without a join.
+  season    Int
+
+  predictedPaceSecPerMile Float @map("predicted_pace_sec_per_mile")
+  predictedTimeSec        Float @map("predicted_time_sec")
+
+  // The course-neutral fitness trend this was built from, and the
+  // course's own rating (added back on to get predictedPaceSecPerMile),
+  // kept separately so the UI can show its work and flag when the course
+  // rating was unavailable (courseDifficultySecPerMile null — this team
+  // has no rated history at this course, so the trend was used
+  // unadjusted) rather than silently presenting a guess as a calibrated
+  // number.
+  trendPaceSecPerMile        Float  @map("trend_pace_sec_per_mile")
+  courseDifficultySecPerMile Float? @map("course_difficulty_sec_per_mile")
+  basedOnRaceCount           Int    @map("based_on_race_count")
+
+  // This athlete's own running bias/margin at the moment this prediction
+  // was made (lib/racePrediction.js's computeBiasAndMargin, from this
+  // athlete's own prior SCORED predictions) — biasSecPerMile is already
+  // folded into predictedPaceSecPerMile above; marginSecPerMile is kept
+  // for display as a ± range. Both null until this athlete has at least
+  // one scored prior prediction to learn from.
+  biasAppliedSecPerMile Float? @map("bias_applied_sec_per_mile")
+  marginSecPerMile      Float? @map("margin_sec_per_mile")
+
+  // [{ sequence, markerMeters, label, predictedElapsedSec }] — always
+  // read/written as one frozen snapshot for this prediction, never
+  // queried by a single marker, so (same reasoning as MeetPlan.itinerary)
+  // JSON over a normalized child table.
+  predictedSplits Json? @map("predicted_splits")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  actualTimeSec        Float?    @map("actual_time_sec")
+  actualPaceSecPerMile Float?    @map("actual_pace_sec_per_mile")
+  // actual - predicted: positive means the athlete ran SLOWER (higher
+  // pace) than predicted, negative means FASTER.
+  errorSecPerMile      Float?    @map("error_sec_per_mile")
+  scoredAt             DateTime? @map("scored_at")
+
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  race    Race    @relation(fields: [raceId], references: [id], onDelete: Cascade)
+
+  @@unique([athleteId, raceId])
+  @@index([teamId, season])
+  @@index([athleteId])
+  @@map("race_predictions")
 }
 
 // Every finisher (every school) in a race we scraped for field
