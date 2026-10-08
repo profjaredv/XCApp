@@ -28,6 +28,7 @@ import { meetOpsService, formatTimeSec, type MeetDetail, type ResultStatus, type
 import { rosterService } from '@/api/rosterService';
 import { formatTime, parseTimeToSeconds } from '@/lib/formatUtils';
 import { toCsv, downloadCsv } from '@/lib/csvParse';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 const DISTANCE_PRESETS: Array<{ label: string; meters: number }> = [
   { label: '1 Mile', meters: 1609 },
@@ -82,6 +83,7 @@ const MeetDetailPage: React.FC = () => {
   const [date, setDate] = useState('');
   const [location, setLocation] = useState('');
   const [isHome, setIsHome] = useState('unspecified');
+  const [distance, setDistance] = useState('');
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
   const [addRaceOpen, setAddRaceOpen] = useState(false);
   const [enterResultsOpen, setEnterResultsOpen] = useState(false);
@@ -98,6 +100,7 @@ const MeetDetailPage: React.FC = () => {
     setDate(meet.date.slice(0, 10));
     setLocation(meet.location ?? '');
     setIsHome(meet.isHome == null ? 'unspecified' : meet.isHome ? 'home' : 'away');
+    setDistance(meet.distance ?? '');
   }, [meet]);
 
   const handleSave = async () => {
@@ -108,10 +111,11 @@ const MeetDetailPage: React.FC = () => {
         date,
         location: location.trim(),
         isHome: isHome === 'unspecified' ? null : isHome === 'home',
+        distance: distance.trim(),
       });
       toast.success('Meet updated.');
-    } catch {
-      toast.error('Could not save changes.');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Could not save changes.'));
     }
   };
 
@@ -132,7 +136,8 @@ const MeetDetailPage: React.FC = () => {
   }
 
   const dirty = name.trim() !== meet.name || date !== meet.date.slice(0, 10) || location.trim() !== (meet.location ?? '') ||
-    isHome !== (meet.isHome == null ? 'unspecified' : meet.isHome ? 'home' : 'away');
+    isHome !== (meet.isHome == null ? 'unspecified' : meet.isHome ? 'home' : 'away') ||
+    distance.trim() !== (meet.distance ?? '');
 
   const selectedRace = meet.races.find((r) => r.id === selectedRaceId) ?? null;
 
@@ -221,6 +226,39 @@ const MeetDetailPage: React.FC = () => {
             <div>
               <Label>Location</Label>
               <Input className="mt-1" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Optional" />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Distance</Label>
+              {/* Known ahead of the race itself existing — this team's
+                  races only materialize once results are scraped, after
+                  the meet. Confirming it here lets race predictions use
+                  the real distance instead of guessing from an athlete's
+                  own history; see routes/meetOps.js's PUT /:meetId. */}
+              <div className="mt-1 flex flex-wrap gap-2">
+                {DISTANCE_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.label}
+                    type="button"
+                    variant={distance === preset.label ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setDistance(preset.label)}
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
+              <Input
+                className="mt-2"
+                value={distance}
+                onChange={(e) => setDistance(e.target.value)}
+                placeholder="Optional — e.g. 5K, 2 Miles"
+              />
+              {meet.races.length === 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Used to predict times until a real race exists for this meet — races only link once results
+                  are scraped.
+                </p>
+              )}
             </div>
             <div>
               <Label>Post season</Label>

@@ -1115,11 +1115,15 @@ class CalculationService {
       });
       if (!race) continue; // still no real race for this meet yet
 
-      const splitShape = await this._mostRecentSplitShapeFor(teamId, prediction.athleteId, race.date);
-      const markers = markersForRace(race.distanceMeters, race.splitMarkerScheme, race.splitMarkersMeters);
-      const closingLabel = closingSegmentLabel(race.distanceMeters, race.splitMarkerScheme, markers);
-      const predictedSplits = applySplitShape(prediction.predictedPaceSecPerMile, race.distanceMeters, markers, splitShape, closingLabel);
-      const predictedTimeSec = prediction.predictedPaceSecPerMile * metersToMiles(race.distanceMeters);
+      const { predictedTimeSec, predictedSplits } = await this._derivedFieldsForDistance(
+        teamId,
+        prediction.athleteId,
+        prediction.predictedPaceSecPerMile,
+        race.distanceMeters,
+        race.splitMarkerScheme,
+        race.splitMarkersMeters,
+        race.date
+      );
 
       await prisma.racePrediction.update({
         where: { id: prediction.id },
@@ -1132,6 +1136,67 @@ class CalculationService {
         },
       });
     }
+  }
+
+  /**
+   * Called from routes/meetOps.js's PUT /:meetId when a coach sets or
+   * changes a meet's distance ahead of its race existing — the thing a
+   * coach actually knows (a dual meet's course, a conference's standard
+   * distance) and shouldn't have to wait on the scraper to tell this
+   * feature. Regenerates every prediction still pending for this meet
+   * (raceId null) against the confirmed distance, same "never touch the
+   * frozen pace" rule as reconcilePendingPredictions — only the
+   * translation into a time and a split profile changes. Superseded
+   * automatically once a real Race shows up (reconcilePendingPredictions
+   * then takes over, using the race's own distanceMeters instead).
+   */
+  async applyMeetDistanceToPendingPredictions(teamId, meetId, distanceMeters) {
+    const [pending, meet] = await Promise.all([
+      prisma.racePrediction.findMany({
+        where: { teamId, meetId, raceId: null },
+        select: { id: true, athleteId: true, predictedPaceSecPerMile: true },
+      }),
+      prisma.meet.findUnique({ where: { id: meetId }, select: { date: true } }),
+    ]);
+    if (pending.length === 0 || !meet) return;
+
+    for (const prediction of pending) {
+      // Meet carries no split-marker scheme of its own (that's a Race-only
+      // concept) — null/[] defaults to MILE, correct for every race this
+      // program runs, same as everywhere else markersForRace is called
+      // with nothing more specific on hand yet.
+      const { predictedTimeSec, predictedSplits } = await this._derivedFieldsForDistance(
+        teamId,
+        prediction.athleteId,
+        prediction.predictedPaceSecPerMile,
+        distanceMeters,
+        null,
+        [],
+        meet.date
+      );
+
+      await prisma.racePrediction.update({
+        where: { id: prediction.id },
+        data: { distanceMeters, distanceEstimated: false, predictedTimeSec, predictedSplits },
+      });
+    }
+  }
+
+  // Shared by reconcilePendingPredictions and
+  // applyMeetDistanceToPendingPredictions: given an already-frozen
+  // predictedPaceSecPerMile (never recomputed here) and a now-known
+  // distance, derives the time and split profile for it. Re-deriving the
+  // split SHAPE itself is safe even when called right after the race in
+  // question now exists in the DB — getMostRecentSplitShape's own
+  // `race.date < beforeDate` filter excludes it, since its date is never
+  // before itself.
+  async _derivedFieldsForDistance(teamId, athleteId, predictedPaceSecPerMile, distanceMeters, splitMarkerScheme, splitMarkersMeters, beforeDate) {
+    const splitShape = await this._mostRecentSplitShapeFor(teamId, athleteId, beforeDate);
+    const markers = markersForRace(distanceMeters, splitMarkerScheme, splitMarkersMeters);
+    const closingLabel = closingSegmentLabel(distanceMeters, splitMarkerScheme, markers);
+    const predictedSplits = applySplitShape(predictedPaceSecPerMile, distanceMeters, markers, splitShape, closingLabel);
+    const predictedTimeSec = predictedPaceSecPerMile * metersToMiles(distanceMeters);
+    return { predictedTimeSec, predictedSplits };
   }
 
   // Same query as routes/racePredictions.js's getMostRecentSplitShape — a

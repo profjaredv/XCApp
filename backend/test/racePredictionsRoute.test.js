@@ -39,9 +39,20 @@ test('predictions are keyed on Meet, not Race — this team\'s races do not exis
 });
 
 test('a target with no real race yet estimates the distance from the athlete\'s own history, flagged as an estimate', () => {
-  const fn = sectionFor(ROUTE, 'function buildTargetFromMeet');
+  const fn = sectionFor(ROUTE, 'function buildTargetFromMeet', 2200);
   assert.match(fn, /distanceEstimated: true/);
   assert.match(fn, /if \(preferredDistanceMeters == null\) return null;/, 'must refuse to guess when there is nothing to estimate from either');
+});
+
+test('a coach-confirmed meet distance outranks guessing from the athlete\'s own history', () => {
+  const fn = sectionFor(ROUTE, 'function buildTargetFromMeet', 2200);
+  const meetDistanceAt = fn.indexOf('meet.distanceMeters != null');
+  const estimateAt = fn.indexOf('preferredDistanceMeters == null) return null');
+  assert.ok(meetDistanceAt > -1 && estimateAt > -1, 'both branches must be present');
+  assert.ok(meetDistanceAt < estimateAt, 'the confirmed meet distance must be checked before falling back to a guess');
+  // A confirmed meet distance is a real fact, not a stand-in — unlike the
+  // athlete-estimate branch, it must not be flagged distanceEstimated: true.
+  assert.doesNotMatch(fn.slice(meetDistanceAt, estimateAt), /distanceEstimated: true/);
 });
 
 test('getCurrentSeasonRosterAthleteIds never reads MeetEntry either — roster membership, not entry status', () => {
@@ -115,4 +126,24 @@ test('scoreRacePredictions only matches predictions that already have a race att
 test('scoreRacePredictions matches the result by the exact athlete AND race, and requires FINISHED with a real time', () => {
   const fn = sectionFor(CALC_SERVICE, 'async scoreRacePredictions');
   assert.match(fn, /athleteId: prediction\.athleteId, raceId: prediction\.raceId, status: 'FINISHED', time: \{ gt: 0 \}/);
+});
+
+test('applyMeetDistanceToPendingPredictions only touches this meet\'s predictions still missing a race', () => {
+  const fn = sectionFor(CALC_SERVICE, 'async applyMeetDistanceToPendingPredictions');
+  assert.match(fn, /where: \{ teamId, meetId, raceId: null \}/);
+});
+
+test('applyMeetDistanceToPendingPredictions never rewrites the actual forecast either, same as reconcile', () => {
+  const fn = sectionFor(CALC_SERVICE, 'async applyMeetDistanceToPendingPredictions', 1400);
+  assert.doesNotMatch(fn, /trendPaceSecPerMile:/);
+  assert.doesNotMatch(fn, /biasAppliedSecPerMile:/);
+  assert.match(fn, /distanceEstimated: false/, 'a coach-confirmed distance is a real fact, not an estimate');
+});
+
+test('reconcilePendingPredictions and applyMeetDistanceToPendingPredictions share one derivation helper, not two', () => {
+  assert.match(CALC_SERVICE, /async _derivedFieldsForDistance/, 'the shared helper must exist');
+  const reconcile = sectionFor(CALC_SERVICE, 'async reconcilePendingPredictions', 1400);
+  const applyMeetDistance = sectionFor(CALC_SERVICE, 'async applyMeetDistanceToPendingPredictions', 1400);
+  assert.match(reconcile, /this\._derivedFieldsForDistance\(/);
+  assert.match(applyMeetDistance, /this\._derivedFieldsForDistance\(/);
 });

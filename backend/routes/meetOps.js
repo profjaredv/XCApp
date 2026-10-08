@@ -10,6 +10,7 @@ const { decideResultWrite, flattenMeetResults } = require('../lib/raceResults');
 const { parseResultsText, resolveRows } = require('../lib/resultImport');
 const { normalizeAthleteName } = require('../lib/athleteMatching');
 const { groupEntrantsByRace } = require('../lib/meetEntries');
+const { parseDistanceToMeters } = require('../lib/distance');
 const calculationService = require('../services/performance/calculationService');
 
 // T4 (Team Management handoff), simplified per the Schedule rework: meet
@@ -962,7 +963,7 @@ router.get('/:meetId', authenticate, requireTeam, requireRole(FULL_COACH), async
 
 // PUT /api/meet-ops/:meetId
 router.put('/:meetId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
-  const { name, date, location, isHome } = req.body;
+  const { name, date, location, isHome, distance } = req.body;
   try {
     const meet = await prisma.meet.findFirst({ where: { id: req.params.meetId, teamId: req.user.teamId } });
     if (!meet) {
@@ -973,7 +974,38 @@ router.put('/:meetId', authenticate, requireTeam, requireRole(FULL_COACH), async
     if (date !== undefined) updates.date = new Date(date);
     if (location !== undefined) updates.location = location;
     if (isHome !== undefined) updates.isHome = isHome;
+
+    // Known ahead of a meet's own Race row existing (this team's races
+    // only materialize once results are scraped, after the meet) — see
+    // Meet.distance's own schema comment. Cleared with an empty string,
+    // same convention as location above.
+    let confirmedDistanceMeters;
+    if (distance !== undefined) {
+      const trimmed = distance == null ? '' : String(distance).trim();
+      if (trimmed === '') {
+        updates.distance = null;
+        updates.distanceMeters = null;
+      } else {
+        confirmedDistanceMeters = parseDistanceToMeters(trimmed);
+        if (confirmedDistanceMeters == null) {
+          return res.status(400).json({ msg: `Could not parse "${trimmed}" as a distance — try something like "5K" or "2 Miles".` });
+        }
+        updates.distance = trimmed;
+        updates.distanceMeters = confirmedDistanceMeters;
+      }
+    }
+
     const updated = await prisma.meet.update({ where: { id: meet.id }, data: updates });
+
+    if (confirmedDistanceMeters != null) {
+      // Regenerate any prediction already frozen for this meet against
+      // the old (estimated, or absent) distance — fire-and-forget, same
+      // pattern as every other write that invalidates precomputed rows.
+      calculationService
+        .applyMeetDistanceToPendingPredictions(req.user.teamId, meet.id, confirmedDistanceMeters)
+        .catch((err) => console.error(`Error regenerating pending predictions for meet ${meet.id}:`, err.message));
+    }
+
     res.json(updated);
   } catch (error) {
     console.error('Error updating meet:', error.message);
