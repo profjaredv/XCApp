@@ -20,6 +20,7 @@ import { useMeet, useUpdateMeet, useDeleteMeet, useCreateRace, useDeleteRace, us
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { ManageEntrantsDialog } from '@/components/meets/ManageEntrantsDialog';
 import { MissingEntrantsCard } from '@/components/meets/MissingEntrantsCard';
+import { MeetPredictionsCard } from '@/components/predictions/MeetPredictionsCard';
 import { AthletePicker } from '@/components/groups/AthletePicker';
 import { useReflectionsForRace } from '@/hooks/useRaceReflections';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
@@ -425,6 +426,8 @@ const MeetDetailPage: React.FC = () => {
       </Card>
 
       <MissingEntrantsCard meetId={meet.id} seasonYear={meet.seasonYear} />
+
+      <MeetPredictionsCard meetId={meet.id} />
 
       <AddRaceDialog meet={meet} open={addRaceOpen} onOpenChange={setAddRaceOpen} />
 

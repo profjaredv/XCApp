@@ -138,6 +138,7 @@ const TEAM_EXPORT = [
   { key: 'athleteSeasonMetrics', model: 'athleteSeasonMetrics', where: direct, label: 'Athlete season metrics', derived: true },
   { key: 'meetPerformanceMetrics', model: 'meetPerformanceMetrics', where: direct, label: 'Meet performance metrics', derived: true },
   { key: 'aiInsightSnapshots', model: 'aiInsightSnapshot', where: direct, label: 'AI insight snapshots', derived: true },
+  { key: 'racePredictions', model: 'racePrediction', where: direct, label: 'Race predictions', derived: true },
 ];
 
 /**
@@ -173,6 +174,7 @@ const ATHLETE_EXPORT = [
   { key: 'seasonRoster', model: 'seasonRoster', where: byAthlete, label: 'Season roster entries' },
   { key: 'equipmentAssignments', model: 'equipmentAssignment', where: byAthlete, label: 'Equipment assigned' },
   { key: 'seasonMetrics', model: 'athleteSeasonMetrics', where: byAthlete, label: 'Season metrics', derived: true },
+  { key: 'racePredictions', model: 'racePrediction', where: byAthlete, label: 'Race predictions', derived: true },
   // No `photos` entry: a Photo can depict several athletes at once, so it
   // is not "this athlete's data" the way a tag or a pick is — it stays a
   // team-level asset, available through the team export instead.

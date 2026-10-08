@@ -15,6 +15,7 @@ import { SeasonModeSelector } from '@/components/analytics/SeasonModeSelector';
 import type { SeasonMode } from '@/components/analytics/types';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
 import { CourseAdjustedProgressionCard } from '@/components/athletes/CourseAdjustedProgressionCard';
+import { RacePredictionCard } from '@/components/predictions/RacePredictionCard';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
 import { AthleteExportButton } from '@/components/AthleteExportButton';
@@ -349,6 +350,12 @@ const TeamAthleteProfilePage = () => {
       <div className="mb-6">
         <TrainingPacesCard recentRaces={recentRaces} />
       </div>
+
+      {athleteId && (
+        <div className="mb-6">
+          <RacePredictionCard athleteId={athleteId} />
+        </div>
+      )}
 
       {/* Raw times across different courses can't tell a regression from
           a harder course. This can — and it renders nothing until there

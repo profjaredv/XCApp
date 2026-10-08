@@ -253,6 +253,11 @@ const CLASSIFICATION = {
     what: 'Team-level season summaries.',
     why: 'Aggregate, but computed over a small enough group that it is handled with the roster it came from.',
   },
+  RacePrediction: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'A predicted time for an athlete\'s upcoming race, and how it compared once the real result came in.',
+    why: 'Derived from public results, same as AthleteSeasonMetrics, but it is a specific evaluative forecast about a named student and is treated the same way.',
+  },
   AiInsightSnapshot: {
     class: CLASSES.EDUCATION_RECORD,
     what: 'AI-generated coaching observations about the team and its athletes.',

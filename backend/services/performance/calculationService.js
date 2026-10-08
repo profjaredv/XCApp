@@ -5,6 +5,7 @@ const { deriveGrade } = require('../../lib/season');
 const { parseDistanceToMeters, metersToMiles } = require('../../lib/distance');
 const { computeTeamPlaces } = require('../../lib/teamPlace');
 const { computeMeetScoring } = require('../../lib/meetScoring');
+const { scorePrediction } = require('../../lib/racePrediction');
 
 class CalculationService {
   constructor() {
@@ -72,6 +73,19 @@ class CalculationService {
       await this.calculateAthleteMetrics(teamId, season);
       await this.calculateMeetMetrics(teamId, season);
       const result = await this.calculateTeamMetrics(teamId, season);
+
+      // Race predictions (routes/racePredictions.js): this recalc pass
+      // already runs after every result-affecting write for this team and
+      // season — scrape import, manual entry, field-results, splits — so
+      // it's also the one place a prediction made before a race reliably
+      // finds out the race has since happened. Never fatal to the rest of
+      // this calculation: a bug scoring predictions should not take down
+      // the actual analytics every page on this team depends on.
+      try {
+        await this.scoreRacePredictions(teamId, season);
+      } catch (predictionError) {
+        logger.error(`Error scoring race predictions for team ${teamId}, season ${season}: ${predictionError.message}`);
+      }
 
       logger.info(`Completed metrics calculation for team ${teamId}, season ${season}`);
 
@@ -1060,6 +1074,38 @@ class CalculationService {
     } catch (error) {
       logger.error(`Error calculating field standing: ${error.message}`);
       return { men: empty(), women: empty() };
+    }
+  }
+
+  /**
+   * Scores every unscored RacePrediction (routes/racePredictions.js) for
+   * this team/season whose race now has a real FINISHED result for that
+   * exact athlete — "when a race is imported, compare your prediction to
+   * results." A prediction with no matching result yet (the race hasn't
+   * happened, or this athlete didn't finish it) is left alone; it gets
+   * picked up the next time this recalc runs after that changes.
+   */
+  async scoreRacePredictions(teamId, season) {
+    const pending = await prisma.racePrediction.findMany({
+      where: { teamId, season, scoredAt: null },
+      select: { id: true, athleteId: true, raceId: true, predictedPaceSecPerMile: true },
+    });
+    if (pending.length === 0) return;
+
+    for (const prediction of pending) {
+      const result = await prisma.result.findFirst({
+        where: { athleteId: prediction.athleteId, raceId: prediction.raceId, status: 'FINISHED', time: { gt: 0 } },
+        select: { time: true, race: { select: { distanceMeters: true } } },
+      });
+      if (!result?.race?.distanceMeters) continue;
+
+      const scored = scorePrediction(prediction.predictedPaceSecPerMile, result.time, result.race.distanceMeters);
+      if (!scored) continue;
+
+      await prisma.racePrediction.update({
+        where: { id: prediction.id },
+        data: { ...scored, scoredAt: new Date() },
+      });
     }
   }
 
