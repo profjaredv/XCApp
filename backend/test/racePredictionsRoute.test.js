@@ -72,6 +72,12 @@ test('the meet-wide view predicts the current season roster, not who was entered
   assert.match(fn, /getCurrentSeasonRosterAthleteIds/);
 });
 
+test('the meet-wide view normalizes gender for the frontend filter, same as the roster page', () => {
+  const fn = sectionFor(ROUTE, "router.get('/meet/:meetId'", 2000);
+  assert.match(fn, /select: \{ id: true, name: true, preferredName: true, gender: true \}/);
+  assert.match(fn, /normalizeGender\(athlete\.gender\)/, 'must not pass raw \'Boys\'/\'Girls\' values through to the sort/filter UI');
+});
+
 test('a same-day double distance is disambiguated by the athlete\'s own recent race distance, not guessed', () => {
   const fn = sectionFor(ROUTE, 'function pickRaceForAthlete');
   assert.match(fn, /preferredDistanceMeters/);

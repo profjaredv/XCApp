@@ -49,6 +49,7 @@ const {
   buildRacePrediction,
 } = require('../lib/racePrediction');
 const { isEnrolled } = require('../lib/season');
+const { normalizeGender } = require('../lib/gender');
 
 // ---------------------------------------------------------------------
 // Data-access helpers. The math itself (what these feed into) lives in
@@ -513,17 +514,23 @@ router.get('/meet/:meetId', authenticate, requireTeam, async (req, res) => {
     const rosterAthleteIds = await getCurrentSeasonRosterAthleteIds(teamId, meet.season.year);
     const athletes = await prisma.athlete.findMany({
       where: { id: { in: rosterAthleteIds } },
-      select: { id: true, name: true, preferredName: true },
+      select: { id: true, name: true, preferredName: true, gender: true },
     });
 
     const predictions = await Promise.all(
       athletes.map(async (athlete) => {
+        // Old imports/scrapes wrote raw values like 'Men'/'Women' before
+        // write-time normalization existed — normalize on read too, same
+        // as routes/athletes.js's GET /, so the gender filter doesn't
+        // silently drop an athlete whose row predates that fix.
+        const gender = normalizeGender(athlete.gender);
         const preferredDistance = await getAthleteMostRecentDistance(teamId, athlete.id);
         const target = buildTargetFromMeet(meet, preferredDistance);
         if (!target) {
           return {
             athleteId: athlete.id,
             athleteName: athlete.preferredName || athlete.name,
+            gender,
             raceId: null,
             raceName: meet.name,
             prediction: null,
@@ -535,6 +542,7 @@ router.get('/meet/:meetId', authenticate, requireTeam, async (req, res) => {
         return {
           athleteId: athlete.id,
           athleteName: athlete.preferredName || athlete.name,
+          gender,
           raceId: target.raceId,
           raceName: target.name,
           prediction: prediction ? serializePrediction(prediction, target) : null,
