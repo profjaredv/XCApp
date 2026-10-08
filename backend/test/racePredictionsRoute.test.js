@@ -2,9 +2,10 @@
 // teamCurrentSeasonRoundTrip.test.js / teamsScrapePreservesFieldResults.test.js)
 // — the arithmetic itself is fully unit-tested DB-free in
 // racePrediction.test.js. These assert the route/service source's shape
-// directly: the freeze-on-first-view policy, role gating, and the
-// calibration hook's filtering, so a future edit can't silently change
-// any of them without a test noticing.
+// directly: the freeze-on-first-view policy, role gating, the Meet-based
+// (not Race-based) resolution, and the reconcile-then-score hook ordering,
+// so a future edit can't silently change any of them without a test
+// noticing.
 const path = require('node:path');
 const fs = require('node:fs');
 const test = require('node:test');
@@ -19,7 +20,7 @@ const CALC_SERVICE = fs.readFileSync(
 // A fixed-size window after the marker rather than hunting for a matching
 // closing brace — simpler, and plenty for a substring assertion on a
 // function this size.
-function sectionFor(source, marker, windowSize = 1200) {
+function sectionFor(source, marker, windowSize = 1400) {
   const start = source.indexOf(marker);
   assert.ok(start > -1, `could not find ${marker}`);
   return source.slice(start, start + windowSize);
@@ -31,10 +32,16 @@ test('getOrCreatePrediction returns an existing frozen prediction instead of rec
   assert.match(fn, /if \(existing\) return/, 'an existing prediction must be returned as-is, not recomputed');
 });
 
-test('the next race is resolved from the schedule, never from MeetEntry — this team does not track entries', () => {
-  const fn = sectionFor(ROUTE, 'async function findNextRaceForAthlete');
+test('predictions are keyed on Meet, not Race — this team\'s races do not exist until after the meet', () => {
+  const fn = sectionFor(ROUTE, 'async function findNextMeet');
   assert.doesNotMatch(fn, /meetEntry/i, 'must not read MeetEntry at all');
-  assert.match(fn, /prisma\.race\.findFirst/, 'must resolve the next race straight off the schedule');
+  assert.match(fn, /prisma\.meet\.findFirst/, 'must resolve the next MEET straight off the schedule, not a race');
+});
+
+test('a target with no real race yet estimates the distance from the athlete\'s own history, flagged as an estimate', () => {
+  const fn = sectionFor(ROUTE, 'function buildTargetFromMeet');
+  assert.match(fn, /distanceEstimated: true/);
+  assert.match(fn, /if \(preferredDistanceMeters == null\) return null;/, 'must refuse to guess when there is nothing to estimate from either');
 });
 
 test('getCurrentSeasonRosterAthleteIds never reads MeetEntry either — roster membership, not entry status', () => {
@@ -68,29 +75,44 @@ test('recompute is gated to FULL_COACH, viewing a prediction is not', () => {
   assert.doesNotMatch(view, /requireRole/, 'viewing a prediction must not require a coach role');
 });
 
+test('course difficulty is only ever resolved for a real race, never an estimated target', () => {
+  const fn = sectionFor(ROUTE, 'async function computeAndSavePrediction');
+  assert.match(fn, /target\.courseId \? resolveCourseDifficultyForRace/, 'must gate on the target actually having a courseId');
+});
+
 test('course difficulty rating uses no leave-one-out (rates the course, not one athlete)', () => {
   const fn = sectionFor(ROUTE, 'async function resolveCourseDifficultyForRace');
   assert.match(fn, /averageDelta\(contributors, null\)/);
 });
 
-test('an unrated course (no courseId, or no rated history) is never treated as a 0 adjustment', () => {
-  const fn = sectionFor(ROUTE, 'async function resolveCourseDifficultyForRace');
-  assert.match(fn, /if \(!race\.courseId\) return null;/);
+test('reconcilePendingPredictions runs before scoreRacePredictions in the same recalc pass', () => {
+  const fn = sectionFor(CALC_SERVICE, 'async _calculateAllMetrics', 2200);
+  const reconcileAt = fn.indexOf('this.reconcilePendingPredictions');
+  const scoreAt = fn.indexOf('this.scoreRacePredictions');
+  assert.ok(reconcileAt > -1 && scoreAt > -1, 'both calls must be present');
+  assert.ok(reconcileAt < scoreAt, 'reconcile must run first — scoring looks up a result by raceId, which reconcile is what attaches');
+  assert.match(fn.slice(Math.min(reconcileAt, scoreAt) - 50, scoreAt + 50), /try \{/, 'the call site must be wrapped so a prediction bug cannot throw out of the whole recalc');
 });
 
-test('scoreRacePredictions only touches unscored predictions for the given team/season', () => {
+test('reconcilePendingPredictions only touches predictions still missing a race', () => {
+  const fn = sectionFor(CALC_SERVICE, 'async reconcilePendingPredictions');
+  assert.match(fn, /where: \{ teamId, season, raceId: null \}/);
+});
+
+test('reconcilePendingPredictions never rewrites the actual forecast, only its translation into a time/splits', () => {
+  const fn = sectionFor(CALC_SERVICE, 'async reconcilePendingPredictions', 1600);
+  assert.doesNotMatch(fn, /trendPaceSecPerMile:/, 'must never touch the frozen trend');
+  assert.doesNotMatch(fn, /biasAppliedSecPerMile:/, 'must never touch the frozen bias');
+  assert.match(fn, /predictedTimeSec,/, 'must update the derived time');
+  assert.match(fn, /predictedSplits,/, 'must update the derived splits');
+});
+
+test('scoreRacePredictions only matches predictions that already have a race attached', () => {
   const fn = sectionFor(CALC_SERVICE, 'async scoreRacePredictions');
-  assert.match(fn, /scoredAt: null/);
-  assert.match(fn, /where: \{ teamId, season, scoredAt: null \}/);
+  assert.match(fn, /raceId: \{ not: null \}/, 'a still-pending (meet-only) prediction has nothing to score against yet');
 });
 
 test('scoreRacePredictions matches the result by the exact athlete AND race, and requires FINISHED with a real time', () => {
   const fn = sectionFor(CALC_SERVICE, 'async scoreRacePredictions');
   assert.match(fn, /athleteId: prediction\.athleteId, raceId: prediction\.raceId, status: 'FINISHED', time: \{ gt: 0 \}/);
-});
-
-test('scoring never breaks the rest of a team metrics recalculation', () => {
-  const fn = sectionFor(CALC_SERVICE, 'async _calculateAllMetrics');
-  const callSite = fn.slice(fn.indexOf('scoreRacePredictions') - 200, fn.indexOf('scoreRacePredictions') + 50);
-  assert.match(callSite, /try \{/, 'the call site must be wrapped so a prediction-scoring bug cannot throw out of the whole recalc');
 });

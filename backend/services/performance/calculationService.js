@@ -5,7 +5,8 @@ const { deriveGrade } = require('../../lib/season');
 const { parseDistanceToMeters, metersToMiles } = require('../../lib/distance');
 const { computeTeamPlaces } = require('../../lib/teamPlace');
 const { computeMeetScoring } = require('../../lib/meetScoring');
-const { scorePrediction } = require('../../lib/racePrediction');
+const { scorePrediction, buildSplitShape, applySplitShape } = require('../../lib/racePrediction');
+const { segments, overallPaceSecPerMile, markersForRace, closingSegmentLabel } = require('../../lib/splitMath');
 
 class CalculationService {
   constructor() {
@@ -78,13 +79,20 @@ class CalculationService {
       // already runs after every result-affecting write for this team and
       // season — scrape import, manual entry, field-results, splits — so
       // it's also the one place a prediction made before a race reliably
-      // finds out the race has since happened. Never fatal to the rest of
-      // this calculation: a bug scoring predictions should not take down
-      // the actual analytics every page on this team depends on.
+      // finds out the race has since happened. reconcile MUST run before
+      // score: a prediction is made against a Meet before its Race exists
+      // (see RacePrediction's own schema comment), so scoring — which
+      // looks up a Result by this prediction's raceId — can't find
+      // anything until reconcile has attached the real race, which for
+      // this app's common case (a scrape import creates the Race and its
+      // Results in the same write) happens in this exact pass. Never
+      // fatal to the rest of this calculation: a bug here should not take
+      // down the actual analytics every page on this team depends on.
       try {
+        await this.reconcilePendingPredictions(teamId, season);
         await this.scoreRacePredictions(teamId, season);
       } catch (predictionError) {
-        logger.error(`Error scoring race predictions for team ${teamId}, season ${season}: ${predictionError.message}`);
+        logger.error(`Error updating race predictions for team ${teamId}, season ${season}: ${predictionError.message}`);
       }
 
       logger.info(`Completed metrics calculation for team ${teamId}, season ${season}`);
@@ -1078,6 +1086,83 @@ class CalculationService {
   }
 
   /**
+   * A RacePrediction (routes/racePredictions.js) is made against a Meet
+   * before its Race exists — for a team whose results only ever arrive
+   * via the season scraper, there is no Race row until after the meet
+   * already happened. This attaches the real race once one shows up for
+   * that meetId, and corrects distanceMeters/predictedTimeSec/
+   * predictedSplits from its real distance (the original estimate was
+   * this athlete's own most recent race distance, a stand-in).
+   *
+   * predictedPaceSecPerMile/trendPaceSecPerMile/biasAppliedSecPerMile —
+   * the actual forecast — are never touched here. Only the translation of
+   * that already-frozen pace into a time and a split profile for the
+   * distance that turned out to be real is revised; re-deriving the split
+   * SHAPE itself below is safe for the same reason getMostRecentSplitShape
+   * always was (its own `race.date < beforeDate` filter excludes the just-
+   * attached race, since its date is never before itself).
+   */
+  async reconcilePendingPredictions(teamId, season) {
+    const pending = await prisma.racePrediction.findMany({
+      where: { teamId, season, raceId: null },
+      select: { id: true, athleteId: true, meetId: true, predictedPaceSecPerMile: true },
+    });
+    if (pending.length === 0) return;
+
+    for (const prediction of pending) {
+      const race = await prisma.race.findFirst({
+        where: { teamId, meetId: prediction.meetId, distanceMeters: { not: null } },
+      });
+      if (!race) continue; // still no real race for this meet yet
+
+      const splitShape = await this._mostRecentSplitShapeFor(teamId, prediction.athleteId, race.date);
+      const markers = markersForRace(race.distanceMeters, race.splitMarkerScheme, race.splitMarkersMeters);
+      const closingLabel = closingSegmentLabel(race.distanceMeters, race.splitMarkerScheme, markers);
+      const predictedSplits = applySplitShape(prediction.predictedPaceSecPerMile, race.distanceMeters, markers, splitShape, closingLabel);
+      const predictedTimeSec = prediction.predictedPaceSecPerMile * metersToMiles(race.distanceMeters);
+
+      await prisma.racePrediction.update({
+        where: { id: prediction.id },
+        data: {
+          raceId: race.id,
+          distanceMeters: race.distanceMeters,
+          distanceEstimated: false,
+          predictedTimeSec,
+          predictedSplits,
+        },
+      });
+    }
+  }
+
+  // Same query as routes/racePredictions.js's getMostRecentSplitShape — a
+  // deliberate separate copy, not a shared import: services should not
+  // depend on a route file (the normal dependency direction here runs
+  // routes -> services, never the reverse).
+  async _mostRecentSplitShapeFor(teamId, athleteId, beforeDate) {
+    const result = await prisma.result.findFirst({
+      where: {
+        teamId,
+        athleteId,
+        status: 'FINISHED',
+        time: { gt: 0 },
+        race: { date: { lt: beforeDate }, distanceMeters: { not: null } },
+        splits: { some: {} },
+      },
+      orderBy: { race: { date: 'desc' } },
+      select: {
+        time: true,
+        splits: { select: { sequence: true, markerMeters: true, elapsedSec: true } },
+        race: { select: { distanceMeters: true } },
+      },
+    });
+    if (!result) return null;
+
+    const segs = segments(result.splits, result.time, result.race.distanceMeters);
+    const overallPace = overallPaceSecPerMile(result.time, result.race.distanceMeters);
+    return buildSplitShape(segs, overallPace, result.race.distanceMeters);
+  }
+
+  /**
    * Scores every unscored RacePrediction (routes/racePredictions.js) for
    * this team/season whose race now has a real FINISHED result for that
    * exact athlete — "when a race is imported, compare your prediction to
@@ -1087,7 +1172,10 @@ class CalculationService {
    */
   async scoreRacePredictions(teamId, season) {
     const pending = await prisma.racePrediction.findMany({
-      where: { teamId, season, scoredAt: null },
+      // raceId: not null — a prediction still pending against a Meet with
+      // no real race yet has nothing to score against; reconcilePendingPredictions
+      // (called right before this) is what attaches raceId once it exists.
+      where: { teamId, season, scoredAt: null, raceId: { not: null } },
       select: { id: true, athleteId: true, raceId: true, predictedPaceSecPerMile: true },
     });
     if (pending.length === 0) return;

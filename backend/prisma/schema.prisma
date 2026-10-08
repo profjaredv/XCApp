@@ -649,11 +649,12 @@ model Meet {
   // rows never collide with each other here.
   athleticMeetId String?  @map("athletic_meet_id")
 
-  team   Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  season Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  races  Race[]
-  plan   MeetPlan?
-  photos Photo[]
+  team            Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season          Season           @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  races           Race[]
+  plan            MeetPlan?
+  photos          Photo[]
+  racePredictions RacePrediction[]
 
   @@unique([teamId, seasonId, athleticMeetId])
   @@index([seasonId, date])
@@ -813,6 +814,23 @@ model Race {
 // across its markers). See lib/racePrediction.js for the actual math —
 // this table only stores the result.
 //
+// Keyed on Meet, not Race. A Meet is scheduled ahead of time (imported on
+// the team's calendar); a Race, for a team whose results only ever arrive
+// via the season scraper, does not exist until AFTER the meet has already
+// happened — there is nothing to attach a prediction to beforehand if this
+// pointed at Race. raceId is filled in once the real race exists
+// (calculationService's recalc pass, same hook that scores a prediction —
+// see reconcilePendingPredictions), at which point distanceMeters and
+// predictedSplits are corrected from the real distance. Critically, that
+// reconciliation never touches predictedPaceSecPerMile/trendPaceSecPerMile/
+// biasAppliedSecPerMile — the actual forecast — which stays exactly what it
+// was before the outcome existed; only its translation from a pace into a
+// time and a split profile for the distance that turned out to be real is
+// ever revised. distanceEstimated/distanceMeters record what distance a
+// still-pending prediction was built against (this athlete's own most
+// recent race distance, since this team's upcoming meets carry no
+// confirmed distance of their own yet).
+//
 // Frozen on first computation, not recomputed on every view: the whole
 // point is comparing a prediction made BEFORE the race to what actually
 // happened, so recomputing it after seeing more data (or after the race
@@ -824,17 +842,26 @@ model Race {
 // actual*/error/scoredAt are null until calculationService's recalc pass
 // (triggered by every result-affecting write — scrape import, manual
 // entry, etc.) finds a FINISHED result for this exact (athleteId, raceId)
-// and scores it. One athlete, one race, one prediction — @@unique enforces
+// and scores it. One athlete, one meet, one prediction — @@unique enforces
 // that a recompute overwrites rather than accumulates rows.
 model RacePrediction {
-  id        String @id @default(uuid()) @db.Uuid
-  teamId    String @map("team_id") @db.Uuid
-  athleteId String @map("athlete_id") @db.Uuid
-  raceId    String @map("race_id") @db.Uuid
-  // Denormalized from the race at creation time — lets the calibration
-  // hook in calculationService filter "this team's season" the same way
-  // every other metrics table already does, without a join.
+  id        String  @id @default(uuid()) @db.Uuid
+  teamId    String  @map("team_id") @db.Uuid
+  athleteId String  @map("athlete_id") @db.Uuid
+  meetId    String  @map("meet_id") @db.Uuid
+  // Null until the real race exists (see reconcilePendingPredictions).
+  raceId    String? @map("race_id") @db.Uuid
+  // Denormalized from the meet/race at creation time — lets the
+  // calibration hook in calculationService filter "this team's season"
+  // the same way every other metrics table already does, without a join.
   season    Int
+
+  // The distance this prediction was actually computed against —
+  // distanceEstimated is true when no Race existed yet and this is the
+  // athlete's own most recent race distance used as a stand-in, false
+  // once it is the race's own real, confirmed distance.
+  distanceMeters    Float   @map("distance_meters")
+  distanceEstimated Boolean @default(false) @map("distance_estimated")
 
   predictedPaceSecPerMile Float @map("predicted_pace_sec_per_mile")
   predictedTimeSec        Float @map("predicted_time_sec")
@@ -876,11 +903,13 @@ model RacePrediction {
 
   team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
   athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
-  race    Race    @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  meet    Meet    @relation(fields: [meetId], references: [id], onDelete: Cascade)
+  race    Race?   @relation(fields: [raceId], references: [id], onDelete: Cascade)
 
-  @@unique([athleteId, raceId])
+  @@unique([athleteId, meetId])
   @@index([teamId, season])
   @@index([athleteId])
+  @@index([meetId])
   @@map("race_predictions")
 }
 
