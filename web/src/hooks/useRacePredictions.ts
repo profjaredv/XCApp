@@ -75,6 +75,7 @@ export const useRecomputeRacePrediction = (athleteId: string | undefined) => {
 export interface MeetPredictionEntry {
   athleteId: string;
   athleteName: string;
+  gender: 'M' | 'F' | null;
   raceId: string | null;
   raceName: string;
   prediction: RacePrediction | null;
