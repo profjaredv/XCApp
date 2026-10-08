@@ -263,9 +263,30 @@ function buildTargetFromMeet(meet, preferredDistanceMeters) {
 
   // No race yet (or one exists but its distance hasn't parsed) — this
   // team's races only exist once the scraper imports results, after the
-  // meet. Estimate from this athlete's own most recent race distance
-  // (usually stable all season); calculationService.reconcilePendingPredictions
-  // corrects this once the real race shows up.
+  // meet. A coach-confirmed meet distance (Meet.distance/distanceMeters —
+  // known ahead of time for a dual meet's course or a conference's
+  // standard distance) outranks guessing from one athlete's own history:
+  // it's a real, shared fact, not a stand-in.
+  if (meet.distanceMeters != null) {
+    return {
+      raceId: null,
+      meetId: meet.id,
+      name: meet.name,
+      date: meet.date,
+      season: meet.season.year,
+      distanceMeters: meet.distanceMeters,
+      distanceEstimated: false,
+      courseId: null,
+      splitMarkerScheme: null,
+      splitMarkersMeters: [],
+    };
+  }
+
+  // Last resort: estimate from this athlete's own most recent race
+  // distance (usually stable all season). Both this and the meet-distance
+  // case above are corrected once the real race shows up — see
+  // calculationService.reconcilePendingPredictions /
+  // applyMeetDistanceToPendingPredictions.
   if (preferredDistanceMeters == null) return null;
   return {
     raceId: null,

@@ -649,6 +649,19 @@ model Meet {
   // rows never collide with each other here.
   athleticMeetId String?  @map("athletic_meet_id")
 
+  // Known ahead of the meet (a dual meet's course, a conference's
+  // standard distance) even though no Race row exists yet to carry its
+  // own — this team's races only materialize once results are scraped,
+  // after the meet. Coach-entered only, same posture as Race.distance:
+  // never inferred. When this is set (or changed), any RacePrediction
+  // still pending for this meet (raceId null) is regenerated against it
+  // — see routes/meetOps.js's PUT /:meetId and
+  // calculationService.applyMeetDistanceToPendingPredictions. Superseded
+  // by a real Race's own distanceMeters once one exists, which is the
+  // actual, confirmed number.
+  distance       String?
+  distanceMeters Float?  @map("distance_meters")
+
   team            Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
   season          Season           @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   races           Race[]
