@@ -10,10 +10,16 @@ export interface PredictedSplit {
 
 export interface RacePrediction {
   id: string;
-  raceId: string;
+  meetId: string;
+  // Null until the real race exists (this team's races only materialize
+  // once results are scraped, after the meet) — see distanceEstimated.
+  raceId: string | null;
   raceName: string;
   raceDate: string;
   distanceMeters: number;
+  // True when no race existed yet and distanceMeters is a stand-in (this
+  // athlete's own most recent race distance), not the race's own real one.
+  distanceEstimated: boolean;
   predictedTimeSec: number;
   predictedPaceSecPerMile: number;
   trendPaceSecPerMile: number;
@@ -51,7 +57,7 @@ export const useNextRacePrediction = (athleteId: string | undefined) => {
 
 export const useRecomputeRacePrediction = (athleteId: string | undefined) => {
   const queryClient = useQueryClient();
-  return useMutation<NextRacePredictionResponse, Error, { raceId?: string } | undefined>({
+  return useMutation<NextRacePredictionResponse, Error, { meetId?: string } | undefined>({
     mutationFn: async (body) => {
       const response = await api.post<NextRacePredictionResponse>(
         `/race-predictions/athlete/${athleteId}/recompute`,
@@ -69,7 +75,7 @@ export const useRecomputeRacePrediction = (athleteId: string | undefined) => {
 export interface MeetPredictionEntry {
   athleteId: string;
   athleteName: string;
-  raceId: string;
+  raceId: string | null;
   raceName: string;
   prediction: RacePrediction | null;
   reason: NoPredictionReason | null;

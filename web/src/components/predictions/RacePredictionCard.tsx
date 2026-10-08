@@ -71,7 +71,7 @@ export function RacePredictionCard({ athleteId }: { athleteId: string | undefine
             size="sm"
             className="h-7 px-2"
             disabled={recompute.isPending}
-            onClick={() => recompute.mutate({ raceId: p.raceId })}
+            onClick={() => recompute.mutate({ meetId: p.meetId })}
           >
             {recompute.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           </Button>
@@ -95,6 +95,12 @@ export function RacePredictionCard({ athleteId }: { athleteId: string | undefine
             ? ' · course difficulty unknown, using season-average pace'
             : ` · course adjustment ${p.courseDifficultySecPerMile >= 0 ? '+' : ''}${Math.round(p.courseDifficultySecPerMile)} sec/mi`}
         </p>
+
+        {p.distanceEstimated && (
+          <p className="text-xs text-muted-foreground">
+            Distance not confirmed yet — estimated from this athlete's own most recent race. Updates automatically once results are in.
+          </p>
+        )}
 
         {p.predictedSplits && p.predictedSplits.length > 1 && (
           <div className="pt-2 border-t">
