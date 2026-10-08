@@ -38,7 +38,9 @@ export function RacePredictionCard({ athleteId }: { athleteId: string | undefine
     const message =
       reason === 'insufficient-history'
         ? `Not enough race history yet to predict ${data?.race ? `the ${data.race.name}` : 'their next race'} — needs at least one race this season.`
-        : "Not entered in an upcoming race yet.";
+        : reason === 'not-on-roster'
+        ? "Not on this season's roster."
+        : 'No upcoming race on the schedule yet.';
     return (
       <Card>
         <CardHeader className="pb-2">

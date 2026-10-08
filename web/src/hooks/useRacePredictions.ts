@@ -29,7 +29,7 @@ export interface RacePrediction {
   createdAt: string;
 }
 
-export type NoPredictionReason = 'no-upcoming-entry' | 'insufficient-history';
+export type NoPredictionReason = 'no-upcoming-race' | 'not-on-roster' | 'insufficient-history';
 
 export interface NextRacePredictionResponse {
   success: boolean;

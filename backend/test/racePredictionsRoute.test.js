@@ -31,9 +31,33 @@ test('getOrCreatePrediction returns an existing frozen prediction instead of rec
   assert.match(fn, /if \(existing\) return/, 'an existing prediction must be returned as-is, not recomputed');
 });
 
-test('only EntryStatus.ENTERED counts as the next race to predict', () => {
-  const fn = sectionFor(ROUTE, 'async function findNextEnteredRace');
-  assert.match(fn, /status: 'ENTERED'/);
+test('the next race is resolved from the schedule, never from MeetEntry — this team does not track entries', () => {
+  const fn = sectionFor(ROUTE, 'async function findNextRaceForAthlete');
+  assert.doesNotMatch(fn, /meetEntry/i, 'must not read MeetEntry at all');
+  assert.match(fn, /prisma\.race\.findFirst/, 'must resolve the next race straight off the schedule');
+});
+
+test('getCurrentSeasonRosterAthleteIds never reads MeetEntry either — roster membership, not entry status', () => {
+  const fn = sectionFor(ROUTE, 'async function getCurrentSeasonRosterAthleteIds');
+  assert.doesNotMatch(fn, /meetEntry/i);
+});
+
+test('a prediction is refused for an athlete not on the current season roster', () => {
+  const fn = sectionFor(ROUTE, "router.get('/athlete/:athleteId/next'");
+  assert.match(fn, /getCurrentSeasonRosterAthleteIds/);
+  assert.match(fn, /reason: 'not-on-roster'/);
+});
+
+test('the meet-wide view predicts the current season roster, not who was entered', () => {
+  const fn = sectionFor(ROUTE, "router.get('/meet/:meetId'");
+  assert.doesNotMatch(fn, /meetEntry/i);
+  assert.match(fn, /getCurrentSeasonRosterAthleteIds/);
+});
+
+test('a same-day double distance is disambiguated by the athlete\'s own recent race distance, not guessed', () => {
+  const fn = sectionFor(ROUTE, 'function pickRaceForAthlete');
+  assert.match(fn, /preferredDistanceMeters/);
+  assert.match(fn, /Math\.abs\(r\.distanceMeters - preferredDistanceMeters\)/);
 });
 
 test('recompute is gated to FULL_COACH, viewing a prediction is not', () => {

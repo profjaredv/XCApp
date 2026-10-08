@@ -7,6 +7,14 @@
 // data access (what Prisma query feeds which pure function) and the
 // freeze-on-first-view policy.
 //
+// This team doesn't track meet entries (MeetEntry/EntryStatus) — their
+// races come from the Athletic.net scraper, not from a coach entering a
+// lineup ahead of time. So this never reads MeetEntry: "which race" is
+// just the team's next upcoming Race, and "who gets a prediction" is
+// everyone the current season roster already says is on the team (see
+// getCurrentSeasonRosterAthleteIds below — the same rule the roster page
+// itself uses).
+//
 // Authorization: same tier as the rest of this team's results/analytics —
 // any authenticated team member can VIEW a prediction (results and PRs are
 // already team-visible; a prediction built from them isn't more sensitive).
@@ -33,6 +41,7 @@ const {
   buildSplitShape,
   buildRacePrediction,
 } = require('../lib/racePrediction');
+const { isEnrolled } = require('../lib/season');
 
 // ---------------------------------------------------------------------
 // Data-access helpers. The math itself (what these feed into) lives in
@@ -147,19 +156,89 @@ async function getAthletePredictionErrors(athleteId, excludeRaceId) {
   return rows.map((r) => r.errorSecPerMile).filter((e) => e != null);
 }
 
-// The next race this athlete is actually entered in, for this team, today
-// or later. Only EntryStatus.ENTERED counts as "the next race to predict"
-// — an alternate or scratched entry isn't one they're actually running.
-async function findNextEnteredRace(teamId, athleteId) {
+// This team doesn't run entries (MeetEntry/EntryStatus.ENTERED) — races
+// come from the scraper, not from a coach entering a lineup ahead of
+// time. So "who gets a prediction" is the current season roster, not who
+// was entered, and "which race" is simply whichever upcoming Race exists
+// for the team, not one a coach specifically assigned this athlete to.
+
+// Every athlete this team currently considers on the roster for `season`
+// — the same rule routes/athletes.js's GET / and lib/season.js's
+// isAthleteOnSeasonRoster use: an explicit SeasonRoster row when the team
+// keeps one, otherwise inferred from having raced this season or still
+// being enrolled by grade.
+async function getCurrentSeasonRosterAthleteIds(teamId, season) {
+  const seasonRow = await prisma.season.findFirst({ where: { teamId, year: season }, select: { id: true } });
+  if (seasonRow) {
+    const rosterEntries = await prisma.seasonRoster.findMany({
+      where: { seasonId: seasonRow.id },
+      select: { athleteId: true, isActive: true },
+    });
+    if (rosterEntries.length > 0) {
+      return rosterEntries.filter((r) => r.isActive).map((r) => r.athleteId);
+    }
+  }
+
+  const [athletes, racedThisSeason] = await Promise.all([
+    prisma.athlete.findMany({ where: { teamId }, select: { id: true, graduationYear: true } }),
+    prisma.result.findMany({
+      where: { teamId, race: { season } },
+      select: { athleteId: true },
+      distinct: ['athleteId'],
+    }),
+  ]);
+  const racedIds = new Set(racedThisSeason.map((r) => r.athleteId));
+  return athletes.filter((a) => racedIds.has(a.id) || isEnrolled(a.graduationYear, season)).map((a) => a.id);
+}
+
+// This athlete's most recent FINISHED race's distance — used only to
+// disambiguate which of several same-day races (e.g. a JV race at one
+// distance and a Varsity race at another) is actually theirs, when a
+// team's next meet happens to offer more than one. Null when they have no
+// race history yet; the caller then has nothing to disambiguate with and
+// just picks the first race offered that day.
+async function getAthleteMostRecentDistance(teamId, athleteId) {
+  const result = await prisma.result.findFirst({
+    where: { teamId, athleteId, status: 'FINISHED', time: { gt: 0 }, race: { distanceMeters: { not: null } } },
+    orderBy: { race: { date: 'desc' } },
+    select: { race: { select: { distanceMeters: true } } },
+  });
+  return result?.race?.distanceMeters ?? null;
+}
+
+// Almost always a no-op (one race per meet day is the normal case — see
+// Race's own schema comment: one row covers every gender and ability
+// tier of a given distance). When a meet genuinely offers more than one
+// distance that day, picks whichever is closest to this athlete's own
+// most recent race distance rather than guessing the first one.
+function pickRaceForAthlete(racesThatDay, preferredDistanceMeters) {
+  if (racesThatDay.length <= 1 || preferredDistanceMeters == null) return racesThatDay[0];
+  return racesThatDay.reduce((best, r) => {
+    if (r.distanceMeters == null) return best;
+    if (best.distanceMeters == null) return r;
+    return Math.abs(r.distanceMeters - preferredDistanceMeters) < Math.abs(best.distanceMeters - preferredDistanceMeters)
+      ? r
+      : best;
+  }, racesThatDay[0]);
+}
+
+// The next race for this team, today or later — not gated on any entry,
+// since this team doesn't keep those. Multiple races on the same nearest
+// date are disambiguated by distance history (pickRaceForAthlete above).
+async function findNextRaceForAthlete(teamId, athleteId) {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  const entry = await prisma.meetEntry.findFirst({
-    where: { athleteId, status: 'ENTERED', race: { teamId, date: { gte: startOfToday } } },
-    orderBy: { race: { date: 'asc' } },
-    include: { race: true },
+  const nextRace = await prisma.race.findFirst({
+    where: { teamId, date: { gte: startOfToday } },
+    orderBy: { date: 'asc' },
+    select: { date: true },
   });
-  return entry?.race ?? null;
+  if (!nextRace) return null;
+
+  const racesThatDay = await prisma.race.findMany({ where: { teamId, date: nextRace.date } });
+  const preferredDistance = await getAthleteMostRecentDistance(teamId, athleteId);
+  return pickRaceForAthlete(racesThatDay, preferredDistance);
 }
 
 // Builds and freezes a fresh prediction row for one athlete/race. The only
@@ -250,9 +329,19 @@ router.get('/athlete/:athleteId/next', authenticate, requireTeam, async (req, re
       return res.status(404).json({ success: false, message: 'Athlete not found.' });
     }
 
-    const race = await findNextEnteredRace(teamId, athleteId);
+    const race = await findNextRaceForAthlete(teamId, athleteId);
     if (!race) {
-      return res.json({ success: true, prediction: null, reason: 'no-upcoming-entry' });
+      return res.json({ success: true, prediction: null, reason: 'no-upcoming-race' });
+    }
+
+    const rosterAthleteIds = await getCurrentSeasonRosterAthleteIds(teamId, race.season);
+    if (!rosterAthleteIds.includes(athleteId)) {
+      return res.json({
+        success: true,
+        prediction: null,
+        reason: 'not-on-roster',
+        race: { id: race.id, name: race.name, date: race.date },
+      });
     }
 
     const { prediction, reason } = await getOrCreatePrediction(teamId, athleteId, race);
@@ -273,7 +362,7 @@ router.get('/athlete/:athleteId/next', authenticate, requireTeam, async (req, re
 });
 
 // POST /api/race-predictions/athlete/:athleteId/recompute
-// Body: { raceId? } — defaults to the athlete's next entered race.
+// Body: { raceId? } — defaults to the athlete's next upcoming race.
 router.post('/athlete/:athleteId/recompute', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   try {
     const teamId = req.user.teamId;
@@ -287,7 +376,7 @@ router.post('/athlete/:athleteId/recompute', authenticate, requireTeam, requireR
 
     const race = raceId
       ? await prisma.race.findFirst({ where: { id: raceId, teamId } })
-      : await findNextEnteredRace(teamId, athleteId);
+      : await findNextRaceForAthlete(teamId, athleteId);
 
     if (!race) {
       return res.status(404).json({ success: false, message: 'No matching race found.' });
@@ -306,31 +395,40 @@ router.post('/athlete/:athleteId/recompute', authenticate, requireTeam, requireR
 });
 
 // GET /api/race-predictions/meet/:meetId
-// Every ENTERED athlete's predicted time for an upcoming meet, computing
-// (and freezing) any prediction that doesn't exist yet — the Meets page's
-// whole-roster view.
+// Every current-season-roster athlete's predicted time for this meet,
+// computing (and freezing) any prediction that doesn't exist yet — no
+// entries involved, same as the single-athlete route above. When a meet
+// offers more than one race (different distances in one day),
+// pickRaceForAthlete assigns each athlete the one closest to their own
+// recent race distance.
 router.get('/meet/:meetId', authenticate, requireTeam, async (req, res) => {
   try {
     const teamId = req.user.teamId;
-    const meet = await prisma.meet.findFirst({ where: { id: req.params.meetId, teamId }, include: { races: true } });
+    const meet = await prisma.meet.findFirst({
+      where: { id: req.params.meetId, teamId },
+      include: { races: true, season: { select: { year: true } } },
+    });
     if (!meet) {
       return res.status(404).json({ success: false, message: 'Meet not found.' });
     }
+    if (meet.races.length === 0) {
+      return res.json({ success: true, predictions: [] });
+    }
 
-    const raceIds = meet.races.map((r) => r.id);
-    const entries = await prisma.meetEntry.findMany({
-      where: { raceId: { in: raceIds }, status: 'ENTERED' },
-      select: { athleteId: true, raceId: true, athlete: { select: { id: true, name: true, preferredName: true } } },
+    const rosterAthleteIds = await getCurrentSeasonRosterAthleteIds(teamId, meet.season.year);
+    const athletes = await prisma.athlete.findMany({
+      where: { id: { in: rosterAthleteIds } },
+      select: { id: true, name: true, preferredName: true },
     });
 
-    const raceById = new Map(meet.races.map((r) => [r.id, r]));
     const predictions = await Promise.all(
-      entries.map(async (entry) => {
-        const race = raceById.get(entry.raceId);
-        const { prediction, reason } = await getOrCreatePrediction(teamId, entry.athleteId, race);
+      athletes.map(async (athlete) => {
+        const preferredDistance = await getAthleteMostRecentDistance(teamId, athlete.id);
+        const race = pickRaceForAthlete(meet.races, preferredDistance);
+        const { prediction, reason } = await getOrCreatePrediction(teamId, athlete.id, race);
         return {
-          athleteId: entry.athleteId,
-          athleteName: entry.athlete.preferredName || entry.athlete.name,
+          athleteId: athlete.id,
+          athleteName: athlete.preferredName || athlete.name,
           raceId: race.id,
           raceName: race.name,
           prediction: prediction ? serializePrediction(prediction, race) : null,
