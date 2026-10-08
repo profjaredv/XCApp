@@ -48,18 +48,32 @@ test('projectSeasonFitness: one race is a flat baseline, no trend', () => {
   assert.deepEqual(result, { trendPaceSecPerMile: 360, slopeSecPerMilePerDay: 0, basedOnRaceCount: 1 });
 });
 
-test('projectSeasonFitness: two or more races extrapolate a trend to race day', () => {
+test('projectSeasonFitness: two or more races fit a trend between race days', () => {
   // Getting 1 sec/mile faster every day, started at 360 sec/mile on day 0.
   const history = [
     { date: new Date('2026-09-01T00:00:00Z'), adjustedPaceSecPerMile: 360 },
     { date: new Date('2026-09-11T00:00:00Z'), adjustedPaceSecPerMile: 350 },
     { date: new Date('2026-09-21T00:00:00Z'), adjustedPaceSecPerMile: 340 },
   ];
-  // 30 days after the first race (day 30) => 360 - 1*30 = 330.
-  const result = projectSeasonFitness(history, new Date('2026-10-01T00:00:00Z'));
+  // Day 5, within the fitted range (no floor in play) => 360 - 1*5 = 355.
+  const result = projectSeasonFitness(history, new Date('2026-09-06T00:00:00Z'));
   assert.equal(result.slopeSecPerMilePerDay, -1);
-  assert.ok(Math.abs(result.trendPaceSecPerMile - 330) < 1e-9);
+  assert.ok(Math.abs(result.trendPaceSecPerMile - 355) < 1e-9);
   assert.equal(result.basedOnRaceCount, 3);
+});
+
+test('projectSeasonFitness: extrapolating past the data is floored at the fastest pace already run', () => {
+  const history = [
+    { date: new Date('2026-09-01T00:00:00Z'), adjustedPaceSecPerMile: 360 },
+    { date: new Date('2026-09-11T00:00:00Z'), adjustedPaceSecPerMile: 350 },
+    { date: new Date('2026-09-21T00:00:00Z'), adjustedPaceSecPerMile: 340 },
+  ];
+  // 40 days after the first race, the raw trend line says 360 - 1*40 = 320 —
+  // faster than this athlete's best (340) by a margin nothing in the data
+  // supports. The floor holds it at 340 instead.
+  const result = projectSeasonFitness(history, new Date('2026-10-11T00:00:00Z'));
+  assert.equal(result.slopeSecPerMilePerDay, -1, 'the reported slope is still the honest fit, only the extrapolated pace is floored');
+  assert.ok(Math.abs(result.trendPaceSecPerMile - 340) < 1e-9);
 });
 
 test('projectSeasonFitness: unsorted input is sorted before fitting', () => {
