@@ -47,10 +47,26 @@ test('setItemStatus patches exactly one item by index, leaving the others untouc
   assert.equal(read.items[1].photoId, 'photo-xyz');
 });
 
-test('setItemStatus on an out-of-range index is a no-op, not a throw', () => {
+test('setItemStatus grows the items array on demand, for an index beyond what was pre-seeded', () => {
+  // lib/googlePhotosImport.js no longer knows up front how many urls it
+  // will end up attempting (a duplicate found along the way doesn't
+  // count against its budget, so it can walk past far more of them than
+  // it imports) — so items can no longer be fully pre-sized, and this
+  // has to create slots as they're reported instead of requiring them to
+  // already exist.
   const job = jobs.createJob({ teamId: 'team-1', meetId: 'meet-1' });
   jobs.updateJob(job.id, { items: [{ id: 'item-0', status: 'queued' }] });
   assert.doesNotThrow(() => jobs.setItemStatus(job.id, 5, { status: 'done' }));
+  const read = jobs.getJob(job.id);
+  assert.equal(read.items[5].status, 'done');
+});
+
+test('setItemStatus creates a fresh slot (no pre-seeding needed at all)', () => {
+  const job = jobs.createJob({ teamId: 'team-1', meetId: 'meet-1' });
+  jobs.setItemStatus(job.id, 0, { status: 'downloading' });
+  const read = jobs.getJob(job.id);
+  assert.equal(read.items[0].status, 'downloading');
+  assert.equal(read.items[0].id, 'item-0');
 });
 
 test('updateJob/setItemStatus/finishJob on an id that does not exist are no-ops, not throws', () => {

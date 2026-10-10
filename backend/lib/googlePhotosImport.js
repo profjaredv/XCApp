@@ -21,12 +21,16 @@ const path = require('path');
 const sharp = require('sharp');
 const photosAccess = require('./photosAccess');
 
-// A generous but bounded cap — an album import is one synchronous HTTP
-// request (see routes/photos.js), and there is no resumable job queue here
-// yet. Re-running the same import is safe and cheap for whatever this
-// skips: the hash dedupe check means every already-imported photo is
-// skipped instantly on a second run.
-const MAX_PHOTOS_PER_IMPORT = 300;
+// A generous but bounded cap on how many NEW photos one run will actually
+// import — protects against one run writing an unbounded number of R2
+// objects for a truly enormous album, not against how long the run takes
+// (it's a background job, polled — see routes/photos.js — so there's no
+// request to time out). A photo already imported in an earlier run
+// doesn't count against this: see importGoogleAlbum's own comment on why
+// re-running the same import keeps making progress instead of getting
+// stuck re-reporting the same first MAX_PHOTOS_PER_IMPORT urls as
+// duplicates forever.
+const MAX_PHOTOS_PER_IMPORT = 1000;
 const DOWNLOAD_CONCURRENCY = 4;
 // A big album can take several minutes just to finish scrolling into view
 // in scrape_google_photos_album.js before any downloading even starts.
@@ -159,6 +163,17 @@ async function downloadOriginal(baseUrl, refererUrl) {
  * the batch — the same "one bad file doesn't sink 400 good ones" principle
  * as the regular upload pipeline's per-file retry.
  *
+ * Walks the album's urls in order, but — the actual fix for the real-world
+ * bug report ("all 300 duplicates", never reaching the rest of a bigger
+ * album) — only a genuinely NEW import counts against MAX_PHOTOS_PER_IMPORT.
+ * A url that turns out to already be imported (from an earlier run) still
+ * costs a re-download to re-confirm via sha256 — there's nothing cheaper to
+ * check a bare url against — but doesn't spend any of this run's budget,
+ * so the walk continues past it to whatever's actually new. That's what
+ * makes re-running the same import on an album bigger than one run's cap
+ * pick up the next batch, instead of forever re-attempting the same first
+ * MAX_PHOTOS_PER_IMPORT urls and reporting them all as duplicates again.
+ *
  * `onFound` and `onItemStatus` are optional progress hooks — the route
  * (routes/photos.js) uses them to drive lib/googlePhotosImportJobs.js so
  * the frontend can poll real per-photo progress instead of waiting on one
@@ -166,8 +181,9 @@ async function downloadOriginal(baseUrl, refererUrl) {
  * caller (and every test that calls this directly) is unaffected.
  * `onItemStatus(index, patch)` fires at least twice per photo — once with
  * `{ status: 'downloading' }` when its turn starts, once with its outcome
- * — `index` is its position in the (post-truncation) import list, stable
- * for the whole run.
+ * — `index` is its position in the album's own url list, stable for the
+ * whole run (not every index up to `total` is necessarily reached: the run
+ * stops once the import budget is spent or the album is exhausted).
  */
 async function importGoogleAlbum(
   prisma,
@@ -189,16 +205,21 @@ async function importGoogleAlbum(
     throw new Error('No photos were found at that link — check that it is a public "Share" album link, not a private one.');
   }
 
-  const toImport = urls.slice(0, MAX_PHOTOS_PER_IMPORT);
-  const truncated = urls.length - toImport.length;
-  onFound({ total: urls.length, importing: toImport.length, truncated });
+  onFound({ total: urls.length });
   const summary = { imported: 0, duplicates: 0, failed: 0, failedDetails: [] };
 
-  let next = 0;
+  let cursor = 0;
+  let budget = MAX_PHOTOS_PER_IMPORT;
   async function worker() {
-    while (next < toImport.length) {
-      const index = next++;
-      const url = toImport[index];
+    while (budget > 0 && cursor < urls.length) {
+      const index = cursor++;
+      // Reserved optimistically, before any async work — with several
+      // workers running concurrently, decrementing only after a result
+      // comes back would let more than DOWNLOAD_CONCURRENCY run past the
+      // cap in flight at once. Refunded below for a duplicate or a
+      // failure, since neither actually spent a slot.
+      budget -= 1;
+      const url = urls[index];
       onItemStatus(index, { status: 'downloading' });
       // Tracked so a failure's message says which phase it happened in —
       // "download failed" (Google's side, or this server's network) reads
@@ -237,6 +258,9 @@ async function importGoogleAlbum(
           height,
         });
         if (result.duplicate) {
+          // Refunded — an already-imported photo costs this run a
+          // re-download but not a slot, which is the whole point.
+          budget += 1;
           summary.duplicates += 1;
           onItemStatus(index, { status: 'duplicate', photoId: result.photoId });
         } else {
@@ -244,6 +268,7 @@ async function importGoogleAlbum(
           onItemStatus(index, { status: 'done', photoId: result.photoId });
         }
       } catch (error) {
+        budget += 1; // wrote nothing, so it didn't spend a slot either
         summary.failed += 1;
         const message = `${phase} failed: ${error.message}`;
         summary.failedDetails.push(message);
@@ -253,10 +278,11 @@ async function importGoogleAlbum(
     }
   }
 
-  console.error(`Google Photos import: found ${urls.length} photo(s) in album, importing up to ${toImport.length}.`);
-  await Promise.all(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, toImport.length) }, worker));
+  console.error(`Google Photos import: found ${urls.length} photo(s) in album.`);
+  await Promise.all(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, urls.length) }, worker));
+  const truncated = Math.max(0, urls.length - cursor);
   console.error(
-    `Google Photos import: done — ${summary.imported} imported, ${summary.duplicates} duplicate, ${summary.failed} failed.`,
+    `Google Photos import: done — ${summary.imported} imported, ${summary.duplicates} duplicate, ${summary.failed} failed, ${truncated} not yet attempted.`,
   );
 
   return { ...summary, total: urls.length, truncated };
