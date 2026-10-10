@@ -257,7 +257,7 @@ test('importGoogleAlbum imports each photo, skips duplicates, and keeps going af
   assert.equal(summary.imported + summary.duplicates, 2);
 });
 
-test('importGoogleAlbum caps a very large album and reports how many were skipped', async (t) => {
+test('importGoogleAlbum caps a very large album and reports how many were not yet attempted', async (t) => {
   const jpeg = await tinyJpeg();
   const urls = Array.from({ length: googlePhotosImport.MAX_PHOTOS_PER_IMPORT + 7 }, (_, i) => `https://lh3.googleusercontent.com/pw/${i}`);
 
@@ -285,6 +285,61 @@ test('importGoogleAlbum caps a very large album and reports how many were skippe
   assert.equal(summary.imported, googlePhotosImport.MAX_PHOTOS_PER_IMPORT);
 });
 
+// The actual reported bug: re-running the same import on an album bigger
+// than one run's cap always re-attempted the exact same first
+// MAX_PHOTOS_PER_IMPORT urls — which, on a second run, are now ALL
+// already-imported duplicates — and so it reported "all duplicates" and
+// never reached the rest of the album. Simulated here as one run where
+// the first MAX_PHOTOS_PER_IMPORT urls are already-imported duplicates
+// from an earlier run: the budget must not be spent on them, so the run
+// keeps going and reaches the new ones after.
+test('importGoogleAlbum walks past already-imported duplicates to reach new photos later in the album, within one run', async (t) => {
+  const jpeg = await tinyJpeg();
+  const dupeCount = googlePhotosImport.MAX_PHOTOS_PER_IMPORT;
+  const newCount = 5;
+  const urls = Array.from({ length: dupeCount + newCount }, (_, i) => `https://lh3.googleusercontent.com/pw/${i}`);
+
+  const restoreMeet = stubModel('meet', 'findFirst', () => ({ id: 'meet-1', teamId: 'team-1' }));
+  const restoreScraper = stub(googlePhotosImport, 'runAlbumScraper', async () => urls);
+  // The first dupeCount urls (by position in the album, not by call
+  // order — downloads/uploads run DOWNLOAD_CONCURRENCY-wide, so later
+  // urls can finish before earlier ones) are already-imported; the rest
+  // are new. importGoogleAlbum passes `width` straight through from
+  // downloadOriginal's return value to importReadyPhoto's args, so
+  // encoding the url's own index into it is a safe, per-call way to tell
+  // the two stubs below which url they're handling — unlike a shared
+  // variable, which would race under real concurrency.
+  const restoreDownload = stub(googlePhotosImport, 'downloadOriginal', async (url) => {
+    const i = Number(url.split('/').pop());
+    return { buffer: jpeg, width: i, height: 600 };
+  });
+  const restoreImport = stub(photosAccess, 'importReadyPhoto', async (_prisma, args) => {
+    const i = args.width;
+    return i < dupeCount ? { duplicate: true, photoId: 'existing' } : { duplicate: false, photoId: `new-${i}` };
+  });
+
+  t.after(() => {
+    restoreMeet();
+    restoreScraper();
+    restoreDownload();
+    restoreImport();
+  });
+
+  const summary = await importGoogleAlbum(prisma, {
+    teamId: 'team-1',
+    meetId: 'meet-1',
+    albumUrl: 'https://photos.app.goo.gl/already-partly-imported',
+    uploadedById: 'coach-1',
+  });
+
+  assert.equal(summary.duplicates, dupeCount);
+  assert.equal(summary.imported, newCount);
+  // Every url in the album was actually reached this run — the budget
+  // was never spent on the duplicates, so there was still plenty left to
+  // cover the small handful of new ones at the end.
+  assert.equal(summary.truncated, 0);
+});
+
 test('importGoogleAlbum reports a clear error when the scraper finds nothing', async (t) => {
   const restoreMeet = stubModel('meet', 'findFirst', () => ({ id: 'meet-1', teamId: 'team-1' }));
   const restoreScraper = stub(googlePhotosImport, 'runAlbumScraper', async () => []);
@@ -305,7 +360,7 @@ test('importGoogleAlbum reports a clear error when the scraper finds nothing', a
 // per photo filling in live, instead of one spinner for the whole import.
 // ---------------------------------------------------------------------------
 
-test('importGoogleAlbum calls onFound once with the post-truncation count, before any downloads start', async (t) => {
+test('importGoogleAlbum calls onFound once with the album\'s total photo count, before any downloads start', async (t) => {
   const jpeg = await tinyJpeg();
   const urls = ['https://lh3.googleusercontent.com/pw/1', 'https://lh3.googleusercontent.com/pw/2'];
 
@@ -330,7 +385,7 @@ test('importGoogleAlbum calls onFound once with the post-truncation count, befor
   });
 
   assert.equal(foundCalls.length, 1);
-  assert.deepEqual(foundCalls[0], { total: 2, importing: 2, truncated: 0 });
+  assert.deepEqual(foundCalls[0], { total: 2 });
 });
 
 test('importGoogleAlbum reports each item going queued -> downloading -> its outcome, by stable index', async (t) => {

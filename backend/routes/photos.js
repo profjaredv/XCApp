@@ -352,12 +352,11 @@ router.post('/import/google-album', authenticate, requireFeature('photos'), requ
     meetId,
     albumUrl: validatedUrl,
     uploadedById: req.user.id,
-    onFound: ({ total, importing }) => {
-      googlePhotosImportJobs.updateJob(job.id, {
-        status: 'running',
-        total,
-        items: Array.from({ length: importing }, (_, i) => ({ id: `item-${i}`, status: 'queued' })),
-      });
+    onFound: ({ total }) => {
+      // items starts empty and grows as onItemStatus reports each one —
+      // there's no longer one fixed count to pre-seed it with (see
+      // lib/googlePhotosImport.js's own comment on why).
+      googlePhotosImportJobs.updateJob(job.id, { status: 'running', total });
     },
     onItemStatus: (index, patch) => googlePhotosImportJobs.setItemStatus(job.id, index, patch),
   })
