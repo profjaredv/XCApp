@@ -67,6 +67,7 @@ export const TagModule: React.FC = () => {
           <div className="flex items-center justify-between border-b border-ink-border px-3 py-1.5">
             <span className="text-xs text-ink-muted">
               {photos.length} photo{photos.length === 1 ? '' : 's'}
+              <span className="hidden sm:inline"> · Double-click a photo for full-screen tagging</span>
             </span>
             <div className="flex items-center gap-1.5">
               <ZoomOut className="h-3.5 w-3.5 text-ink-muted" />
