@@ -16,7 +16,6 @@ export function useWorkspaceKeyboard(onOpenArmPalette: () => void, armPaletteOpe
     actor,
     setSelection,
     openLoupe,
-    closeLoupe,
     tagSelected,
     untagSelected,
     togglePickSelected,
@@ -63,13 +62,14 @@ export function useWorkspaceKeyboard(onOpenArmPalette: () => void, armPaletteOpe
 
       switch (e.key) {
         case 'Escape':
-          if (state.loupePhotoId) closeLoupe();
-          else setSelection([], null);
+          // The loupe (full-screen tagging) closes only via its own X
+          // button now — Escape used to also close it, which made it too
+          // easy to lose your place mid-tag with one stray keypress.
+          if (!state.loupePhotoId) setSelection([], null);
           break;
         case ' ': {
           e.preventDefault();
-          if (state.loupePhotoId) closeLoupe();
-          else if (state.selectedPhotoIds[0]) openLoupe(state.selectedPhotoIds[0]);
+          if (!state.loupePhotoId && state.selectedPhotoIds[0]) openLoupe(state.selectedPhotoIds[0]);
           break;
         }
         case 't':
@@ -122,7 +122,6 @@ export function useWorkspaceKeyboard(onOpenArmPalette: () => void, armPaletteOpe
     actor,
     setSelection,
     openLoupe,
-    closeLoupe,
     tagSelected,
     untagSelected,
     togglePickSelected,
