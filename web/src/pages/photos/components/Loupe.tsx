@@ -73,10 +73,7 @@ const LoupeTagSearch: React.FC<{
   }
 
   return (
-    <div
-      className="absolute inset-x-0 bottom-0 z-10 flex flex-col rounded-t-xl border-t border-ink-border bg-ink shadow-2xl"
-      onClick={(e) => e.stopPropagation()}
-    >
+    <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col rounded-t-xl border-t border-ink-border bg-ink shadow-2xl">
       <div className="flex items-center gap-2 border-b border-ink-border px-3 py-2">
         <span className="text-sm text-ink-muted">@</span>
         <input
@@ -159,16 +156,20 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
     };
   }, []);
 
+  // Arrow-key stepping is still reserved while the @-search is open — the
+  // input itself needs Left/Right for normal text-cursor movement, and
+  // Up/Down for picking a match. Escape no longer closes the loupe at
+  // all: only the X button does (see the close button below), so one
+  // stray keypress mid-tag can't lose your place.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (searchOpen) return; // the search box owns Escape/arrows while open
+      if (searchOpen) return;
       if (e.key === 'ArrowLeft' && prev) onNavigate(prev.id);
       if (e.key === 'ArrowRight' && next) onNavigate(next.id);
-      if (e.key === 'Escape') onClose();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [prev, next, onNavigate, onClose, searchOpen]);
+  }, [prev, next, onNavigate, searchOpen]);
 
   if (!photo) return null;
 
@@ -177,8 +178,10 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
 
   // The phone layout promises "swipe between photos in the loupe" — a
   // plain left/right drag distance is enough here, no gesture library.
+  // Left active even while the @-search is open — the search panel sits
+  // below the photo, not over it, so swiping the photo itself to move on
+  // to the next one doesn't need to be closed first.
   function handleTouchStart(e: React.TouchEvent) {
-    if (searchOpen) return;
     touchStartX.current = e.touches[0].clientX;
   }
   function handleTouchEnd(e: React.TouchEvent) {
@@ -191,44 +194,40 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
   }
 
   return (
+    // No onClick here — the backdrop itself no longer closes the loupe.
+    // Only the X button (below) does, so a stray tap while reaching for a
+    // nav arrow or the tag search can't accidentally lose your place.
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
-      onClick={onClose}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       <button
         type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
+        onClick={onClose}
         className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-ink/70 text-ink-foreground hover:bg-ink"
         aria-label="Close"
       >
         <X className="h-5 w-5" />
       </button>
 
-      {prev && !searchOpen && (
+      {/* Available even while the @-search is open — tagging one photo
+          after another shouldn't require closing the search first just to
+          move on. */}
+      {prev && (
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigate(prev.id);
-          }}
+          onClick={() => onNavigate(prev.id)}
           className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-ink-foreground hover:bg-ink"
           aria-label="Previous photo"
         >
           <ChevronLeft className="h-6 w-6" />
         </button>
       )}
-      {next && !searchOpen && (
+      {next && (
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigate(next.id);
-          }}
+          onClick={() => onNavigate(next.id)}
           className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-ink-foreground hover:bg-ink"
           aria-label="Next photo"
         >
@@ -239,7 +238,6 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
       <div
         className="relative flex max-h-[85vh] max-w-[90vw] flex-col items-center transition-transform duration-150 ease-out"
         style={keyboardInset > 0 ? { transform: `translateY(-${keyboardInset / 2}px)` } : undefined}
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Tapping the photo itself is the "tap an area to tag" gesture —
             no position is read off the tap, it's only what opens search. */}
