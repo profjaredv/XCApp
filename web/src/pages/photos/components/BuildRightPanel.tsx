@@ -29,7 +29,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   onDownload,
   downloading,
 }) => {
-  const { state, setBuildTemplate, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
+  const { state, teamName, setBuildTemplate, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
   const dragIndexRef = React.useRef<number | null>(null);
 
   if (!athlete) {
@@ -171,7 +171,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
           className="h-8 border-ink-border bg-transparent text-sm text-ink-foreground"
         />
         <Input
-          value={state.buildHeader.team}
+          value={state.buildHeader.team || teamName || ''}
           onChange={(e) => setBuildHeader({ team: e.target.value })}
           className="h-8 border-ink-border bg-transparent text-sm text-ink-foreground"
         />

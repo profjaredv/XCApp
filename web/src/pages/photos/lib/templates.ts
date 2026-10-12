@@ -27,12 +27,15 @@ const HEADER: TemplateRect = { x: 0.06, y: 0.03, w: 0.88, h: 0.08 };
 const STAT_STRIP: TemplateRect = { x: 0.06, y: 0.115, w: 0.88, h: 0.04 };
 const RESULTS_BLOCK: TemplateRect = { x: 0.06, y: 0.75, w: 0.88, h: 0.215 };
 
-// The photo band shrank from the original templates' ~0.14-0.94 (height
-// 0.80) to 0.17-0.735 (height 0.565) to make room for STAT_STRIP and
-// RESULTS_BLOCK above and below it. Every slot below is that same ratio
-// (0.565 / 0.80 = 0.70625) applied to the original templates' y and h,
-// anchored at the new band's top (0.17) instead of the old one's (0.14) —
-// x and w are untouched, since only vertical space was reclaimed.
+// Photos run full bleed — x:0, w:1 (or edge-to-edge columns with a thin
+// gap between them) — right to the page's left/right edges, unlike
+// HEADER/STAT_STRIP/RESULTS_BLOCK above, which keep their 0.06 margin
+// since running text edge-to-edge reads poorly. The photo band itself
+// also grew to fill the space between STAT_STRIP's bottom (0.155) and
+// RESULTS_BLOCK's top (0.75) exactly — no gap on either side — instead
+// of the small margins the previous 0.17-0.735 band left on both ends.
+// Each template's slots keep the same relative split of that band (and
+// the same relative column gaps) as before; only the outer edges moved.
 export const TEMPLATES: Record<TemplateSize, CollageTemplate> = {
   3: {
     size: 3,
@@ -40,9 +43,9 @@ export const TEMPLATES: Record<TemplateSize, CollageTemplate> = {
     statStrip: STAT_STRIP,
     resultsBlock: RESULTS_BLOCK,
     slots: [
-      { x: 0.06, y: 0.17, w: 0.88, h: 0.2684 },
-      { x: 0.06, y: 0.4525, w: 0.42, h: 0.2825 },
-      { x: 0.52, y: 0.4525, w: 0.42, h: 0.2825 },
+      { x: 0, y: 0.155, w: 1, h: 0.2827 },
+      { x: 0, y: 0.4525, w: 0.495, h: 0.2975 },
+      { x: 0.505, y: 0.4525, w: 0.495, h: 0.2975 },
     ],
   },
   4: {
@@ -51,10 +54,10 @@ export const TEMPLATES: Record<TemplateSize, CollageTemplate> = {
     statStrip: STAT_STRIP,
     resultsBlock: RESULTS_BLOCK,
     slots: [
-      { x: 0.06, y: 0.17, w: 0.42, h: 0.2684 },
-      { x: 0.52, y: 0.17, w: 0.42, h: 0.2684 },
-      { x: 0.06, y: 0.4666, w: 0.42, h: 0.2684 },
-      { x: 0.52, y: 0.4666, w: 0.42, h: 0.2684 },
+      { x: 0, y: 0.155, w: 0.495, h: 0.2827 },
+      { x: 0.505, y: 0.155, w: 0.495, h: 0.2827 },
+      { x: 0, y: 0.4674, w: 0.495, h: 0.2826 },
+      { x: 0.505, y: 0.4674, w: 0.495, h: 0.2826 },
     ],
   },
   5: {
@@ -63,11 +66,11 @@ export const TEMPLATES: Record<TemplateSize, CollageTemplate> = {
     statStrip: STAT_STRIP,
     resultsBlock: RESULTS_BLOCK,
     slots: [
-      { x: 0.06, y: 0.17, w: 0.88, h: 0.2119 },
-      { x: 0.06, y: 0.4031, w: 0.282, h: 0.3319 },
-      { x: 0.359, y: 0.4031, w: 0.282, h: 0.3319 },
-      { x: 0.638, y: 0.4031, w: 0.282, h: 0.166 },
-      { x: 0.638, y: 0.5761, w: 0.282, h: 0.166 },
+      { x: 0, y: 0.155, w: 1, h: 0.2232 },
+      { x: 0, y: 0.4005, w: 0.328, h: 0.3494 },
+      { x: 0.336, y: 0.4005, w: 0.328, h: 0.3494 },
+      { x: 0.672, y: 0.4005, w: 0.328, h: 0.1764 },
+      { x: 0.672, y: 0.5827, w: 0.328, h: 0.1675 },
     ],
   },
 };

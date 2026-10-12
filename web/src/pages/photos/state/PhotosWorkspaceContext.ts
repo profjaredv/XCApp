@@ -11,6 +11,10 @@ export interface GridOrder {
 export interface PhotosWorkspaceValue {
   state: WorkspaceState;
   actor: Actor;
+  // The real current team's name, from GET /photos/me — the Build
+  // module's collage subtitle default (see BuildModule.tsx). Null while
+  // still loading.
+  teamName: string | null;
   gridOrderRef: MutableRefObject<GridOrder>;
   setGridOrder: (order: GridOrder) => void;
 

@@ -45,7 +45,11 @@ function initialState(): WorkspaceState {
 
     buildAthleteId: null,
     buildTemplateSize: 3,
-    buildHeader: { name: '', team: 'LeadPack XC', season: '' },
+    // team starts blank, not a hardcoded placeholder — BuildModule.tsx
+    // falls back to the real team's name (GET /photos/me's teamName) once
+    // it loads, the same "blank means use the sensible default" pattern
+    // `name` already uses for the athlete's own name.
+    buildHeader: { name: '', team: '', season: '' },
     batchFilterPhotoIds: null,
 
     past: [],
@@ -429,6 +433,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   const value: PhotosWorkspaceValue = {
     state,
     actor,
+    teamName: me?.teamName ?? null,
     gridOrderRef,
     setGridOrder,
     setModule,
