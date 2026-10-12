@@ -39,4 +39,9 @@ describe('Field Results roster-match indicator', () => {
   it('stays quiet — no badge, just muted text — once everything matched', () => {
     expect(page).toContain('All {race.ourResultCount} of your athletes matched');
   });
+
+  it('shows which athletes specifically did not match, not just the count', () => {
+    expect(page).toContain('race.unmatchedAthleteNames.length > 0');
+    expect(page).toContain('race.unmatchedAthleteNames.slice(0, 5).join');
+  });
 });

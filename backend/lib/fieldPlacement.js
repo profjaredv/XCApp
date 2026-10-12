@@ -22,7 +22,7 @@
 // caller (routes/fieldResults.js) loads the race with `results: { include:
 // { athlete } }` and `fieldResults`, and persists what this returns.
 
-const { normalizeAthleteName } = require('./athleteMatching');
+const { normalizeAthleteName, athleteNameCandidates } = require('./athleteMatching');
 const { resolveFieldResultGender } = require('./gender');
 
 function finishedFieldResults(fieldResults) {
@@ -36,7 +36,15 @@ function finishedFieldResults(fieldResults) {
  * FieldResult rows are "ours" — placement to set division/place/overall,
  * scoring to identify our team's rows among every school in the field.
  *
- * results: Result rows with `athlete: { name }` included.
+ * Tries every name athleteNameCandidates() offers for the athlete — legal
+ * name, preferredName as-is, and (for a bare nickname) preferredName
+ * paired with the legal name's surname — before giving up on that result.
+ * A results page prints whatever the athlete actually raced under, which
+ * is the nickname when they have one (e.g. a merge that carried over
+ * "Finn" as preferredName for legal name "Finley Woods-Vallejo" — a
+ * results page listing "Finn Woods-Vallejo" used to never match).
+ *
+ * results: Result rows with `athlete: { name, preferredName }` included.
  * fieldResults: already filtered to finished rows (see finishedFieldResults).
  * Returns Map<resultId, FieldResult>.
  */
@@ -45,10 +53,10 @@ function matchResultsToFieldResults(results, fieldResults) {
   const usedFieldResultIds = new Set();
 
   (results || []).forEach((result) => {
-    const athleteName = result.athlete && result.athlete.name;
-    const normalized = normalizeAthleteName(athleteName);
-    const match = normalized
-      ? fieldResults.find((fr) => !usedFieldResultIds.has(fr.id) && normalizeAthleteName(fr.athleteName) === normalized)
+    const athlete = result.athlete || {};
+    const candidates = athleteNameCandidates(athlete.name, athlete.preferredName);
+    const match = candidates.length
+      ? fieldResults.find((fr) => !usedFieldResultIds.has(fr.id) && candidates.includes(normalizeAthleteName(fr.athleteName)))
       : null;
 
     if (!match) return;

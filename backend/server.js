@@ -172,6 +172,7 @@ const main = async () => {
     const teamClaimRoutes = require('./routes/teamClaims');
     const billingRoutes = require('./routes/billing');
     const photosRoutes = require('./routes/photos');
+    const racePredictionRoutes = require('./routes/racePredictions');
 
     app.get('/api', (req, res) => {
         res.send('XC Analytics Backend API is running!');
@@ -233,6 +234,7 @@ const main = async () => {
     app.use('/api/team-claims', teamClaimRoutes);
     app.use('/api/billing', billingRoutes);
     app.use('/api/photos', photosRoutes);
+    app.use('/api/race-predictions', racePredictionRoutes);
 
     // Enhanced performance routes
     const enhancedPerformanceRoutes = require('./routes/enhancedPerformanceRoutes');

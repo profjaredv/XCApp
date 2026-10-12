@@ -43,7 +43,7 @@ export function useSetPostseasonLevel(meetId: string | null) {
 export function useUpdateMeet(meetId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: Partial<{ name: string; date: string; location: string; isHome: boolean | null }>) =>
+    mutationFn: (input: Partial<{ name: string; date: string; location: string; isHome: boolean | null; distance: string }>) =>
       meetOpsService.updateMeet(meetId as string, input),
     // Broad invalidation (no exact match) catches both this meet's detail
     // query (['meetOps', 'meet', meetId]) and every season's list query

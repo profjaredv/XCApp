@@ -72,33 +72,35 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
     const team = req.user.team;
     const yearNum = parseInt(year, 10) || currentCalendarSeason();
 
-    // Re-importing a season that was already imported: wipe it first —
-    // but never a manual (non-scraped) race, e.g. a hand-entered time
-    // trial (Race.isManual). There's nothing to re-scrape it from, unlike
-    // every other race here, so silently deleting it on a routine
-    // re-import would be unrecoverable.
+    // Re-importing a season that was already imported: this used to wipe
+    // every non-manual race for the season up front, unconditionally,
+    // before re-scraping — but the upsert below already matches an
+    // existing race by its natural key (teamId, name, date, distance) and
+    // updates it IN PLACE, preserving its id. Deleting it first fought
+    // that: a race the fresh scrape still describes got deleted and
+    // recreated with a brand-new id anyway, silently cascade-deleting any
+    // FieldResult/RaceSplit rows a coach had manually added against the
+    // old one (both onDelete: Cascade off Race). Diff AFTER the scrape
+    // instead, below the import loop — remove only races this scrape
+    // genuinely didn't see (a meet corrected or pulled from Athletic.net),
+    // never one it's about to update anyway. Never a manual (non-scraped)
+    // race either way — there's nothing to re-scrape it from, so deleting
+    // it on a routine re-import would be unrecoverable.
     const importedSeasons = team.importedSeasons || [];
-    // Recreated below (the upsert's create branch, per row) with no
-    // meetId of its own — captured here so a race a coach already grouped
-    // into a Meet (via the Import flow) doesn't lose that link on every
-    // subsequent re-scrape. Athletic.net gives no stable race id across
-    // scrapes, so identity is the same (name, date, distance) the unique
-    // index already keys on.
+    // previousMeetIdByKey backs the upsert's create branch (a genuinely
+    // NEW race has no prior meetId to restore). existingRaceIdByKey backs
+    // the post-scrape diff below.
     let previousMeetIdByKey = new Map();
+    let existingRaceIdByKey = new Map();
     if (importedSeasons.includes(yearNum)) {
-      const racesToDelete = await prisma.race.findMany({
+      const existingRaces = await prisma.race.findMany({
         where: { teamId: team.id, season: yearNum, isManual: false },
         select: { id: true, name: true, date: true, distance: true, meetId: true },
       });
-      if (racesToDelete.length > 0) {
-        previousMeetIdByKey = new Map(
-          racesToDelete
-            .filter((r) => r.meetId)
-            .map((r) => [raceIdentityKey(r.name, r.date, r.distance), r.meetId])
-        );
-        const raceIds = racesToDelete.map((r) => r.id);
-        await prisma.result.deleteMany({ where: { raceId: { in: raceIds } } });
-        await prisma.race.deleteMany({ where: { id: { in: raceIds } } });
+      for (const r of existingRaces) {
+        const key = raceIdentityKey(r.name, r.date, r.distance);
+        existingRaceIdByKey.set(key, r.id);
+        if (r.meetId) previousMeetIdByKey.set(key, r.meetId);
       }
     }
 
@@ -190,6 +192,11 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
 
         const dateFormats = ['MMM D, YYYY', 'MMMM D, YYYY', 'M/D, YYYY', 'M/D/YYYY', 'MM/DD/YYYY', 'MM/D/YYYY', 'M/DD/YYYY'];
 
+        // Every race identity this scrape actually touched — the other
+        // half of the diff that replaces the old wipe-before-reimport
+        // (see the comment above existingRaceIdByKey).
+        const touchedRaceKeys = new Set();
+
         for (const rowData of records) {
           const {
             'Race Name': raceName,
@@ -267,6 +274,8 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
           const sourceUrlValue = sourceUrl || null;
           const athleticMeetIdValue = athleticMeetId || null;
 
+          touchedRaceKeys.add(raceIdentityKey(raceName, parsedDate.startOf('day').toDate(), distance));
+
           const race = await prisma.race.upsert({
             where: {
               teamId_name_date_distance: {
@@ -305,6 +314,21 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
           });
 
           recordsProcessed++;
+        }
+
+        // Only now, after seeing everything this scrape actually
+        // returned, remove races this season had before that didn't come
+        // back at all. Anything the scrape DID see went through the
+        // upsert above and kept its id, so this never touches a race with
+        // live FieldResult/RaceSplit data tied to it.
+        if (existingRaceIdByKey.size > 0) {
+          const staleRaceIds = [...existingRaceIdByKey.entries()]
+            .filter(([key]) => !touchedRaceKeys.has(key))
+            .map(([, id]) => id);
+          if (staleRaceIds.length > 0) {
+            await prisma.result.deleteMany({ where: { raceId: { in: staleRaceIds } } });
+            await prisma.race.deleteMany({ where: { id: { in: staleRaceIds } } });
+          }
         }
 
         const updatedSeasons = [...new Set([...importedSeasons, yearNum])];

@@ -39,6 +39,9 @@ export interface MeetDetail {
   date: string;
   location: string | null;
   isHome: boolean | null;
+  /** Confirmed ahead of the meet's own Race row existing — see routes/meetOps.js's PUT /:meetId. */
+  distance: string | null;
+  distanceMeters: number | null;
   races: MeetRace[];
   /** The season year this meet belongs to — needed to fetch the roster for results entry. */
   seasonYear: number | null;
@@ -287,7 +290,7 @@ export const meetOpsService = {
     return response.data;
   },
 
-  async updateMeet(meetId: string, input: Partial<{ name: string; date: string; location: string; isHome: boolean | null }>): Promise<MeetDetail> {
+  async updateMeet(meetId: string, input: Partial<{ name: string; date: string; location: string; isHome: boolean | null; distance: string }>): Promise<MeetDetail> {
     const response = await api.put<MeetDetail>(`/meet-ops/${meetId}`, input);
     return response.data;
   },
