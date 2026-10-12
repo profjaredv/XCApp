@@ -73,7 +73,14 @@ const LoupeTagSearch: React.FC<{
   }
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col rounded-t-xl border-t border-ink-border bg-ink shadow-2xl">
+    // In normal flow, not an absolute overlay — it used to anchor to the
+    // bottom of this row and grow upward from there, which meant a long
+    // enough matches list rose up and covered most of the photo above it.
+    // The photo itself shrinks a bit while this is open (see the <img>'s
+    // own className below) specifically to make room for this so the two
+    // never overlap: you can always see the photo you're tagging, and
+    // whether a tag you just picked actually landed.
+    <div className="mt-2 flex w-full flex-col rounded-xl border border-ink-border bg-ink shadow-2xl">
       <div className="flex items-center gap-2 border-b border-ink-border px-3 py-2">
         <span className="text-sm text-ink-muted">@</span>
         <input
@@ -91,7 +98,7 @@ const LoupeTagSearch: React.FC<{
           <X className="h-4 w-4" />
         </button>
       </div>
-      <ul className="max-h-60 overflow-y-auto py-1">
+      <ul className="max-h-[28vh] overflow-y-auto py-1">
         {matches.length === 0 && <li className="px-3 py-2 text-sm text-ink-muted">No matches</li>}
         {matches.map((athlete, i) => (
           <li key={athlete.id}>
@@ -236,48 +243,55 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
       )}
 
       <div
-        className="relative flex max-h-[85vh] max-w-[90vw] flex-col items-center transition-transform duration-150 ease-out"
+        className="relative flex max-h-[85vh] max-w-[90vw] flex-col items-center overflow-y-auto transition-transform duration-150 ease-out"
         style={keyboardInset > 0 ? { transform: `translateY(-${keyboardInset / 2}px)` } : undefined}
       >
         {/* Tapping the photo itself is the "tap an area to tag" gesture —
-            no position is read off the tap, it's only what opens search. */}
+            no position is read off the tap, it's only what opens search.
+            Shrinks while the @-search is open to leave guaranteed room
+            below for it — see LoupeTagSearch's own comment on why that
+            panel no longer overlaps the photo. */}
         <img
           src={photo.webUrl}
           alt=""
           onClick={() => setSearchOpen(true)}
-          className="max-h-[70vh] max-w-full cursor-pointer rounded-lg object-contain shadow-2xl"
+          className={`max-w-full cursor-pointer rounded-lg object-contain shadow-2xl transition-[max-height] duration-150 ${
+            searchOpen ? 'max-h-[40vh]' : 'max-h-[70vh]'
+          }`}
         />
 
-        <div className="relative mt-3 flex w-full max-w-md flex-wrap items-center justify-center gap-1.5">
-          {entries.map((entry) => {
-            const athlete = athletesById.get(entry.athleteId);
-            const removable = canRemoveTag(actor, entry);
-            return (
-              <span
-                key={entry.athleteId}
-                className="flex items-center gap-1 rounded-full bg-ink/80 px-2.5 py-1 text-xs text-ink-foreground ring-1 ring-ink-border"
-              >
-                {nameOf(athlete)}
-                {removable && (
-                  <button
-                    type="button"
-                    onClick={() => onUntag(photo.id, entry.athleteId)}
-                    aria-label={`Remove ${nameOf(athlete)}`}
-                    className="opacity-70 hover:opacity-100"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </span>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground"
-          >
-            <Plus className="h-3 w-3" /> Tag
-          </button>
+        <div className="flex w-full max-w-md flex-col items-center">
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+            {entries.map((entry) => {
+              const athlete = athletesById.get(entry.athleteId);
+              const removable = canRemoveTag(actor, entry);
+              return (
+                <span
+                  key={entry.athleteId}
+                  className="flex items-center gap-1 rounded-full bg-ink/80 px-2.5 py-1 text-xs text-ink-foreground ring-1 ring-ink-border"
+                >
+                  {nameOf(athlete)}
+                  {removable && (
+                    <button
+                      type="button"
+                      onClick={() => onUntag(photo.id, entry.athleteId)}
+                      aria-label={`Remove ${nameOf(athlete)}`}
+                      className="opacity-70 hover:opacity-100"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="flex items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground"
+            >
+              <Plus className="h-3 w-3" /> Tag
+            </button>
+          </div>
 
           {searchOpen && (
             <LoupeTagSearch
