@@ -12,6 +12,13 @@ export interface PhotoAthlete {
   // (lib/tagRules.ts's 'volunteer' role) — there's no account to
   // attribute it to.
   taggedBy: string | null;
+  // Where this athlete's collage crop should center on this photo — the
+  // Build module's "move the photo to see faces" drag. Normalized (0-1
+  // each); null/undefined means the default centered crop. Lives on the
+  // tag (not the pick) so repositioning survives a photo being swapped
+  // out of a slot and back in.
+  focalX?: number | null;
+  focalY?: number | null;
 }
 
 export interface Photo {

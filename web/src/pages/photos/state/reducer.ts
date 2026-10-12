@@ -110,7 +110,11 @@ export type Action =
   | { type: 'SET_BATCH_PAUSED'; batchId: string; paused: boolean }
   | { type: 'SET_BUILD_ATHLETE'; athleteId: string | null }
   | { type: 'SET_BUILD_TEMPLATE'; size: TemplateSize }
-  | { type: 'SET_BUILD_HEADER'; patch: Partial<BuildHeader> };
+  | { type: 'SET_BUILD_HEADER'; patch: Partial<BuildHeader> }
+  // Build module's "move the photo to see faces" drag — a display/config
+  // tweak like SET_BUILD_HEADER, not an editorial tag/pick change, so it
+  // isn't part of the undo/redo history.
+  | { type: 'SET_PHOTO_FOCAL'; photoId: string; athleteId: string; focalX: number; focalY: number };
 
 function applyForward(state: WorkspaceState, entry: HistoryEntry): WorkspaceState {
   const tags = { ...state.tags };
@@ -286,6 +290,17 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
       return { ...state, buildTemplateSize: action.size };
     case 'SET_BUILD_HEADER':
       return { ...state, buildHeader: { ...state.buildHeader, ...action.patch } };
+    case 'SET_PHOTO_FOCAL': {
+      const existing = state.tags[action.photoId];
+      if (!existing) return state;
+      const tags = {
+        ...state.tags,
+        [action.photoId]: existing.map((t) =>
+          t.athleteId === action.athleteId ? { ...t, focalX: action.focalX, focalY: action.focalY } : t,
+        ),
+      };
+      return { ...state, tags };
+    }
     default:
       return state;
   }

@@ -282,6 +282,39 @@ async function untagPhoto(prisma, teamId, photoId, athleteId, actor) {
   return { ok: true, removed: true };
 }
 
+/**
+ * Where this athlete's collage crop should center on this photo — the
+ * Build module's "move the photo to see faces" drag. Lives on the tag
+ * itself (not Pick) so a reposition survives the photo being swapped out
+ * of a slot and back in. Same authorization as setPicks: a coach, or the
+ * athlete's own linked guardian/self account — never a volunteer tagging
+ * session.
+ */
+async function setPhotoFocal(prisma, teamId, photoId, athleteId, focalX, focalY, actor) {
+  if (!canManageAthlete(actor, athleteId)) {
+    const err = new Error('This account cannot reposition that photo.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const photo = await getTeamPhoto(prisma, teamId, photoId);
+  if (!photo) {
+    const err = new Error('Photo not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const tag = await prisma.photoAthlete.findUnique({ where: { photoId_athleteId: { photoId, athleteId } } });
+  if (!tag) {
+    const err = new Error('That athlete is not tagged in this photo.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const clamp = (n) => Math.min(1, Math.max(0, n));
+  return prisma.photoAthlete.update({
+    where: { photoId_athleteId: { photoId, athleteId } },
+    data: { focalX: clamp(focalX), focalY: clamp(focalY) },
+  });
+}
+
 // --- Picks (Phase 5) ------------------------------------------------------
 
 async function resolveActiveSeasonRow(prisma, teamId) {
@@ -487,6 +520,7 @@ module.exports = {
   listPicksForTeam,
   tagPhoto,
   untagPhoto,
+  setPhotoFocal,
   resolveActiveSeasonRow,
   setPicks,
   setPhotoHidden,

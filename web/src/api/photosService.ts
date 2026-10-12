@@ -137,6 +137,17 @@ export const photosService = {
     await api.delete(`/photos/${photoId}/tags/${athleteId}`);
   },
 
+  // Build module's "move the photo to see faces" drag — where this
+  // athlete's collage crop should center on this photo. focalX/focalY are
+  // each 0-1.
+  async setPhotoFocal(photoId: string, athleteId: string, focalX: number, focalY: number): Promise<{ focalX: number; focalY: number }> {
+    const response = await api.put<{ athleteId: string; focalX: number; focalY: number }>(
+      `/photos/${photoId}/tags/${athleteId}/focal`,
+      { focalX, focalY },
+    );
+    return { focalX: response.data.focalX, focalY: response.data.focalY };
+  },
+
   async picks(): Promise<Record<string, string[]>> {
     const response = await api.get<Record<string, string[]>>('/photos/picks');
     return response.data;
