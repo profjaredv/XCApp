@@ -94,22 +94,45 @@ function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
 const INK = '#1f2a22';
 const MUTED = '#4b5a4f';
 const RULE = '#cfcabd';
+// The app's own --accent (see index.css) — oklch is a plain valid CSS
+// color string, so canvas can use it directly with no hex conversion to
+// keep in sync by hand.
+const ACCENT = 'oklch(0.68 0.17 45)';
 
 function drawStatStrip(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, pageW: number, pageH: number, stats: AthleteBuildStats | null) {
   if (!stats) return;
-  const parts: string[] = [];
-  if (stats.careerBest5kSec != null) parts.push(`PR ${formatRaceTime(stats.careerBest5kSec)} (5K)`);
-  if (stats.totalMiles != null) parts.push(formatMiles(stats.totalMiles));
-  if (stats.averagePaceSecPerMile != null) parts.push(`${formatPace(stats.averagePaceSecPerMile)} avg`);
-  parts.push(`${stats.totalRaces} race${stats.totalRaces === 1 ? '' : 's'}`);
-  if (parts.length === 0) return;
+  // The career PR leads, bolded in ink with a small accent mark ahead of
+  // it — a flat run of same-weight gray text was the "boring" part; this
+  // gives the one number a coach actually cares most about some visual
+  // weight instead of blending into the rest of the line.
+  const prText = stats.careerBest5kSec != null ? `PR ${formatRaceTime(stats.careerBest5kSec)} (5K)` : null;
+  const rest: string[] = [];
+  if (stats.totalMiles != null) rest.push(formatMiles(stats.totalMiles));
+  if (stats.averagePaceSecPerMile != null) rest.push(`${formatPace(stats.averagePaceSecPerMile)} avg`);
+  rest.push(`${stats.totalRaces} race${stats.totalRaces === 1 ? '' : 's'}`);
+  if (!prText && rest.length === 0) return;
 
   const x = rect.x * pageW;
   const y = rect.y * pageH + rect.h * pageH * 0.5;
-  ctx.fillStyle = MUTED;
+  const fontSize = Math.round(pageH * 0.0165);
   ctx.textBaseline = 'middle';
-  ctx.font = `${Math.round(pageH * 0.0165)}px system-ui, sans-serif`;
-  ctx.fillText(parts.join('   ·   '), x, y);
+
+  const markSize = fontSize * 0.42;
+  ctx.fillStyle = ACCENT;
+  ctx.fillRect(x, y - markSize / 2, markSize, markSize);
+
+  let cursorX = x + markSize + fontSize * 0.45;
+  if (prText) {
+    ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+    ctx.fillStyle = INK;
+    ctx.fillText(prText, cursorX, y);
+    cursorX += ctx.measureText(prText).width + fontSize * 0.7;
+  }
+  if (rest.length > 0) {
+    ctx.font = `${fontSize}px system-ui, sans-serif`;
+    ctx.fillStyle = MUTED;
+    ctx.fillText(rest.join('   ·   '), cursorX, y);
+  }
 }
 
 /**
@@ -134,7 +157,7 @@ function drawResultsBlock(ctx: CanvasRenderingContext2D, rect: { x: number; y: n
 
   // --- Best by distance: one line, e.g. "5K 17:32  ·  2 Mile 11:05" ---
   if (stats.bestByDistance.length > 0) {
-    ctx.fillStyle = MUTED;
+    ctx.fillStyle = ACCENT;
     ctx.font = `700 ${labelSize}px system-ui, sans-serif`;
     ctx.fillText('SEASON BEST BY DISTANCE', left, cursorY);
     cursorY += labelSize * 1.6;
@@ -158,7 +181,7 @@ function drawResultsBlock(ctx: CanvasRenderingContext2D, rect: { x: number; y: n
   ctx.stroke();
   cursorY += rowSize * 0.9;
 
-  ctx.fillStyle = MUTED;
+  ctx.fillStyle = ACCENT;
   ctx.font = `700 ${labelSize}px system-ui, sans-serif`;
   ctx.fillText('RACES THIS SEASON', left, cursorY);
   cursorY += labelSize * 1.6;
@@ -271,17 +294,43 @@ export async function renderCollage(
     drawCover(ctx, img, rect.x * pageWidth, rect.y * pageHeight, rect.w * pageWidth, rect.h * pageHeight, focal?.x, focal?.y);
   });
 
+  // A thin accent rule along the full-bleed photo band's top and bottom
+  // edges — derived from statStrip/resultsBlock rather than a hardcoded
+  // fraction, so it stays correct if either ever moves. Without it the
+  // photos just stopped at an unmarked line; this frames the block and
+  // ties it to the rest of the page instead.
+  const ribbonThickness = Math.max(3, pageHeight * 0.003);
+  const photoBandTop = (template.statStrip.y + template.statStrip.h) * pageHeight;
+  const photoBandBottom = template.resultsBlock.y * pageHeight;
+  ctx.fillStyle = ACCENT;
+  ctx.fillRect(0, photoBandTop - ribbonThickness, pageWidth, ribbonThickness);
+  ctx.fillRect(0, photoBandBottom, pageWidth, ribbonThickness);
+
   const h = template.header;
   const headerX = h.x * pageWidth;
   const headerY = h.y * pageHeight;
   ctx.fillStyle = INK;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.font = `${Math.round(pageHeight * 0.032)}px system-ui, sans-serif`;
+  const nameSize = Math.round(pageHeight * 0.032);
+  ctx.font = `${nameSize}px system-ui, sans-serif`;
   ctx.fillText(header.name || 'Athlete Name', headerX, headerY);
-  ctx.fillStyle = MUTED;
-  ctx.font = `${Math.round(pageHeight * 0.016)}px system-ui, sans-serif`;
-  ctx.fillText(`${header.team} · ${header.season}`, headerX, headerY + pageHeight * 0.042);
+
+  // A short accent-colored rule under the name — a small masthead touch
+  // so the header has something to anchor it beyond plain stacked text.
+  const ruleY = headerY + nameSize * 1.1;
+  ctx.fillStyle = ACCENT;
+  ctx.fillRect(headerX, ruleY, pageWidth * 0.09, Math.max(2, pageHeight * 0.0022));
+
+  // header.team is blank until BuildModule.tsx's teamName (GET
+  // /photos/me) loads, and a coach can clear it entirely — skip it
+  // rather than printing a stray leading "· 2026".
+  const subtitle = [header.team, header.season].filter(Boolean).join('   ·   ');
+  if (subtitle) {
+    ctx.fillStyle = MUTED;
+    ctx.font = `${Math.round(pageHeight * 0.016)}px system-ui, sans-serif`;
+    ctx.fillText(subtitle, headerX, ruleY + pageHeight * 0.012);
+  }
 
   drawStatStrip(ctx, template.statStrip, pageWidth, pageHeight, stats);
   drawResultsBlock(ctx, template.resultsBlock, pageWidth, pageHeight, stats);

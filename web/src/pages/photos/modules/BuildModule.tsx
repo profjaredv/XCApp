@@ -15,10 +15,15 @@ const EXPORT_W = 2550;
 const EXPORT_H = 3300;
 
 export const BuildModule: React.FC = () => {
-  const { state, actor, setPhotoFocal } = usePhotosWorkspace();
+  const { state, actor, teamName, setPhotoFocal } = usePhotosWorkspace();
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
   const [stats, setStats] = useState<AthleteBuildStats | null>(null);
   const [downloading, setDownloading] = useState(false);
+
+  // The real team's name once a coach hasn't typed a custom one in —
+  // same "blank means use the sensible default" pattern as the athlete
+  // name field just below.
+  const teamLabel = state.buildHeader.team || teamName || '';
 
   const linkedDefault = !actor.isCoach ? actor.linkedAthleteIds[0] : undefined;
   const athleteId = state.buildAthleteId ?? linkedDefault;
@@ -106,7 +111,7 @@ export const BuildModule: React.FC = () => {
         picks.map((id) => visiblePhotosById.get(id)?.webUrl ?? ''),
         {
           name: state.buildHeader.name || athlete.preferredName || athlete.name,
-          team: state.buildHeader.team,
+          team: teamLabel,
           season: state.buildHeader.season,
         },
         true, // requireExportableCanvas — this is the canvas toDataURL() reads below
@@ -154,7 +159,7 @@ export const BuildModule: React.FC = () => {
               photos={pickedPhotos}
               header={{
                 name: state.buildHeader.name || athlete.preferredName || athlete.name,
-                team: state.buildHeader.team,
+                team: teamLabel,
                 season: state.buildHeader.season,
               }}
               stats={stats}

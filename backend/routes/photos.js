@@ -160,12 +160,19 @@ router.put('/tag-password', authenticate, requireFeature('photos'), requireTeam,
 // approved guardian link for. The frontend builds its Actor from this
 // instead of a dev-only role toggle.
 router.get('/me', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  // teamName: the Build module's collage subtitle default — resolved the
+  // same way for a coach, an athlete, or a guardian (req.photosTeamId
+  // already accounts for a guardian never being a TeamMember; GET
+  // /teams/context, the app's usual source for a team's name, requires
+  // req.user.teamId and 403s for exactly that persona).
+  const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { name: true } });
   res.json({
     userId: req.photoActor.userId,
     isCoach: req.photoActor.isCoach,
     isVolunteer: Boolean(req.photoActor.isVolunteer),
     selfAthleteId: req.photoActor.selfAthleteId,
     guardianAthleteIds: req.photoActor.guardianAthleteIds,
+    teamName: team?.name ?? null,
   });
 });
 

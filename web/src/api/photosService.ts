@@ -14,6 +14,11 @@ export interface PhotosMe {
   isVolunteer: boolean;
   selfAthleteId: string | null;
   guardianAthleteIds: string[];
+  // The Build module's collage subtitle default — resolved server-side the
+  // same way for a coach, an athlete, or a guardian (unlike GET
+  // /teams/context, the app's usual source for this, which 403s for a
+  // guardian — never a TeamMember).
+  teamName: string | null;
 }
 
 export interface ApiPhoto {
