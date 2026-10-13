@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BarChart3 } from 'lucide-react';
-import { adminService } from '@/api/adminService';
+import { adminService, type AdminUsage } from '@/api/adminService';
 
 // Which parts of the app actually get opened.
 //
@@ -23,11 +23,17 @@ import { adminService } from '@/api/adminService';
 const WINDOWS = [7, 30, 90];
 
 const ROLE_LABELS: Record<string, string> = {
+  head_coach: 'Head coaches',
   coach: 'Coaches',
   athlete: 'Athletes',
+  parent: 'Parents',
   super_admin: 'Admin (you)',
   other: 'No team yet',
 };
+
+const UI_LABELS: Record<string, string> = { classic: 'Classic', next: 'New' };
+// Fixed column order so the two tables read the same way.
+const ROLE_ORDER = ['head_coach', 'coach', 'athlete', 'parent', 'super_admin', 'other'];
 
 /** "/t/:id/roster" reads as "Roster" to a human. Falls back to the raw
  *  route so a screen added later still shows up, just unlabelled. */
@@ -47,10 +53,95 @@ const ROUTE_LABELS: Record<string, string> = {
   '/t/:id/meets': 'Meets',
   '/t/:id/admin': 'Platform',
   '/t/:id/coaches-tools': "Coach's Tools",
+  '/t/:id/train': 'Train',
+  '/t/:id/athletes': 'Athletes',
+  '/t/:id/season': 'Season (new)',
+  '/t/:id/groups/manage': 'Manage groups',
   '/onboarding': 'Onboarding',
   '/login': 'Sign in',
   '/': 'Landing page',
   '/policies': 'Data policy',
+};
+
+/** A role-by-shell grid of counts. Rows are roles that have any count. */
+const RoleByUiTable: React.FC<{
+  caption: string;
+  rows: Array<{ ui: string; role: string; n: number }>;
+}> = ({ caption, rows }) => {
+  const roles = ROLE_ORDER.filter((r) => rows.some((x) => x.role === r)).concat(
+    [...new Set(rows.map((x) => x.role))].filter((r) => !ROLE_ORDER.includes(r))
+  );
+  const count = (role: string, ui: string) =>
+    rows.filter((x) => x.role === role && x.ui === ui).reduce((sum, x) => sum + x.n, 0);
+  if (roles.length === 0) return null;
+  return (
+    <table className="w-full text-sm">
+      <caption className="mb-2 text-left text-sm font-medium">{caption}</caption>
+      <thead>
+        <tr className="text-xs text-muted-foreground">
+          <th className="py-1 text-left font-normal">Role</th>
+          <th className="py-1 text-right font-normal">{UI_LABELS.classic}</th>
+          <th className="py-1 text-right font-normal">{UI_LABELS.next}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {roles.map((role) => (
+          <tr key={role} className="border-t border-border">
+            <td className="py-1.5">{ROLE_LABELS[role] ?? role}</td>
+            <td className="py-1.5 text-right tabular-nums">{count(role, 'classic').toLocaleString()}</td>
+            <td className="py-1.5 text-right tabular-nums">{count(role, 'next').toLocaleString()}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+};
+
+// The "Try the new LeadPack" trial (docs/leadpack-new-ui-trial.md §1.2 and
+// §8): which shell people are on, which one they use, and — in their own
+// words, with no name attached — why some went back.
+const UiTrialSection: React.FC<{ data: AdminUsage }> = ({ data }) => {
+  const switches = data.switches ?? [];
+  const reasons = data.switchReasons ?? [];
+  const toNext = switches.filter((s) => s.toUi === 'next').reduce((n, s) => n + s.count, 0);
+  const toClassic = switches.filter((s) => s.toUi === 'classic').reduce((n, s) => n + s.count, 0);
+
+  return (
+    <div className="space-y-4 rounded-lg border border-border p-3">
+      <p className="text-sm font-medium">New LeadPack trial</p>
+      <div className="grid gap-4 md:grid-cols-2">
+        <RoleByUiTable
+          caption="Accounts on each version now"
+          rows={(data.usersByUi ?? []).map((r) => ({ ui: r.ui, role: r.role, n: r.users }))}
+        />
+        <RoleByUiTable
+          caption={`Screen opens, last ${data.days} days`}
+          rows={(data.uiRoles ?? []).map((r) => ({ ui: r.ui, role: r.role, n: r.views }))}
+        />
+      </div>
+      <p className="text-sm text-muted-foreground">
+        In the last {data.days} days: {toNext.toLocaleString()} switched to the new version,{' '}
+        {toClassic.toLocaleString()} switched back to classic.
+      </p>
+      <div>
+        <p className="mb-2 text-sm font-medium">Why people switched back</p>
+        {reasons.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nobody has left a reason yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {reasons.map((r, i) => (
+              <li key={i} className="rounded-md bg-muted/50 px-3 py-2 text-sm">
+                <p className="whitespace-pre-wrap break-words">{r.reason}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {ROLE_LABELS[r.role] ?? r.role} · {new Date(r.createdAt).toLocaleDateString()}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
 };
 
 export const UsageCard: React.FC = () => {
@@ -96,9 +187,12 @@ export const UsageCard: React.FC = () => {
         {isLoading && <Skeleton className="h-48 w-full" />}
 
         {data && data.total === 0 && (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            No screen opens recorded in the last {data.days} days.
-          </p>
+          <>
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No screen opens recorded in the last {data.days} days.
+            </p>
+            <UiTrialSection data={data} />
+          </>
         )}
 
         {data && data.total > 0 && (
@@ -144,6 +238,8 @@ export const UsageCard: React.FC = () => {
                 ))}
               </ul>
             </div>
+
+            <UiTrialSection data={data} />
 
             {data.daily.length > 1 && (
               <div>

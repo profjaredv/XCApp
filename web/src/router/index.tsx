@@ -35,7 +35,8 @@ import LandingPage from '../pages/LandingPage';
 import ProtectedRoute from './ProtectedRoute';
 import TeamRouteGuard from './TeamRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
-import Layout from '../components/Layout';
+import ShellSwitch from './ShellSwitch';
+import ByUi from './ByUi';
 
 export const router = createBrowserRouter([
   {
@@ -134,8 +135,11 @@ export const router = createBrowserRouter([
           // instead of rendering as a bare, nav-less page — useTeamPath's
           // athleticTeamId falls back to the user's own team from
           // AuthContext here since there's no :athleticTeamId URL param.
+          // ShellSwitch rather than Layout (UI trial, §1.4): Profile is
+          // reached from the next shell's avatar menu too, and should keep
+          // the chrome of whichever shell the person is in.
           {
-            element: <Layout />,
+            element: <ShellSwitch />,
             children: [
               {
                 path: '/profile',
@@ -264,9 +268,12 @@ export const router = createBrowserRouter([
                 path: 'race/:raceId/timer',
                 element: <RaceLiveTimerPage />,
               },
-              // All other routes with Layout (sidebar)
+              // All other routes with chrome (sidebar). ShellSwitch picks
+              // classic <Layout /> or the "next" trial <AppShell /> — see
+              // docs/leadpack-new-ui-trial.md §1.4. Both render <Outlet />,
+              // so every route below resolves identically in either.
               {
-                element: <Layout />,
+                element: <ShellSwitch />,
                 children: [
                   // Workstream A (LeadPack Master Build Handoff): Today
                   // replaces the old redirect-to-/analytics as the index
@@ -275,11 +282,11 @@ export const router = createBrowserRouter([
                   // route resolving.
                   {
                     index: true,
-                    element: <TodayPage />,
+                    element: <ByUi classic={<TodayPage />} />,
                   },
                   {
                     path: 'today',
-                    element: <TodayPage />,
+                    element: <ByUi classic={<TodayPage />} />,
                   },
                   {
                     path: 'analytics',
@@ -308,6 +315,29 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'groups',
+                    element: <ByUi classic={<GroupsPage />} />,
+                  },
+                  // New routes for the "next" shell (UI trial, §1.4).
+                  // Reachable from either shell, linked only from next. Each
+                  // renders its closest classic page until its next page
+                  // exists: Train is the practice side (Schedule), Athletes
+                  // the one roster list, Season the Analytics tabs, and
+                  // groups/manage is — permanently — classic GroupsPage
+                  // with create, assign, sort by pace and dynamic groups.
+                  {
+                    path: 'train',
+                    element: <SchedulePage />,
+                  },
+                  {
+                    path: 'athletes',
+                    element: <RosterPage />,
+                  },
+                  {
+                    path: 'season',
+                    element: <AnalyticsPage />,
+                  },
+                  {
+                    path: 'groups/manage',
                     element: <GroupsPage />,
                   },
                   {
@@ -317,7 +347,7 @@ export const router = createBrowserRouter([
                     // the roster and last times are the point even for a
                     // team that doesn't take attendance.
                     path: 'group/:groupId',
-                    element: <GroupDayPage />,
+                    element: <ByUi classic={<GroupDayPage />} />,
                   },
                   // Schedule rework: Practice and Meets merged into one
                   // month calendar. 'practice-plans' redirects old
@@ -335,11 +365,11 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'meets',
-                    element: <MeetsPage />,
+                    element: <ByUi classic={<MeetsPage />} />,
                   },
                   {
                     path: 'meet/:meetId',
-                    element: <MeetDetailPage />,
+                    element: <ByUi classic={<MeetDetailPage />} />,
                   },
                   {
                     path: 'equipment',
@@ -355,7 +385,7 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'me',
-                    element: <MyProgressPage />,
+                    element: <ByUi classic={<MyProgressPage />} />,
                   },
                   {
                     path: 'feedback',

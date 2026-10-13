@@ -57,7 +57,7 @@ const CLASSIFICATION = {
   // --- Operational: nothing about a student -------------------------------
   User: {
     class: CLASSES.OPERATIONAL,
-    what: 'Sign-in accounts — name and email.',
+    what: 'Sign-in accounts — name, email, and which version of the app layout they chose.',
     why: 'An account is not a student record; it is how a person logs in. Athletes are linked to accounts, never merged into them.',
   },
   Team: {
@@ -107,8 +107,13 @@ const CLASSIFICATION = {
   },
   PageView: {
     class: CLASSES.OPERATIONAL,
-    what: 'Which screens get opened, for finding what is broken or unused.',
+    what: 'Which screens get opened, in which version of the app, for finding what is broken or unused.',
     why: 'Product telemetry. Never sold, never used for advertising.',
+  },
+  UiSwitchEvent: {
+    class: CLASSES.OPERATIONAL,
+    what: 'A count of switches between the classic and new app layouts, with the optional reason someone typed when switching back.',
+    why: 'Product telemetry with no user attached — only a coarse role and a date. Never sold, never used for advertising.',
   },
   PaceZone: {
     class: CLASSES.OPERATIONAL,

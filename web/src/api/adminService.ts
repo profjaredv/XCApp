@@ -28,6 +28,15 @@ export interface AdminUsage {
   routes: Array<{ route: string; views: number }>;
   roles: Array<{ role: string; views: number }>;
   daily: Array<{ day: string; views: number }>;
+  /** The UI trial (docs/leadpack-new-ui-trial.md §1.2): page views by
+   *  shell and role bucket. */
+  uiRoles: Array<{ ui: string; role: string; views: number }>;
+  /** Accounts on each shell right now, by role bucket. Aggregate only. */
+  usersByUi: Array<{ ui: string; role: string; users: number }>;
+  /** Switches in the window, by direction. */
+  switches: Array<{ fromUi: string; toUi: string; count: number }>;
+  /** Typed switch reasons, newest first. No user attached. */
+  switchReasons: Array<{ reason: string; role: string; fromUi: string; toUi: string; createdAt: string }>;
 }
 
 export interface TeamRequest {

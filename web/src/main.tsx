@@ -11,6 +11,7 @@ import { authClient } from './lib/auth';
 import { router } from './router';
 import { AuthProvider } from './components/AuthProvider';
 import { NerdModeProvider } from './contexts/NerdModeProvider';
+import { UiVersionProvider } from './contexts/UiVersionProvider';
 import { ThemeProvider } from './contexts/ThemeProvider';
 import { installErrorBuffer } from './lib/errorBuffer';
 import { registerServiceWorker } from './registerServiceWorker';
@@ -65,10 +66,15 @@ createRoot(document.getElementById('root')!).render(
           {/* Above the router on purpose: both of these have to reach the
               standalone full-screen routes (live timer, interval sessions,
               splits entry) that render outside <Layout>, and /profile,
-              which sits outside the team-scoped subtree. */}
+              which sits outside the team-scoped subtree. UiVersionProvider
+              (classic vs. the "next" trial shell) sits here for the same
+              reason, and inside AuthProvider because the account's saved
+              choice wins over this device's. */}
           <ThemeProvider>
             <NerdModeProvider>
-              <RouterProvider router={router} />
+              <UiVersionProvider>
+                <RouterProvider router={router} />
+              </UiVersionProvider>
             </NerdModeProvider>
           </ThemeProvider>
         </AuthProvider>
