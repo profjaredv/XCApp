@@ -17,10 +17,35 @@ interface LoupeProps {
   onUntag: (photoId: string, athleteId: string) => void;
 }
 
-const SWIPE_THRESHOLD_PX = 50;
+// Deliberately higher than a typical swipe-to-scroll threshold — on a
+// touch device this is the ONLY way to step between photos (see
+// isTouchDevice below: the nav arrows don't render there at all), so it
+// has to be a clear, intentional gesture, not something a stray drag
+// while reaching for the tag search triggers by accident.
+const SWIPE_THRESHOLD_PX = 80;
 
 function nameOf(athlete: Athlete | undefined): string {
   return athlete?.preferredName || athlete?.name || 'Unknown';
+}
+
+/**
+ * A touch-primary device (phone/tablet), not just a narrow window — the
+ * right signal for "does this device even have a mouse pointer to click
+ * a chevron with," which a viewport-width check can't tell apart from a
+ * touch device. See the nav-arrow note below for why this matters.
+ */
+function useIsTouchDevice(): boolean {
+  const [isTouch, setIsTouch] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia?.('(hover: none) and (pointer: coarse)').matches,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia('(hover: none) and (pointer: coarse)');
+    const update = () => setIsTouch(mql.matches);
+    update();
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
+  }, []);
+  return isTouch;
 }
 
 // "Full tagging mode" (full-screen photo) has its own tap-to-search flow —
@@ -146,6 +171,7 @@ const LoupeTagSearch: React.FC<{
 // adjacent photos off-screen so the browser has already decoded them.
 export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNavigate, tags, athletes, actor, onTag, onUntag }) => {
   const [searchOpen, setSearchOpen] = useState(false);
+  const isTouchDevice = useIsTouchDevice();
   const index = photos.findIndex((p) => p.id === photoId);
   const photo = photos[index];
   const prev = index > 0 ? photos[index - 1] : null;
@@ -240,7 +266,7 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
       </button>
 
       <div
-        className="relative flex max-h-[85vh] max-w-[90vw] flex-col items-center overflow-y-auto transition-transform duration-150 ease-out"
+        className="relative flex max-h-[95vh] max-w-[96vw] flex-col items-center overflow-y-auto transition-transform duration-150 ease-out"
         style={keyboardInset > 0 ? { transform: `translateY(-${keyboardInset / 2}px)` } : undefined}
       >
         {/* The nav arrows live inside this wrapper, centered on the photo
@@ -262,13 +288,17 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
             alt=""
             onClick={() => setSearchOpen(true)}
             className={`max-w-full cursor-pointer rounded-lg object-contain shadow-2xl transition-[max-height] duration-150 ${
-              searchOpen ? 'max-h-[50vh]' : 'max-h-[70vh]'
+              searchOpen ? 'max-h-[65vh]' : 'max-h-[85vh]'
             }`}
           />
-          {/* Available even while the @-search is open — tagging one photo
-              after another shouldn't require closing the search first
-              just to move on. */}
-          {prev && (
+          {/* Mouse/trackpad devices only — on touch, swipe (handleTouchEnd
+              above, with its deliberately firm SWIPE_THRESHOLD_PX) is the
+              sole way to step between photos, so these arrows would just be
+              one more small target competing with the tap-to-tag gesture
+              and the @-search below for the same thumb. Available even
+              while the @-search is open — tagging one photo after another
+              shouldn't require closing the search first just to move on. */}
+          {prev && !isTouchDevice && (
             <button
               type="button"
               onClick={() => onNavigate(prev.id)}
@@ -278,7 +308,7 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
               <ChevronLeft className="h-6 w-6" />
             </button>
           )}
-          {next && (
+          {next && !isTouchDevice && (
             <button
               type="button"
               onClick={() => onNavigate(next.id)}
