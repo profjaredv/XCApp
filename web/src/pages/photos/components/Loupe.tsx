@@ -40,9 +40,18 @@ const LoupeTagSearch: React.FC<{
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const matches = searchAthletes(athletes, query)
-    .filter((a) => !taggedAthleteIds.has(a.id))
-    .slice(0, 8);
+  // Empty-query shows nothing rather than the whole (alphabetical, so
+  // basically arbitrary) roster — on a small phone, six-plus full-height
+  // rows appearing the instant you tap "Tag" was most of the reported
+  // "clunky" complaint: it pushed the photo down to a sliver before
+  // you'd even typed anything. Typing is the whole point of an @-search;
+  // browsing the full roster already has its own UI (the Tag module's
+  // side panel).
+  const matches = query.trim()
+    ? searchAthletes(athletes, query)
+        .filter((a) => !taggedAthleteIds.has(a.id))
+        .slice(0, 6)
+    : [];
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -92,6 +101,17 @@ const LoupeTagSearch: React.FC<{
           }}
           onKeyDown={handleKeyDown}
           placeholder="Tag someone…"
+          // Android/Chrome otherwise treats this as a candidate for its
+          // own password/card/address autofill strip, which ate a chunk
+          // of screen above the keyboard and wasn't suppressed by a plain
+          // `autoComplete="off"` reliably on every build — name="search"
+          // plus type="search" together are what actually stops it.
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          name="loupe-tag-search"
+          type="search"
           className="min-w-0 flex-1 bg-transparent text-sm text-ink-foreground outline-none placeholder:text-ink-muted"
         />
         <button type="button" onClick={onClose} className="text-ink-muted hover:text-ink-foreground" aria-label="Done tagging">
@@ -99,7 +119,8 @@ const LoupeTagSearch: React.FC<{
         </button>
       </div>
       <ul className="max-h-[28vh] overflow-y-auto py-1">
-        {matches.length === 0 && <li className="px-3 py-2 text-sm text-ink-muted">No matches</li>}
+        {!query.trim() && <li className="px-3 py-2 text-sm text-ink-muted">Start typing a name…</li>}
+        {query.trim() && matches.length === 0 && <li className="px-3 py-2 text-sm text-ink-muted">No matches</li>}
         {matches.map((athlete, i) => (
           <li key={athlete.id}>
             <button
@@ -218,47 +239,56 @@ export const Loupe: React.FC<LoupeProps> = ({ photos, photoId, onClose, onNaviga
         <X className="h-5 w-5" />
       </button>
 
-      {/* Available even while the @-search is open — tagging one photo
-          after another shouldn't require closing the search first just to
-          move on. */}
-      {prev && (
-        <button
-          type="button"
-          onClick={() => onNavigate(prev.id)}
-          className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-ink-foreground hover:bg-ink"
-          aria-label="Previous photo"
-        >
-          <ChevronLeft className="h-6 w-6" />
-        </button>
-      )}
-      {next && (
-        <button
-          type="button"
-          onClick={() => onNavigate(next.id)}
-          className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-ink-foreground hover:bg-ink"
-          aria-label="Next photo"
-        >
-          <ChevronRight className="h-6 w-6" />
-        </button>
-      )}
-
       <div
         className="relative flex max-h-[85vh] max-w-[90vw] flex-col items-center overflow-y-auto transition-transform duration-150 ease-out"
         style={keyboardInset > 0 ? { transform: `translateY(-${keyboardInset / 2}px)` } : undefined}
       >
-        {/* Tapping the photo itself is the "tap an area to tag" gesture —
-            no position is read off the tap, it's only what opens search.
-            Shrinks while the @-search is open to leave guaranteed room
-            below for it — see LoupeTagSearch's own comment on why that
-            panel no longer overlaps the photo. */}
-        <img
-          src={photo.webUrl}
-          alt=""
-          onClick={() => setSearchOpen(true)}
-          className={`max-w-full cursor-pointer rounded-lg object-contain shadow-2xl transition-[max-height] duration-150 ${
-            searchOpen ? 'max-h-[40vh]' : 'max-h-[70vh]'
-          }`}
-        />
+        {/* The nav arrows live inside this wrapper, centered on the photo
+            itself rather than the full screen — previously they stayed
+            pinned to the screen's vertical center even as the photo
+            shrank to make room for the @-search below it, so they could
+            end up sitting over the search panel instead of the photo,
+            and a tap meant for a match in the list could land on "next
+            photo" instead (losing the in-progress tag). Anchoring to the
+            photo's own box means they always move with it. */}
+        <div className="relative">
+          {/* Tapping the photo itself is the "tap an area to tag" gesture —
+              no position is read off the tap, it's only what opens search.
+              Shrinks while the @-search is open to leave guaranteed room
+              below for it — see LoupeTagSearch's own comment on why that
+              panel no longer overlaps the photo. */}
+          <img
+            src={photo.webUrl}
+            alt=""
+            onClick={() => setSearchOpen(true)}
+            className={`max-w-full cursor-pointer rounded-lg object-contain shadow-2xl transition-[max-height] duration-150 ${
+              searchOpen ? 'max-h-[50vh]' : 'max-h-[70vh]'
+            }`}
+          />
+          {/* Available even while the @-search is open — tagging one photo
+              after another shouldn't require closing the search first
+              just to move on. */}
+          {prev && (
+            <button
+              type="button"
+              onClick={() => onNavigate(prev.id)}
+              className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-ink-foreground hover:bg-ink"
+              aria-label="Previous photo"
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+          )}
+          {next && (
+            <button
+              type="button"
+              onClick={() => onNavigate(next.id)}
+              className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/70 text-ink-foreground hover:bg-ink"
+              aria-label="Next photo"
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
+          )}
+        </div>
 
         <div className="flex w-full max-w-md flex-col items-center">
           <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
