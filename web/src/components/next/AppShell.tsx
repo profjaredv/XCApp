@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
-import { ArrowLeftRight, LogOut, Settings, User as UserIcon } from 'lucide-react';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeftRight, ChevronLeft, LogOut, Settings, User as UserIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { authClient } from '@/lib/auth';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTeamContext } from '@/hooks/useTeamContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ImpersonationBanner } from '../ImpersonationBanner';
 import { CheckoutReminderBanner } from '../CheckoutReminderBanner';
 import { FeedbackWidget } from '../FeedbackWidget';
+import { TeamSeasonHeader } from '../Layout';
 import { SwitchToClassicDialog } from './SwitchToClassicDialog';
 
 // The "next" shell (docs/leadpack-new-ui-trial.md). This is the Gate 1
@@ -36,8 +36,9 @@ const ATHLETE_LINKS = [
 
 const AppShell: React.FC = () => {
   const { currentUser } = useAuth();
-  const { data: context } = useTeamContext();
   const teamPath = useTeamPath();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [switchOpen, setSwitchOpen] = useState(false);
 
@@ -45,14 +46,32 @@ const AppShell: React.FC = () => {
   const isCoach = teamRole === 'HEAD_COACH' || teamRole === 'COACH' || teamRole === 'VOLUNTEER_COACH';
   const links = isCoach ? COACH_LINKS : currentUser?.linkedAthlete ? ATHLETE_LINKS : COACH_LINKS.slice(0, 1);
 
+  // Back on every page that isn't one of the nav destinations — on a phone
+  // (and in the installed PWA) there is no other way out of a detail page.
+  const tail = location.pathname.split('/').filter(Boolean).slice(2).join('/');
+  const isNavDestination = links.some((l) => l.to.slice(1) === tail) || tail === '' || tail === 'today';
+  // Setup pages (roster, equipment, settings…) count as top level in classic
+  // but have no entry in this nav, so they get one too. /profile is outside
+  // the team tree and has no tail.
+  const showBack = !isNavDestination && location.pathname !== '/profile';
+
   const menuItem = 'flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-accent';
 
   return (
     <div className="flex h-screen flex-col" data-shell="next">
       <ImpersonationBanner />
       <CheckoutReminderBanner />
-      <header className="flex items-center gap-2 border-b border-border bg-background px-3 py-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold md:text-base">{context?.team?.name}</span>
+      <header className="flex items-center gap-1 border-b border-border bg-background px-2 py-1">
+        {showBack && (
+          <button
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+        )}
+        <TeamSeasonHeader />
         <FeedbackWidget />
         <button
           onClick={() => setMenuOpen(true)}
@@ -66,14 +85,16 @@ const AppShell: React.FC = () => {
           />
         </button>
       </header>
-      <nav aria-label="Main" className="flex flex-wrap gap-1 border-b border-border bg-background px-2 py-1">
+      {/* One row that scrolls sideways on a phone, rather than wrapping
+          into two rows that eat a quarter of the screen. */}
+      <nav aria-label="Main" className="flex gap-1 overflow-x-auto border-b border-border bg-background px-2 py-1 [scrollbar-width:none]">
         {links.map((l) => (
           <NavLink
             key={l.to}
             to={teamPath(l.to)}
             className={({ isActive }) =>
               cn(
-                'flex min-h-12 items-center rounded-lg px-3 text-sm font-medium',
+                'flex min-h-11 shrink-0 items-center rounded-lg px-3 text-sm font-medium',
                 isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'
               )
             }

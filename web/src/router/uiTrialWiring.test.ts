@@ -72,12 +72,18 @@ describe('UI version values', () => {
 });
 
 describe('classic entry points', () => {
-  it('Today carries the dismissible Try card, and the sidebar the Try item', () => {
-    expect(read('pages/TodayPage.tsx')).toContain('<TryNextCard />');
-    const card = read('components/TryNextCard.tsx');
-    expect(card).toContain('Try the new LeadPack. You can switch back anytime.');
-    expect(card).toContain('aria-label="Dismiss"');
-    expect(read('components/Layout.tsx')).toContain('Try the new LeadPack</span>');
+  it('classic shows no Try entry points while the next shell is a placeholder', () => {
+    // Pulled after Jared tried the Gate 1 placeholder on a phone: classic
+    // coaches should not be invited into it until §3 makes it usable.
+    // ?ui=next still opts in, and TryNextCard is kept to switch back on.
+    expect(read('pages/TodayPage.tsx')).not.toContain('<TryNextCard />');
+    expect(read('components/Layout.tsx')).not.toContain('Try the new LeadPack');
+  });
+
+  it('the next shell has a way back from detail pages and the season picker', () => {
+    const shell = read('components/next/AppShell.tsx');
+    expect(shell).toContain('aria-label="Go back"');
+    expect(shell).toContain('<TeamSeasonHeader />');
   });
 
   it('the next shell offers Switch to classic, which asks once and optionally', () => {

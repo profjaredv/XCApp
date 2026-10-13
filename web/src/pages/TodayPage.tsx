@@ -27,7 +27,6 @@ import { useMyMeetCard } from '@/hooks/useMeetOps';
 import { usePracticePlanRange, useSetPublished, useDuplicateDay } from '@/hooks/usePracticePlans';
 import { formatTime, formatDateShort, localIsoDate } from '@/lib/formatUtils';
 import { useTodayIso } from '@/hooks/useTodayIso';
-import { TryNextCard } from '@/components/TryNextCard';
 import { SetupChecklist } from '@/components/SetupChecklist';
 import { SeasonReadinessChecklist } from '@/components/SeasonReadinessChecklist';
 
@@ -511,7 +510,6 @@ const TodayPage: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <TryNextCard />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Today</h1>
         {seasonLabel && <span className="text-sm text-muted-foreground">{seasonLabel}</span>}
