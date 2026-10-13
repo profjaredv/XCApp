@@ -127,7 +127,7 @@ export function EnhancedCalculateMetricsPanel({ teamId, season, onComplete, setI
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Step 3: Calculate Metrics</CardTitle>
+        <CardTitle>Step 2: Calculate Metrics</CardTitle>
         <CardDescription>
           Calculate comprehensive performance metrics for season {season}.
           This includes all basic and enhanced analytics in one unified calculation.

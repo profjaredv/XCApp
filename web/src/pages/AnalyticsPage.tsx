@@ -360,7 +360,9 @@ const AnalyticsPage = () => {
         totalRaces: acc.totalRaces + totalRaces,
         totalMiles: acc.totalMiles + totalMiles,
         totalTime: acc.totalTime + (totalMiles > 0 && avgPace > 0 ? totalMiles * avgPace : 0),
-        best5kTime: Math.min(acc.best5kTime, best5k)
+        // `|| Infinity` (F5): a season with no 5K comes back as 0, which
+        // otherwise wins the min and erases a real 5K from another season.
+        best5kTime: Math.min(acc.best5kTime, best5k || Infinity)
       };
     }, { totalRaces: 0, totalMiles: 0, totalTime: 0, best5kTime: Infinity });
     return {

@@ -11,6 +11,7 @@ import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSumma
 import { useAthleteSplitsAggregate } from '@/hooks/useSplits';
 import { useCareerComparison } from '@/hooks/usePerformanceMetrics';
 import { formatTime, formatPace } from '@/lib/formatUtils';
+import { bestFiveK, formatFiveK } from '@/lib/fiveK';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { CourseAdjustedProgressionCard } from '@/components/athletes/CourseAdjustedProgressionCard';
 import { AthleteAdminPanel } from '@/components/athletes/AthleteAdminPanel';
@@ -312,11 +313,11 @@ export const AthleteDetailModal = ({
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50">
                   <p className="text-sm text-muted-foreground uppercase">PR 5K</p>
-                  <p className="text-2xl font-bold">{enhancedCareerSummary.prBest5K ? formatTime(enhancedCareerSummary.prBest5K) : 'N/A'}</p>
+                  <p className="text-2xl font-bold">{formatFiveK(enhancedCareerSummary.prBest5K)}</p>
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50">
                   <p className="text-sm text-muted-foreground uppercase">SB 5K</p>
-                  <p className="text-2xl font-bold">{enhancedCareerSummary.sbBest5K ? formatTime(enhancedCareerSummary.sbBest5K) : 'N/A'}</p>
+                  <p className="text-2xl font-bold">{formatFiveK(enhancedCareerSummary.sbBest5K)}</p>
                 </div>
               </div>
               <AthleteProgressChart
@@ -372,7 +373,7 @@ export const AthleteDetailModal = ({
                         </div>
                         <div className="p-3 rounded-lg bg-muted/50">
                           <p className="text-xs text-muted-foreground uppercase">SB 5K</p>
-                          <p className="text-xl font-bold">{formatTime(s.best5kTime)}</p>
+                          <p className="text-xl font-bold">{formatFiveK(s.best5kTime)}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -660,7 +661,13 @@ export const AthleteDetailModal = ({
                   // drift out of sync (a stale cached time next to a race
                   // name that actually ran a different time), and could even
                   // let an 8K "win" a headline explicitly labeled 5K.
-                  const best5kEntry = racesByDistance['5K'];
+                  // F5: only a race that really is a 5K — the "5K" bucket
+                  // above spans 2.75–3.5mi, so a 3-mile race could headline
+                  // as "Season Best 5K".
+                  const best5kRace = bestFiveK(
+                    allSeasonsRaces.filter((r) => r.season === currentSeasonData.season)
+                  );
+                  const best5kEntry = best5kRace ? { time: best5kRace.time, raceName: best5kRace.name } : undefined;
                   const bestRaceName = best5kEntry?.raceName || '';
 
                   // The actual 1-mile PR — a real 1-mile race result, not
@@ -745,7 +752,10 @@ export const AthleteDetailModal = ({
                     // same bucketed "5K" lookup now, instead of pairing a
                     // separately cached prBest5K with a race name derived
                     // from an unbucketed min() that could point at an 8K.
-                    const best5kCareerEntry = careerRacesByDistance['5K'];
+                    const best5kCareerRace = bestFiveK(allSeasonsRaces);
+                    const best5kCareerEntry = best5kCareerRace
+                      ? { time: best5kCareerRace.time, raceName: best5kCareerRace.name }
+                      : undefined;
                     const bestCareerRaceName = best5kCareerEntry?.raceName || '';
 
                     // A real career 1-mile PR, not the best per-mile pace

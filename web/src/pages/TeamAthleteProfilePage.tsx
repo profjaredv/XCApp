@@ -179,7 +179,10 @@ const TeamAthleteProfilePage = () => {
         totalRaces: acc.totalRaces + (metrics?.totalRaces ?? 0),
         totalMiles: acc.totalMiles + miles,
         totalTime: acc.totalTime + (miles > 0 && (metrics?.avgMilePace?.overall ?? 0) > 0 ? miles * metrics.avgMilePace.overall : 0),
-        best5kTime: Math.min(acc.best5kTime, metrics?.best5kTime ?? Infinity)
+        // `|| Infinity`, not `?? Infinity` (F5): a season with no 5K comes
+        // back as 0, which made every career best 0 — "no 5K" for an
+        // athlete who has one.
+        best5kTime: Math.min(acc.best5kTime, metrics?.best5kTime || Infinity)
       };
     }, { totalRaces: 0, totalMiles: 0, totalTime: 0, best5kTime: Infinity });
     return {

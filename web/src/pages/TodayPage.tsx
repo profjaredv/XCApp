@@ -24,7 +24,6 @@ import { athleteService } from '@/api/athleteService';
 import { todayService, type TodayAttentionItem, type TodayActivityItem } from '@/api/todayService';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
-import { entryStatusLabel } from '@/api/meetOpsService';
 import { usePracticePlanRange, useSetPublished, useDuplicateDay } from '@/hooks/usePracticePlans';
 import { formatTime, formatDateShort, localIsoDate } from '@/lib/formatUtils';
 import { useTodayIso } from '@/hooks/useTodayIso';
@@ -479,7 +478,6 @@ const AthleteToday: React.FC<{ teamPath: (p: string) => string; linkedAthleteId:
         ) : (
           <div className="space-y-1">
             <p className="font-medium truncate">{meetCard.meet.name}</p>
-            <p className="text-sm text-muted-foreground">{entryStatusLabel(meetCard.entry?.status)}</p>
             {meetCard.meet.location && <p className="text-sm text-muted-foreground">{meetCard.meet.location}</p>}
           </div>
         )}

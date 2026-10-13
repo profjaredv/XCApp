@@ -36,7 +36,7 @@ import {
   useConfirmCalendarImport,
   useDeleteRace,
 } from '@/hooks/useMeetOps';
-import { entryStatusLabel, type ProposedMeet, type ProposedCalendarMeet } from '@/api/meetOpsService';
+import { type ProposedMeet, type ProposedCalendarMeet } from '@/api/meetOpsService';
 
 // Meets, simplified per the Schedule rework: this list is now just
 // name/date/location/home-or-away plus the two import flows that create
@@ -130,10 +130,11 @@ const MeetsPage: React.FC = () => {
                       <Badge variant="outline" className="font-normal">{m.isHome ? 'Home' : 'Away'}</Badge>
                     )}
                   </div>
+                  {/* Race names only — no entry status (F1): entries live on
+                      Athletic.net, so ours was often wrong. */}
                   {m.races.map((r) => (
-                    <div key={r.id} className="flex items-center justify-between text-sm">
+                    <div key={r.id} className="text-sm">
                       <span>{r.name}</span>
-                      <span className="text-muted-foreground">{entryStatusLabel(r.myEntryStatus)}</span>
                     </div>
                   ))}
                 </CardContent>
