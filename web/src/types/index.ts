@@ -61,4 +61,8 @@ export interface User {
     // header (a coach previewing as one of their own athletes) —
     // linkedAthlete above already reflects that athlete when this is true.
     isPreviewingAthlete?: boolean;
+    // Which UI shell this person chose — "classic" (default) or "next", the
+    // opt-in trial (docs/leadpack-new-ui-trial.md). Stored server-side so
+    // it follows them across devices; see contexts/UiVersionProvider.tsx.
+    uiVersion?: 'classic' | 'next';
 }

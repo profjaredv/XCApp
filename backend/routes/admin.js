@@ -263,7 +263,7 @@ router.get('/usage', authenticate, requireSuperAdmin, async (req, res) => {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   try {
-    const [byRoute, byRole, byDay, total] = await Promise.all([
+    const [byRoute, byRole, byDay, total, byUiRole, usersByUi, switchesByDirection, switchReasons] = await Promise.all([
       prisma.pageView.groupBy({
         by: ['route'],
         where: { createdAt: { gte: since } },
@@ -287,6 +287,50 @@ router.get('/usage', authenticate, requireSuperAdmin, async (req, res) => {
         ORDER BY 1 ASC
       `,
       prisma.pageView.count({ where: { createdAt: { gte: since } } }),
+      // The UI trial (docs/leadpack-new-ui-trial.md §1.2): the same views,
+      // split by which shell they were opened in and by role bucket.
+      prisma.pageView.groupBy({
+        by: ['ui', 'role'],
+        where: { createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      // How many accounts are on each shell right now, per role bucket.
+      // Aggregate counts only — the query returns no user, team or email.
+      // The role buckets mirror lib/pageViewLogging.js roleForLogging,
+      // resolved the way lib/loggingRole.js does (team owner first, then
+      // an active TeamMember row, then an approved GuardianLink). Super
+      // admin is an email allowlist, not a column, so those accounts are
+      // counted under their team role here.
+      prisma.$queryRaw`
+        SELECT
+          u.ui_version AS ui,
+          CASE
+            WHEN t.coach_uid = u.id THEN 'head_coach'
+            WHEN tm.role::text = 'HEAD_COACH' THEN 'head_coach'
+            WHEN tm.role::text IN ('COACH', 'VOLUNTEER_COACH') THEN 'coach'
+            WHEN tm.role::text = 'ATHLETE' THEN 'athlete'
+            WHEN EXISTS (
+              SELECT 1 FROM guardian_links g WHERE g.user_id = u.id AND g.status = 'approved'
+            ) THEN 'parent'
+            ELSE 'other'
+          END AS role,
+          COUNT(*)::int AS users
+        FROM users u
+        LEFT JOIN teams t ON t.id = u.team_id
+        LEFT JOIN team_members tm ON tm.team_id = u.team_id AND tm.user_id = u.id AND tm.active
+        GROUP BY 1, 2
+      `,
+      prisma.uiSwitchEvent.groupBy({
+        by: ['fromUi', 'toUi'],
+        where: { createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      prisma.uiSwitchEvent.findMany({
+        where: { createdAt: { gte: since }, reason: { not: null } },
+        select: { reason: true, role: true, fromUi: true, toUi: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
     ]);
 
     res.json({
@@ -297,6 +341,16 @@ router.get('/usage', authenticate, requireSuperAdmin, async (req, res) => {
       daily: byDay.map((d) => ({
         day: d.day instanceof Date ? d.day.toISOString().slice(0, 10) : String(d.day),
         views: Number(d.views),
+      })),
+      uiRoles: byUiRole.map((r) => ({ ui: r.ui, role: r.role, views: r._count._all })),
+      usersByUi: usersByUi.map((r) => ({ ui: r.ui, role: r.role, users: Number(r.users) })),
+      switches: switchesByDirection.map((r) => ({ fromUi: r.fromUi, toUi: r.toUi, count: r._count._all })),
+      switchReasons: switchReasons.map((r) => ({
+        reason: r.reason,
+        role: r.role,
+        fromUi: r.fromUi,
+        toUi: r.toUi,
+        createdAt: r.createdAt,
       })),
     });
   } catch (error) {

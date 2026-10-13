@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { logPageView } from '@/api/pageViewService';
+import { useUiVersion } from '@/contexts/UiVersionContext';
 
 // E2 (LeadPack Master Build Handoff): logs one page view per route change,
 // for signed-in users only (the endpoint requires authentication, and a
@@ -11,10 +12,11 @@ import { logPageView } from '@/api/pageViewService';
 export function usePageViewLogging() {
   const location = useLocation();
   const { currentUser } = useAuth();
+  const { uiVersion } = useUiVersion();
 
   useEffect(() => {
     if (!currentUser) return;
-    logPageView(location.pathname);
+    logPageView(location.pathname, uiVersion);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, !!currentUser]);
 }

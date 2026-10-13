@@ -32,6 +32,7 @@ const SENSITIVE_FIELDS = ['token', 'joinCode', 'stripeCustomerId', 'stripeSubscr
 const EXCLUDED_MODELS = {
   Feedback: 'The maintainer\'s private inbox, and deliberately cross-tenant — not this team\'s data.',
   PageView: 'Usage telemetry about the product, not data the team created.',
+  UiSwitchEvent: 'Usage telemetry about the product (which app layout people switch to and why), not data the team created — and it carries no team or user to scope it by.',
   User: 'Accounts span teams. Staff appear via teamMembers, athletes via athletes.',
   AthleteInvite: 'Exists only to carry a live token; the invitee\'s email is already on the athlete row.',
   StaffInvite: 'Exists only to carry a live token; the invitee\'s email is already on the staff row.',

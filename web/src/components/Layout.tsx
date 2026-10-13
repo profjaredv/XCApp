@@ -4,7 +4,7 @@ import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-do
 // these are the ones this file draws itself.
 import { accentFor, sectionForNavKey, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, X, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, X, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon, Sparkles } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamContext } from '../hooks/useTeamContext';
@@ -23,6 +23,7 @@ import { navFor, navEntry } from '../lib/navigation';
 import { useTeamFeatures } from '@/hooks/useTeamFeatures';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { APP_VERSION } from '@/version';
+import { useUiVersion } from '../contexts/UiVersionContext';
 
 interface SidebarProps {
   isMobileOpen: boolean;
@@ -212,6 +213,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { enabled: nerdMode, toggle: toggleNerdMode } = useNerdMode();
   const { theme, toggle: toggleTheme } = useTheme();
+  const { setUiVersion } = useUiVersion();
   const isMobile = () => window.innerWidth < 768;
 
   const handleLinkClick = () => {
@@ -463,6 +465,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
               <span className="ml-auto text-xs font-mono opacity-70">{theme === 'dark' ? 'on' : 'off'}</span>
             </>
           )}
+        </button>
+        {/* The UI trial's way in (docs/leadpack-new-ui-trial.md §1.3) —
+            the one item this stack gained for it. Classic stays the
+            default; this just switches the shell for this account. */}
+        <button
+          onClick={() => {
+            handleLinkClick();
+            void setUiVersion('next');
+          }}
+          title="Try the new LeadPack — you can switch back anytime"
+          className="flex items-center w-full px-4 py-2.5 text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors border-t border-sidebar-border"
+        >
+          <Sparkles className={isCollapsed ? 'h-6 w-6' : 'h-5 w-5'} strokeWidth={2} />
+          {!isCollapsed && <span className="ml-3 text-sm font-medium">Try the new LeadPack</span>}
         </button>
         <Link to="/profile" onClick={handleLinkClick} className="flex items-center w-full px-4 py-2.5 text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors border-t border-sidebar-border">
           <UserIcon className={isCollapsed ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2} />
