@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { formatFiveK } from '@/lib/fiveK';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 import { formatTime } from '@/lib/formatUtils';
@@ -255,7 +256,7 @@ export const AthleteHighlightCard: React.FC<AthleteHighlightCardProps> = ({
                 {mode === 'season' ? 'Season Best 5K' : 'Personal Record 5K'}
               </p>
               <p className="text-5xl font-black text-white mb-2 bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent">
-                {formatTime(stats.prTime)}
+                {formatFiveK(stats.prTime)}
               </p>
               {stats.bestRaceName && (
                 <p className="text-white/50 text-xs mt-2 truncate" title={stats.bestRaceName}>

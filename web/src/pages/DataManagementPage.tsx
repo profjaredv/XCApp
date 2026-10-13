@@ -150,8 +150,11 @@ export function DataManagementPage() {
       </div>
 
       <Tabs value={activeStep} onValueChange={(value) => setActiveStep(value as DataManagementStep)}>
+        {/* md: prefixes on purpose (F3): a bare `grid` here overrode
+            ResponsiveTabsList's own `hidden` below md, so phones got the
+            dropdown AND this tab row for the same choice. */}
         <ResponsiveTabsList
-          className="grid w-full grid-cols-2"
+          className="md:grid w-full md:grid-cols-2"
           value={activeStep}
           onValueChange={(value) => setActiveStep(value as DataManagementStep)}
         >

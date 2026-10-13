@@ -106,7 +106,7 @@ export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }:
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Step 2: Import Season Data</CardTitle>
+        <CardTitle>Step 1: Import Season Data</CardTitle>
         <CardDescription>
           Import race data for season {season} from Athletic.net.
           This will create or update athletes, races, and results.

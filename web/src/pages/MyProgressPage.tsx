@@ -222,13 +222,9 @@ const MyProgressPage: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm font-medium">
-              {meetCard.entry?.status === 'ENTERED'
-                ? `You're entered${meetCard.race ? ` in ${meetCard.race.name}` : ''}.`
-                : meetCard.entry?.status === 'ALTERNATE'
-                ? "You're an alternate for this meet."
-                : "You're not entered in this meet."}
-            </p>
+            {/* No entry status (F1, docs/leadpack-new-ui-trial.md §2):
+                entries are managed on Athletic.net, so "You're not
+                entered" was often simply wrong. */}
             {meetCard.meet.isHome != null && (
               <Badge variant="outline" className="font-normal">{meetCard.meet.isHome ? 'Home' : 'Away'}</Badge>
             )}
@@ -237,7 +233,8 @@ const MyProgressPage: React.FC = () => {
       )}
 
       {/* Same card the coach sees on this athlete's profile — their own
-          predicted time for whichever meet is entered above. */}
+          predicted time for the next meet above. The prediction is keyed on
+          the meet, not on an entry (backend routes/racePredictions.js). */}
       {linkedAthlete && <RacePredictionCard athleteId={linkedAthlete.id} />}
 
       {/* Same card the coach sees on this athlete's profile — the athlete

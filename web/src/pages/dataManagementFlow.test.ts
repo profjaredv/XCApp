@@ -29,7 +29,9 @@ describe('the flow is import then calculate', () => {
     expect(dataMgmt).toContain('Step 1: Import');
     expect(dataMgmt).toContain('Step 2: Calculate Metrics');
     expect(dataMgmt).not.toContain('Step 1: Clear Data');
-    expect(dataMgmt).toContain('grid w-full grid-cols-2');
+    // md: prefixed so it doesn't override the tab row's own below-md
+    // `hidden` (F3) — two columns from md up, the dropdown below.
+    expect(dataMgmt).toContain('md:grid w-full md:grid-cols-2');
   });
 
   it('drops the CLEAR step from the enum and the panel entirely', () => {

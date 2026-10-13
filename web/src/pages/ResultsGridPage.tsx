@@ -11,6 +11,7 @@ import { ChevronDown, ChevronUp, ArrowUpDown, Download, LayoutGrid, ChevronLeft,
 import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { gradeLabel, gradeLabelShort } from '@/lib/seasonUtils';
 import { normalizeGender, genderLabel } from '@/lib/gender';
+import { toggleFilter, matchesGrade, matchesGender } from '@/lib/resultsGridFilters';
 import { groupColumnsByMeet, distanceLabel } from '@/lib/resultsGridColumns';
 import { toCsv, downloadCsv, dedupeColumnLabels } from '@/lib/csvParse';
 
@@ -66,7 +67,8 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
   const selectedSeason = activeYear;
   const setSelectedSeason = setSelectedYear;
   const [selectedGrades, setSelectedGrades] = useState<Set<number>>(new Set());
-  const [selectedGenders, setSelectedGenders] = useState<Set<string>>(new Set(['M', 'F']));
+  // Empty = All. See lib/resultsGridFilters.ts.
+  const [selectedGenders, setSelectedGenders] = useState<Set<string>>(new Set());
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [sortRaceIndex, setSortRaceIndex] = useState<RaceIndex>(null);
@@ -104,20 +106,6 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
     return ['M', 'F'].filter((g) => genders.has(g));
   }, [gridData]);
 
-  // Initialize selected grades when grades are loaded
-  useEffect(() => {
-    if (availableGrades.length > 0 && selectedGrades.size === 0) {
-      setSelectedGrades(new Set(availableGrades));
-    }
-  }, [availableGrades, selectedGrades.size]);
-
-  // Initialize selected genders when genders are loaded
-  useEffect(() => {
-    if (availableGenders.length > 0 && selectedGenders.size === 0) {
-      setSelectedGenders(new Set(availableGenders));
-    }
-  }, [availableGenders, selectedGenders.size]);
-
   // Columns regrouped under their meet: heats of one distance were already
   // merged server-side, so more than one column here means more than one
   // distance, which is the only case that needs a toggle.
@@ -131,22 +119,11 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
     if (!gridData) return [];
     
     // Step 1: Filter by grade and gender
-    let result = gridData.athletes.filter(athlete => {
-      // Check if grade exists and is in selected grades
-      const gradeMatch = athlete.grade && selectedGrades.has(athlete.grade);
-      
-      // Handle gender filtering - include athlete if they have no gender or their gender is selected
-      let genderMatch = true;
-      const genderKey = normalizeGender(athlete.gender);
-      if (genderKey) {
-        genderMatch = selectedGenders.has(genderKey);
-      } else if (selectedGenders.size < availableGenders.length) {
-        // If athlete has no gender and not all genders are selected, check if we should include them
-        genderMatch = false; // Default to false if not all genders are selected and athlete has no gender
-      }
-      
-      return gradeMatch && genderMatch;
-    });
+    let result = gridData.athletes.filter(
+      (athlete) =>
+        matchesGrade(athlete.grade, selectedGrades) &&
+        matchesGender(normalizeGender(athlete.gender), selectedGenders)
+    );
     
     // Step 2: Sort the filtered results
     if (sortField === 'name') {
@@ -166,7 +143,7 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
     }
     
     return result;
-  }, [gridData, selectedGrades, selectedGenders, sortField, sortDirection, sortRaceIndex, availableGenders.length]);
+  }, [gridData, selectedGrades, selectedGenders, sortField, sortDirection, sortRaceIndex]);
   
   // Exports exactly what's on screen — the current grade/gender filters
   // and sort — not the whole season unfiltered, so a coach who narrowed
@@ -350,13 +327,6 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
     ? (activeMeet.columns.find((c) => c.index === safeRaceIndex)?.index ?? activeMeet.columns[0].index)
     : safeRaceIndex;
 
-  const toggleIn = <T,>(set: Set<T>, value: T): Set<T> => {
-    const next = new Set(set);
-    if (next.has(value)) next.delete(value);
-    else next.add(value);
-    return next;
-  };
-
   // One chip style for every filter on this page. Small on purpose: these
   // annotate the grid, they are not the grid.
   // 44px tall and 14px type: these were 10px pills in a 24px box, which is
@@ -401,8 +371,9 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              className={chip(selectedGrades.size === availableGrades.length)}
-              onClick={() => setSelectedGrades(new Set(availableGrades))}
+              className={chip(selectedGrades.size === 0)}
+              aria-pressed={selectedGrades.size === 0}
+              onClick={() => setSelectedGrades(new Set())}
             >
               All
             </button>
@@ -411,7 +382,8 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
                 key={grade}
                 type="button"
                 className={chip(selectedGrades.has(grade))}
-                onClick={() => setSelectedGrades(toggleIn(selectedGrades, grade))}
+                aria-pressed={selectedGrades.has(grade)}
+                onClick={() => setSelectedGrades(toggleFilter(selectedGrades, grade, availableGrades))}
                 title={gradeLabel(grade)}
               >
                 {gradeLabelShort(grade)}
@@ -422,12 +394,21 @@ const ResultsGridPage: React.FC<ResultsGridPageProps> = ({ embedded = false, exp
 
         {availableGenders.length > 1 && (
           <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              className={chip(selectedGenders.size === 0)}
+              aria-pressed={selectedGenders.size === 0}
+              onClick={() => setSelectedGenders(new Set())}
+            >
+              All
+            </button>
             {availableGenders.map((gender) => (
               <button
                 key={gender}
                 type="button"
                 className={chip(selectedGenders.has(gender))}
-                onClick={() => setSelectedGenders(toggleIn(selectedGenders, gender))}
+                aria-pressed={selectedGenders.has(gender)}
+                onClick={() => setSelectedGenders(toggleFilter(selectedGenders, gender, availableGenders))}
               >
                 {genderLabel(gender)}
               </button>
