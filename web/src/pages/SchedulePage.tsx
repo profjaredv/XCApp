@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,7 +52,7 @@ const NEW_TEMPLATE = '__new_template__';
 const GOTO_INTERVAL_SESSIONS = '__goto_interval_sessions__';
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-type ViewMode = 'month' | 'week' | 'agenda' | 'list';
+export type ViewMode = 'month' | 'week' | 'agenda' | 'list';
 const AGENDA_WINDOW_DAYS = 30;
 
 function toISODate(d: Date): string {
@@ -100,7 +100,29 @@ function downloadCsv(filename: string, csvText: string) {
   URL.revokeObjectURL(url);
 }
 
-const SchedulePage: React.FC = () => {
+// Optional props for the "next" shell's Train page (docs/leadpack-new-ui-
+// trial.md §4.2), which embeds this calendar's week and agenda views. Every
+// default is what Schedule has always done, so classic renders exactly as
+// before.
+export interface SchedulePageProps {
+  /** Drop the page title and action row — the host page has its own header. */
+  embedded?: boolean;
+  /** Which view buttons to offer. */
+  viewModes?: ViewMode[];
+  initialViewMode?: ViewMode;
+  /** Bumped by the host to open today's practice in the day editor. */
+  newPlanSignal?: number;
+  /** Bumped by the host to open the workout template manager. */
+  templatesSignal?: number;
+}
+
+const SchedulePage: React.FC<SchedulePageProps> = ({
+  embedded = false,
+  viewModes = ['month', 'week', 'agenda', 'list'],
+  initialViewMode = 'month',
+  newPlanSignal = 0,
+  templatesSignal = 0,
+}) => {
   const navigate = useNavigate();
   const teamPath = useTeamPath();
   // Plenty of programs take roll on paper, or in whatever system their
@@ -108,7 +130,7 @@ const SchedulePage: React.FC = () => {
   const attendanceEnabled = useFeatureEnabled('attendance');
   const { seasons, activeYear } = useSeasonSelection();
 
-  const [viewMode, setViewMode] = useState<ViewMode>('month');
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
   const [viewWeekStart, setViewWeekStart] = useState(() => startOfWeek(new Date()));
   const [agendaStart, setAgendaStart] = useState(() => new Date());
@@ -167,6 +189,14 @@ const SchedulePage: React.FC = () => {
   // AnalyticsHeader's "Data actions"; desktop keeps them inline.
   const [showScheduleActions, setShowScheduleActions] = useState(false);
   const today = new Date();
+
+  // Host-driven opens (embedded use only — both signals stay 0 in classic).
+  useEffect(() => {
+    if (newPlanSignal > 0) setEditorDate(toISODate(new Date()));
+  }, [newPlanSignal]);
+  useEffect(() => {
+    if (templatesSignal > 0) setTemplateManagerOpen(true);
+  }, [templatesSignal]);
 
   const handleModeChange = (mode: ViewMode) => {
     if (mode === 'week') setViewWeekStart(startOfWeek(viewMonth));
@@ -234,7 +264,8 @@ const SchedulePage: React.FC = () => {
   );
 
   return (
-    <div className="p-3 md:p-6 space-y-4">
+    <div className={embedded ? 'space-y-4' : 'p-3 md:p-6 space-y-4'}>
+      {!embedded && (
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Schedule</h1>
@@ -249,10 +280,11 @@ const SchedulePage: React.FC = () => {
           {showScheduleActions && <div className="flex flex-col gap-2 mt-2">{scheduleActionButtons}</div>}
         </div>
       </div>
+      )}
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="inline-flex rounded-md border p-0.5 bg-muted/40">
-          {(['month', 'week', 'agenda', 'list'] as ViewMode[]).map((mode) => (
+          {viewModes.map((mode) => (
             <button
               key={mode}
               type="button"

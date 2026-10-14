@@ -1,19 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -21,24 +11,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
-import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { toast } from 'sonner';
-import { Activity, Bus, CalendarDays, FileUp, Lock, MessageCircleHeart, Trash2, Trophy, Users, Flag } from 'lucide-react';
+import { Bus, CalendarDays, MessageCircleHeart, Trophy, Users, Flag } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { athleteService } from '@/api/athleteService';
-import { trainingLogService, type TrainingLogType } from '@/api/trainingLogService';
 import { TrainingPacesCard } from '@/components/TrainingPacesCard';
 import { AthleteGroupsCard } from '@/components/AthleteGroupsCard';
 import { RacePredictionCard } from '@/components/predictions/RacePredictionCard';
-import { ImportWorkoutsDialog } from '@/components/training/ImportWorkoutsDialog';
+import { TrainingLogCard } from '@/components/training/TrainingLogCard';
 import { WhoCanSeeMyStuff } from '@/components/privacy/WhoCanSeeMyStuff';
 import { AthleteExportButton } from '@/components/AthleteExportButton';
 import { Download, Target } from 'lucide-react';
-import { formatTime, parseTimeToSeconds, formatDateShort, todayIso as todayIsoLocal } from '@/lib/formatUtils';
+import { formatDateShort } from '@/lib/formatUtils';
 import { useTodayIso } from '@/hooks/useTodayIso';
 import { useAthleteSplits, useAthleteSplitsAggregate } from '@/hooks/useSplits';
 import { SPLIT_PATTERN_LABEL, SPLIT_PATTERN_BADGE_CLASS, formatSplitMMSS } from '@/lib/splitPatternDisplay';
@@ -46,17 +30,9 @@ import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSumma
 import { PracticePlanPreview } from '@/components/practicePlans/PracticePlanPreview';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
-import { useMyReflection, useSavePreRace, useSavePostRace, useSetSharing } from '@/hooks/useRaceReflections';
+import { RaceReflectionDialogBody } from '@/components/reflections/RaceReflectionDialogBody';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
 
-const LOG_TYPES: { value: TrainingLogType; label: string }[] = [
-  { value: 'easy', label: 'Easy run' },
-  { value: 'long', label: 'Long run' },
-  { value: 'tempo', label: 'Tempo / threshold' },
-  { value: 'interval', label: 'Intervals' },
-  { value: 'race', label: 'Race / time trial' },
-  { value: 'other', label: 'Other' },
-];
 
 // Athletes usually don't know what pace an "easy day" or a "tempo run"
 // should actually be — this screen answers that from their own results,
@@ -66,7 +42,6 @@ const MyProgressPage: React.FC = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   const teamPath = useTeamPath();
-  const queryClient = useQueryClient();
   const linkedAthlete = currentUser?.linkedAthlete;
 
   const { data: recentRaces = [] } = useQuery({
@@ -92,72 +67,6 @@ const MyProgressPage: React.FC = () => {
   const [reflectionRaceId, setReflectionRaceId] = useState<string | null>(null);
   const reflectionsEnabled = useFeatureEnabled('reflections');
   const reflectionRace = recentRaces.find((r) => r.raceId === reflectionRaceId);
-
-  const { data: logs = [] } = useQuery({
-    queryKey: ['myTrainingLogs'],
-    queryFn: () => trainingLogService.getMyLogs(30),
-    enabled: !!linkedAthlete,
-  });
-
-  const [logDate, setLogDate] = useState(todayIsoLocal);
-  const [importOpen, setImportOpen] = useState(false);
-  const [logType, setLogType] = useState<TrainingLogType>('easy');
-  const [logDistance, setLogDistance] = useState('');
-  const [logDuration, setLogDuration] = useState('');
-  const [logNotes, setLogNotes] = useState('');
-  // Private by default — matches the backend's default and the card's own
-  // "yours alone" copy below. An athlete has to actively check one of
-  // these to let anyone else see a run.
-  const [logShareCoach, setLogShareCoach] = useState(false);
-  const [logShareTeam, setLogShareTeam] = useState(false);
-
-  const invalidateLogs = () => queryClient.invalidateQueries({ queryKey: ['myTrainingLogs'] });
-
-  const logRun = useMutation({
-    mutationFn: () => {
-      const durationSec = logDuration ? Math.round(parseTimeToSeconds(logDuration)) : undefined;
-      if (logDuration && (durationSec === undefined || Number.isNaN(durationSec))) {
-        throw new Error('Duration must look like MM:SS or H:MM:SS');
-      }
-      return trainingLogService.logRun({
-        date: logDate,
-        type: logType,
-        distanceMi: logDistance ? parseFloat(logDistance) : undefined,
-        durationSec,
-        notes: logNotes.trim() || undefined,
-        sharedWithCoach: logShareCoach,
-        sharedWithTeam: logShareTeam,
-      });
-    },
-    onSuccess: () => {
-      toast.success('Run logged');
-      setLogDistance('');
-      setLogDuration('');
-      setLogNotes('');
-      setLogShareCoach(false);
-      setLogShareTeam(false);
-      invalidateLogs();
-    },
-    onError: (err: unknown) => {
-      const message =
-        (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ??
-        (err instanceof Error ? err.message : 'Could not log run');
-      toast.error(message);
-    },
-  });
-
-  const deleteLog = useMutation({
-    mutationFn: (logId: string) => trainingLogService.deleteLog(logId),
-    onSuccess: invalidateLogs,
-    onError: () => toast.error('Could not delete that entry'),
-  });
-
-  const updateLogSharing = useMutation({
-    mutationFn: ({ logId, sharedWithCoach, sharedWithTeam }: { logId: string; sharedWithCoach: boolean; sharedWithTeam: boolean }) =>
-      trainingLogService.updateSharing(logId, sharedWithCoach, sharedWithTeam),
-    onSuccess: invalidateLogs,
-    onError: () => toast.error('Could not update sharing'),
-  });
 
   if (!linkedAthlete) {
     return (
@@ -289,143 +198,7 @@ const MyProgressPage: React.FC = () => {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-1.5">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Activity className="h-5 w-5" />
-                Log a run
-              </CardTitle>
-              <CardDescription>
-                Training runs are private by default — check a box below to share one with your coach, your team, or both.
-              </CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-              <FileUp className="mr-2 h-4 w-4" />
-              Import from watch
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-2">
-              <Label htmlFor="log-date">Date</Label>
-              <Input id="log-date" type="date" value={logDate} onChange={(e) => setLogDate(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Type</Label>
-              <Select value={logType} onValueChange={(v) => setLogType(v as TrainingLogType)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LOG_TYPES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="log-distance">Distance (mi)</Label>
-              <Input
-                id="log-distance"
-                type="number"
-                min="0"
-                step="0.1"
-                value={logDistance}
-                onChange={(e) => setLogDistance(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="log-duration">Duration (MM:SS)</Label>
-              <Input
-                id="log-duration"
-                value={logDuration}
-                onChange={(e) => setLogDuration(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="log-notes">Notes</Label>
-            <Textarea
-              id="log-notes"
-              value={logNotes}
-              onChange={(e) => setLogNotes(e.target.value)}
-              placeholder="How did it feel?"
-              rows={2}
-            />
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Checkbox id="log-share-coach" checked={logShareCoach} onCheckedChange={(v) => setLogShareCoach(v === true)} />
-              <Label htmlFor="log-share-coach" className="text-sm font-normal">Share with coach</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="log-share-team" checked={logShareTeam} onCheckedChange={(v) => setLogShareTeam(v === true)} />
-              <Label htmlFor="log-share-team" className="text-sm font-normal">Share with team</Label>
-            </div>
-          </div>
-          <Button onClick={() => logRun.mutate()} disabled={logRun.isPending}>
-            {logRun.isPending ? 'Saving…' : 'Log run'}
-          </Button>
-
-          {logs.length > 0 && (
-            <div className="divide-y pt-2">
-              {logs.map((log) => (
-                <div key={log.id} className="flex items-center justify-between gap-3 py-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">
-                      {formatDateShort(log.date)} •{' '}
-                      {LOG_TYPES.find((t) => t.value === log.type)?.label ?? log.type}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {log.distanceMi ? `${log.distanceMi} mi` : ''}
-                      {log.distanceMi && log.durationSec ? ' • ' : ''}
-                      {log.durationSec ? formatTime(log.durationSec) : ''}
-                      {log.notes ? ` • ${log.notes}` : ''}
-                    </p>
-                    <div className="flex items-center gap-3 mt-1">
-                      <button
-                        type="button"
-                        className={`text-xs ${log.sharedWithCoach ? 'text-primary font-medium' : 'text-muted-foreground hover:text-foreground'}`}
-                        onClick={() =>
-                          updateLogSharing.mutate({ logId: log.id, sharedWithCoach: !log.sharedWithCoach, sharedWithTeam: log.sharedWithTeam })
-                        }
-                        disabled={updateLogSharing.isPending}
-                      >
-                        {log.sharedWithCoach ? '✓ Shared with coach' : 'Share with coach'}
-                      </button>
-                      <button
-                        type="button"
-                        className={`text-xs ${log.sharedWithTeam ? 'text-primary font-medium' : 'text-muted-foreground hover:text-foreground'}`}
-                        onClick={() =>
-                          updateLogSharing.mutate({ logId: log.id, sharedWithCoach: log.sharedWithCoach, sharedWithTeam: !log.sharedWithTeam })
-                        }
-                        disabled={updateLogSharing.isPending}
-                      >
-                        {log.sharedWithTeam ? '✓ Shared with team' : 'Share with team'}
-                      </button>
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => deleteLog.mutate(log.id)}
-                    disabled={deleteLog.isPending}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <TrainingLogCard />
 
       {racesWithSplits.length > 0 && (
         <Card>
@@ -541,173 +314,6 @@ const MyProgressPage: React.FC = () => {
         </Link>
       </p>
 
-      <ImportWorkoutsDialog open={importOpen} onOpenChange={setImportOpen} />
-    </div>
-  );
-};
-
-const RaceReflectionDialogBody: React.FC<{ raceId: string }> = ({ raceId }) => {
-  const { data, isLoading } = useMyReflection(raceId);
-  const savePreRace = useSavePreRace(raceId);
-  const savePostRace = useSavePostRace(raceId);
-  const setSharing = useSetSharing(raceId);
-
-  const [processGoal, setProcessGoal] = useState('');
-  const [outcomeGoal, setOutcomeGoal] = useState('');
-  const [targetTime, setTargetTime] = useState('');
-  const [keyFocus, setKeyFocus] = useState('');
-
-  const [feelingRating, setFeelingRating] = useState('');
-  const [effortRating, setEffortRating] = useState('');
-  const [whatWorked, setWhatWorked] = useState('');
-  const [whatDidnt, setWhatDidnt] = useState('');
-  const [postNotes, setPostNotes] = useState('');
-  const [reflectionTab, setReflectionTab] = useState('pre');
-
-  useEffect(() => {
-    if (data?.reflection) {
-      const r = data.reflection;
-      setProcessGoal(r.processGoal ?? '');
-      setOutcomeGoal(r.outcomeGoal ?? '');
-      setTargetTime(r.targetTimeSec ? formatTime(r.targetTimeSec) : '');
-      setKeyFocus(r.keyFocus ?? '');
-      setFeelingRating(r.feelingRating != null ? String(r.feelingRating) : '');
-      setEffortRating(r.effortRating != null ? String(r.effortRating) : '');
-      setWhatWorked(r.whatWorked ?? '');
-      setWhatDidnt(r.whatDidnt ?? '');
-      setPostNotes(r.postNotes ?? '');
-    }
-  }, [data]);
-
-  const handleSavePreRace = async () => {
-    const targetTimeSec = targetTime.trim() ? parseTimeToSeconds(targetTime) : undefined;
-    if (targetTime.trim() && (targetTimeSec === undefined || Number.isNaN(targetTimeSec))) {
-      toast.error('Target time must look like MM:SS');
-      return;
-    }
-    try {
-      await savePreRace.mutateAsync({
-        processGoal: processGoal.trim() || undefined,
-        outcomeGoal: outcomeGoal.trim() || undefined,
-        targetTimeSec,
-        keyFocus: keyFocus.trim() || undefined,
-      });
-      toast.success('Goals saved.');
-    } catch (err) {
-      const message =
-        (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ?? 'Could not save goals.';
-      toast.error(message);
-    }
-  };
-
-  const handleSavePostRace = async () => {
-    try {
-      await savePostRace.mutateAsync({
-        feelingRating: feelingRating ? Number(feelingRating) : undefined,
-        effortRating: effortRating ? Number(effortRating) : undefined,
-        whatWorked: whatWorked.trim() || undefined,
-        whatDidnt: whatDidnt.trim() || undefined,
-        postNotes: postNotes.trim() || undefined,
-      });
-      toast.success('Reflection saved.');
-    } catch {
-      toast.error('Could not save reflection.');
-    }
-  };
-
-  const handleToggleSharing = async (shared: boolean) => {
-    try {
-      await setSharing.mutateAsync(shared);
-    } catch {
-      toast.error('Could not update sharing.');
-    }
-  };
-
-  if (isLoading || !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
-
-  return (
-    <div className="space-y-4">
-      <label className="flex items-center gap-2 text-sm">
-        <Checkbox checked={data.reflection.sharedWithCoach} onCheckedChange={(v) => handleToggleSharing(Boolean(v))} />
-        {data.reflection.sharedWithCoach ? 'Your coach can read this' : 'Only you can read this'}
-      </label>
-
-      <Tabs value={reflectionTab} onValueChange={setReflectionTab}>
-        <ResponsiveTabsList value={reflectionTab} onValueChange={setReflectionTab}>
-          <TabsTrigger value="pre">Pre-race goals</TabsTrigger>
-          <TabsTrigger value="post">Post-race reflection</TabsTrigger>
-        </ResponsiveTabsList>
-
-        <TabsContent value="pre" className="space-y-3 pt-2">
-          {data.locked && (
-            <Alert>
-              <Lock className="h-4 w-4" />
-              <AlertDescription>Goals are locked — this race has already started.</AlertDescription>
-            </Alert>
-          )}
-          <div>
-            <Label>Process goal</Label>
-            <Input
-              className="mt-1"
-              disabled={data.locked}
-              value={processGoal}
-              onChange={(e) => setProcessGoal(e.target.value)}
-              placeholder="Stay relaxed through mile 1"
-            />
-          </div>
-          <div>
-            <Label>Outcome goal</Label>
-            <Input
-              className="mt-1"
-              disabled={data.locked}
-              value={outcomeGoal}
-              onChange={(e) => setOutcomeGoal(e.target.value)}
-              placeholder="Top 20, sub 18:00"
-            />
-          </div>
-          <div>
-            <Label>Target time (MM:SS)</Label>
-            <Input className="mt-1" disabled={data.locked} value={targetTime} onChange={(e) => setTargetTime(e.target.value)} placeholder="18:00" />
-          </div>
-          <div>
-            <Label>Key focus</Label>
-            <Input className="mt-1" disabled={data.locked} value={keyFocus} onChange={(e) => setKeyFocus(e.target.value)} />
-          </div>
-          {!data.locked && (
-            <Button onClick={handleSavePreRace} disabled={savePreRace.isPending}>
-              {savePreRace.isPending ? 'Saving…' : 'Save goals'}
-            </Button>
-          )}
-        </TabsContent>
-
-        <TabsContent value="post" className="space-y-3 pt-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Feeling (1-10)</Label>
-              <Input type="number" min="1" max="10" className="mt-1" value={feelingRating} onChange={(e) => setFeelingRating(e.target.value)} />
-            </div>
-            <div>
-              <Label>Effort (1-10)</Label>
-              <Input type="number" min="1" max="10" className="mt-1" value={effortRating} onChange={(e) => setEffortRating(e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <Label>What worked</Label>
-            <Textarea className="mt-1" rows={2} value={whatWorked} onChange={(e) => setWhatWorked(e.target.value)} />
-          </div>
-          <div>
-            <Label>What didn't</Label>
-            <Textarea className="mt-1" rows={2} value={whatDidnt} onChange={(e) => setWhatDidnt(e.target.value)} />
-          </div>
-          <div>
-            <Label>Notes</Label>
-            <Textarea className="mt-1" rows={2} value={postNotes} onChange={(e) => setPostNotes(e.target.value)} />
-          </div>
-          <Button onClick={handleSavePostRace} disabled={savePostRace.isPending}>
-            {savePostRace.isPending ? 'Saving…' : 'Save reflection'}
-          </Button>
-        </TabsContent>
-      </Tabs>
     </div>
   );
 };

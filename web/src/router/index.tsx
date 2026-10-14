@@ -36,7 +36,17 @@ import ProtectedRoute from './ProtectedRoute';
 import TeamRouteGuard from './TeamRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
 import ShellSwitch from './ShellSwitch';
+import AthleteProfileNext from '../pages/next/AthleteProfileNext';
 import ByUi from './ByUi';
+import TodayPageNext from '../pages/next/TodayPageNext';
+import TrainPage from '../pages/next/TrainPage';
+import GroupsHubPage from '../pages/next/GroupsHubPage';
+import GroupPageNext from '../pages/next/GroupPageNext';
+import AthletesPage from '../pages/next/AthletesPage';
+import SeasonPage from '../pages/next/SeasonPage';
+import MeetsPageNext from '../pages/next/MeetsPageNext';
+import MeetPageNext from '../pages/next/MeetPageNext';
+import MySeasonPage from '../pages/next/MySeasonPage';
 
 export const router = createBrowserRouter([
   {
@@ -282,11 +292,11 @@ export const router = createBrowserRouter([
                   // route resolving.
                   {
                     index: true,
-                    element: <ByUi classic={<TodayPage />} />,
+                    element: <ByUi classic={<TodayPage />} next={<TodayPageNext />} />,
                   },
                   {
                     path: 'today',
-                    element: <ByUi classic={<TodayPage />} />,
+                    element: <ByUi classic={<TodayPage />} next={<TodayPageNext />} />,
                   },
                   {
                     path: 'analytics',
@@ -315,7 +325,7 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'groups',
-                    element: <ByUi classic={<GroupsPage />} />,
+                    element: <ByUi classic={<GroupsPage />} next={<GroupsHubPage />} />,
                   },
                   // New routes for the "next" shell (UI trial, §1.4).
                   // Reachable from either shell, linked only from next. Each
@@ -326,15 +336,15 @@ export const router = createBrowserRouter([
                   // with create, assign, sort by pace and dynamic groups.
                   {
                     path: 'train',
-                    element: <SchedulePage />,
+                    element: <ByUi classic={<SchedulePage />} next={<TrainPage />} />,
                   },
                   {
                     path: 'athletes',
-                    element: <RosterPage />,
+                    element: <ByUi classic={<RosterPage />} next={<AthletesPage />} />,
                   },
                   {
                     path: 'season',
-                    element: <AnalyticsPage />,
+                    element: <ByUi classic={<AnalyticsPage />} next={<SeasonPage />} />,
                   },
                   {
                     path: 'groups/manage',
@@ -347,7 +357,7 @@ export const router = createBrowserRouter([
                     // the roster and last times are the point even for a
                     // team that doesn't take attendance.
                     path: 'group/:groupId',
-                    element: <ByUi classic={<GroupDayPage />} />,
+                    element: <ByUi classic={<GroupDayPage />} next={<GroupPageNext />} />,
                   },
                   // Schedule rework: Practice and Meets merged into one
                   // month calendar. 'practice-plans' redirects old
@@ -365,11 +375,11 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'meets',
-                    element: <ByUi classic={<MeetsPage />} />,
+                    element: <ByUi classic={<MeetsPage />} next={<MeetsPageNext />} />,
                   },
                   {
                     path: 'meet/:meetId',
-                    element: <ByUi classic={<MeetDetailPage />} />,
+                    element: <ByUi classic={<MeetDetailPage />} next={<MeetPageNext />} />,
                   },
                   {
                     path: 'equipment',
@@ -385,7 +395,7 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'me',
-                    element: <ByUi classic={<MyProgressPage />} />,
+                    element: <ByUi classic={<MyProgressPage />} next={<MySeasonPage />} />,
                   },
                   {
                     path: 'feedback',
@@ -425,7 +435,7 @@ export const router = createBrowserRouter([
                     // were two different screens for the same thing —
                     // consolidated onto the one that works.
                     path: 'athlete/:athleteId',
-                    element: <TeamAthleteProfilePage />,
+                    element: <ByUi classic={<TeamAthleteProfilePage />} next={<AthleteProfileNext />} />,
                   },
                   {
                     // E1: multi-season rank/band/PR/course spine for one

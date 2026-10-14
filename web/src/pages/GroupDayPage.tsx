@@ -13,6 +13,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight, ClipboardCheck, Dumbbell, Loader2, Timer, Users } from 'lucide-react';
+import { StickyActionBar } from '@/components/next/PageHeader';
 import { useGroupDay, useXTrainingRoster, useRemoveMember } from '@/hooks/useGroups';
 import { useCreateAttendanceSession, useUpdateAttendanceRecord } from '@/hooks/useAttendance';
 import { useCreateIntervalSession } from '@/hooks/useIntervalSessions';
@@ -72,7 +73,9 @@ const MemberRow: React.FC<{
   onSendToXTraining: () => void;
   onReturnFromXTraining: () => void;
   returning: boolean;
-}> = ({ member, attendanceReady, onStatus, saving, athleteHref, xTraining, onSendToXTraining, onReturnFromXTraining, returning }) => (
+  /** Next shell: name the icon-only button (text from lg up, aria-label and tooltip always). */
+  labeled?: boolean;
+}> = ({ member, attendanceReady, onStatus, saving, athleteHref, xTraining, onSendToXTraining, onReturnFromXTraining, returning, labeled = false }) => (
   <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-2">
@@ -110,6 +113,17 @@ const MemberRow: React.FC<{
           {returning && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
           Return to training
         </Button>
+      ) : labeled ? (
+        <Button
+          variant="ghost"
+          className="h-10 min-w-10 shrink-0 gap-1.5 px-2 lg:h-8"
+          title="Send to cross-training"
+          aria-label="Send to cross-training"
+          onClick={onSendToXTraining}
+        >
+          <Dumbbell className="h-4 w-4" />
+          <span className="hidden text-xs lg:inline">Send to cross-training</span>
+        </Button>
       ) : (
         <Button
           variant="ghost"
@@ -132,7 +146,13 @@ const MemberRow: React.FC<{
   </div>
 );
 
-const GroupDayPage: React.FC = () => {
+// `embedded` is the next shell's group page (docs/leadpack-new-ui-trial.md
+// §4.3), which hosts this as its Today tab: no title or back link (the
+// host has them), members are managed from the host's Members tab, the
+// one primary action follows the day's state and sits in the phone's
+// sticky bar, and the cross-training button is labeled. Off — classic —
+// renders exactly as before.
+const GroupDayPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { groupId } = useParams<{ groupId: string }>();
   const navigate = useNavigate();
   const teamPath = useTeamPath();
@@ -281,9 +301,38 @@ const GroupDayPage: React.FC = () => {
   const attendanceReady = day.attendanceEnabled && !!day.session;
   const leaderNames = day.group.leaders.map((l) => l.name || l.email).join(', ');
 
+  // Next shell only: the day's one primary action (Take attendance → Start
+  // interval session → New interval session).
+  const todaysSession = day.intervalSessions.find((s) => s.date.slice(0, 10) === date);
+  const primary = !embedded
+    ? null
+    : day.attendanceEnabled && !day.session
+      ? (
+          <Button className="min-h-12 w-full lg:min-h-10 lg:w-auto" onClick={handleStartAttendance} disabled={createSession.isPending}>
+            {createSession.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="mr-2 h-4 w-4" />}
+            Take attendance
+          </Button>
+        )
+      : todaysSession
+        ? (
+            <Button className="min-h-12 w-full lg:min-h-10 lg:w-auto" onClick={() => navigate(teamPath(`/interval-sessions/${todaysSession.id}`))}>
+              <Timer className="mr-2 h-4 w-4" />
+              Start interval session
+            </Button>
+          )
+        : (
+            <Button className="min-h-12 w-full lg:min-h-10 lg:w-auto" onClick={() => setIntervalOpen(true)} disabled={day.members.length === 0}>
+              <Timer className="mr-2 h-4 w-4" />
+              New interval session
+            </Button>
+          );
+
   return (
-    <div className="container space-y-6 py-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className={embedded ? 'space-y-4' : 'container space-y-6 py-8'}>
+      <div className={embedded ? 'flex flex-wrap items-center justify-between gap-3' : 'flex flex-wrap items-start justify-between gap-4'}>
+        {embedded ? (
+          <div className="hidden lg:block">{primary}</div>
+        ) : (
         <div className="min-w-0">
           <Button variant="ghost" size="sm" className="-ml-3 mb-1" onClick={() => navigate(teamPath('/groups'))}>
             <ChevronLeft className="mr-1 h-4 w-4" />
@@ -295,6 +344,7 @@ const GroupDayPage: React.FC = () => {
             {leaderNames ? ` · led by ${leaderNames}` : ''}
           </p>
         </div>
+        )}
 
         {/* Yesterday is one tap away: a coach who forgot to mark the board
             on Tuesday is the reason this isn't pinned to today. */}
@@ -316,6 +366,14 @@ const GroupDayPage: React.FC = () => {
         </div>
       </div>
 
+      {embedded ? (
+        day.attendanceEnabled && day.session && (
+          <Button variant="outline" onClick={() => navigate(teamPath(`/attendance/${day.session!.id}`))}>
+            <ClipboardCheck className="mr-2 h-4 w-4" />
+            Whole team attendance
+          </Button>
+        )
+      ) : (
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => setIntervalOpen(true)} disabled={day.members.length === 0}>
           <Timer className="mr-2 h-4 w-4" />
@@ -342,6 +400,7 @@ const GroupDayPage: React.FC = () => {
           Manage members
         </Button>
       </div>
+      )}
 
       <Card>
         <CardHeader className="pb-3">
@@ -380,6 +439,7 @@ const GroupDayPage: React.FC = () => {
                   onSendToXTraining={() => setXTrainingSendTarget({ id: member.athleteId, name: member.name })}
                   onReturnFromXTraining={() => handleReturnFromXTraining(member.athleteId, member.name)}
                   returning={returningAthleteId === member.athleteId}
+                  labeled={embedded}
                 />
               ))}
             </div>
@@ -484,6 +544,7 @@ const GroupDayPage: React.FC = () => {
         onClose={() => setXTrainingSendTarget(null)}
         onSent={handleXTrainingSent}
       />
+      {embedded && primary && <StickyActionBar>{primary}</StickyActionBar>}
     </div>
   );
 };
