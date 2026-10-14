@@ -13,12 +13,13 @@ const {
   isEnrolled,
 } = require('../lib/season');
 const { parseDistanceToMeters } = require('../lib/distance');
-const { normalizeAthleteName, matchAthlete } = require('../lib/athleteMatching');
+const { normalizeAthleteName, matchAthlete, athleticIdKey } = require('../lib/athleteMatching');
 const { normalizeGender } = require('../lib/gender');
 const { mergeStaffRoster } = require('../lib/teamStaff');
 const { raceIdentityKey, groupRacesIntoColumns } = require('../lib/meetMapping');
 const { linkRacesToMeets } = require('../lib/meetLinking');
 const { describeScrapeFailure } = require('../lib/scrapeFailure');
+const { checkSeasonCsv } = require('../lib/seasonCsv');
 
 // F2 (LeadPack Master Build Handoff): self-serve team creation is gone.
 // POST /api/teams used to let any signed-in user become HEAD_COACH of any
@@ -59,6 +60,296 @@ router.get('/current', authenticate, requireTeam, async (req, res) => {
 // mount) — that's the endpoint the frontend has always called. This was a
 // second, divergent implementation at the plural path nothing ever reached.
 
+// The season import itself: the races, athletes and results in a season
+// CSV, upserted for the team, then the post-import steps (stale races,
+// meet links, Season/SeasonRoster rows, current season, metrics). Shared
+// by POST /scrape (the server-side scraper's output) and POST
+// /import-season-csv (the same columns, extracted in the coach's own
+// browser by the Results Grid bookmarklet, web/src/lib/seasonGridBookmarklet.ts).
+// Columns: Race Name, Athlete Name, Grade, Gender, Time, Race Date, Distance,
+// Source URL, Athletic Meet ID, Athletic Athlete ID.
+// removeStale: delete this season's scraped races the CSV no longer contains
+// (a meet pulled from Athletic.net). Only safe when the CSV is the whole
+// season for both genders: a boys-only paste would otherwise delete a
+// girls-only race, and its results, as "stale".
+async function importSeasonCsv(team, yearNum, csvData, { removeStale = true } = {}) {
+  const { parse } = require('csv-parse/sync');
+  const moment = require('moment');
+
+  // Re-importing a season that was already imported: this used to wipe
+  // every non-manual race for the season up front, unconditionally,
+  // before re-scraping — but the upsert below already matches an
+  // existing race by its natural key (teamId, name, date, distance) and
+  // updates it IN PLACE, preserving its id. Deleting it first fought
+  // that: a race the fresh scrape still describes got deleted and
+  // recreated with a brand-new id anyway, silently cascade-deleting any
+  // FieldResult/RaceSplit rows a coach had manually added against the
+  // old one (both onDelete: Cascade off Race). Diff AFTER the scrape
+  // instead, below the import loop — remove only races this scrape
+  // genuinely didn't see (a meet corrected or pulled from Athletic.net),
+  // never one it's about to update anyway. Never a manual (non-scraped)
+  // race either way — there's nothing to re-scrape it from, so deleting
+  // it on a routine re-import would be unrecoverable.
+  const importedSeasons = team.importedSeasons || [];
+  // previousMeetIdByKey backs the upsert's create branch (a genuinely
+  // NEW race has no prior meetId to restore). existingRaceIdByKey backs
+  // the post-scrape diff below.
+  let previousMeetIdByKey = new Map();
+  let existingRaceIdByKey = new Map();
+  if (importedSeasons.includes(yearNum)) {
+    const existingRaces = await prisma.race.findMany({
+      where: { teamId: team.id, season: yearNum, isManual: false },
+      select: { id: true, name: true, date: true, distance: true, meetId: true },
+    });
+    for (const r of existingRaces) {
+      const key = raceIdentityKey(r.name, r.date, r.distance);
+      existingRaceIdByKey.set(key, r.id);
+      if (r.meetId) previousMeetIdByKey.set(key, r.meetId);
+    }
+  }
+
+
+  const records = parse(csvData, { columns: true, skip_empty_lines: true, trim: true });
+
+  let recordsProcessed = 0;
+  let skippedMissing = 0;
+  let skippedDate = 0;
+  const importedAthleteIds = new Set();
+  const importedGradYears = new Map();
+
+  // Phase 2 step 5: athletes(team_id, name) is no longer unique (two
+  // "Jack Smith"s on one roster is normal), so athlete.upsert's old
+  // teamId_name compound key doesn't exist anymore — match by hand
+  // instead, preferring athleticAthleteId over name (see
+  // lib/athleteMatching.js). Pre-fetch once and keep the lookup maps
+  // updated as rows create new athletes, since one CSV row per result
+  // means the same athlete recurs across many rows in this loop.
+  const [existingAthletes, aliasRows] = await Promise.all([
+    prisma.athlete.findMany({ where: { teamId: team.id } }),
+    prisma.athleteAliasId.findMany({ where: { teamId: team.id } }),
+  ]);
+  // Keyed by the numeric Athletic.net id inside the stored link, so a link
+  // in the old site's format and one from the new results grid
+  // (/athlete/<id>/cross-country) still match the same athlete.
+  const athleteByAthleticId = new Map(
+    existingAthletes.filter((a) => a.athleticAthleteId).map((a) => [athleticIdKey(a.athleticAthleteId), a])
+  );
+  const athleteByName = new Map(existingAthletes.map((a) => [normalizeAthleteName(a.name), a]));
+  // Profile links retired by a merge (AthleteAliasId). Without
+  // these, every import re-creates the duplicate a coach just
+  // merged away — the scraper keeps reporting the merged-away
+  // profile, and name is the only thing left to match on.
+  const athleteById = new Map(existingAthletes.map((a) => [a.id, a]));
+  const athleteByAliasId = new Map(
+    aliasRows
+      .filter((r) => athleteById.has(r.athleteId))
+      .map((r) => [athleticIdKey(r.athleticAthleteId), athleteById.get(r.athleteId)])
+  );
+
+  const parseTimeToSeconds = (timeStr) => {
+    if (!timeStr) return null;
+    const parts = timeStr.split(':').map((p) => parseFloat(p));
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return null;
+  };
+
+  // Grade in a season implies a graduation year, and graduation year is
+  // the fact we keep: it stays true no matter which season you import
+  // next, or in what order.
+  const calculateGraduationYear = (grade, currentYear) => deriveGraduationYear(grade, currentYear);
+
+  const dateFormats = ['MMM D, YYYY', 'MMMM D, YYYY', 'M/D, YYYY', 'M/D/YYYY', 'MM/DD/YYYY', 'MM/D/YYYY', 'M/DD/YYYY'];
+
+  // Every race identity this scrape actually touched — the other
+  // half of the diff that replaces the old wipe-before-reimport
+  // (see the comment above existingRaceIdByKey).
+  const touchedRaceKeys = new Set();
+
+  for (const rowData of records) {
+    const {
+      'Race Name': raceName,
+      'Athlete Name': athleteName,
+      Grade: grade,
+      Gender: gender,
+      Time: time,
+      'Race Date': raceDate,
+      Distance: distance,
+      'Source URL': sourceUrl,
+      'Athletic Meet ID': athleticMeetId,
+      'Athletic Athlete ID': athleticAthleteId,
+    } = rowData;
+
+    if (!raceName || !athleteName || !time || !raceDate) {
+      skippedMissing++;
+      continue;
+    }
+
+    const parsedDate = moment(raceDate, dateFormats, true);
+    if (!parsedDate.isValid()) {
+      skippedDate++;
+      continue;
+    }
+
+    const gradeNum = grade ? parseInt(grade, 10) : null;
+    const graduationYear = grade ? calculateGraduationYear(grade, yearNum) : null;
+    const athleticAthleteIdValue = athleticAthleteId || null;
+    const genderValue = normalizeGender(gender);
+
+    // Deliberately NOT writing `grade` onto the athlete: grade is a
+    // function of (graduationYear, season) and is derived on read. The
+    // old code stored it here, so importing 2025 rewrote every
+    // athlete's grade for 2024 too. Only fill graduationYear when this
+    // row actually told us one — a blank grade must not wipe it.
+    const existingMatch = matchAthlete(
+      { athleticAthleteId: athleticIdKey(athleticAthleteIdValue), name: athleteName },
+      { byAthleticId: athleteByAthleticId, byAliasId: athleteByAliasId, byName: athleteByName }
+    );
+
+    let athlete;
+    if (existingMatch) {
+      athlete = await prisma.athlete.update({
+        where: { id: existingMatch.id },
+        data: {
+          ...(genderValue ? { gender: genderValue } : {}),
+          ...(graduationYear !== null ? { graduationYear } : {}),
+          // Backfill only — never overwrite a stable id with a
+          // different one from a stray/misparsed href.
+          ...(athleticAthleteIdValue && !existingMatch.athleticAthleteId
+            ? { athleticAthleteId: athleticAthleteIdValue }
+            : {}),
+        },
+      });
+    } else {
+      athlete = await prisma.athlete.create({
+        data: { name: athleteName, teamId: team.id, gender: genderValue, graduationYear, athleticAthleteId: athleticAthleteIdValue },
+      });
+    }
+
+    // Keep the lookup maps current so later rows for this same athlete
+    // (a different race, same import) match instead of creating a
+    // duplicate.
+    if (athlete.athleticAthleteId) athleteByAthleticId.set(athleticIdKey(athlete.athleticAthleteId), athlete);
+    athleteByName.set(normalizeAthleteName(athlete.name), athlete);
+
+    if (graduationYear !== null) {
+      importedGradYears.set(athlete.id, graduationYear);
+    }
+    importedAthleteIds.add(athlete.id);
+
+    // csv-parse gives '' for a present-but-empty column, not undefined —
+    // normalize to null so a re-scrape without a resolvable meet link
+    // doesn't write an empty string over a previously-good value.
+    const sourceUrlValue = sourceUrl || null;
+    const athleticMeetIdValue = athleticMeetId || null;
+
+    touchedRaceKeys.add(raceIdentityKey(raceName, parsedDate.startOf('day').toDate(), distance));
+
+    const race = await prisma.race.upsert({
+      where: {
+        teamId_name_date_distance: {
+          teamId: team.id,
+          name: raceName,
+          date: parsedDate.startOf('day').toDate(),
+          distance,
+        },
+      },
+      update: {
+        distance,
+        distanceMeters: parseDistanceToMeters(distance),
+        season: yearNum,
+        ...(sourceUrlValue ? { sourceUrl: sourceUrlValue } : {}),
+        ...(athleticMeetIdValue ? { athleticMeetId: athleticMeetIdValue } : {}),
+      },
+      create: {
+        name: raceName,
+        date: parsedDate.startOf('day').toDate(),
+        teamId: team.id,
+        distance,
+        distanceMeters: parseDistanceToMeters(distance),
+        season: yearNum,
+        sourceUrl: sourceUrlValue,
+        athleticMeetId: athleticMeetIdValue,
+        meetId: previousMeetIdByKey.get(raceIdentityKey(raceName, parsedDate.startOf('day').toDate(), distance)) ?? null,
+      },
+    });
+
+    const timeInSeconds = parseTimeToSeconds(time);
+
+    await prisma.result.upsert({
+      where: { athleteId_raceId: { athleteId: athlete.id, raceId: race.id } },
+      update: { time: timeInSeconds, grade: gradeNum, teamId: team.id },
+      create: { athleteId: athlete.id, raceId: race.id, teamId: team.id, time: timeInSeconds, grade: gradeNum },
+    });
+
+    recordsProcessed++;
+  }
+
+  // Only now, after seeing everything this scrape actually
+  // returned, remove races this season had before that didn't come
+  // back at all. Anything the scrape DID see went through the
+  // upsert above and kept its id, so this never touches a race with
+  // live FieldResult/RaceSplit data tied to it.
+  if (removeStale && existingRaceIdByKey.size > 0) {
+    const staleRaceIds = [...existingRaceIdByKey.entries()]
+      .filter(([key]) => !touchedRaceKeys.has(key))
+      .map(([, id]) => id);
+    if (staleRaceIds.length > 0) {
+      await prisma.result.deleteMany({ where: { raceId: { in: staleRaceIds } } });
+      await prisma.race.deleteMany({ where: { id: { in: staleRaceIds } } });
+    }
+  }
+
+  // Races this scrape created for a meet already imported from the
+  // calendar get linked to it now — see lib/meetLinking.js.
+  await linkRacesToMeets(prisma, team.id, yearNum);
+
+  const updatedSeasons = [...new Set([...importedSeasons, yearNum])];
+
+  // An import is also a statement that this season exists. Previously
+  // nothing ever wrote Season/SeasonRoster rows, so the roster tables
+  // sat empty and every screen had to re-infer the team from raw
+  // results — which is why a season with no results yet showed nothing.
+  const seasonRow = await prisma.season.upsert({
+    where: { teamId_year_sport: { teamId: team.id, year: yearNum, sport: 'XC' } },
+    update: {},
+    create: { teamId: team.id, year: yearNum, sport: 'XC' },
+  });
+
+  for (const athleteId of importedAthleteIds) {
+    const gradYear = importedGradYears.get(athleteId) ?? null;
+    const grade = gradYear !== null ? deriveGrade(gradYear, yearNum) : null;
+    await prisma.seasonRoster.upsert({
+      where: { seasonId_athleteId: { seasonId: seasonRow.id, athleteId } },
+      update: { grade, isActive: true },
+      create: { seasonId: seasonRow.id, athleteId, grade, isActive: true },
+    });
+  }
+
+  // Advance the team to the newest season it now has data for — not
+  // simply the season just imported. Backfilling an older year must not
+  // drag the team backwards: importing 2025 and then 2024 previously
+  // left "current season" sitting on 2024.
+  const newestWithData = Math.max(...updatedSeasons);
+  const nextCurrentSeason = Number.isFinite(team.currentSeason)
+    ? Math.max(team.currentSeason, newestWithData)
+    : newestWithData;
+
+  await prisma.team.update({
+    where: { id: team.id },
+    data: {
+      importedSeasons: updatedSeasons,
+      currentSeason: nextCurrentSeason,
+    },
+  });
+
+  calculationService
+    .calculateAllMetrics(team.id, yearNum)
+    .catch((calcError) => console.error(`Error calculating analytics for season ${yearNum}:`, calcError.message));
+
+  return { recordsProcessed, skippedMissing, skippedDate, totalRecords: records.length };
+}
+
 // POST /api/teams/scrape
 // Scrapes Athletic.net for the CALLER'S OWN team — requireRole checks
 // req.user.teamId itself and limits this to head/paid coaches (importing
@@ -67,44 +358,10 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
   const { year } = req.body;
   const { spawn } = require('child_process');
   const path = require('path');
-  const { parse } = require('csv-parse/sync');
-  const moment = require('moment');
 
   try {
     const team = req.user.team;
     const yearNum = parseInt(year, 10) || currentCalendarSeason();
-
-    // Re-importing a season that was already imported: this used to wipe
-    // every non-manual race for the season up front, unconditionally,
-    // before re-scraping — but the upsert below already matches an
-    // existing race by its natural key (teamId, name, date, distance) and
-    // updates it IN PLACE, preserving its id. Deleting it first fought
-    // that: a race the fresh scrape still describes got deleted and
-    // recreated with a brand-new id anyway, silently cascade-deleting any
-    // FieldResult/RaceSplit rows a coach had manually added against the
-    // old one (both onDelete: Cascade off Race). Diff AFTER the scrape
-    // instead, below the import loop — remove only races this scrape
-    // genuinely didn't see (a meet corrected or pulled from Athletic.net),
-    // never one it's about to update anyway. Never a manual (non-scraped)
-    // race either way — there's nothing to re-scrape it from, so deleting
-    // it on a routine re-import would be unrecoverable.
-    const importedSeasons = team.importedSeasons || [];
-    // previousMeetIdByKey backs the upsert's create branch (a genuinely
-    // NEW race has no prior meetId to restore). existingRaceIdByKey backs
-    // the post-scrape diff below.
-    let previousMeetIdByKey = new Map();
-    let existingRaceIdByKey = new Map();
-    if (importedSeasons.includes(yearNum)) {
-      const existingRaces = await prisma.race.findMany({
-        where: { teamId: team.id, season: yearNum, isManual: false },
-        select: { id: true, name: true, date: true, distance: true, meetId: true },
-      });
-      for (const r of existingRaces) {
-        const key = raceIdentityKey(r.name, r.date, r.distance);
-        existingRaceIdByKey.set(key, r.id);
-        if (r.meetId) previousMeetIdByKey.set(key, r.meetId);
-      }
-    }
 
     const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
     const scriptPath = isRailway
@@ -149,249 +406,11 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
         if (csvData.length === 0) {
           return res.status(500).json({ message: 'No data received from scraper.' });
         }
-
-        const records = parse(csvData, { columns: true, skip_empty_lines: true, trim: true });
-
-        let recordsProcessed = 0;
-        let skippedMissing = 0;
-        let skippedDate = 0;
-        const importedAthleteIds = new Set();
-        const importedGradYears = new Map();
-
-        // Phase 2 step 5: athletes(team_id, name) is no longer unique (two
-        // "Jack Smith"s on one roster is normal), so athlete.upsert's old
-        // teamId_name compound key doesn't exist anymore — match by hand
-        // instead, preferring athleticAthleteId over name (see
-        // lib/athleteMatching.js). Pre-fetch once and keep the lookup maps
-        // updated as rows create new athletes, since one CSV row per result
-        // means the same athlete recurs across many rows in this loop.
-        const [existingAthletes, aliasRows] = await Promise.all([
-          prisma.athlete.findMany({ where: { teamId: team.id } }),
-          prisma.athleteAliasId.findMany({ where: { teamId: team.id } }),
-        ]);
-        const athleteByAthleticId = new Map(
-          existingAthletes.filter((a) => a.athleticAthleteId).map((a) => [a.athleticAthleteId, a])
-        );
-        const athleteByName = new Map(existingAthletes.map((a) => [normalizeAthleteName(a.name), a]));
-        // Profile links retired by a merge (AthleteAliasId). Without
-        // these, every import re-creates the duplicate a coach just
-        // merged away — the scraper keeps reporting the merged-away
-        // profile, and name is the only thing left to match on.
-        const athleteById = new Map(existingAthletes.map((a) => [a.id, a]));
-        const athleteByAliasId = new Map(
-          aliasRows
-            .filter((r) => athleteById.has(r.athleteId))
-            .map((r) => [r.athleticAthleteId, athleteById.get(r.athleteId)])
-        );
-
-        const parseTimeToSeconds = (timeStr) => {
-          if (!timeStr) return null;
-          const parts = timeStr.split(':').map((p) => parseFloat(p));
-          if (parts.length === 2) return parts[0] * 60 + parts[1];
-          if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-          return null;
-        };
-
-        // Grade in a season implies a graduation year, and graduation year is
-        // the fact we keep: it stays true no matter which season you import
-        // next, or in what order.
-        const calculateGraduationYear = (grade, currentYear) => deriveGraduationYear(grade, currentYear);
-
-        const dateFormats = ['MMM D, YYYY', 'MMMM D, YYYY', 'M/D, YYYY', 'M/D/YYYY', 'MM/DD/YYYY', 'MM/D/YYYY', 'M/DD/YYYY'];
-
-        // Every race identity this scrape actually touched — the other
-        // half of the diff that replaces the old wipe-before-reimport
-        // (see the comment above existingRaceIdByKey).
-        const touchedRaceKeys = new Set();
-
-        for (const rowData of records) {
-          const {
-            'Race Name': raceName,
-            'Athlete Name': athleteName,
-            Grade: grade,
-            Gender: gender,
-            Time: time,
-            'Race Date': raceDate,
-            Distance: distance,
-            'Source URL': sourceUrl,
-            'Athletic Meet ID': athleticMeetId,
-            'Athletic Athlete ID': athleticAthleteId,
-          } = rowData;
-
-          if (!raceName || !athleteName || !time || !raceDate) {
-            skippedMissing++;
-            continue;
-          }
-
-          const parsedDate = moment(raceDate, dateFormats, true);
-          if (!parsedDate.isValid()) {
-            skippedDate++;
-            continue;
-          }
-
-          const gradeNum = grade ? parseInt(grade, 10) : null;
-          const graduationYear = grade ? calculateGraduationYear(grade, yearNum) : null;
-          const athleticAthleteIdValue = athleticAthleteId || null;
-          const genderValue = normalizeGender(gender);
-
-          // Deliberately NOT writing `grade` onto the athlete: grade is a
-          // function of (graduationYear, season) and is derived on read. The
-          // old code stored it here, so importing 2025 rewrote every
-          // athlete's grade for 2024 too. Only fill graduationYear when this
-          // row actually told us one — a blank grade must not wipe it.
-          const existingMatch = matchAthlete(
-            { athleticAthleteId: athleticAthleteIdValue, name: athleteName },
-            { byAthleticId: athleteByAthleticId, byAliasId: athleteByAliasId, byName: athleteByName }
-          );
-
-          let athlete;
-          if (existingMatch) {
-            athlete = await prisma.athlete.update({
-              where: { id: existingMatch.id },
-              data: {
-                ...(genderValue ? { gender: genderValue } : {}),
-                ...(graduationYear !== null ? { graduationYear } : {}),
-                // Backfill only — never overwrite a stable id with a
-                // different one from a stray/misparsed href.
-                ...(athleticAthleteIdValue && !existingMatch.athleticAthleteId
-                  ? { athleticAthleteId: athleticAthleteIdValue }
-                  : {}),
-              },
-            });
-          } else {
-            athlete = await prisma.athlete.create({
-              data: { name: athleteName, teamId: team.id, gender: genderValue, graduationYear, athleticAthleteId: athleticAthleteIdValue },
-            });
-          }
-
-          // Keep the lookup maps current so later rows for this same athlete
-          // (a different race, same import) match instead of creating a
-          // duplicate.
-          if (athlete.athleticAthleteId) athleteByAthleticId.set(athlete.athleticAthleteId, athlete);
-          athleteByName.set(normalizeAthleteName(athlete.name), athlete);
-
-          if (graduationYear !== null) {
-            importedGradYears.set(athlete.id, graduationYear);
-          }
-          importedAthleteIds.add(athlete.id);
-
-          // csv-parse gives '' for a present-but-empty column, not undefined —
-          // normalize to null so a re-scrape without a resolvable meet link
-          // doesn't write an empty string over a previously-good value.
-          const sourceUrlValue = sourceUrl || null;
-          const athleticMeetIdValue = athleticMeetId || null;
-
-          touchedRaceKeys.add(raceIdentityKey(raceName, parsedDate.startOf('day').toDate(), distance));
-
-          const race = await prisma.race.upsert({
-            where: {
-              teamId_name_date_distance: {
-                teamId: team.id,
-                name: raceName,
-                date: parsedDate.startOf('day').toDate(),
-                distance,
-              },
-            },
-            update: {
-              distance,
-              distanceMeters: parseDistanceToMeters(distance),
-              season: yearNum,
-              ...(sourceUrlValue ? { sourceUrl: sourceUrlValue } : {}),
-              ...(athleticMeetIdValue ? { athleticMeetId: athleticMeetIdValue } : {}),
-            },
-            create: {
-              name: raceName,
-              date: parsedDate.startOf('day').toDate(),
-              teamId: team.id,
-              distance,
-              distanceMeters: parseDistanceToMeters(distance),
-              season: yearNum,
-              sourceUrl: sourceUrlValue,
-              athleticMeetId: athleticMeetIdValue,
-              meetId: previousMeetIdByKey.get(raceIdentityKey(raceName, parsedDate.startOf('day').toDate(), distance)) ?? null,
-            },
-          });
-
-          const timeInSeconds = parseTimeToSeconds(time);
-
-          await prisma.result.upsert({
-            where: { athleteId_raceId: { athleteId: athlete.id, raceId: race.id } },
-            update: { time: timeInSeconds, grade: gradeNum, teamId: team.id },
-            create: { athleteId: athlete.id, raceId: race.id, teamId: team.id, time: timeInSeconds, grade: gradeNum },
-          });
-
-          recordsProcessed++;
-        }
-
-        // Only now, after seeing everything this scrape actually
-        // returned, remove races this season had before that didn't come
-        // back at all. Anything the scrape DID see went through the
-        // upsert above and kept its id, so this never touches a race with
-        // live FieldResult/RaceSplit data tied to it.
-        if (existingRaceIdByKey.size > 0) {
-          const staleRaceIds = [...existingRaceIdByKey.entries()]
-            .filter(([key]) => !touchedRaceKeys.has(key))
-            .map(([, id]) => id);
-          if (staleRaceIds.length > 0) {
-            await prisma.result.deleteMany({ where: { raceId: { in: staleRaceIds } } });
-            await prisma.race.deleteMany({ where: { id: { in: staleRaceIds } } });
-          }
-        }
-
-        // Races this scrape created for a meet already imported from the
-        // calendar get linked to it now — see lib/meetLinking.js.
-        await linkRacesToMeets(prisma, team.id, yearNum);
-
-        const updatedSeasons = [...new Set([...importedSeasons, yearNum])];
-
-        // An import is also a statement that this season exists. Previously
-        // nothing ever wrote Season/SeasonRoster rows, so the roster tables
-        // sat empty and every screen had to re-infer the team from raw
-        // results — which is why a season with no results yet showed nothing.
-        const seasonRow = await prisma.season.upsert({
-          where: { teamId_year_sport: { teamId: team.id, year: yearNum, sport: 'XC' } },
-          update: {},
-          create: { teamId: team.id, year: yearNum, sport: 'XC' },
-        });
-
-        for (const athleteId of importedAthleteIds) {
-          const gradYear = importedGradYears.get(athleteId) ?? null;
-          const grade = gradYear !== null ? deriveGrade(gradYear, yearNum) : null;
-          await prisma.seasonRoster.upsert({
-            where: { seasonId_athleteId: { seasonId: seasonRow.id, athleteId } },
-            update: { grade, isActive: true },
-            create: { seasonId: seasonRow.id, athleteId, grade, isActive: true },
-          });
-        }
-
-        // Advance the team to the newest season it now has data for — not
-        // simply the season just imported. Backfilling an older year must not
-        // drag the team backwards: importing 2025 and then 2024 previously
-        // left "current season" sitting on 2024.
-        const newestWithData = Math.max(...updatedSeasons);
-        const nextCurrentSeason = Number.isFinite(team.currentSeason)
-          ? Math.max(team.currentSeason, newestWithData)
-          : newestWithData;
-
-        await prisma.team.update({
-          where: { id: team.id },
-          data: {
-            importedSeasons: updatedSeasons,
-            currentSeason: nextCurrentSeason,
-          },
-        });
-
-        calculationService
-          .calculateAllMetrics(team.id, yearNum)
-          .catch((calcError) => console.error(`Error calculating analytics for season ${yearNum}:`, calcError.message));
-
+        const summary = await importSeasonCsv(team, yearNum, csvData);
         res.status(200).json({
           success: true,
-          message: `Successfully imported ${recordsProcessed} results for season ${yearNum}. Analytics are calculating in the background - you can safely leave this page.`,
-          recordsProcessed,
-          skippedMissing,
-          skippedDate,
-          totalRecords: records.length,
+          message: `Successfully imported ${summary.recordsProcessed} results for season ${yearNum}. Analytics are calculating in the background - you can safely leave this page.`,
+          ...summary,
           calculationStatus: 'processing',
         });
       } catch (error) {
@@ -402,6 +421,35 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
   } catch (error) {
     console.error('Error in scrape endpoint:', error.message);
     res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// POST /api/teams/import-season-csv  { year, csv }
+// The same season import as /scrape, but the CSV comes from the coach's own
+// browser instead of a server-side scraper. Athletic.net's Cloudflare check
+// blocks the server (see lib/scrapeFailure.js); the Results Grid bookmarklet
+// (web/src/lib/seasonGridBookmarklet.ts) reads the season results grid the
+// coach already has open, copies it in the scraper's own CSV columns, and the
+// coach pastes it into Data Management. Nothing here fetches Athletic.net.
+router.post('/import-season-csv', authenticate, requireRole(FULL_COACH), async (req, res) => {
+  const { year, csv } = req.body || {};
+  const yearNum = parseInt(year, 10);
+  const check = checkSeasonCsv(csv, yearNum);
+  if (!check.ok) return res.status(400).json({ message: check.message });
+
+  try {
+    // Stale races are only removed when the paste covers both genders —
+    // see importSeasonCsv's removeStale.
+    const summary = await importSeasonCsv(req.user.team, yearNum, csv, { removeStale: check.genders.size === 2 });
+    res.status(200).json({
+      success: true,
+      message: `Imported ${summary.recordsProcessed} results for season ${yearNum}. Analytics are calculating in the background.`,
+      ...summary,
+      calculationStatus: 'processing',
+    });
+  } catch (error) {
+    console.error('Error importing pasted season CSV:', error.message);
+    res.status(500).json({ message: 'Could not finish importing those results. Paste and import them again: rows update in place, so a second run is safe.' });
   }
 });
 
@@ -502,7 +550,7 @@ router.post('/scrape-roster', authenticate, requireRole(FULL_COACH), async (req,
         const athleteByAliasId = new Map(
           aliasRows
             .filter((r) => athleteById.has(r.athleteId))
-            .map((r) => [r.athleticAthleteId, athleteById.get(r.athleteId)])
+            .map((r) => [athleticIdKey(r.athleticAthleteId), athleteById.get(r.athleteId)])
         );
         const rosterByAthleteId = new Map(existingRoster.map((r) => [r.athleteId, r]));
 
@@ -1218,3 +1266,5 @@ router.delete('/:athleticTeamId/results', authenticate, requireRole(DESTRUCTIVE)
 });
 
 module.exports = router;
+// For tests: the season import shared by /scrape and /import-season-csv.
+module.exports.importSeasonCsv = importSeasonCsv;

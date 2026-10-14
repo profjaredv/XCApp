@@ -23,19 +23,23 @@ const assert = require('node:assert/strict');
 
 const ROUTES = fs.readFileSync(path.join(__dirname, '..', 'routes', 'teams.js'), 'utf8');
 
-function handlerFor(marker) {
-  const start = ROUTES.indexOf(marker);
-  assert.ok(start > -1, `could not find ${marker}`);
-  // This handler doesn't close with the simple "\n});" the rest of the
-  // route file's handlers do (it has a nested scraperProcess.on('close', ...)
-  // callback with the same shape) — bound it at the next top-level route
-  // declaration instead.
-  const next = ROUTES.indexOf("\nrouter.post('/scrape-roster'", start);
-  assert.ok(next > start, 'could not find the end of the /scrape handler');
-  return ROUTES.slice(start, next);
+// The import itself now lives in importSeasonCsv, shared by POST /scrape
+// and POST /import-season-csv (the coach's pasted Results Grid copy), so
+// both get the same protections. The assertions below run against it.
+function importFunction() {
+  const start = ROUTES.indexOf('async function importSeasonCsv(');
+  assert.ok(start > -1, 'could not find importSeasonCsv');
+  const end = ROUTES.indexOf("\n// POST /api/teams/scrape", start);
+  assert.ok(end > start, 'could not find the end of importSeasonCsv');
+  return ROUTES.slice(start, end);
 }
 
-const scrapeHandler = handlerFor("router.post('/scrape',");
+const scrapeHandler = importFunction();
+
+test('both season imports go through importSeasonCsv', () => {
+  assert.match(ROUTES, /const summary = await importSeasonCsv\(team, yearNum, csvData\);/);
+  assert.match(ROUTES, /const summary = await importSeasonCsv\(req\.user\.team, yearNum, csv, /);
+});
 
 test('/scrape no longer deletes races before re-scraping', () => {
   const loopStart = scrapeHandler.indexOf('for (const rowData of records)');
