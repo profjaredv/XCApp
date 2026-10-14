@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, ClipboardList, Download, RefreshCw, Search, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -9,11 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGroupScope } from '@/contexts/GroupScopeContext';
-import { useSeasonSelection } from '@/contexts/SeasonContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
-import { useAllGroupMembers, useGroups } from '@/hooks/useGroups';
-import { rosterService } from '@/api/rosterService';
-import { analyticsService } from '@/api/analyticsService';
 import { performanceService } from '@/api/performanceService';
 import { isFullCoach } from '@/lib/teamRole';
 import { matchesQuery } from '@/lib/athleteSearch';
@@ -21,8 +17,10 @@ import { normalizeGender } from '@/lib/gender';
 import { gradeLabelShort, gradeLabel } from '@/lib/seasonUtils';
 import { formatFiveK } from '@/lib/fiveK';
 import { toCsv, downloadCsv } from '@/lib/csvParse';
-import { buildAthleteRows, sortAthleteRows, type AthleteListRow, type AthleteSort } from '@/lib/athletesList';
+import { sortAthleteRows, type AthleteListRow, type AthleteSort } from '@/lib/athletesList';
+import { useAthleteRows } from '@/components/next/useAthleteRows';
 import { cn } from '@/lib/utils';
+import { Avatar } from '@/components/next/Visual';
 import { NextPageHeader } from '@/components/next/PageHeader';
 import { AddAthleteDialog } from '@/components/roster/AddAthleteDialog';
 import { AthleteInspector } from '@/components/next/AthleteInspector';
@@ -40,9 +38,6 @@ const AthletesPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { currentUser } = useAuth();
   const scope = useGroupScope();
-  const { seasons, activeYear } = useSeasonSelection();
-  const season = activeYear ?? undefined;
-  const seasonId = seasons.find((s) => s.year === activeYear)?.id ?? null;
   const wide = useMediaQuery('(min-width: 1280px)');
   const [params, setParams] = useSearchParams();
   const selectedId = params.get('athlete');
@@ -56,24 +51,7 @@ const AthletesPage: React.FC = () => {
   const [recalculating, setRecalculating] = useState(false);
   const fullCoach = isFullCoach(currentUser);
 
-  const { data: roster = [], isLoading } = useQuery({
-    queryKey: ['roster', season, includePast],
-    queryFn: () => rosterService.getRoster(season, { activeOnly: !includePast }),
-    enabled: season !== undefined,
-  });
-  const { data: analytics } = useQuery({
-    queryKey: ['analyticsOverview', season],
-    queryFn: () => analyticsService.getAnalyticsOverview(season as number),
-    enabled: season !== undefined,
-  });
-  const { data: groups = [] } = useGroups(seasonId);
-  const groupIds = useMemo(() => groups.filter((g) => !g.archived && g.type !== 'X_TRAINING').map((g) => g.id), [groups]);
-  const { data: membersByGroup } = useAllGroupMembers(seasonId, groupIds);
-
-  const rows = useMemo(
-    () => buildAthleteRows(roster, analytics?.athletes ?? [], groups, membersByGroup ?? {}),
-    [roster, analytics, groups, membersByGroup]
-  );
+  const { rows, isLoading, season, activeYear } = useAthleteRows(includePast);
   const grades = useMemo(() => [...new Set(rows.map((r) => r.grade).filter((g): g is number => g != null))].sort((a, b) => b - a), [rows]);
   const visible = useMemo(() => {
     const filtered = rows.filter(
@@ -152,16 +130,16 @@ const AthletesPage: React.FC = () => {
 
           <div className="mb-3 space-y-2">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search athletes" aria-label="Search athletes" className="h-12 pl-9 text-base lg:h-10 lg:text-sm" />
+              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search athletes" aria-label="Search athletes" className="h-12 rounded-full border-none bg-muted pl-10 text-base shadow-none lg:h-10 lg:text-sm" />
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:px-0">
               {(['all', 'M', 'F'] as const).map((g) => (
                 <Chip key={g} active={gender === g} onClick={() => setGender(g)}>
                   {g === 'all' ? 'All' : g === 'M' ? 'Boys' : 'Girls'}
                 </Chip>
               ))}
-              <span className="mx-1 w-px self-stretch bg-border" />
+              <span className="mx-1 w-px shrink-0 self-stretch bg-border" />
               <Chip active={grade === 'all'} onClick={() => setGrade('all')}>
                 All classes
               </Chip>
@@ -170,7 +148,7 @@ const AthletesPage: React.FC = () => {
                   {gradeLabelShort(g)}
                 </Chip>
               ))}
-              <span className="mx-1 w-px self-stretch bg-border" />
+              <span className="mx-1 w-px shrink-0 self-stretch bg-border" />
               <Chip active={includePast} onClick={() => setIncludePast((v) => !v)}>
                 Include past athletes
               </Chip>
@@ -195,7 +173,7 @@ const AthletesPage: React.FC = () => {
         </div>
 
         {wide && selected && (
-          <aside className="sticky top-0 h-[calc(100dvh-8rem)] w-[420px] shrink-0 overflow-y-auto rounded-xl border bg-card">
+          <aside className="sticky top-0 h-[calc(100dvh-8rem)] w-[420px] shrink-0 overflow-y-auto rounded-3xl bg-card shadow-sm ring-1 ring-border/60">
             <AthleteInspector athlete={selected} season={season} onClose={() => setParams({}, { replace: true })} />
           </aside>
         )}
@@ -217,8 +195,8 @@ const Chip: React.FC<{ active: boolean; onClick: () => void; children: React.Rea
     aria-pressed={active}
     onClick={onClick}
     className={cn(
-      'inline-flex min-h-11 items-center rounded-full border px-3 text-sm font-medium lg:min-h-8',
-      active ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:bg-accent'
+      'inline-flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-full px-3.5 text-sm font-medium lg:min-h-8',
+      active ? 'bg-foreground text-background' : 'bg-muted text-foreground hover:bg-accent'
     )}
   >
     {children}
@@ -238,9 +216,9 @@ const Trend: React.FC<{ value: number | null }> = ({ value }) =>
   );
 
 const AthleteTable: React.FC<{ rows: AthleteListRow[]; selectedId: string | null; onSelect: (id: string) => void }> = ({ rows, selectedId, onSelect }) => (
-  <div className="hidden overflow-hidden rounded-xl border lg:block">
+  <div className="hidden overflow-hidden rounded-3xl bg-card shadow-sm ring-1 ring-border/60 lg:block">
     <table className="w-full text-sm">
-      <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+      <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
         <tr>
           <th className="px-3 py-2 font-medium">Name</th>
           <th className="px-3 py-2 font-medium">Class</th>
@@ -259,16 +237,19 @@ const AthleteTable: React.FC<{ rows: AthleteListRow[]; selectedId: string | null
             onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(r.id)}
             tabIndex={0}
             aria-selected={selectedId === r.id}
-            className={cn('cursor-pointer border-t hover:bg-muted/60', selectedId === r.id && 'bg-muted')}
+            className={cn('cursor-pointer border-t border-border/60 hover:bg-muted/60', selectedId === r.id && 'bg-primary/5')}
           >
-            <td className="px-3 py-2.5">
-              <span className="font-medium">{r.name}</span>
-              {r.isCaptain && <Badge variant="secondary" className="ml-2 font-normal">Captain</Badge>}
-              {!r.onRoster && <span className="ml-2 text-xs text-muted-foreground">past</span>}
+            <td className="px-3 py-2">
+              <span className="flex items-center gap-3">
+                <Avatar name={r.name} size="sm" />
+                <span className="font-medium">{r.name}</span>
+                {r.isCaptain && <Badge variant="secondary" className="font-normal">Captain</Badge>}
+                {!r.onRoster && <span className="text-xs text-muted-foreground">past</span>}
+              </span>
             </td>
             <td className="px-3 py-2.5">{r.grade != null ? gradeLabelShort(r.grade) : '—'}</td>
             <td className="max-w-[16rem] truncate px-3 py-2.5 text-muted-foreground">{r.groups.map((g) => g.name).join(', ') || '—'}</td>
-            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{formatFiveK(r.sb)}</td>
+            <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums">{formatFiveK(r.sb)}</td>
             <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{formatFiveK(r.pr)}</td>
             <td className="px-3 py-2.5 text-right tabular-nums">{r.races}</td>
             <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums"><Trend value={r.trend} /></td>
@@ -280,19 +261,23 @@ const AthleteTable: React.FC<{ rows: AthleteListRow[]; selectedId: string | null
 );
 
 const AthleteRowsMobile: React.FC<{ rows: AthleteListRow[]; onSelect: (id: string) => void }> = ({ rows, onSelect }) => (
-  <div className="divide-y rounded-xl border lg:hidden">
+  <div className="rounded-3xl bg-card p-1.5 shadow-sm ring-1 ring-border/60 lg:hidden">
     {rows.map((r) => (
-      <button key={r.id} type="button" onClick={() => onSelect(r.id)} className="flex min-h-14 w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent/50">
+      <button key={r.id} type="button" onClick={() => onSelect(r.id)} className="flex min-h-16 w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left hover:bg-accent/60">
+        <Avatar name={r.name} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium">
-            {r.name}
-            {r.isCaptain && <span className="ml-1.5 text-xs font-normal text-muted-foreground">· Captain</span>}
+          <span className="flex items-center gap-1.5">
+            <span className="truncate font-semibold">{r.name}</span>
+            {r.isCaptain && <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200">C</span>}
           </span>
-          <span className="block text-xs text-muted-foreground">{r.grade != null ? gradeLabel(r.grade) : 'Class unknown'}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {r.grade != null ? gradeLabel(r.grade) : 'Class unknown'}
+            {r.groups[0] ? ` · ${r.groups[0].name}` : ''}
+          </span>
         </span>
-        <span className="shrink-0 text-right text-sm tabular-nums">
-          <span className="block text-[10px] uppercase text-muted-foreground">SB 5K</span>
-          {formatFiveK(r.sb)}
+        <span className="shrink-0 text-right">
+          <span className="block text-base font-bold tabular-nums">{formatFiveK(r.sb)}</span>
+          <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">SB 5K</span>
         </span>
         <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
       </button>

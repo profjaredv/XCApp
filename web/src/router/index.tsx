@@ -36,6 +36,7 @@ import ProtectedRoute from './ProtectedRoute';
 import TeamRouteGuard from './TeamRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
 import ShellSwitch from './ShellSwitch';
+import AthleteProfileNext from '../pages/next/AthleteProfileNext';
 import ByUi from './ByUi';
 import TodayPageNext from '../pages/next/TodayPageNext';
 import TrainPage from '../pages/next/TrainPage';
@@ -434,7 +435,7 @@ export const router = createBrowserRouter([
                     // were two different screens for the same thing —
                     // consolidated onto the one that works.
                     path: 'athlete/:athleteId',
-                    element: <TeamAthleteProfilePage />,
+                    element: <ByUi classic={<TeamAthleteProfilePage />} next={<AthleteProfileNext />} />,
                   },
                   {
                     // E1: multi-season rank/band/PR/course spine for one

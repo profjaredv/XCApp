@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Eye, Map as MapIcon, Compass, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
@@ -18,7 +17,9 @@ import { formatSplitMMSS, SPLIT_PATTERN_LABEL } from '@/lib/splitPatternDisplay'
 import type { AthleteListRow } from '@/lib/athletesList';
 import { cn } from '@/lib/utils';
 import { AthleteGroupsCard } from '../AthleteGroupsCard';
+import { Avatar, SegmentedTabs, Stat } from './Visual';
 import { RacePredictionCard } from '../predictions/RacePredictionCard';
+import { CourseAdjustedProgressionCard } from '../athletes/CourseAdjustedProgressionCard';
 import { AthleteAdminPanel } from '../athletes/AthleteAdminPanel';
 
 // The Athletes inspector (docs/leadpack-new-ui-trial.md §4.4): a detail
@@ -27,11 +28,13 @@ import { AthleteAdminPanel } from '../athletes/AthleteAdminPanel';
 
 type Tab = 'summary' | 'races' | 'reflections' | 'admin';
 
-export const AthleteInspector: React.FC<{ athlete: AthleteListRow; season: number | undefined; onClose: () => void }> = ({
-  athlete,
-  season,
-  onClose,
-}) => {
+export const AthleteInspector: React.FC<{
+  athlete: AthleteListRow;
+  season: number | undefined;
+  /** Omitted on the full-page view, which has the top bar's back button instead. */
+  onClose?: () => void;
+  variant?: 'panel' | 'page';
+}> = ({ athlete, season, onClose, variant = 'panel' }) => {
   const { currentUser } = useAuth();
   const teamPath = useTeamPath();
   const fullCoach = isFullCoach(currentUser);
@@ -44,55 +47,44 @@ export const AthleteInspector: React.FC<{ athlete: AthleteListRow; season: numbe
     ...(fullCoach ? [{ key: 'admin' as Tab, label: 'Admin' }] : []),
   ];
 
+  const page = variant === 'page';
+  const action = 'inline-flex min-h-10 items-center gap-1.5 rounded-full bg-muted px-3.5 text-sm font-semibold hover:bg-accent';
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-start gap-2 border-b p-4">
+    <div className={cn('flex flex-col', !page && 'h-full')}>
+      <div className={cn('flex items-center gap-3', page ? 'pb-4 pt-1' : 'p-4')}>
+        <Avatar name={athlete.name} size="lg" />
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-lg font-bold">{athlete.name}</h2>
+          <h2 className={cn('truncate font-bold tracking-tight', page ? 'text-[1.75rem] leading-tight' : 'text-xl')}>{athlete.name}</h2>
           <p className="text-sm text-muted-foreground">
             {athlete.grade != null ? gradeLabel(athlete.grade) : 'Class unknown'}
             {athlete.isCaptain ? ' · Captain' : ''}
+            {athlete.groups[0] ? ` · ${athlete.groups[0].name}` : ''}
           </p>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close" className="flex h-10 w-10 items-center justify-center rounded-lg hover:bg-accent">
-          <X className="h-5 w-5" />
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-2 border-b px-4 py-2">
-        <Button asChild variant="outline" size="sm">
-          <Link to={teamPath(`/athlete/${athlete.id}/journey`)}>
-            <MapIcon className="mr-1.5 h-4 w-4" /> Journey
-          </Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link to={teamPath(`/athlete/${athlete.id}/strategy`)}>
-            <Compass className="mr-1.5 h-4 w-4" /> Strategy
-          </Link>
-        </Button>
-        {fullCoach && (
-          <Button variant="outline" size="sm" onClick={() => setPreviewAthlete(athlete.id, athlete.name, teamPath)}>
-            <Eye className="mr-1.5 h-4 w-4" /> Preview as athlete
-          </Button>
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Close" className="flex h-10 w-10 items-center justify-center rounded-full bg-muted hover:bg-accent">
+            <X className="h-5 w-5" />
+          </button>
         )}
       </div>
-      <div role="tablist" className="flex gap-1 overflow-x-auto border-b px-2">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            type="button"
-            aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              'h-11 shrink-0 border-b-2 px-3 text-sm font-medium',
-              tab === t.key ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
-            )}
-          >
-            {t.label}
+      <div className={cn('flex flex-wrap gap-2', page ? 'pb-4' : 'px-4 pb-3')}>
+        <Link to={teamPath(`/athlete/${athlete.id}/journey`)} className={action}>
+          <MapIcon className="h-4 w-4" /> Journey
+        </Link>
+        <Link to={teamPath(`/athlete/${athlete.id}/strategy`)} className={action}>
+          <Compass className="h-4 w-4" /> Strategy
+        </Link>
+        {fullCoach && (
+          <button type="button" className={action} onClick={() => setPreviewAthlete(athlete.id, athlete.name, teamPath)}>
+            <Eye className="h-4 w-4" /> Preview as athlete
           </button>
-        ))}
+        )}
       </div>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      <div className={cn(!page && 'px-4')}>
+        <SegmentedTabs<Tab> label="Athlete" tabs={tabs} value={tab} onChange={setTab} />
+      </div>
+      <div className={cn('space-y-4', page ? 'pt-4' : 'min-h-0 flex-1 overflow-y-auto p-4')}>
         {tab === 'summary' && <SummaryTab athlete={athlete} />}
         {tab === 'races' && <RacesTab athleteId={athlete.id} />}
         {tab === 'reflections' && <ReflectionsTab athleteId={athlete.id} />}
@@ -102,13 +94,6 @@ export const AthleteInspector: React.FC<{ athlete: AthleteListRow; season: numbe
   );
 };
 
-const Stat: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
-  <div className="rounded-lg bg-muted/50 p-3">
-    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
-    <p className="text-lg font-semibold tabular-nums">{value}</p>
-  </div>
-);
-
 const SummaryTab: React.FC<{ athlete: AthleteListRow }> = ({ athlete }) => (
   <>
     <div className="grid grid-cols-3 gap-2">
@@ -116,6 +101,7 @@ const SummaryTab: React.FC<{ athlete: AthleteListRow }> = ({ athlete }) => (
       <Stat label="PR 5K" value={formatFiveK(athlete.pr)} />
       <Stat label="Races" value={athlete.races} />
     </div>
+    <CourseAdjustedProgressionCard athleteId={athlete.id} />
     <RacePredictionCard athleteId={athlete.id} />
     <AthleteGroupsCard athleteId={athlete.id} />
   </>
@@ -132,14 +118,14 @@ const RacesTab: React.FC<{ athleteId: string }> = ({ athleteId }) => {
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading races…</p>;
   if (races.length === 0) return <p className="text-sm text-muted-foreground">No races on record yet.</p>;
   return (
-    <ul className="divide-y">
+    <ul className="divide-y divide-border/60 rounded-3xl bg-card px-4 shadow-sm ring-1 ring-border/60">
       {races.map((r) => {
         const s = splitsByRace.get(r.raceId);
         return (
           <li key={r.id} className="py-2.5">
             <div className="flex items-baseline justify-between gap-2">
-              <p className="min-w-0 truncate text-sm font-medium">{r.raceName}</p>
-              <p className="shrink-0 text-sm tabular-nums">{formatTime(r.time)}</p>
+              <p className="min-w-0 truncate text-sm font-semibold">{r.raceName}</p>
+              <p className="shrink-0 text-base font-bold tabular-nums">{formatTime(r.time)}</p>
             </div>
             <p className="text-xs text-muted-foreground">
               {formatDateShort(r.date)}
@@ -185,7 +171,7 @@ const ReflectionsTab: React.FC<{ athleteId: string }> = ({ athleteId }) => {
   return (
     <ul className="space-y-3">
       {mine.map(({ race, reflection }) => (
-        <li key={race.id} className="rounded-lg border p-3 text-sm">
+        <li key={race.id} className="rounded-3xl bg-card p-4 text-sm shadow-sm ring-1 ring-border/60">
           <p className="font-medium">{race.raceName}</p>
           <p className="mb-1 text-xs text-muted-foreground">{formatDateShort(race.date)} · ran {formatTime(race.time)}</p>
           {(reflection!.outcomeGoal || reflection!.targetTimeSec) && (
