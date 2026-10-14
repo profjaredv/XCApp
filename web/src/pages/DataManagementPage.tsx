@@ -12,6 +12,7 @@ import { useTeamPath } from '../hooks/useTeamRoute';
 import { useSeasonSelection } from '../contexts/SeasonContext';
 import { currentCalendarSeason } from '../lib/seasonUtils';
 import { ImportDataPanel } from '../components/data-management/ImportDataPanel';
+import { BrowserSeasonImportPanel } from '../components/data-management/BrowserSeasonImportPanel';
 import { EnhancedCalculateMetricsPanel } from '../components/data-management/EnhancedCalculateMetricsPanel';
 
 // Define the steps in the data management process
@@ -168,7 +169,11 @@ export function DataManagementPage() {
           </TabsTrigger>
         </ResponsiveTabsList>
         
-        <TabsContent value={DataManagementStep.IMPORT}>
+        <TabsContent value={DataManagementStep.IMPORT} className="space-y-6">
+          <BrowserSeasonImportPanel
+            season={selectedSeason}
+            onComplete={() => markStepCompleted(DataManagementStep.IMPORT)}
+          />
           <ImportDataPanel 
             teamId={teamId} 
             season={selectedSeason}
