@@ -1,10 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueries } from '@tanstack/react-query';
-import { AlertTriangle, CalendarDays, ChevronRight, Flag, Gauge, Package, Trophy, Users } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronRight, ClipboardCheck, Flag, Gauge, Package, Timer, Trophy, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,8 +27,9 @@ import { SetupChecklist } from '@/components/SetupChecklist';
 import { SeasonReadinessChecklist } from '@/components/SeasonReadinessChecklist';
 import { PracticePlanPreview } from '@/components/practicePlans/PracticePlanPreview';
 import { RaceReflectionDialogBody } from '@/components/reflections/RaceReflectionDialogBody';
-import { NextPageHeader } from '@/components/next/PageHeader';
 import { Sheet, SheetContent, SheetRow } from '@/components/next/Sheet';
+import { DateTile, Panel, ProgressRing, QuickAction } from '@/components/next/Visual';
+import { greeting } from '@/lib/greeting';
 
 // Today in the "next" shell (docs/leadpack-new-ui-trial.md §4.1). Same
 // /api/today endpoints and the same no-selectors rule as classic Today;
@@ -61,105 +61,129 @@ const Loading = () => (
   </div>
 );
 
-function daysOutLabel(days: number): string {
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Tomorrow';
-  return `In ${days} days`;
-}
-
 // ---------------------------------------------------------------------------
 // Coach
 // ---------------------------------------------------------------------------
 
-const GroupStrip: React.FC<{ seasonId: string }> = ({ seasonId }) => {
+// The hero: today's practice across the scoped groups — how many are
+// here, the plan, and the one next thing to do.
+const PracticeHero: React.FC<{ seasonId: string; groups: Group[]; days: (GroupDay | undefined)[]; loading: boolean }> = ({
+  seasonId,
+  groups,
+  days,
+  loading,
+}) => {
   const teamPath = useTeamPath();
   const today = useTodayIso();
-  const scope = useGroupScope();
-  const groups = scope.scopedGroups;
-  const { data: plans, isLoading: planLoading } = usePracticePlanRange(seasonId, today, today);
-  const { data: xt } = useXTrainingRoster(seasonId);
-  const days = useQueries({
-    queries: groups.map((g) => ({
-      queryKey: ['groupDay', g.id, today],
-      queryFn: () => groupService.getGroupDay(g.id, today),
-    })),
-  });
-
+  const { data: plans } = usePracticePlanRange(seasonId, today, today);
   const plan = plans?.[0];
-  const planLabel = planLoading ? null : !plan ? 'No plan yet' : plan.published ? 'Plan published' : 'Plan is a draft';
+  const loaded = days.filter((d): d is GroupDay => !!d);
+  const total = loaded.reduce((n, d) => n + d.members.length, 0);
+  const here = loaded.reduce((n, d) => n + d.counts.PRESENT + d.counts.LATE, 0);
+  const next = loaded.map((d) => groupAction(d, teamPath)).find((a) => a.label !== 'Open group');
+  const planLine = plan ? [plan.run, plan.locationName, plan.startTime ? formatClock(plan.startTime) : null].filter(Boolean).join(' · ') : null;
 
   return (
-    <Block
-      title={scope.scope === 'all' ? 'Groups' : scope.isVolunteer || groups.length > 1 ? 'My groups' : 'My group'}
-      icon={Users}
-      action={
-        planLabel && (
-          <Link to={teamPath('/train')} className="text-xs font-medium text-muted-foreground hover:text-foreground">
-            {plan?.published ? '✓ ' : '– '}
-            {planLabel}
+    <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-[oklch(0.3_0.09_160)] p-5 text-primary-foreground shadow-md">
+      <div className="pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full bg-white/[0.06]" />
+      <div className="relative flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium uppercase tracking-wider text-primary-foreground/70">Practice today</p>
+          <p className="mt-1 text-4xl font-bold tabular-nums leading-none">
+            {loading ? '–' : here}
+            <span className="text-xl font-semibold text-primary-foreground/60"> / {loading ? '–' : total}</span>
+          </p>
+          <p className="mt-1 text-sm text-primary-foreground/80">checked in{groups.length > 1 ? ` across ${groups.length} groups` : ''}</p>
+        </div>
+        <ProgressRing
+          value={here}
+          max={total}
+          size={76}
+          stroke={8}
+          trackClassName="stroke-white/20"
+          barClassName="stroke-white"
+          label={`${here} of ${total} checked in`}
+        >
+          <span className="text-sm font-bold tabular-nums">{total ? Math.round((here / total) * 100) : 0}%</span>
+        </ProgressRing>
+      </div>
+      <Link to={teamPath('/train')} className="relative mt-4 flex items-center gap-2 rounded-2xl bg-white/10 px-3 py-2.5 text-sm hover:bg-white/15">
+        <CalendarDays className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{plan ? planLine || 'Practice plan' : 'No practice plan yet'}</span>
+        {plan && !plan.published && <span className="shrink-0 rounded-full bg-amber-300 px-2 py-0.5 text-[11px] font-semibold text-amber-950">Draft</span>}
+        <ChevronRight className="h-4 w-4 shrink-0 opacity-70" />
+      </Link>
+      {next && (
+        <Button asChild className="relative mt-3 min-h-12 w-full rounded-2xl bg-white text-base font-semibold text-primary hover:bg-white/90">
+          <Link to={next.to}>
+            {next.label === 'Take attendance' ? <ClipboardCheck className="mr-2 h-5 w-5" /> : <Timer className="mr-2 h-5 w-5" />}
+            {next.label}
           </Link>
-        )
-      }
-    >
-      {scope.isLoading && groups.length === 0 ? (
-        <Loading />
-      ) : groups.length === 0 ? (
+        </Button>
+      )}
+    </section>
+  );
+};
+
+function formatClock(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  if (Number.isNaN(h)) return hhmm;
+  return `${((h + 11) % 12) + 1}:${String(m || 0).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
+}
+
+// One tile per scoped group: an attendance ring and the day's session.
+const GroupTiles: React.FC<{ groups: Group[]; days: (GroupDay | undefined)[]; xt: Record<string, number> }> = ({ groups, days, xt }) => {
+  const teamPath = useTeamPath();
+  const scope = useGroupScope();
+  if (groups.length === 0) {
+    return (
+      <Panel title="Groups">
         <p className="text-sm text-muted-foreground">
           {scope.isVolunteer ? "You aren't leading a group this season yet." : 'No groups this season yet. '}
           {!scope.isVolunteer && (
-            <Link to={teamPath('/groups/manage')} className="text-primary hover:underline">
+            <Link to={teamPath('/groups/manage')} className="font-medium text-primary hover:underline">
               Set up groups
             </Link>
           )}
         </p>
-      ) : (
-        <ul className="divide-y">
-          {groups.map((g, i) => (
-            <GroupRow
-              key={g.id}
-              group={g}
-              day={days[i]?.data}
-              loading={days[i]?.isLoading}
-              xTrainingCount={xt?.members.filter((m) => m.trainingGroup?.id === g.id).length ?? 0}
-            />
-          ))}
-        </ul>
-      )}
-    </Block>
-  );
-};
-
-const GroupRow: React.FC<{ group: Group; day: GroupDay | undefined; loading: boolean; xTrainingCount: number }> = ({
-  group,
-  day,
-  loading,
-  xTrainingCount,
-}) => {
-  const teamPath = useTeamPath();
-  const action = groupAction(day, teamPath);
-  const marked = day ? day.members.length - day.counts.unmarked : 0;
-  const attendanceTaken = !!day?.session && marked > 0;
+      </Panel>
+    );
+  }
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
-      <Link to={teamPath(`/group/${group.id}`)} className="min-w-0 flex-1 basis-40">
-        <p className="truncate font-medium">{group.name}</p>
-        <p className="text-xs text-muted-foreground">
-          {loading || !day ? (
-            '…'
-          ) : (
-            <>
-              {day.attendanceEnabled && (attendanceTaken ? `Attendance ✓ ${day.counts.PRESENT + day.counts.LATE}/${day.members.length}` : 'Attendance –')}
-              {day.attendanceEnabled && ' · '}
-              {day.intervalSessions.length > 0 ? `Session: ${day.intervalSessions[0].title}` : 'No session'}
-              {xTrainingCount > 0 && ` · ${xTrainingCount} cross-training`}
-            </>
-          )}
-        </p>
-      </Link>
-      <Button asChild size="sm" variant={action.label === 'Open group' ? 'outline' : 'default'} className="min-h-12 w-full sm:min-h-9 sm:w-auto">
-        <Link to={action.to || teamPath(`/group/${group.id}`)}>{action.label}</Link>
-      </Button>
-    </li>
+    <section className="min-w-0">
+      <div className="mb-2 flex items-center justify-between px-1">
+        <h2 className="text-sm font-semibold">{scope.scope === 'all' ? 'Groups' : groups.length > 1 ? 'My groups' : 'My group'}</h2>
+        <Link to={teamPath('/groups')} className="text-xs font-medium text-primary">
+          See all
+        </Link>
+      </div>
+      <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-2 md:px-0">
+        {groups.map((g, i) => {
+          const d = days[i];
+          const here = d ? d.counts.PRESENT + d.counts.LATE : 0;
+          const n = d?.members.length ?? 0;
+          const taken = !!d?.session && !!d && n - d.counts.unmarked > 0;
+          return (
+            <Link
+              key={g.id}
+              to={teamPath(`/group/${g.id}`)}
+              className="w-40 shrink-0 snap-start rounded-3xl bg-card p-4 shadow-sm ring-1 ring-border/60 hover:ring-primary/40 md:w-auto"
+            >
+              <ProgressRing value={here} max={n} size={48} stroke={5} label={`${here} of ${n} here`}>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </ProgressRing>
+              <p className="mt-3 truncate font-semibold">{g.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {!d ? '…' : taken ? `${here}/${n} here` : `${n} athlete${n === 1 ? '' : 's'} · not taken`}
+              </p>
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {[d?.intervalSessions[0] ? `⏱ ${d.intervalSessions[0].title}` : null, xt[g.id] ? `${xt[g.id]} cross-training` : null].filter(Boolean).join(' · ') || '\u00a0'}
+              </p>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
   );
 };
 
@@ -176,30 +200,40 @@ const NextMeetBlock: React.FC<{ seasonId: string }> = ({ seasonId }) => {
     queryFn: () => meetOpsService.getMeet(meet!.id),
     enabled: !!meet && canEdit,
   });
-  const missingDistance = detail && !detail.distance && detail.races.some((r) => !r.distance && !r.distanceMeters);
+  const missingDistance = detail && !detail.distance && detail.races?.some((r) => !r.distance && !r.distanceMeters);
 
   return (
-    <Block title="Next meet" icon={Flag}>
+    <Panel title="Next meet" action={<Link to={teamPath('/meets')} className="text-xs font-medium text-primary">All meets</Link>}>
       {isLoading ? (
         <Loading />
       ) : !meet ? (
         <p className="text-sm text-muted-foreground">No meet on the schedule yet.</p>
       ) : (
-        <Link to={teamPath(`/meet/${meet.id}`)} className="block space-y-1 rounded-lg hover:bg-accent/50">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className="truncate font-medium">{meet.name}</p>
-            <Badge variant={meet.daysUntil <= 2 ? 'default' : 'secondary'}>{daysOutLabel(meet.daysUntil)}</Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {formatDateShort(meet.date)}
-            {meet.location ? ` · ${meet.location}` : ''}
-          </p>
+        <>
+          <Link to={teamPath(`/meet/${meet.id}`)} className="flex items-center gap-3">
+            <DateTile date={meet.date} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold">{meet.name}</p>
+              <p className="truncate text-sm text-muted-foreground">{meet.location || (meet.isHome ? 'Home' : 'Away')}</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-2xl font-bold tabular-nums leading-none">{meet.daysUntil}</p>
+              <p className="text-[11px] text-muted-foreground">{meet.daysUntil === 1 ? 'day' : 'days'}</p>
+            </div>
+          </Link>
           {missingDistance && (
-            <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Set the race distance so predictions work →</p>
+            <Link
+              to={teamPath(`/meet/${meet.id}`)}
+              className="mt-3 flex items-center gap-2 rounded-2xl bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1">Set the race distance so predictions work</span>
+              <ChevronRight className="h-4 w-4 shrink-0" />
+            </Link>
           )}
-        </Link>
+        </>
       )}
-    </Block>
+    </Panel>
   );
 };
 
@@ -225,22 +259,27 @@ const AttentionBlock: React.FC<{ seasonId: string }> = ({ seasonId }) => {
       ? teamPath('/train')
       : teamPath('/equipment');
   return (
-    <Block title="Needs attention" icon={AlertTriangle}>
-      <ul className="-mx-3">
+    <Panel
+      title="Needs attention"
+      action={<span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-2 text-xs font-bold text-white">{items.length}</span>}
+    >
+      <ul className="-mx-2">
         {items.map((item, i) => {
           const Icon = ATTENTION_ICON[item.type];
           return (
             <li key={i}>
-              <Link to={linkFor(item)} className="flex min-h-12 items-center gap-3 rounded-lg px-3 text-sm hover:bg-accent">
-                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              <Link to={linkFor(item)} className="flex min-h-12 items-center gap-3 rounded-2xl px-2 text-sm hover:bg-accent">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
               </Link>
             </li>
           );
         })}
       </ul>
-    </Block>
+    </Panel>
   );
 };
 
@@ -252,21 +291,80 @@ const RecentResultBlock: React.FC<{ seasonId: string }> = ({ seasonId }) => {
   });
   const race = data?.race;
   return (
-    <Block title="Recent result" icon={Trophy}>
+    <Panel title="Last race">
       {isLoading ? (
         <Loading />
       ) : !race ? (
         <p className="text-sm text-muted-foreground">No races yet this season.</p>
       ) : (
-        <Link to={teamPath('/meets')} className="block space-y-1">
-          <p className="truncate font-medium">{race.name}</p>
-          <p className="text-sm text-muted-foreground">
-            {formatDateShort(race.date)} · {race.finisherCount} finishers
-            {race.avgTimeSec != null ? ` · avg ${formatTime(race.avgTimeSec)}` : ''}
+        <Link to={teamPath('/meets')} className="block">
+          <p className="truncate text-sm text-muted-foreground">
+            {race.name} · {formatDateShort(race.date)}
           </p>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-muted/60 p-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Team avg</p>
+              <p className="text-2xl font-bold tabular-nums">{race.avgTimeSec != null ? formatTime(race.avgTimeSec) : '—'}</p>
+            </div>
+            <div className="rounded-2xl bg-muted/60 p-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Finishers</p>
+              <p className="text-2xl font-bold tabular-nums">{race.finisherCount}</p>
+            </div>
+          </div>
         </Link>
       )}
-    </Block>
+    </Panel>
+  );
+};
+
+const QuickActions: React.FC = () => {
+  const teamPath = useTeamPath();
+  return (
+    <div className="grid grid-cols-4 gap-1">
+      <QuickAction icon={Timer} label="Timer" to={teamPath('/interval-sessions')} />
+      <QuickAction icon={CalendarDays} label="Plan" to={teamPath('/train')} tone="bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300" />
+      <QuickAction icon={Trophy} label="Results" to={teamPath('/meets')} tone="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" />
+      <QuickAction icon={Gauge} label="Season" to={teamPath('/season')} tone="bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300" />
+    </div>
+  );
+};
+
+const CoachDashboard: React.FC<{ seasonId: string }> = ({ seasonId }) => {
+  const today = useTodayIso();
+  const scope = useGroupScope();
+  const groups = scope.scopedGroups;
+  const { data: xtRoster } = useXTrainingRoster(seasonId);
+  const days = useQueries({
+    queries: groups.map((g) => ({
+      queryKey: ['groupDay', g.id, today],
+      queryFn: () => groupService.getGroupDay(g.id, today),
+    })),
+  });
+  const dayData = days.map((d) => d.data);
+  const xt = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const m of xtRoster?.members ?? []) if (m.trainingGroup) out[m.trainingGroup.id] = (out[m.trainingGroup.id] ?? 0) + 1;
+    return out;
+  }, [xtRoster]);
+
+  return (
+    <div className="space-y-5">
+      <SeasonReadinessChecklist />
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="space-y-5">
+          <PracticeHero seasonId={seasonId} groups={groups} days={dayData} loading={scope.isLoading || days.some((d) => d.isLoading)} />
+          <QuickActions />
+        </div>
+        <div className="space-y-5">
+          <NextMeetBlock seasonId={seasonId} />
+          <AttentionBlock seasonId={seasonId} />
+        </div>
+      </div>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <GroupTiles groups={groups} days={dayData} xt={xt} />
+        <RecentResultBlock seasonId={seasonId} />
+      </div>
+    </div>
   );
 };
 
@@ -294,20 +392,8 @@ const CoachTodayNext: React.FC = () => {
       </Block>
     );
   }
-  const seasonId = seasonState.season!.id;
-  return (
-    <div className="space-y-4">
-      <SeasonReadinessChecklist />
-      <GroupStrip seasonId={seasonId} />
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <NextMeetBlock seasonId={seasonId} />
-        <RecentResultBlock seasonId={seasonId} />
-      </div>
-      <AttentionBlock seasonId={seasonId} />
-    </div>
-  );
+  return <CoachDashboard seasonId={seasonState.season!.id} />;
 };
-
 // ---------------------------------------------------------------------------
 // Athlete
 // ---------------------------------------------------------------------------
@@ -459,7 +545,15 @@ const TodayPageNext: React.FC = () => {
   const isCoach = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'].includes(currentUser?.teamRole ?? '');
   return (
     <div className="mx-auto max-w-5xl">
-      <NextPageHeader title="Today" subtitle={new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} />
+      <div className="mb-5 pt-1">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+        </p>
+        <h1 className="mt-0.5 text-2xl font-bold tracking-tight md:text-3xl">
+          {greeting()}
+          {currentUser?.name ? `, ${currentUser.name.split(' ')[0]}` : ''}
+        </h1>
+      </div>
       {isCoach ? (
         <CoachTodayNext />
       ) : currentUser?.linkedAthlete ? (

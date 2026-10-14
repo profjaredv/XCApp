@@ -97,9 +97,19 @@ const ShellFrame: React.FC = () => {
                 <ChevronLeft className="h-6 w-6" />
               </button>
             )}
-            <span className={cn('min-w-0 flex-1 truncate font-semibold lg:flex-none lg:text-base', !showBack && 'pl-2', 'text-sm')}>
+            {/* Below 640px a team name truncates to a letter or two, so phones
+                get the team's initials as a badge instead. */}
+            <span
+              aria-hidden="true"
+              className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground sm:hidden', !showBack && 'ml-1')}
+            >
+              {teamInitials(context?.team?.name)}
+            </span>
+            <span className="sr-only sm:hidden">{context?.team?.name}</span>
+            <span className={cn('hidden min-w-0 truncate font-semibold sm:block sm:flex-1 lg:flex-none lg:text-base', !showBack && 'pl-2', 'text-sm')}>
               {context?.team?.name}
             </span>
+            <div className="flex-1 sm:hidden" />
             <SeasonChip />
             {showScope && <GroupScopePicker compact />}
             <div className="hidden flex-1 lg:block" />
@@ -346,3 +356,9 @@ const DesktopSidebar: React.FC<{
 };
 
 export default AppShell;
+
+function teamInitials(name: string | undefined): string {
+  if (!name) return '';
+  const words = name.split(/\s+/).filter((w) => /^[A-Za-z0-9]/.test(w));
+  return words.slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+}
