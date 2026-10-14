@@ -57,16 +57,73 @@ export const DateTile: React.FC<{ date: string; className?: string }> = ({ date,
 export const QuickAction: React.FC<{
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  to: string;
+  to?: string;
+  onClick?: () => void;
   tone?: string;
-}> = ({ icon: Icon, label, to, tone = 'bg-primary/10 text-primary' }) => (
-  <Link to={to} className="flex min-w-0 flex-col items-center gap-1.5 rounded-2xl p-2 text-center hover:bg-accent">
-    <span className={cn('flex h-12 w-12 items-center justify-center rounded-2xl', tone)}>
+}> = ({ icon: Icon, label, to, onClick, tone = 'bg-primary/10 text-primary' }) => {
+  const cls = 'flex min-w-0 flex-col items-center gap-1.5 rounded-2xl p-2 text-center hover:bg-accent';
+  const body = (
+    <>
+      <span className={cn('flex h-12 w-12 items-center justify-center rounded-2xl', tone)}>
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="w-full truncate text-xs font-medium">{label}</span>
+    </>
+  );
+  return to ? (
+    <Link to={to} className={cls}>
+      {body}
+    </Link>
+  ) : (
+    <button type="button" onClick={onClick} className={cls}>
+      {body}
+    </button>
+  );
+};
+
+/** One status line in a checklist: a state dot, what it is, its value, and its action. */
+export const StatusRow: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  state: 'done' | 'warn' | 'todo';
+  label: string;
+  value: React.ReactNode;
+  action?: React.ReactNode;
+}> = ({ icon: Icon, state, label, value, action }) => (
+  <div className="flex min-h-14 items-center gap-3 py-1.5">
+    <span
+      className={cn(
+        'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+        state === 'done' && 'bg-primary/15 text-primary',
+        state === 'warn' && 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+        state === 'todo' && 'bg-muted text-muted-foreground'
+      )}
+    >
       <Icon className="h-5 w-5" />
     </span>
-    <span className="w-full truncate text-xs font-medium">{label}</span>
-  </Link>
+    <div className="min-w-0 flex-1">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="truncate text-sm font-medium">{value}</p>
+    </div>
+    {action}
+  </div>
 );
+
+/** A small pill-shaped action for the end of a row. */
+export const PillLink: React.FC<{ to?: string; onClick?: () => void; children: React.ReactNode; strong?: boolean }> = ({ to, onClick, children, strong }) => {
+  const cls = cn(
+    'inline-flex min-h-10 shrink-0 items-center rounded-full px-4 text-sm font-semibold',
+    strong ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-muted text-foreground hover:bg-accent'
+  );
+  return to ? (
+    <Link to={to} className={cls}>
+      {children}
+    </Link>
+  ) : (
+    <button type="button" onClick={onClick} className={cls}>
+      {children}
+    </button>
+  );
+};
 
 /** A rounded surface with a section label, used instead of Card on next pages. */
 export const Panel: React.FC<{ title?: string; action?: React.ReactNode; className?: string; children: React.ReactNode }> = ({
@@ -86,3 +143,33 @@ export const Panel: React.FC<{ title?: string; action?: React.ReactNode; classNa
   </section>
 );
 
+
+/** The page's one dark-green hero surface. White text; put at most one white button inside. */
+export const Hero: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => (
+  <section
+    className={cn(
+      'relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-[oklch(0.3_0.09_160)] p-5 text-primary-foreground shadow-md',
+      className
+    )}
+  >
+    <div className="pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full bg-white/[0.06]" />
+    <div className="relative">{children}</div>
+  </section>
+);
+
+/** A label over a big number, for stat rows. */
+export const Stat: React.FC<{ label: string; value: React.ReactNode; sub?: React.ReactNode; className?: string }> = ({ label, value, sub, className }) => (
+  <div className={cn('min-w-0 rounded-2xl bg-muted/60 p-3', className)}>
+    <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+    <p className="truncate text-2xl font-bold tabular-nums">{value}</p>
+    {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
+  </div>
+);
+
+/** A section heading outside a panel, with an optional link on the right. */
+export const SectionHeading: React.FC<{ title: string; action?: React.ReactNode }> = ({ title, action }) => (
+  <div className="mb-2 flex items-center justify-between gap-2 px-1">
+    <h2 className="text-sm font-semibold">{title}</h2>
+    {action}
+  </div>
+);

@@ -25,9 +25,9 @@ export const NextPageHeader: React.FC<{
   const [open, setOpen] = useState(false);
   const row = 'flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium hover:bg-accent disabled:opacity-50';
   return (
-    <div className="mb-4 flex items-start gap-2">
+    <div className="mb-5 flex items-end gap-2 pt-1">
       <div className="min-w-0 flex-1">
-        <h1 className="truncate text-2xl font-bold">{title}</h1>
+        <h1 className="truncate text-[1.75rem] font-bold leading-tight tracking-tight md:text-3xl">{title}</h1>
         {subtitle && <div className="mt-0.5 text-sm text-muted-foreground">{subtitle}</div>}
       </div>
       {primary && <div className={cn('shrink-0', primaryDesktopOnly && 'hidden lg:block')}>{primary}</div>}
@@ -37,7 +37,7 @@ export const NextPageHeader: React.FC<{
             type="button"
             onClick={() => setOpen(true)}
             aria-label="More actions"
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-border hover:bg-accent lg:h-10 lg:w-10"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-muted hover:bg-accent lg:h-10 lg:w-10"
           >
             <MoreHorizontal className="h-5 w-5" />
           </button>
@@ -87,7 +87,7 @@ export const StickyActionBar: React.FC<{ children: React.ReactNode }> = ({ child
   <>
     {/* Room for the bar, so the page's last row isn't hidden under it. */}
     <div className="h-20 lg:hidden" aria-hidden />
-    <div className="fixed inset-x-0 bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-20 border-t border-border bg-background/95 px-3 py-2 backdrop-blur lg:hidden">
+    <div className="fixed inset-x-0 bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-20 border-t border-border/60 bg-background/90 px-3 py-2.5 backdrop-blur-md lg:hidden">
       {children}
     </div>
   </>
@@ -95,7 +95,7 @@ export const StickyActionBar: React.FC<{ children: React.ReactNode }> = ({ child
 
 /** A whole-row link, 48px+, for lists — no button inside the row. */
 export const RowLink: React.FC<{ to: string; className?: string; children: React.ReactNode }> = ({ to, className, children }) => (
-  <Link to={to} className={cn('flex min-h-12 items-center gap-3 rounded-lg px-3 py-2 hover:bg-accent', className)}>
+  <Link to={to} className={cn('flex min-h-12 items-center gap-3 rounded-2xl px-3 py-2 hover:bg-accent', className)}>
     {children}
   </Link>
 );

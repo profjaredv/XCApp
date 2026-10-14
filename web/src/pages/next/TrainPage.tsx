@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { CalendarDays, ChevronRight, ClipboardCheck, Compass, Gauge, History, Pencil, Plus } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CalendarDays, ChevronRight, ClipboardCheck, Compass, Gauge, History, Pencil, Plus, Timer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,39 +16,15 @@ import { athleteService } from '@/api/athleteService';
 import type { PracticePlan } from '@/api/practicePlanService';
 import SchedulePage from '../SchedulePage';
 import { PracticePlanPreview } from '@/components/practicePlans/PracticePlanPreview';
-import { TrainingPacesCard } from '@/components/TrainingPacesCard';
+import { PacesPanel } from '@/components/next/PacesPanel';
 import { TrainingLogCard } from '@/components/training/TrainingLogCard';
 import { NextPageHeader } from '@/components/next/PageHeader';
+import { Panel, PillLink, QuickAction, SectionHeading, StatusRow } from '@/components/next/Visual';
 
 // Train (docs/leadpack-new-ui-trial.md §4.2): the practice side, for every
 // role. Coaches get today's sessions per scoped group, the week (Schedule's
 // own week/agenda views, embedded), and the tools; athletes get today's
 // workout, their paces, their log and their strategy.
-
-const ToolRow: React.FC<{ icon: React.ComponentType<{ className?: string }>; label: string; to?: string; onClick?: () => void }> = ({
-  icon: Icon,
-  label,
-  to,
-  onClick,
-}) => {
-  const cls = 'flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium hover:bg-accent';
-  const body = (
-    <>
-      <Icon className="h-5 w-5 text-muted-foreground" />
-      <span className="flex-1">{label}</span>
-      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-    </>
-  );
-  return to ? (
-    <Link to={to} className={cls}>
-      {body}
-    </Link>
-  ) : (
-    <button type="button" onClick={onClick} className={cls}>
-      {body}
-    </button>
-  );
-};
 
 const SessionCard: React.FC<{
   group: Group;
@@ -61,55 +36,52 @@ const SessionCard: React.FC<{
   const teamPath = useTeamPath();
   const marked = day ? day.members.length - day.counts.unmarked : 0;
   const taken = !!day?.session && marked > 0;
-  const line = 'flex min-h-12 items-center gap-3 border-t py-1 text-sm first:border-t-0';
+  const session = day?.intervalSessions[0];
   return (
-    <Card className="min-w-0">
-      <CardHeader className="pb-1">
-        <CardTitle className="text-base">
-          <Link to={teamPath(`/group/${group.id}`)} className="hover:underline">
-            {group.name}
-          </Link>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {!day ? (
-          <Skeleton className="h-24 w-full" />
-        ) : (
-          <div>
-            <div className={line}>
-              <span className="w-24 shrink-0 text-muted-foreground">Practice</span>
-              <span className="min-w-0 flex-1 truncate">
-                {!planLoaded ? '…' : !plan ? 'No plan yet' : plan.published ? 'Published' : 'Draft — athletes can’t see it'}
-              </span>
-              <button type="button" onClick={onPlan} className="shrink-0 font-medium text-primary">
-                {plan ? 'Edit' : 'Plan'}
-              </button>
-            </div>
-            {day.attendanceEnabled && (
-              <div className={line}>
-                <span className="w-24 shrink-0 text-muted-foreground">Attendance</span>
-                <span className="min-w-0 flex-1 truncate">
-                  {taken ? `${day.counts.PRESENT + day.counts.LATE} of ${day.members.length} here` : 'Not taken'}
-                </span>
-                <Link to={teamPath(`/group/${group.id}`)} className="shrink-0 font-medium text-primary">
+    <Panel
+      title={group.name}
+      action={
+        <Link to={teamPath(`/group/${group.id}`)} className="text-xs font-medium text-primary">
+          Open group
+        </Link>
+      }
+    >
+      {!day ? (
+        <Skeleton className="h-36 w-full rounded-2xl" />
+      ) : (
+        <div className="divide-y divide-border/60">
+          <StatusRow
+            icon={CalendarDays}
+            state={!planLoaded || !plan ? 'todo' : plan.published ? 'done' : 'warn'}
+            label="Practice"
+            value={!planLoaded ? '…' : !plan ? 'No plan yet' : plan.published ? 'Published' : 'Draft, athletes can’t see it'}
+            action={<PillLink onClick={onPlan} strong={!plan}>{plan ? 'Edit' : 'Plan'}</PillLink>}
+          />
+          {day.attendanceEnabled && (
+            <StatusRow
+              icon={ClipboardCheck}
+              state={taken ? 'done' : 'todo'}
+              label="Attendance"
+              value={taken ? `${day.counts.PRESENT + day.counts.LATE} of ${day.members.length} here` : 'Not taken'}
+              action={
+                <PillLink to={teamPath(`/group/${group.id}`)} strong={!taken}>
                   {taken ? 'Open' : 'Take'}
-                </Link>
-              </div>
-            )}
-            <div className={line}>
-              <span className="w-24 shrink-0 text-muted-foreground">Session</span>
-              <span className="min-w-0 flex-1 truncate">{day.intervalSessions[0]?.title ?? 'None today'}</span>
-              <Link
-                to={teamPath(day.intervalSessions[0] ? `/interval-sessions/${day.intervalSessions[0].id}` : '/interval-sessions')}
-                className="shrink-0 font-medium text-primary"
-              >
-                {day.intervalSessions[0] ? 'Start' : 'New'}
-              </Link>
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                </PillLink>
+              }
+            />
+          )}
+          <StatusRow
+            icon={Timer}
+            state={session ? 'done' : 'todo'}
+            label="Interval session"
+            value={session?.title ?? 'None today'}
+            action={
+              <PillLink to={teamPath(session ? `/interval-sessions/${session.id}` : '/interval-sessions')}>{session ? 'Start' : 'New'}</PillLink>
+            }
+          />
+        </div>
+      )}
+    </Panel>
   );
 };
 
@@ -133,16 +105,16 @@ const CoachTrain: React.FC = () => {
       <NextPageHeader
         title="Train"
         primary={
-          <Button onClick={() => setNewPlanSignal((n) => n + 1)} className="min-h-12 lg:min-h-10">
+          <Button onClick={() => setNewPlanSignal((n) => n + 1)} aria-label="New practice plan" className="min-h-12 lg:min-h-10">
             <Plus className="mr-1 h-4 w-4" />
-            New practice plan
+            New plan
           </Button>
         }
         overflow={[{ label: 'Full schedule, import & export', to: teamPath('/schedule'), icon: CalendarDays }]}
       />
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Today's sessions</h2>
+      <section>
+        <SectionHeading title="Today" />
         {scope.scopedGroups.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {scope.isLoading ? 'Loading groups…' : 'No groups in this view yet. Groups are set up under Groups → Manage groups.'}
@@ -156,8 +128,20 @@ const CoachTrain: React.FC = () => {
         )}
       </section>
 
-      <section className="mt-6 space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">This week</h2>
+      <section className="mt-6">
+        <SectionHeading title="Tools" />
+        <div className="grid grid-cols-4 gap-1 md:max-w-xl">
+          <QuickAction icon={Pencil} label="Templates" onClick={() => setTemplatesSignal((n) => n + 1)} />
+          <QuickAction icon={Gauge} label="Paces" to={teamPath('/tools')} tone="bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300" />
+          <QuickAction icon={History} label="Intervals" to={teamPath('/interval-sessions')} tone="bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300" />
+          {attendanceOn && (
+            <QuickAction icon={ClipboardCheck} label="Attendance" to={teamPath('/attendance')} tone="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" />
+          )}
+        </div>
+      </section>
+
+      <section className="mt-6">
+        <SectionHeading title="This week" />
         <SchedulePage
           embedded
           viewModes={['week', 'agenda']}
@@ -167,19 +151,6 @@ const CoachTrain: React.FC = () => {
         />
       </section>
 
-      <section className="mt-6">
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-base">Tools</CardTitle>
-          </CardHeader>
-          <CardContent className="-mx-3 px-3">
-            <ToolRow icon={Pencil} label="Workout templates" onClick={() => setTemplatesSignal((n) => n + 1)} />
-            <ToolRow icon={Gauge} label="Pace calculator" to={teamPath('/tools')} />
-            <ToolRow icon={History} label="Interval sessions" to={teamPath('/interval-sessions')} />
-            {attendanceOn && <ToolRow icon={ClipboardCheck} label="Attendance history" to={teamPath('/attendance')} />}
-          </CardContent>
-        </Card>
-      </section>
     </>
   );
 };
@@ -199,28 +170,37 @@ const AthleteTrain: React.FC<{ athleteId: string }> = ({ athleteId }) => {
     <>
       <NextPageHeader title="Train" />
       <div className="space-y-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Today's workout</CardTitle>
-            {groupNames.length > 0 && <p className="text-xs text-muted-foreground">{groupNames.join(' · ')}</p>}
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-16 w-full" />
-            ) : planData?.plan ? (
-              <PracticePlanPreview plan={planData.plan} />
-            ) : (
-              <p className="text-sm text-muted-foreground">Nothing posted for today yet.</p>
-            )}
-          </CardContent>
-        </Card>
-        <TrainingPacesCard recentRaces={recentRaces} />
+        <Panel
+          title="Today's workout"
+          action={
+            groupNames.length > 0 && (
+              <span className="truncate rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{groupNames.join(' · ')}</span>
+            )
+          }
+        >
+          {isLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : planData?.plan ? (
+            <PracticePlanPreview plan={planData.plan} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Nothing posted for today yet.</p>
+          )}
+        </Panel>
+        <PacesPanel recentRaces={recentRaces} />
+        <Link
+          to={teamPath(`/athlete/${athleteId}/strategy`)}
+          className="flex items-center gap-3 rounded-3xl bg-card p-4 shadow-sm ring-1 ring-border/60 hover:ring-primary/40"
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+            <Compass className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">Race strategy</span>
+            <span className="block truncate text-sm text-muted-foreground">Where are your next 20 seconds?</span>
+          </span>
+          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+        </Link>
         <TrainingLogCard />
-        <Card>
-          <CardContent className="py-3">
-            <ToolRow icon={Compass} label="Race strategy — where are the next 20 seconds?" to={teamPath(`/athlete/${athleteId}/strategy`)} />
-          </CardContent>
-        </Card>
       </div>
     </>
   );

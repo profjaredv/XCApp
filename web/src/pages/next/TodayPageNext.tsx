@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueries } from '@tanstack/react-query';
-import { AlertTriangle, CalendarDays, ChevronRight, ClipboardCheck, Flag, Gauge, Package, Timer, Trophy, Users } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronRight, ClipboardCheck, Compass, Dumbbell, Flag, Gauge, Package, Target, Timer, Trophy, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,7 +28,7 @@ import { SeasonReadinessChecklist } from '@/components/SeasonReadinessChecklist'
 import { PracticePlanPreview } from '@/components/practicePlans/PracticePlanPreview';
 import { RaceReflectionDialogBody } from '@/components/reflections/RaceReflectionDialogBody';
 import { Sheet, SheetContent, SheetRow } from '@/components/next/Sheet';
-import { DateTile, Panel, ProgressRing, QuickAction } from '@/components/next/Visual';
+import { DateTile, Hero, Panel, ProgressRing, QuickAction, SectionHeading, Stat } from '@/components/next/Visual';
 import { greeting } from '@/lib/greeting';
 
 // Today in the "next" shell (docs/leadpack-new-ui-trial.md §4.1). Same
@@ -84,9 +84,8 @@ const PracticeHero: React.FC<{ seasonId: string; groups: Group[]; days: (GroupDa
   const planLine = plan ? [plan.run, plan.locationName, plan.startTime ? formatClock(plan.startTime) : null].filter(Boolean).join(' · ') : null;
 
   return (
-    <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-[oklch(0.3_0.09_160)] p-5 text-primary-foreground shadow-md">
-      <div className="pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full bg-white/[0.06]" />
-      <div className="relative flex items-start gap-4">
+    <Hero>
+      <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium uppercase tracking-wider text-primary-foreground/70">Practice today</p>
           <p className="mt-1 text-4xl font-bold tabular-nums leading-none">
@@ -107,21 +106,21 @@ const PracticeHero: React.FC<{ seasonId: string; groups: Group[]; days: (GroupDa
           <span className="text-sm font-bold tabular-nums">{total ? Math.round((here / total) * 100) : 0}%</span>
         </ProgressRing>
       </div>
-      <Link to={teamPath('/train')} className="relative mt-4 flex items-center gap-2 rounded-2xl bg-white/10 px-3 py-2.5 text-sm hover:bg-white/15">
+      <Link to={teamPath('/train')} className="mt-4 flex items-center gap-2 rounded-2xl bg-white/10 px-3 py-2.5 text-sm hover:bg-white/15">
         <CalendarDays className="h-4 w-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{plan ? planLine || 'Practice plan' : 'No practice plan yet'}</span>
         {plan && !plan.published && <span className="shrink-0 rounded-full bg-amber-300 px-2 py-0.5 text-[11px] font-semibold text-amber-950">Draft</span>}
         <ChevronRight className="h-4 w-4 shrink-0 opacity-70" />
       </Link>
       {next && (
-        <Button asChild className="relative mt-3 min-h-12 w-full rounded-2xl bg-white text-base font-semibold text-primary hover:bg-white/90">
+        <Button asChild className="mt-3 min-h-12 w-full rounded-2xl bg-white text-base font-semibold text-primary hover:bg-white/90">
           <Link to={next.to}>
             {next.label === 'Take attendance' ? <ClipboardCheck className="mr-2 h-5 w-5" /> : <Timer className="mr-2 h-5 w-5" />}
             {next.label}
           </Link>
         </Button>
       )}
-    </section>
+    </Hero>
   );
 };
 
@@ -151,12 +150,14 @@ const GroupTiles: React.FC<{ groups: Group[]; days: (GroupDay | undefined)[]; xt
   }
   return (
     <section className="min-w-0">
-      <div className="mb-2 flex items-center justify-between px-1">
-        <h2 className="text-sm font-semibold">{scope.scope === 'all' ? 'Groups' : groups.length > 1 ? 'My groups' : 'My group'}</h2>
-        <Link to={teamPath('/groups')} className="text-xs font-medium text-primary">
-          See all
-        </Link>
-      </div>
+      <SectionHeading
+        title={scope.scope === 'all' ? 'Groups' : groups.length > 1 ? 'My groups' : 'My group'}
+        action={
+          <Link to={teamPath('/groups')} className="text-xs font-medium text-primary">
+            See all
+          </Link>
+        }
+      />
       <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-2 md:px-0">
         {groups.map((g, i) => {
           const d = days[i];
@@ -302,14 +303,8 @@ const RecentResultBlock: React.FC<{ seasonId: string }> = ({ seasonId }) => {
             {race.name} · {formatDateShort(race.date)}
           </p>
           <div className="mt-2 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-muted/60 p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Team avg</p>
-              <p className="text-2xl font-bold tabular-nums">{race.avgTimeSec != null ? formatTime(race.avgTimeSec) : '—'}</p>
-            </div>
-            <div className="rounded-2xl bg-muted/60 p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Finishers</p>
-              <p className="text-2xl font-bold tabular-nums">{race.finisherCount}</p>
-            </div>
+            <Stat label="Team avg" value={race.avgTimeSec != null ? formatTime(race.avgTimeSec) : '—'} />
+            <Stat label="Finishers" value={race.finisherCount} />
           </div>
         </Link>
       )}
@@ -449,65 +444,91 @@ const AthleteTodayNext: React.FC<{ athleteId: string }> = ({ athleteId }) => {
   const plan = planData?.plan;
   const groupNames = (myGroups ?? []).filter((g) => g.type !== 'X_TRAINING').map((g) => g.name);
 
+  const meet = meetCard?.meet;
+  const daysOut = meet ? Math.max(0, Math.round((Date.parse(meet.date.slice(0, 10)) - Date.parse(today)) / 86400000)) : null;
+  const goalButton =
+    reflectionsOn && nextRaces.length > 0 && !allLocked ? (
+      <Button onClick={openGoal} className="mt-4 min-h-12 w-full rounded-2xl bg-white text-base font-semibold text-primary hover:bg-white/90">
+        <Target className="mr-2 h-5 w-5" />
+        {goalSet ? 'Goal set · edit' : 'Set your goal'}
+      </Button>
+    ) : null;
+
   return (
-    <div className="space-y-4">
-      <Block title="Today's practice" icon={CalendarDays}>
-        {groupNames.length > 0 && <p className="mb-2 text-xs font-medium text-muted-foreground">{groupNames.join(' · ')}</p>}
-        {planLoading ? <Loading /> : !plan ? <p className="text-sm text-muted-foreground">Nothing posted for today yet.</p> : <PracticePlanPreview plan={plan} />}
-      </Block>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Block title="Next meet" icon={Flag}>
+    <div className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="space-y-5">
           {meetLoading ? (
-            <Loading />
-          ) : !meetCard?.meet ? (
-            <p className="text-sm text-muted-foreground">No meet on the schedule yet.</p>
-          ) : (
-            <div className="space-y-2">
-              <p className="truncate font-medium">{meetCard.meet.name}</p>
-              <p className="text-sm text-muted-foreground">
-                {formatDateShort(meetCard.meet.date)}
-                {meetCard.meet.location ? ` · ${meetCard.meet.location}` : ''}
-              </p>
-              {reflectionsOn && nextRaces.length > 0 && !allLocked && (
-                goalSet ? (
-                  <Button variant="outline" className="min-h-12 w-full sm:min-h-9 sm:w-auto" onClick={openGoal}>
-                    Goal set · edit
-                  </Button>
-                ) : (
-                  <Button className="min-h-12 w-full sm:min-h-9 sm:w-auto" onClick={openGoal}>
-                    Set your goal
-                  </Button>
-                )
-              )}
-            </div>
-          )}
-        </Block>
-
-        <Block title="Last race" icon={Gauge}>
-          {raceLoading ? (
-            <Loading />
-          ) : !lastRace ? (
-            <p className="text-sm text-muted-foreground">No races yet.</p>
-          ) : (
-            <div className="space-y-2">
-              <Link to={teamPath('/me')} className="block">
-                <p className="truncate font-medium">{lastRace.raceName}</p>
-                <p className="text-sm text-muted-foreground">
-                  {formatDateShort(lastRace.date)} · {formatTime(lastRace.time)}
-                </p>
+            <Skeleton className="h-44 w-full rounded-3xl" />
+          ) : meet ? (
+            <Hero>
+              <p className="text-xs font-medium uppercase tracking-wider text-primary-foreground/70">Next race</p>
+              <Link to={teamPath(`/meet/${meet.id}`)} className="mt-2 flex items-center gap-3">
+                <DateTile date={meet.date} className="bg-white/15 text-primary-foreground" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xl font-bold">{meet.name}</p>
+                  <p className="truncate text-sm text-primary-foreground/80">{meet.location || (meet.isHome ? 'Home' : 'Away')}</p>
+                </div>
+                {daysOut != null && (
+                  <div className="shrink-0 text-right">
+                    <p className="text-4xl font-bold tabular-nums leading-none">{daysOut}</p>
+                    <p className="text-[11px] text-primary-foreground/70">{daysOut === 1 ? 'day' : 'days'}</p>
+                  </div>
+                )}
               </Link>
-              {reflectionsOn && lastReflection && !lastReflection.reflection.postSubmittedAt && (
-                <Button
-                  className="min-h-12 w-full sm:min-h-9 sm:w-auto"
-                  onClick={() => setReflect({ raceId: lastRace.raceId, name: lastRace.raceName, tab: 'post' })}
-                >
-                  Reflect on this race
-                </Button>
-              )}
-            </div>
+              {goalButton}
+            </Hero>
+          ) : (
+            <Panel title="Next race">
+              <p className="text-sm text-muted-foreground">No meet on the schedule yet.</p>
+            </Panel>
           )}
-        </Block>
+          <div className="grid grid-cols-4 gap-1">
+            <QuickAction icon={Gauge} label="My season" to={teamPath('/me')} />
+            <QuickAction icon={Dumbbell} label="Paces" to={teamPath('/train')} tone="bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300" />
+            <QuickAction icon={Compass} label="Strategy" to={teamPath(`/athlete/${athleteId}/strategy`)} tone="bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300" />
+            <QuickAction icon={Flag} label="Meets" to={teamPath('/meets')} tone="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" />
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <Panel
+            title="Today's practice"
+            action={
+              groupNames.length > 0 && (
+                <span className="truncate rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{groupNames.join(' · ')}</span>
+              )
+            }
+          >
+            {planLoading ? <Loading /> : !plan ? <p className="text-sm text-muted-foreground">Nothing posted for today yet.</p> : <PracticePlanPreview plan={plan} />}
+          </Panel>
+
+          <Panel title="Last race">
+            {raceLoading ? (
+              <Loading />
+            ) : !lastRace ? (
+              <p className="text-sm text-muted-foreground">No races yet.</p>
+            ) : (
+              <>
+                <Link to={teamPath('/me')} className="block">
+                  <p className="text-4xl font-bold tabular-nums">{formatTime(lastRace.time)}</p>
+                  <p className="mt-1 truncate text-sm text-muted-foreground">
+                    {lastRace.raceName} · {formatDateShort(lastRace.date)}
+                  </p>
+                </Link>
+                {reflectionsOn && lastReflection && !lastReflection.reflection.postSubmittedAt && (
+                  <Button
+                    variant="outline"
+                    className="mt-3 min-h-12 w-full"
+                    onClick={() => setReflect({ raceId: lastRace.raceId, name: lastRace.raceName, tab: 'post' })}
+                  >
+                    Reflect on this race
+                  </Button>
+                )}
+              </>
+            )}
+          </Panel>
+        </div>
       </div>
 
       <Sheet open={pickRace} onOpenChange={setPickRace}>
