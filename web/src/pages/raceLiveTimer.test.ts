@@ -370,10 +370,8 @@ describe('meet results export', () => {
 });
 
 describe('enter results scoped to the race, not the whole roster', () => {
-  const enterResults = meetDetail.slice(
-    meetDetail.indexOf('const EnterRaceResultsDialog:'),
-    meetDetail.indexOf('export default MeetDetailPage;')
-  );
+  // The dialog moved verbatim to its own file, shared by both shells.
+  const enterResults = code(read('components/meets/EnterRaceResultsDialog.tsx'));
 
   it('reads the race\'s own entrants, same list the Live Timer and Manage Entrants use', () => {
     expect(enterResults).toContain('useRaceEntrants(open ? raceId : null)');
@@ -391,7 +389,7 @@ describe('enter results scoped to the race, not the whole roster', () => {
   });
 
   it('lets a coach add someone beyond entrants/existing-results — a manual race with nobody entered yet still works', () => {
-    expect(meetDetail).toContain("from '@/components/groups/AthletePicker'");
+    expect(enterResults).toContain("from '../groups/AthletePicker'");
     expect(enterResults).toContain('onPick={handleAddAthlete}');
     expect(enterResults).toContain('const [addedAthleteIds, setAddedAthleteIds] = useState<string[]>([])');
   });

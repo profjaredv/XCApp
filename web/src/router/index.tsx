@@ -43,6 +43,8 @@ import GroupsHubPage from '../pages/next/GroupsHubPage';
 import GroupPageNext from '../pages/next/GroupPageNext';
 import AthletesPage from '../pages/next/AthletesPage';
 import SeasonPage from '../pages/next/SeasonPage';
+import MeetsPageNext from '../pages/next/MeetsPageNext';
+import MeetPageNext from '../pages/next/MeetPageNext';
 
 export const router = createBrowserRouter([
   {
@@ -371,11 +373,11 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'meets',
-                    element: <ByUi classic={<MeetsPage />} />,
+                    element: <ByUi classic={<MeetsPage />} next={<MeetsPageNext />} />,
                   },
                   {
                     path: 'meet/:meetId',
-                    element: <ByUi classic={<MeetDetailPage />} />,
+                    element: <ByUi classic={<MeetDetailPage />} next={<MeetPageNext />} />,
                   },
                   {
                     path: 'equipment',
