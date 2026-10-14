@@ -173,3 +173,70 @@ export const SectionHeading: React.FC<{ title: string; action?: React.ReactNode 
     {action}
   </div>
 );
+
+/** Pill-style tabs. Renders a tablist; the page owns which tab is shown. */
+export function SegmentedTabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+  label,
+  className,
+}: {
+  tabs: { key: T; label: string }[];
+  value: T;
+  onChange: (key: T) => void;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <div role="tablist" aria-label={label} className={cn('flex gap-1 overflow-x-auto rounded-full bg-muted p-1 [scrollbar-width:none]', className)}>
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          role="tab"
+          type="button"
+          aria-selected={value === t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'min-h-10 flex-1 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-colors',
+            value === t.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const AVATAR_TONES = [
+  'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+  'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
+  'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300',
+  'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300',
+  'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300',
+];
+
+/** Initials in a tinted circle; the tint is stable per name. */
+export const Avatar: React.FC<{ name: string; size?: 'sm' | 'md' | 'lg'; className?: string }> = ({ name, size = 'md', className }) => {
+  const parts = name.trim().split(/\s+/);
+  const initials = ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'flex shrink-0 items-center justify-center rounded-full font-semibold',
+        size === 'sm' && 'h-8 w-8 text-xs',
+        size === 'md' && 'h-10 w-10 text-sm',
+        size === 'lg' && 'h-14 w-14 text-lg',
+        AVATAR_TONES[h % AVATAR_TONES.length],
+        className
+      )}
+    >
+      {initials}
+    </span>
+  );
+};

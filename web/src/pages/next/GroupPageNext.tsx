@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Settings2, Users } from 'lucide-react';
+import { ChevronRight, Settings2, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
@@ -12,7 +12,7 @@ import { GroupAnalyticsTab } from '@/components/analytics/GroupAnalyticsTab';
 import { ManageMembersDialog, type AthleteRow } from '@/components/groups/ManageMembersDialog';
 import { NextPageHeader, RowLink } from '@/components/next/PageHeader';
 import { gradeLabelShort } from '@/lib/seasonUtils';
-import { cn } from '@/lib/utils';
+import { Avatar, SegmentedTabs, Stat } from '@/components/next/Visual';
 
 // One group (docs/leadpack-new-ui-trial.md §4.3): Today (the classic
 // GroupDayPage, embedded — attendance, sessions, cross-training, the date
@@ -37,31 +37,33 @@ const GroupPageNext: React.FC = () => {
   const group = day?.group;
   const leaders = group?.leaders.map((l) => l.name || l.email).join(', ');
   const isVolunteer = currentUser?.teamRole === 'VOLUNTEER_COACH';
+  const marked = day ? day.members.length - day.counts.unmarked : 0;
 
   return (
     <div className="mx-auto max-w-5xl">
       <NextPageHeader
         title={group?.name ?? 'Group'}
-        subtitle={group ? `${day!.members.length} athlete${day!.members.length === 1 ? '' : 's'}${leaders ? ` · ${leaders}` : ''}` : undefined}
+        subtitle={group ? (leaders ? `Led by ${leaders}` : 'No leader yet') : undefined}
         overflow={isVolunteer ? [] : [{ label: 'Manage all groups', to: teamPath('/groups/manage'), icon: Settings2 }]}
       />
-      <div role="tablist" aria-label="Group" className="mb-4 flex gap-1 border-b">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            type="button"
-            aria-selected={tab === t.key}
-            onClick={() => setParams(t.key === 'today' ? {} : { tab: t.key }, { replace: true })}
-            className={cn(
-              'min-h-12 border-b-2 px-4 text-sm font-medium',
-              tab === t.key ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {day && (
+        <div className="mb-4 grid grid-cols-3 gap-2">
+          <Stat label="Athletes" value={day.members.length} />
+          <Stat
+            label="Here today"
+            value={day.session && marked > 0 ? day.counts.PRESENT + day.counts.LATE : '–'}
+            sub={day.session && marked > 0 ? `of ${day.members.length}` : 'not taken'}
+          />
+          <Stat label="Sessions" value={day.intervalSessions.length} sub="today" />
+        </div>
+      )}
+      <SegmentedTabs
+        label="Group"
+        tabs={TABS}
+        value={tab}
+        onChange={(k) => setParams(k === 'today' ? {} : { tab: k }, { replace: true })}
+        className="mb-4"
+      />
       {tab === 'today' && <GroupDayPage embedded />}
       {tab === 'trends' && group && <GroupAnalyticsTab groupSeasonId={group.seasonId} groupIds={[group.id]} />}
       {tab === 'members' && group && <MembersTab groupId={group.id} seasonId={group.seasonId} season={group.season} />}
@@ -101,11 +103,13 @@ const MembersTab: React.FC<{ groupId: string; seasonId: string; season: number }
       ) : members.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nobody is in this group yet.</p>
       ) : (
-        <div className="divide-y rounded-lg border">
+        <div className="rounded-3xl bg-card p-2 shadow-sm ring-1 ring-border/60">
           {members.map((m) => (
             <RowLink key={m.membershipId} to={teamPath(`/athlete/${m.athleteId}`)}>
+              <Avatar name={m.name} />
               <span className="min-w-0 flex-1 truncate font-medium">{m.name}</span>
-              {m.grade != null && <span className="text-xs text-muted-foreground">{gradeLabelShort(m.grade)}</span>}
+              {m.grade != null && <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{gradeLabelShort(m.grade)}</span>}
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
             </RowLink>
           ))}
         </div>
