@@ -18,6 +18,7 @@ import { gradeLabel } from '@/lib/seasonUtils';
 import { formatSplitMMSS, SPLIT_PATTERN_LABEL } from '@/lib/splitPatternDisplay';
 import { prsByEvent, eventLabel, type RaceForPr } from '@/lib/prsByEvent';
 import { Avatar, DateTile, Hero, SectionHeading } from '@/components/next/Visual';
+import { CareerProgress } from '@/components/next/CareerProgress';
 import { CourseAdjustedProgressionCard } from '@/components/athletes/CourseAdjustedProgressionCard';
 import { RaceReflectionDialogBody } from '@/components/reflections/RaceReflectionDialogBody';
 import MyProgressPage from '../MyProgressPage';
@@ -125,6 +126,8 @@ const MySeason: React.FC<{ athleteId: string; name: string; graduationYear: numb
               </div>
             </Hero>
           )}
+
+          <CareerProgress athleteId={athleteId} name={name} gender={null} />
 
           <CourseAdjustedProgressionCard athleteId={athleteId} />
 
