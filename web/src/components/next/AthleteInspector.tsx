@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Eye, Map as MapIcon, Compass, X } from 'lucide-react';
+import { Eye, Map as MapIcon, Compass, Maximize2, Minimize2, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
@@ -34,7 +34,10 @@ export const AthleteInspector: React.FC<{
   /** Omitted on the full-page view, which has the top bar's back button instead. */
   onClose?: () => void;
   variant?: 'panel' | 'page';
-}> = ({ athlete, season, onClose, variant = 'panel' }) => {
+  /** Desktop dock only: whether the panel is the wide slide-over, and how to switch. */
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+}> = ({ athlete, season, onClose, variant = 'panel', expanded, onToggleExpand }) => {
   const { currentUser } = useAuth();
   const teamPath = useTeamPath();
   const fullCoach = isFullCoach(currentUser);
@@ -62,6 +65,17 @@ export const AthleteInspector: React.FC<{
             {athlete.groups[0] ? ` · ${athlete.groups[0].name}` : ''}
           </p>
         </div>
+        {onToggleExpand && (
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            aria-label={expanded ? 'Dock beside the list' : 'Expand'}
+            title={expanded ? 'Dock beside the list' : 'Expand'}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-muted hover:bg-accent"
+          >
+            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
+        )}
         {onClose && (
           <button type="button" onClick={onClose} aria-label="Close" className="flex h-10 w-10 items-center justify-center rounded-full bg-muted hover:bg-accent">
             <X className="h-5 w-5" />

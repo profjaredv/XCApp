@@ -336,7 +336,10 @@ router.get('/athlete/:athleteId/strategy', authenticate, async (req, res) => {
     }
 
     const isSelf = req.user.linkedAthlete?.id === athleteId;
-    const isTeamCoach = req.user.teamId === athlete.teamId && ANY_COACH.includes(req.user.teamRole);
+    // hasTeamRole looks up the caller's TeamMember role; authenticate()
+    // attaches only the User row, so req.user.teamRole is never set and
+    // reading it here locked every coach out of journey and strategy.
+    const isTeamCoach = req.user.teamId === athlete.teamId && (await hasTeamRole(req.user, ANY_COACH));
 
     let hasApprovedGuardianLink = false;
     if (!isSelf && !isTeamCoach) {
@@ -438,7 +441,10 @@ router.get('/athlete/:athleteId/journey', authenticate, async (req, res) => {
     }
 
     const isSelf = req.user.linkedAthlete?.id === athleteId;
-    const isTeamCoach = req.user.teamId === athlete.teamId && ANY_COACH.includes(req.user.teamRole);
+    // hasTeamRole looks up the caller's TeamMember role; authenticate()
+    // attaches only the User row, so req.user.teamRole is never set and
+    // reading it here locked every coach out of journey and strategy.
+    const isTeamCoach = req.user.teamId === athlete.teamId && (await hasTeamRole(req.user, ANY_COACH));
 
     let hasApprovedGuardianLink = false;
     if (!isSelf && !isTeamCoach) {
