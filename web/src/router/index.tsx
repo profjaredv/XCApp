@@ -37,6 +37,7 @@ import TeamRouteGuard from './TeamRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
 import ShellSwitch from './ShellSwitch';
 import ByUi from './ByUi';
+import TodayPageNext from '../pages/next/TodayPageNext';
 
 export const router = createBrowserRouter([
   {
@@ -282,11 +283,11 @@ export const router = createBrowserRouter([
                   // route resolving.
                   {
                     index: true,
-                    element: <ByUi classic={<TodayPage />} />,
+                    element: <ByUi classic={<TodayPage />} next={<TodayPageNext />} />,
                   },
                   {
                     path: 'today',
-                    element: <ByUi classic={<TodayPage />} />,
+                    element: <ByUi classic={<TodayPage />} next={<TodayPageNext />} />,
                   },
                   {
                     path: 'analytics',
