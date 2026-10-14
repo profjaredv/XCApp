@@ -83,11 +83,11 @@ describe('classic entry points', () => {
   it('the next shell has a way back from detail pages and the season picker', () => {
     const shell = read('components/next/AppShell.tsx');
     expect(shell).toContain('aria-label="Go back"');
-    expect(shell).toContain('<TeamSeasonHeader />');
+    expect(shell).toContain('<SeasonChip />');
   });
 
   it('the next shell offers Switch to classic, which asks once and optionally', () => {
-    expect(read('components/next/AppShell.tsx')).toContain('Switch to classic');
+    expect(read('components/next/AccountMenuItems.tsx')).toContain('Switch to classic');
     const dialog = read('components/next/SwitchToClassicDialog.tsx');
     expect(dialog).toContain('What made you switch back?');
     expect(dialog).toContain('maxLength={500}');
