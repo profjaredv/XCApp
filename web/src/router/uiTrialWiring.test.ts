@@ -49,7 +49,7 @@ describe('UI trial router wiring', () => {
   });
 
   it('adds train, athletes, season and groups/manage, each on its classic page for now', () => {
-    expect(router).toMatch(/path: 'train',\s+element: <SchedulePage \/>/);
+    expect(router).toMatch(/path: 'train',\s+element: <ByUi classic=\{<SchedulePage \/>\} next=\{<TrainPage \/>\}/);
     expect(router).toMatch(/path: 'athletes',\s+element: <RosterPage \/>/);
     expect(router).toMatch(/path: 'season',\s+element: <AnalyticsPage \/>/);
     expect(router).toMatch(/path: 'groups\/manage',\s+element: <GroupsPage \/>/);

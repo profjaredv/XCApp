@@ -38,6 +38,7 @@ import LegacyRedirect from './LegacyRedirect';
 import ShellSwitch from './ShellSwitch';
 import ByUi from './ByUi';
 import TodayPageNext from '../pages/next/TodayPageNext';
+import TrainPage from '../pages/next/TrainPage';
 
 export const router = createBrowserRouter([
   {
@@ -327,7 +328,7 @@ export const router = createBrowserRouter([
                   // with create, assign, sort by pace and dynamic groups.
                   {
                     path: 'train',
-                    element: <SchedulePage />,
+                    element: <ByUi classic={<SchedulePage />} next={<TrainPage />} />,
                   },
                   {
                     path: 'athletes',
