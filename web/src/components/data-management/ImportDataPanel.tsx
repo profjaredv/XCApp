@@ -6,6 +6,7 @@ import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { useToast } from "../../components/ui/use-toast";
 import { Progress } from "../../components/ui/progress";
 import { useImportData } from "../../hooks/useDataManagement";
+import { getApiErrorMessage } from "@/lib/apiError";
 
 interface ImportDataPanelProps {
   teamId: string;
@@ -92,13 +93,16 @@ export function ImportDataPanel({ teamId, season, onComplete, setIsProcessing }:
     } catch (error) {
       stopProgressSimulation();
       setImportStatus('error');
-      setErrorMessage(error instanceof Error ? error.message : 'An unknown error occurred');
+      // The server's own message (e.g. "Athletic.net showed an automated-
+      // traffic check…"), not axios's "Request failed with status code 502".
+      const message = getApiErrorMessage(error, 'The import failed. Please try again.');
+      setErrorMessage(message);
       setIsProcessing(false);
       
       toast({
         variant: "destructive",
         title: "Error Importing Data",
-        description: error instanceof Error ? error.message : 'An unknown error occurred',
+        description: message,
       });
     }
   };

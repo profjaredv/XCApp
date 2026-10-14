@@ -18,6 +18,7 @@ const { normalizeGender } = require('../lib/gender');
 const { mergeStaffRoster } = require('../lib/teamStaff');
 const { raceIdentityKey, groupRacesIntoColumns } = require('../lib/meetMapping');
 const { linkRacesToMeets } = require('../lib/meetLinking');
+const { describeScrapeFailure } = require('../lib/scrapeFailure');
 
 // F2 (LeadPack Master Build Handoff): self-serve team creation is gone.
 // POST /api/teams used to let any signed-in user become HEAD_COACH of any
@@ -136,7 +137,12 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
     scraperProcess.on('close', async (code) => {
       if (code !== 0) {
         console.error(`Scraper process exited with code ${code}: ${errorData}`);
-        return res.status(500).json({ message: 'Failed to scrape data.' });
+        // Athletic.net, not this app, is the usual reason: a Cloudflare bot
+        // check ("Just a moment...") or a results page that no longer has
+        // the tables the scraper reads. Say so, instead of a bare 500 the
+        // coach can only read as "LeadPack is broken".
+        const reason = describeScrapeFailure(errorData);
+        return res.status(reason.status).json({ message: reason.message });
       }
 
       try {
