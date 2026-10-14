@@ -24,6 +24,7 @@ import { Avatar } from '@/components/next/Visual';
 import { NextPageHeader } from '@/components/next/PageHeader';
 import { AddAthleteDialog } from '@/components/roster/AddAthleteDialog';
 import { AthleteInspector } from '@/components/next/AthleteInspector';
+import { InspectorDock } from '@/components/next/InspectorDock';
 import { useMediaQuery } from '@/components/next/useMediaQuery';
 
 // Athletes (docs/leadpack-new-ui-trial.md §4.4): one list, replacing the
@@ -173,9 +174,17 @@ const AthletesPage: React.FC = () => {
         </div>
 
         {wide && selected && (
-          <aside className="sticky top-0 h-[calc(100dvh-8rem)] w-[420px] shrink-0 overflow-y-auto rounded-3xl bg-card shadow-sm ring-1 ring-border/60">
-            <AthleteInspector athlete={selected} season={season} onClose={() => setParams({}, { replace: true })} />
-          </aside>
+          <InspectorDock label={selected.name}>
+            {({ expanded, toggleExpanded }) => (
+              <AthleteInspector
+                athlete={selected}
+                season={season}
+                expanded={expanded}
+                onToggleExpand={toggleExpanded}
+                onClose={() => setParams({}, { replace: true })}
+              />
+            )}
+          </InspectorDock>
         )}
       </div>
 
@@ -216,8 +225,10 @@ const Trend: React.FC<{ value: number | null }> = ({ value }) =>
   );
 
 const AthleteTable: React.FC<{ rows: AthleteListRow[]; selectedId: string | null; onSelect: (id: string) => void }> = ({ rows, selectedId, onSelect }) => (
-  <div className="hidden overflow-hidden rounded-3xl bg-card shadow-sm ring-1 ring-border/60 lg:block">
-    <table className="w-full text-sm">
+  // Scrolls sideways inside its card when a widened inspector leaves it
+  // less room than its columns need, rather than clipping the right ones.
+  <div className="hidden overflow-x-auto rounded-3xl bg-card shadow-sm ring-1 ring-border/60 lg:block">
+    <table className="w-full min-w-[44rem] text-sm">
       <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
         <tr>
           <th className="px-3 py-2 font-medium">Name</th>
