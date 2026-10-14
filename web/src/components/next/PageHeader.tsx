@@ -84,9 +84,13 @@ export const NextPageHeader: React.FC<{
  * header instead.
  */
 export const StickyActionBar: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="sticky bottom-0 z-10 -mx-3 mt-4 border-t border-border bg-background/95 px-3 py-2 backdrop-blur md:-mx-6 md:px-6 lg:hidden">
-    {children}
-  </div>
+  <>
+    {/* Room for the bar, so the page's last row isn't hidden under it. */}
+    <div className="h-20 lg:hidden" aria-hidden />
+    <div className="fixed inset-x-0 bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-20 border-t border-border bg-background/95 px-3 py-2 backdrop-blur lg:hidden">
+      {children}
+    </div>
+  </>
 );
 
 /** A whole-row link, 48px+, for lists — no button inside the row. */

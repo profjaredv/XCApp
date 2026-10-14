@@ -39,6 +39,8 @@ import ShellSwitch from './ShellSwitch';
 import ByUi from './ByUi';
 import TodayPageNext from '../pages/next/TodayPageNext';
 import TrainPage from '../pages/next/TrainPage';
+import GroupsHubPage from '../pages/next/GroupsHubPage';
+import GroupPageNext from '../pages/next/GroupPageNext';
 
 export const router = createBrowserRouter([
   {
@@ -317,7 +319,7 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'groups',
-                    element: <ByUi classic={<GroupsPage />} />,
+                    element: <ByUi classic={<GroupsPage />} next={<GroupsHubPage />} />,
                   },
                   // New routes for the "next" shell (UI trial, §1.4).
                   // Reachable from either shell, linked only from next. Each
@@ -349,7 +351,7 @@ export const router = createBrowserRouter([
                     // the roster and last times are the point even for a
                     // team that doesn't take attendance.
                     path: 'group/:groupId',
-                    element: <ByUi classic={<GroupDayPage />} />,
+                    element: <ByUi classic={<GroupDayPage />} next={<GroupPageNext />} />,
                   },
                   // Schedule rework: Practice and Meets merged into one
                   // month calendar. 'practice-plans' redirects old
