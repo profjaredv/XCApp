@@ -2,10 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ClipboardList, Download, Link2, MoreHorizontal, Pencil, Play, Split, Timer, Upload, Video } from 'lucide-react';
+import { ClipboardList, Download, Flag, Link2, MoreHorizontal, Pencil, Play, Split, Timer, Upload, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -31,6 +29,7 @@ import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
 import { EnterRaceResultsDialog } from '@/components/meets/EnterRaceResultsDialog';
 import { NextPageHeader, StickyActionBar } from '@/components/next/PageHeader';
 import { Sheet, SheetContent, SheetRow } from '@/components/next/Sheet';
+import { DateTile, Panel, SegmentedTabs } from '@/components/next/Visual';
 
 // One meet (docs/leadpack-new-ui-trial.md §4.6): Preview, Results, History.
 // No entrants or entry status anywhere — entries live on Athletic.net.
@@ -78,6 +77,7 @@ const MeetPageNext: React.FC = () => {
 
   const races = summary.races;
   const raceDay = summary.date.slice(0, 10) === today;
+  const daysOut = Math.round((Date.parse(summary.date.slice(0, 10)) - Date.parse(today)) / 86400000);
   const startTimer =
     coach && raceDay && races.length > 0 ? (
       <Button
@@ -93,25 +93,35 @@ const MeetPageNext: React.FC = () => {
     <div className="mx-auto max-w-4xl">
       <NextPageHeader
         title={summary.name}
-        subtitle={`${formatDateShort(summary.date)}${summary.location ? ` · ${summary.location}` : ''}${summary.isHome != null ? ` · ${summary.isHome ? 'Home' : 'Away'}` : ''}`}
         primary={startTimer}
         primaryDesktopOnly
         overflow={fullCoach ? [{ label: 'Meet details & races', onClick: () => setDetailsOpen(true), icon: Pencil }] : []}
       />
-      <div role="tablist" aria-label="Meet" className="mb-4 flex gap-1 border-b">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            type="button"
-            aria-selected={tab === t.key}
-            onClick={() => setParams(t.key === 'preview' ? {} : { tab: t.key }, { replace: true })}
-            className={cn('min-h-12 border-b-2 px-4 text-sm font-medium', tab === t.key ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="-mt-2 mb-4 flex items-center gap-3">
+        <DateTile date={summary.date} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">{summary.location || 'Location not set'}</p>
+          <p className="text-sm text-muted-foreground">
+            {formatDateShort(summary.date)}
+            {summary.isHome != null ? ` · ${summary.isHome ? 'Home' : 'Away'}` : ''}
+          </p>
+        </div>
+        <span
+          className={cn(
+            'shrink-0 rounded-full px-3 py-1 text-xs font-semibold',
+            raceDay ? 'bg-primary text-primary-foreground' : daysOut > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          )}
+        >
+          {raceDay ? 'Race day' : daysOut > 0 ? (daysOut === 1 ? 'Tomorrow' : `In ${daysOut} days`) : 'Done'}
+        </span>
       </div>
+      <SegmentedTabs<Tab>
+        label="Meet"
+        tabs={tabs}
+        value={tab}
+        onChange={(k) => setParams(k === 'preview' ? {} : { tab: k }, { replace: true })}
+        className="mb-4"
+      />
 
       {tab === 'preview' && (
         <PreviewTab
@@ -169,11 +179,7 @@ const PreviewTab: React.FC<{
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Races</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <Panel title="Races">
           {races.length === 0 ? (
             <div className="space-y-2 text-sm">
               <p className="text-muted-foreground">No races yet — this team's races appear once results are imported after the meet.</p>
@@ -188,17 +194,20 @@ const PreviewTab: React.FC<{
               {!meetDistance && <p className="text-xs text-muted-foreground">Setting it now lets predictions use the real distance.</p>}
             </div>
           ) : (
-            <ul className="divide-y">
+            <ul className="divide-y divide-border/60">
               {races.map((r) => (
-                <li key={r.id} className="flex min-h-12 flex-wrap items-center gap-2 py-2">
-                  <span className="min-w-0 flex-1 truncate font-medium">{r.name}</span>
+                <li key={r.id} className="flex min-h-14 flex-wrap items-center gap-3 py-2">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <Flag className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-semibold">{r.name}</span>
                   {canEdit ? (
                     <button
                       type="button"
                       onClick={() => setEditing({ id: r.id, name: r.name, distanceMeters: r.distanceMeters })}
                       className={cn(
-                        'min-h-10 rounded-full border px-3 text-sm',
-                        r.distanceMeters ? 'border-border' : 'border-dashed border-amber-500 text-amber-700 dark:text-amber-400'
+                        'min-h-10 rounded-full px-3 text-sm font-semibold',
+                        r.distanceMeters ? 'bg-muted' : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200'
                       )}
                       title="Set this race's distance"
                     >
@@ -212,8 +221,7 @@ const PreviewTab: React.FC<{
               ))}
             </ul>
           )}
-        </CardContent>
-      </Card>
+      </Panel>
       {coach && <MeetPredictionsCard meetId={meetId} />}
       <RaceDistanceDialog race={editing} onClose={() => setEditing(null)} />
       {meetDistanceOpen && <MeetDistanceDialog meetId={meetId} current={meetDistance} onClose={() => setMeetDistanceOpen(false)} />}
@@ -227,9 +235,16 @@ const GoalsCount: React.FC<{ raceId: string; rosterCount: number | null }> = ({ 
   if (!data) return null;
   const n = data.filter((r) => r.processGoal || r.outcomeGoal || r.targetTimeSec != null || r.keyFocus).length;
   return (
-    <span className="w-full text-xs text-muted-foreground sm:w-auto" title="Only goals athletes chose to share with coaches are counted">
-      Goals shared: {n}
-      {rosterCount ? ` of ${rosterCount}` : ''}
+    <span className="flex w-full items-center gap-2 pl-[3.25rem] text-xs text-muted-foreground" title="Only goals athletes chose to share with coaches are counted">
+      {rosterCount ? (
+        <span className="h-1.5 max-w-40 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+          <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.round((n / rosterCount) * 100))}%` }} />
+        </span>
+      ) : null}
+      <span className="shrink-0">
+        Goals shared: {n}
+        {rosterCount ? ` of ${rosterCount}` : ''}
+      </span>
     </span>
   );
 };
@@ -332,37 +347,39 @@ const RaceResultsCard: React.FC<{ race: { id: string; name: string }; seasonYear
   ];
 
   return (
-    <Card>
-      <CardHeader className="space-y-2 pb-2">
+    <section className="rounded-3xl bg-card p-4 shadow-sm ring-1 ring-border/60">
+      <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <CardTitle className="min-w-0 flex-1 truncate text-base">{race.name}</CardTitle>
+          <h3 className="min-w-0 flex-1 truncate font-semibold">{race.name}</h3>
           {next && (
             <Button size="sm" className="min-h-10 shrink-0" onClick={next.run}>
               <next.icon className="mr-1.5 h-4 w-4" />
               {next.label}
             </Button>
           )}
-          <button type="button" onClick={() => setMenuOpen(true)} aria-label={`More for ${race.name}`} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border hover:bg-accent">
+          <button type="button" onClick={() => setMenuOpen(true)} aria-label={`More for ${race.name}`} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted hover:bg-accent">
             <MoreHorizontal className="h-5 w-5" />
           </button>
         </div>
         {/* The status strip — what's done for this race, at a glance. */}
-        <p className="text-sm text-muted-foreground">
-          {isLoading ? (
-            '…'
-          ) : (
-            <>
-              {finishers.length ? <span className="text-foreground">Results ✓</span> : 'No results yet'}
-              {finishers.length > 0 && ` · Splits ${withSplits}/${finishers.length}`}
-              {finishers.length > 0 && reflectionsOn && reflections && (
-                <span title="Reflections athletes shared with coaches"> · Reflections {reflected}/{finishers.length}</span>
-              )}
-            </>
-          )}
-        </p>
-      </CardHeader>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">…</p>
+        ) : finishers.length === 0 ? (
+          <span className="inline-block rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">No results yet</span>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            <Progress label="Results" value={finishers.length} max={finishers.length} />
+            <Progress label="Splits" value={withSplits} max={finishers.length} />
+            {reflectionsOn && reflections ? (
+              <Progress label="Reflections" value={reflected} max={finishers.length} title="Reflections athletes shared with coaches" />
+            ) : (
+              <span />
+            )}
+          </div>
+        )}
+      </div>
       {finishers.length > 0 && (
-        <CardContent>
+        <div className="mt-3">
           {scope.athleteIdsInScope && (
             <p className="mb-1 text-xs text-muted-foreground">
               {scope.label}: {shown.length} of {view!.results.length}
@@ -371,20 +388,27 @@ const RaceResultsCard: React.FC<{ race: { id: string; name: string }; seasonYear
           {shown.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nobody from {scope.label} ran this race.</p>
           ) : (
-            <ol className="divide-y text-sm">
+            <ol className="text-sm">
               {shown.map((r) => (
                 <li key={r.resultId}>
-                  <Link to={teamPath(`/athlete/${r.athleteId}`)} className="flex min-h-11 items-center gap-3 hover:bg-accent/50">
-                    <span className="w-8 shrink-0 text-right tabular-nums text-muted-foreground">{r.place ?? '–'}</span>
-                    <span className="min-w-0 flex-1 truncate">{r.athleteName}</span>
-                    {r.splits.length > 0 && <Badge variant="outline" className="font-normal">splits</Badge>}
-                    <span className="shrink-0 tabular-nums">{r.finishSec != null ? formatTime(r.finishSec) : '—'}</span>
+                  <Link to={teamPath(`/athlete/${r.athleteId}`)} className="-mx-2 flex min-h-12 items-center gap-3 rounded-2xl px-2 hover:bg-accent/60">
+                    <span
+                      className={cn(
+                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums',
+                        r.place != null && r.place <= 3 ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : 'bg-muted text-muted-foreground'
+                      )}
+                    >
+                      {r.place ?? '–'}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-medium">{r.athleteName}</span>
+                    {r.splits.length > 0 && <Split className="h-4 w-4 shrink-0 text-primary" aria-label="Has splits" />}
+                    <span className="shrink-0 font-semibold tabular-nums">{r.finishSec != null ? formatTime(r.finishSec) : '—'}</span>
                   </Link>
                 </li>
               ))}
             </ol>
           )}
-        </CardContent>
+        </div>
       )}
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetContent title={race.name}>
@@ -408,9 +432,21 @@ const RaceResultsCard: React.FC<{ race: { id: string; name: string }; seasonYear
           <EnterRaceResultsDialog raceId={race.id} raceName={race.name} seasonYear={seasonYear} open={enterOpen} onOpenChange={setEnterOpen} />
         </>
       )}
-    </Card>
+    </section>
   );
 };
+
+const Progress: React.FC<{ label: string; value: number; max: number; title?: string }> = ({ label, value, max, title }) => (
+  <div className="min-w-0 rounded-2xl bg-muted/60 p-2.5" title={title}>
+    <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+    <p className="text-sm font-bold tabular-nums">
+      {value}/{max}
+    </p>
+    <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-background" aria-hidden="true">
+      <span className={cn('block h-full rounded-full', value >= max ? 'bg-primary' : 'bg-amber-500')} style={{ width: `${max ? Math.round((value / max) * 100) : 0}%` }} />
+    </span>
+  </div>
+);
 
 // ---------------------------------------------------------------------------
 // History
@@ -429,9 +465,9 @@ const HistoryTab: React.FC<{ raceIds: string[]; coach: boolean }> = ({ raceIds, 
   if (isLoading) return <Skeleton className="h-32 w-full" />;
   if (!match) {
     return (
-      <Card>
-        <CardContent className="space-y-2 py-6 text-sm">
-          <p className="font-medium">Not linked to past years</p>
+      <Panel>
+        <div className="space-y-2 text-sm">
+          <p className="font-semibold">Not linked to past years</p>
           <p className="text-muted-foreground">
             {raceIds.length === 0
               ? "A meet joins its series through its races, and this team's races appear once results are imported."
@@ -445,8 +481,8 @@ const HistoryTab: React.FC<{ raceIds: string[]; coach: boolean }> = ({ raceIds, 
               </Link>
             </Button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
     );
   }
   if (historyLoading || !history) return <Skeleton className="h-32 w-full" />;
@@ -457,24 +493,10 @@ const HistoryTab: React.FC<{ raceIds: string[]; coach: boolean }> = ({ raceIds, 
       <p className="text-sm text-muted-foreground">
         Meet series: <span className="font-medium text-foreground">{history.groupName}</span> · team averages; years run at a different distance aren't compared.
       </p>
-      <div className="overflow-x-auto rounded-xl border">
-        <table className="w-full min-w-[34rem] text-sm">
-          <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2 font-medium">Year</th>
-              <th className="px-3 py-2 font-medium">Distance</th>
-              <th className="px-3 py-2 text-right font-medium">Finishers</th>
-              <th className="px-3 py-2 text-right font-medium">Boys avg</th>
-              <th className="px-3 py-2 text-right font-medium">Girls avg</th>
-              {showMine && <th className="px-3 py-2 text-right font-medium">You</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {history.rows.map((row) => (
-              <HistoryRow key={`${row.season}-${row.distanceMeters}`} row={row} showMine={showMine} />
-            ))}
-          </tbody>
-        </table>
+      <div className="grid gap-3 md:grid-cols-2">
+        {history.rows.map((row) => (
+          <HistoryCard key={`${row.season}-${row.distanceMeters}`} row={row} showMine={showMine} />
+        ))}
       </div>
     </div>
   );
@@ -482,25 +504,45 @@ const HistoryTab: React.FC<{ raceIds: string[]; coach: boolean }> = ({ raceIds, 
 
 const Delta: React.FC<{ sec: number | null | undefined }> = ({ sec }) =>
   sec == null ? null : (
-    <span className={cn('block text-xs', sec < 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400')}>
+    <span
+      className={cn(
+        'rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums',
+        sec < 0 ? 'bg-primary/10 text-primary' : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+      )}
+      title={sec < 0 ? 'Faster than the last comparable year' : 'Slower than the last comparable year'}
+    >
       {sec < 0 ? '−' : '+'}
       {formatTime(Math.abs(sec))}
     </span>
   );
 
-const HistoryRow: React.FC<{ row: MeetSeriesHistoryRow; showMine: boolean }> = ({ row, showMine }) => (
-  <tr className={cn('border-t', row.mine && 'bg-primary/5')}>
-    <td className="px-3 py-2.5 font-medium">{row.season}</td>
-    <td className="px-3 py-2.5">{row.distanceMeters ? `${row.distanceMeters}m` : row.distanceLabel ?? 'Unknown'}</td>
-    <td className="px-3 py-2.5 text-right tabular-nums">{row.finishers}</td>
-    {(['M', 'F'] as const).map((sex) => (
-      <td key={sex} className="px-3 py-2.5 text-right tabular-nums">
-        {row.bySex[sex].avgSec != null ? formatTime(row.bySex[sex].avgSec!) : '—'}
-        <Delta sec={row.comparedTo?.deltaSec[sex]} />
-      </td>
-    ))}
-    {showMine && <td className="px-3 py-2.5 text-right font-medium tabular-nums">{row.mine ? formatTime(row.mine.timeSec) : '—'}</td>}
-  </tr>
+const HistoryCard: React.FC<{ row: MeetSeriesHistoryRow; showMine: boolean }> = ({ row, showMine }) => (
+  <div className={cn('rounded-3xl bg-card p-4 shadow-sm ring-1 ring-border/60', row.mine && 'ring-2 ring-primary/50')}>
+    <div className="flex items-baseline gap-2">
+      <p className="text-2xl font-bold tabular-nums">{row.season}</p>
+      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+        {row.distanceMeters ? `${row.distanceMeters}m` : row.distanceLabel ?? 'Distance unknown'}
+      </span>
+      <span className="ml-auto text-xs text-muted-foreground">
+        {row.finishers} finisher{row.finishers === 1 ? '' : 's'}
+      </span>
+    </div>
+    <div className={cn('mt-3 grid gap-2', showMine ? 'grid-cols-3' : 'grid-cols-2')}>
+      {(['M', 'F'] as const).map((sex) => (
+        <div key={sex} className="min-w-0 rounded-2xl bg-muted/60 p-2.5">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{sex === 'M' ? 'Boys avg' : 'Girls avg'}</p>
+          <p className="text-lg font-bold tabular-nums">{row.bySex[sex].avgSec != null ? formatTime(row.bySex[sex].avgSec!) : '—'}</p>
+          <Delta sec={row.comparedTo?.deltaSec[sex]} />
+        </div>
+      ))}
+      {showMine && (
+        <div className="min-w-0 rounded-2xl bg-primary/10 p-2.5">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-primary">You</p>
+          <p className="text-lg font-bold tabular-nums">{row.mine ? formatTime(row.mine.timeSec) : '—'}</p>
+        </div>
+      )}
+    </div>
+  </div>
 );
 
 export default MeetPageNext;
