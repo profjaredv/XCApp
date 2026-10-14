@@ -1,10 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Map as MapIcon } from 'lucide-react';
+import { Map as MapIcon, Target } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,11 +13,11 @@ import { useMyGroups } from '@/hooks/useGroups';
 import { useAthleteSplits } from '@/hooks/useSplits';
 import { performanceService } from '@/api/performanceService';
 import { raceReflectionService } from '@/api/raceReflectionService';
-import { formatDateShort, formatTime } from '@/lib/formatUtils';
+import { formatTime } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { formatSplitMMSS, SPLIT_PATTERN_LABEL } from '@/lib/splitPatternDisplay';
 import { prsByEvent, eventLabel, type RaceForPr } from '@/lib/prsByEvent';
-import { NextPageHeader } from '@/components/next/PageHeader';
+import { Avatar, DateTile, Hero, SectionHeading } from '@/components/next/Visual';
 import { CourseAdjustedProgressionCard } from '@/components/athletes/CourseAdjustedProgressionCard';
 import { RaceReflectionDialogBody } from '@/components/reflections/RaceReflectionDialogBody';
 import MyProgressPage from '../MyProgressPage';
@@ -92,39 +90,46 @@ const MySeason: React.FC<{ athleteId: string; name: string; graduationYear: numb
 
   return (
     <div className="mx-auto max-w-3xl">
-      <NextPageHeader
-        title={name}
-        subtitle={[grade != null && !Number.isNaN(grade) ? gradeLabel(grade) : null, ...groupNames].filter(Boolean).join(' · ') || 'My Season'}
-        primary={
-          <Button asChild variant="outline" className="min-h-12 lg:min-h-10">
-            <Link to={teamPath(`/athlete/${athleteId}/journey`)}>
-              <MapIcon className="mr-1.5 h-4 w-4" />
-              Journey
-            </Link>
-          </Button>
-        }
-      />
+      <div className="mb-5 flex items-center gap-3 pt-1">
+        <Avatar name={name} size="lg" />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-[1.75rem] font-bold leading-tight tracking-tight">{name}</h1>
+          <p className="truncate text-sm text-muted-foreground">
+            {[grade != null && !Number.isNaN(grade) ? gradeLabel(grade) : null, ...groupNames].filter(Boolean).join(' · ') || 'My Season'}
+          </p>
+        </div>
+        <Link
+          to={teamPath(`/athlete/${athleteId}/journey`)}
+          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full bg-muted px-4 text-sm font-semibold hover:bg-accent"
+        >
+          <MapIcon className="h-4 w-4" />
+          Journey
+        </Link>
+      </div>
 
       {isLoading ? (
         <Skeleton className="h-40 w-full" />
       ) : (
         <div className="space-y-4">
           {prs.length > 0 && (
-            <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] md:mx-0 md:px-0" aria-label="Personal records">
-              {prs.map((pr) => (
-                <div key={pr.label} className="min-w-[7.5rem] shrink-0 rounded-xl border bg-card px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{pr.label} PR</p>
-                  <p className="text-lg font-semibold tabular-nums">{formatTime(pr.race.time)}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{pr.race.season}</p>
-                </div>
-              ))}
-            </div>
+            <Hero>
+              <p className="text-xs font-medium uppercase tracking-wider text-primary-foreground/70">Personal records</p>
+              <div className="-mx-5 mt-3 flex gap-2 overflow-x-auto px-5 [scrollbar-width:none]" aria-label="Personal records">
+                {prs.map((pr) => (
+                  <div key={pr.label} className="min-w-[7.25rem] shrink-0 rounded-2xl bg-white/10 px-3 py-2.5">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-primary-foreground/70">{pr.label}</p>
+                    <p className="text-2xl font-bold tabular-nums">{formatTime(pr.race.time)}</p>
+                    <p className="truncate text-[11px] text-primary-foreground/70">{pr.race.season === activeYear ? 'This season' : pr.race.season}</p>
+                  </div>
+                ))}
+              </div>
+            </Hero>
           )}
 
           <CourseAdjustedProgressionCard athleteId={athleteId} />
 
           <section className="space-y-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{activeYear} races</h2>
+            <SectionHeading title={`${activeYear} races`} />
             {seasonRaces.length === 0 ? (
               <p className="text-sm text-muted-foreground">No races yet this season. They show up here once results are in.</p>
             ) : (
@@ -134,46 +139,66 @@ const MySeason: React.FC<{ athleteId: string; name: string; graduationYear: numb
                 const goalTime = mine?.targetTimeSec ?? null;
                 const delta = goalTime != null ? race.time - goalTime : null;
                 return (
-                  <Card key={race.raceId || race.date}>
-                    <CardHeader className="pb-2">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <CardTitle className="min-w-0 truncate text-base">{race.meetName}</CardTitle>
-                        <span className="shrink-0 text-lg font-semibold tabular-nums">{formatTime(race.time)}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {formatDateShort(race.date)}
-                        {race.distanceMeters ? ` · ${eventLabel(race.distanceMeters)}` : ''}
-                        {race.place != null ? ` · ${race.place}${race.fieldSize ? ` of ${race.fieldSize}` : ''}` : ''}
-                        {race.teamPlace != null ? ` · ${ordinal(race.teamPlace)} on the team` : ''}
-                      </p>
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      {reflectionsOn && (
-                        <p>
-                          <span className="text-muted-foreground">Goal: </span>
-                          {mine && (mine.outcomeGoal || goalTime != null) ? (
-                            <>
-                              {[mine.outcomeGoal, goalTime != null ? formatTime(goalTime) : null].filter(Boolean).join(' · ')}
-                              {delta != null && (
-                                <Badge variant="outline" className={`ml-2 font-normal ${delta <= 0 ? 'text-green-700 dark:text-green-400' : ''}`}>
-                                  {delta <= 0 ? `beat it by ${formatTime(-delta)}` : `${formatTime(delta)} over`}
-                                </Badge>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">none set</span>
+                  <section key={race.raceId || race.date} className="rounded-3xl bg-card p-4 shadow-sm ring-1 ring-border/60">
+                    <div className="flex items-start gap-3">
+                      <DateTile date={race.date} className="bg-muted text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{race.meetName}</p>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {race.distanceMeters ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{eventLabel(race.distanceMeters)}</span> : null}
+                          {race.place != null && (
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">
+                              {ordinal(race.place)}
+                              {race.fieldSize ? ` of ${race.fieldSize}` : ''}
+                            </span>
                           )}
-                        </p>
+                          {race.teamPlace != null && (
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">{ordinal(race.teamPlace)} on the team</span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-2xl font-bold tabular-nums">{formatTime(race.time)}</span>
+                    </div>
+                    <div className="mt-3 space-y-2 text-sm">
+                      {reflectionsOn && (
+                        <div className="flex items-center gap-2 rounded-2xl bg-muted/60 px-3 py-2">
+                          <Target className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate">
+                            {mine && (mine.outcomeGoal || goalTime != null) ? (
+                              [mine.outcomeGoal, goalTime != null ? formatTime(goalTime) : null].filter(Boolean).join(' · ')
+                            ) : (
+                              <span className="text-muted-foreground">No goal set</span>
+                            )}
+                          </span>
+                          {delta != null && (
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
+                                delta <= 0 ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200'
+                              }`}
+                            >
+                              {delta <= 0 ? `beat it by ${formatTime(-delta)}` : `${formatTime(delta)} over`}
+                            </span>
+                          )}
+                        </div>
                       )}
                       {s && (
-                        <p className="text-xs text-muted-foreground">
-                          {s.analysis ? `${SPLIT_PATTERN_LABEL[s.analysis.pattern]} · ` : ''}
-                          {s.segments.map((seg) => `${seg.isClosing ? 'Final' : `Seg ${seg.sequence}`} ${formatSplitMMSS(seg.segmentSec)}`).join(' · ')}
-                        </p>
+                        <div>
+                          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Splits{s.analysis ? ` · ${SPLIT_PATTERN_LABEL[s.analysis.pattern]}` : ''}
+                          </p>
+                          <div className="flex gap-1.5">
+                            {s.segments.map((seg) => (
+                              <span key={seg.sequence} className="min-w-0 flex-1 rounded-xl bg-muted/60 px-2 py-1.5 text-center">
+                                <span className="block text-[10px] text-muted-foreground">{seg.isClosing ? 'Final' : `Seg ${seg.sequence}`}</span>
+                                <span className="block text-sm font-semibold tabular-nums">{formatSplitMMSS(seg.segmentSec)}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       )}
                       {reflectionsOn &&
                         (mine?.postSubmittedAt ? (
-                          <p>
+                          <p className="text-sm">
                             <span className="text-muted-foreground">Reflection: </span>
                             {[mine.whatWorked, mine.whatDidnt, mine.postNotes].filter(Boolean).join(' · ') || 'saved'}
                             <Button variant="link" className="h-auto p-0 pl-2" onClick={() => setReflect({ raceId: race.raceId, name: race.meetName })}>
@@ -181,12 +206,12 @@ const MySeason: React.FC<{ athleteId: string; name: string; graduationYear: numb
                             </Button>
                           </p>
                         ) : (
-                          <Button className="min-h-12 w-full sm:min-h-9 sm:w-auto" variant="outline" onClick={() => setReflect({ raceId: race.raceId, name: race.meetName })}>
+                          <Button className="min-h-12 w-full" variant="outline" onClick={() => setReflect({ raceId: race.raceId, name: race.meetName })}>
                             Reflect on this race
                           </Button>
                         ))}
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </section>
                 );
               })
             )}

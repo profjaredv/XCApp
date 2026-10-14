@@ -506,12 +506,12 @@ const AnalyticsPage = ({ visibleTabs, groupScopeIds }: AnalyticsPageProps = {}) 
             closed by default on mobile, so the page itself still needs to
             say which view it's showing. */}
         {visibleTabs ? (
-          <div role="tablist" aria-label="Season" className="-mx-3 mb-4 flex gap-1 overflow-x-auto border-b px-3 [scrollbar-width:none] md:mx-0 md:px-0">
+          <div role="tablist" aria-label="Season" className="mb-4 flex gap-1 overflow-x-auto rounded-full bg-muted p-1 [scrollbar-width:none]">
             {visibleTabs.map((t) => t.to ? (
               <Link
                 key={t.key}
                 to={t.to}
-                className="flex min-h-12 shrink-0 items-center border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+                className="flex min-h-10 shrink-0 items-center rounded-full px-4 text-sm font-semibold text-muted-foreground hover:text-foreground"
               >
                 {t.label}
               </Link>
@@ -522,8 +522,8 @@ const AnalyticsPage = ({ visibleTabs, groupScopeIds }: AnalyticsPageProps = {}) 
                 type="button"
                 aria-selected={activeTab === t.key}
                 onClick={() => handleTabChange(t.key)}
-                className={`min-h-12 shrink-0 border-b-2 px-3 text-sm font-medium ${
-                  activeTab === t.key ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                className={`min-h-10 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-semibold ${
+                  activeTab === t.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {t.label}
