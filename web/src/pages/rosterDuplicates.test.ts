@@ -16,21 +16,28 @@ const code = (src: string) =>
     .join('\n');
 
 const roster = code(read('pages/RosterPage.tsx'));
+// The add-athlete dialog (and its duplicate check) lives in its own file,
+// shared by Roster and the next shell's Athletes page.
+const addDialog = code(read('components/roster/AddAthleteDialog.tsx'));
 const groups = code(read('pages/GroupsPage.tsx'));
 
 describe('adding someone who is already on the team', () => {
+  it('Roster still opens that dialog', () => {
+    expect(roster).toContain('<AddAthleteDialog');
+  });
+
   it('offers the existing record instead of creating a second one', () => {
-    expect(roster).toContain("code === 'ATHLETE_EXISTS'");
-    expect(roster).toContain('putExistingOnRoster');
-    expect(roster).toContain('careerRaceCount');
+    expect(addDialog).toContain("code === 'ATHLETE_EXISTS'");
+    expect(addDialog).toContain('putExistingOnRoster');
+    expect(addDialog).toContain('careerRaceCount');
   });
 
   it('still allows a genuine second athlete with the same name', () => {
-    expect(roster).toContain('allowDuplicate: true');
+    expect(addDialog).toContain('allowDuplicate: true');
   });
 
   it('will not let the plain Add button push past the warning', () => {
-    expect(roster).toContain('|| !!nameConflict');
+    expect(addDialog).toContain('|| !!nameConflict');
   });
 });
 

@@ -41,6 +41,7 @@ import TodayPageNext from '../pages/next/TodayPageNext';
 import TrainPage from '../pages/next/TrainPage';
 import GroupsHubPage from '../pages/next/GroupsHubPage';
 import GroupPageNext from '../pages/next/GroupPageNext';
+import AthletesPage from '../pages/next/AthletesPage';
 
 export const router = createBrowserRouter([
   {
@@ -334,7 +335,7 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'athletes',
-                    element: <RosterPage />,
+                    element: <ByUi classic={<RosterPage />} next={<AthletesPage />} />,
                   },
                   {
                     path: 'season',
