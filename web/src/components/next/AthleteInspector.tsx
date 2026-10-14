@@ -18,6 +18,7 @@ import type { AthleteListRow } from '@/lib/athletesList';
 import { cn } from '@/lib/utils';
 import { AthleteGroupsCard } from '../AthleteGroupsCard';
 import { Avatar, SegmentedTabs, Stat } from './Visual';
+import { CareerProgress } from './CareerProgress';
 import { RacePredictionCard } from '../predictions/RacePredictionCard';
 import { CourseAdjustedProgressionCard } from '../athletes/CourseAdjustedProgressionCard';
 import { AthleteAdminPanel } from '../athletes/AthleteAdminPanel';
@@ -115,6 +116,7 @@ const SummaryTab: React.FC<{ athlete: AthleteListRow }> = ({ athlete }) => (
       <Stat label="PR 5K" value={formatFiveK(athlete.pr)} />
       <Stat label="Races" value={athlete.races} />
     </div>
+    <CareerProgress athleteId={athlete.id} name={athlete.name} gender={athlete.gender} />
     <CourseAdjustedProgressionCard athleteId={athlete.id} />
     <RacePredictionCard athleteId={athlete.id} />
     <AthleteGroupsCard athleteId={athlete.id} />
