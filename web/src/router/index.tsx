@@ -45,6 +45,7 @@ import AthletesPage from '../pages/next/AthletesPage';
 import SeasonPage from '../pages/next/SeasonPage';
 import MeetsPageNext from '../pages/next/MeetsPageNext';
 import MeetPageNext from '../pages/next/MeetPageNext';
+import MySeasonPage from '../pages/next/MySeasonPage';
 
 export const router = createBrowserRouter([
   {
@@ -393,7 +394,7 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'me',
-                    element: <ByUi classic={<MyProgressPage />} />,
+                    element: <ByUi classic={<MyProgressPage />} next={<MySeasonPage />} />,
                   },
                   {
                     path: 'feedback',
