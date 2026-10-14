@@ -42,6 +42,7 @@ import TrainPage from '../pages/next/TrainPage';
 import GroupsHubPage from '../pages/next/GroupsHubPage';
 import GroupPageNext from '../pages/next/GroupPageNext';
 import AthletesPage from '../pages/next/AthletesPage';
+import SeasonPage from '../pages/next/SeasonPage';
 
 export const router = createBrowserRouter([
   {
@@ -339,7 +340,7 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'season',
-                    element: <AnalyticsPage />,
+                    element: <ByUi classic={<AnalyticsPage />} next={<SeasonPage />} />,
                   },
                   {
                     path: 'groups/manage',

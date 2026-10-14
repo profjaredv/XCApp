@@ -88,7 +88,17 @@ interface SeasonBreakdown {
   best5kTime: number;
 }
 
-const AnalyticsPage = () => {
+// Optional props for the "next" shell's Season page (docs/leadpack-new-
+// ui-trial.md §4.5). Omitted — classic — the page is exactly what it was:
+// no tab row (the sidebar navigates), a heading naming the current view.
+export interface AnalyticsPageProps {
+  /** Show these as a visible, scrollable tab row instead of the heading. */
+  visibleTabs?: Array<{ key: string; label: string; /** A tab that is its own page (Post Season). */ to?: string }>;
+  /** Pin the Groups tab to the group scope's groups. */
+  groupScopeIds?: string[];
+}
+
+const AnalyticsPage = ({ visibleTabs, groupScopeIds }: AnalyticsPageProps = {}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
   const [genderFilter, setGenderFilter] = useState<'all' | 'M' | 'F'>('all');
@@ -471,7 +481,7 @@ const AnalyticsPage = () => {
   }
 
   return (
-    <div className="container mx-auto py-6 px-4">
+    <div className={visibleTabs ? 'w-full' : 'container mx-auto py-6 px-4'}>
       <AnalyticsHeader 
         isLoadingSeasons={isLoadingSeasons}
         availableSeasons={availableSeasons}
@@ -495,7 +505,34 @@ const AnalyticsPage = () => {
             highlight already covers that when it's open, but the drawer is
             closed by default on mobile, so the page itself still needs to
             say which view it's showing. */}
+        {visibleTabs ? (
+          <div role="tablist" aria-label="Season" className="-mx-3 mb-4 flex gap-1 overflow-x-auto border-b px-3 [scrollbar-width:none] md:mx-0 md:px-0">
+            {visibleTabs.map((t) => t.to ? (
+              <Link
+                key={t.key}
+                to={t.to}
+                className="flex min-h-12 shrink-0 items-center border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+              >
+                {t.label}
+              </Link>
+            ) : (
+              <button
+                key={t.key}
+                role="tab"
+                type="button"
+                aria-selected={activeTab === t.key}
+                onClick={() => handleTabChange(t.key)}
+                className={`min-h-12 shrink-0 border-b-2 px-3 text-sm font-medium ${
+                  activeTab === t.key ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        ) : (
         <h2 className="text-xl font-semibold mb-4">{ANALYTICS_TAB_LABELS[activeTab] ?? 'Dashboard'}</h2>
+        )}
         {needsCalculation ? (
           <Card className="mx-auto max-w-xl">
             <CardHeader className="text-center">
@@ -580,7 +617,7 @@ const AnalyticsPage = () => {
             cache table, so it works in preseason before anything has been
             calculated. That's the whole point of it. */}
         <TabsContent value="byGroup">
-          <GroupAnalyticsTab groupSeasonId={activeSeasonMeta?.id ?? null} dataYear={viewedSeason} />
+          <GroupAnalyticsTab groupSeasonId={activeSeasonMeta?.id ?? null} dataYear={viewedSeason} groupIds={groupScopeIds} />
         </TabsContent>
         {/* Workstream B (LeadPack Master Build Handoff): Results Grid and
             Pace Calculator moved in from the sidebar — Season absorbs them
