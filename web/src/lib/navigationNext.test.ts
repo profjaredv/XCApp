@@ -81,5 +81,6 @@ describe('group scope', () => {
     expect(scopeAppliesTo('meet/m1', '?tab=results')).toBe(true);
     expect(scopeAppliesTo('meet/m1', '?tab=preview')).toBe(false);
     expect(scopeAppliesTo('meets', '')).toBe(false);
+    expect(scopeAppliesTo('meets', '?tab=analysis')).toBe(true);
   });
 });

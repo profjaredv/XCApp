@@ -950,6 +950,7 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
         meetId: r.meetId,
         meetName: r.meet?.name ?? null,
         distanceMeters: r.distanceMeters ?? null,
+        date: r.date,
       }))
     );
     const columnIndexByRaceId = new Map();
@@ -1013,7 +1014,7 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
     // meet heading and only offers distance toggles when a meet actually
     // has more than one.
     res.json({
-      races: columns.map((c) => ({ name: c.name, meetKey: c.meetKey, distanceMeters: c.distanceMeters })),
+      races: columns.map((c) => ({ name: c.name, meetKey: c.meetKey, distanceMeters: c.distanceMeters, date: c.date ?? null })),
       athletes: gridData,
     });
   } catch (error) {

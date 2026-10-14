@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { CalendarDays, ChevronRight, Download, Link2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,10 +12,11 @@ import { useMeets } from '@/hooks/useMeetOps';
 import { splitsService } from '@/api/splitsService';
 import { meetSeriesService, seriesForRaces } from '@/api/meetSeriesService';
 import type { MeetSummary } from '@/api/meetOpsService';
-import { isFullCoach } from '@/lib/teamRole';
+import { isAnyCoach, isFullCoach } from '@/lib/teamRole';
 import { formatDateShort } from '@/lib/formatUtils';
 import { NextPageHeader } from '@/components/next/PageHeader';
-import { DateTile, Hero, SectionHeading, Stat } from '@/components/next/Visual';
+import { DateTile, Hero, SectionHeading, SegmentedTabs, Stat } from '@/components/next/Visual';
+import { MeetsAnalysis } from '@/components/next/MeetsAnalysis';
 import { ImportMeetsDialog, ImportCalendarDialog } from '@/components/meets/ImportMeetsDialogs';
 import { NewMeetDialog } from '@/components/meets/NewMeetDialog';
 
@@ -41,6 +42,9 @@ const MeetsPageNext: React.FC = () => {
   const upcoming = meets.filter((m) => m.date.slice(0, 10) >= today).sort((a, b) => a.date.localeCompare(b.date));
   const past = meets.filter((m) => m.date.slice(0, 10) < today).sort((a, b) => b.date.localeCompare(a.date));
   const openMeet = (id: string) => navigate(teamPath(`/meet/${id}`));
+  const [params, setParams] = useSearchParams();
+  const coach = isAnyCoach(currentUser);
+  const view: 'schedule' | 'analysis' = coach && params.get('tab') === 'analysis' ? 'analysis' : 'schedule';
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -66,7 +70,22 @@ const MeetsPageNext: React.FC = () => {
         }
       />
 
-      {!seasonId ? (
+      {coach && (
+        <SegmentedTabs<'schedule' | 'analysis'>
+          label="Meets"
+          tabs={[
+            { key: 'schedule', label: 'Schedule' },
+            { key: 'analysis', label: 'Analysis' },
+          ]}
+          value={view}
+          onChange={(k) => setParams(k === 'schedule' ? {} : { tab: k }, { replace: true })}
+          className="mb-4 md:max-w-xs"
+        />
+      )}
+
+      {view === 'analysis' ? (
+        <MeetsAnalysis season={activeYear ?? undefined} />
+      ) : !seasonId ? (
         <p className="text-sm text-muted-foreground">No season set up yet.</p>
       ) : isLoading ? (
         <Skeleton className="h-48 w-full" />
