@@ -17,6 +17,7 @@ const { normalizeAthleteName, matchAthlete } = require('../lib/athleteMatching')
 const { normalizeGender } = require('../lib/gender');
 const { mergeStaffRoster } = require('../lib/teamStaff');
 const { raceIdentityKey, groupRacesIntoColumns } = require('../lib/meetMapping');
+const { linkRacesToMeets } = require('../lib/meetLinking');
 
 // F2 (LeadPack Master Build Handoff): self-serve team creation is gone.
 // POST /api/teams used to let any signed-in user become HEAD_COACH of any
@@ -330,6 +331,10 @@ router.post('/scrape', authenticate, requireRole(FULL_COACH), async (req, res) =
             await prisma.race.deleteMany({ where: { id: { in: staleRaceIds } } });
           }
         }
+
+        // Races this scrape created for a meet already imported from the
+        // calendar get linked to it now — see lib/meetLinking.js.
+        await linkRacesToMeets(prisma, team.id, yearNum);
 
         const updatedSeasons = [...new Set([...importedSeasons, yearNum])];
 
@@ -945,6 +950,7 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
         meetId: r.meetId,
         meetName: r.meet?.name ?? null,
         distanceMeters: r.distanceMeters ?? null,
+        date: r.date,
       }))
     );
     const columnIndexByRaceId = new Map();
@@ -1008,7 +1014,7 @@ router.get('/results-grid', authenticate, requireTeam, async (req, res) => {
     // meet heading and only offers distance toggles when a meet actually
     // has more than one.
     res.json({
-      races: columns.map((c) => ({ name: c.name, meetKey: c.meetKey, distanceMeters: c.distanceMeters })),
+      races: columns.map((c) => ({ name: c.name, meetKey: c.meetKey, distanceMeters: c.distanceMeters, date: c.date ?? null })),
       athletes: gridData,
     });
   } catch (error) {
