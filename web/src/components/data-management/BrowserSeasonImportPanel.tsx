@@ -37,6 +37,10 @@ export function BrowserSeasonImportPanel({ season, onComplete }: { season: strin
   const athleticTeamId = currentUser?.team?.athleticTeamId;
   const gridUrl = athleticTeamId ? `https://www.athletic.net/team/${athleticTeamId}/cross-country/${season}/results-grid` : null;
   const rows = csv.trim() ? csv.trim().split('\n').length - 1 : 0;
+  // The bookmark writes "Unknown" when it couldn't read a distance. Importing
+  // those would create races keyed on "Unknown" that a fixed import then duplicates.
+  const unknownDistance = (csv.match(/,"Unknown","/g) ?? []).length;
+  const blocked = rows > 0 && unknownDistance >= rows / 2;
 
   const copyCode = async () => {
     try {
@@ -132,12 +136,20 @@ export function BrowserSeasonImportPanel({ season, onComplete }: { season: strin
             className="h-28 font-mono text-xs"
           />
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" onClick={runImport} disabled={busy || rows === 0}>
+            <Button type="button" onClick={runImport} disabled={busy || rows === 0 || blocked}>
               {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {busy ? 'Importing…' : `Import ${season} results`}
             </Button>
             {rows > 0 && !busy && <span className="text-muted-foreground">{rows} results pasted</span>}
           </div>
+          {blocked && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                Most of these results have no distance, so the bookmark didn't read the page's distance key. Importing them would
+                create races that have to be cleaned up. Nothing was imported.
+              </AlertDescription>
+            </Alert>
+          )}
         </section>
 
         {error && (

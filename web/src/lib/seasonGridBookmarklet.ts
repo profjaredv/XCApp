@@ -43,14 +43,26 @@ const BOOKMARKLET_SOURCE = `
 
   function legend() {
     var key = {};
+    function add(sub, container) {
+      var copy = container.cloneNode(true);
+      var subs = copy.querySelectorAll('sub');
+      for (var i = 0; i < subs.length; i++) subs[i].parentNode.removeChild(subs[i]);
+      var label = clean(copy.textContent);
+      var k = clean(sub.textContent);
+      if (/^\\d+$/.test(k) && label && label.indexOf('|') < 0) key[k] = label;
+    }
     document.querySelectorAll('.distance-legend-horizontal span').forEach(function (span) {
       var sub = span.querySelector('sub');
-      if (!sub) return;
-      var copy = span.cloneNode(true);
-      var s = copy.querySelector('sub');
-      if (s) s.parentNode.removeChild(s);
-      key[clean(sub.textContent)] = clean(copy.textContent);
+      if (sub) add(sub, span);
     });
+    if (Object.keys(key).length === 0) {
+      // The key may live outside the class the saved page used: any <sub> number
+      // beside a label, anywhere but the results table.
+      document.querySelectorAll('sub').forEach(function (sub) {
+        if (sub.closest('table.results-table')) return;
+        if (sub.parentNode && sub.parentNode !== document.body) add(sub, sub.parentNode);
+      });
+    }
     return key;
   }
 
@@ -80,6 +92,8 @@ const BOOKMARKLET_SOURCE = `
     return rows.length + '|' + clean(first && first.textContent) + '|' + activeGender();
   }
 
+  var unread = 0;
+  var unreadSeen = {};
   function readTable(gender, key, meetList) {
     var out = [];
     document.querySelectorAll('table.results-table tbody tr').forEach(function (tr) {
@@ -93,11 +107,12 @@ const BOOKMARKLET_SOURCE = `
       }
       tr.querySelectorAll('td.result-cell').forEach(function (td, i) {
         var spans = td.querySelectorAll('span');
-        var timeEl = null, subEl = td.querySelector('.subscript');
+        var timeEl = null, subEl = td.querySelector('.subscript, sub, sup');
         for (var k = 0; k < spans.length; k++) { if (!spans[k].classList.contains('subscript')) { timeEl = spans[k]; break; } }
         var time = clean(timeEl && timeEl.textContent);
         if (!/^\\d+:\\d/.test(time)) return;
         var meet = meetList[i] || {};
+        if (subEl && !key[clean(subEl.textContent)]) unreadSeen[clean(subEl.textContent)] = 1;
         out.push([
           meet.name || 'Unknown Meet',
           clean(nameEl.textContent),
@@ -105,7 +120,7 @@ const BOOKMARKLET_SOURCE = `
           gender,
           time,
           (meet.date || 'Unknown Date') + ', ' + year,
-          key[clean(subEl && subEl.textContent)] || 'Unknown',
+          key[clean(subEl && subEl.textContent)] || (unread++, 'Unknown'),
           meet.url || '',
           meet.id || '',
           nameEl.href || ''
@@ -153,6 +168,7 @@ const BOOKMARKLET_SOURCE = `
 
   try {
     var key = legend();
+    var legendKey = key;
     var meetList = meets();
     if (!document.querySelector('table.results-table') || meetList.length === 0) {
       fail('No results grid found on this page. Wait for it to finish loading, then click the bookmark again.');
@@ -170,8 +186,9 @@ const BOOKMARKLET_SOURCE = `
       var csv = [['Race Name', 'Athlete Name', 'Grade', 'Gender', 'Time', 'Race Date', 'Distance', 'Source URL', 'Athletic Meet ID', 'Athletic Athlete ID']]
         .concat(rows).map(function (r) { return r.map(csvCell).join(','); }).join('\\n');
       var parts = Object.keys(counts).map(function (g) { return counts[g] + ' ' + (g === 'Men' ? 'boys' : 'girls') + ' results'; });
+      var warn = unread > 0 ? ' WARNING: ' + unread + ' results have no distance (the page\\'s distance key was not read: ' + Object.keys(legendKey).length + ' entries found, unmatched subscripts: ' + (Object.keys(unreadSeen).join(',') || 'none') + '). Do not import these yet.' : '';
       var note = gotOther ? '' : ' Only ' + (first === 'Men' ? 'boys' : 'girls') + ' were read; the other side did not load. LeadPack will add them without removing anything, and you can run this again for the other side.';
-      showPanel(csv, year + ': ' + parts.join(' and ') + ' across ' + meetList.length + ' meets.' + note);
+      showPanel(csv, year + ': ' + parts.join(' and ') + ' across ' + meetList.length + ' meets.' + note + warn);
     };
 
     if (!other) { finish(false); return; }
