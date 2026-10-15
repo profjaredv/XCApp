@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
-import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage } from '../pages';
+import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage, ClipboardInspectorPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
 import { FeatureGate } from '../components/FeatureGate';
 import GroupDayPage from '../pages/GroupDayPage';
@@ -411,6 +411,13 @@ export const router = createBrowserRouter([
                     // itself just shows a sentence to anyone else.
                     path: 'admin',
                     element: <AdminDashboardPage />,
+                  },
+                  {
+                    // Step 0 of the paste-in data work: shows what a copy
+                    // from another page really carries. Client-only; the
+                    // page shows a sentence to anyone who isn't super admin.
+                    path: 'admin/clipboard',
+                    element: <ClipboardInspectorPage />,
                   },
                   {
                     // F4: the required-every-time checkout step. Reachable

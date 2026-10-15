@@ -19,6 +19,8 @@ import { UsageCard } from '@/components/admin/UsageCard';
 import { PageHeader } from '@/components/PageHeader';
 import { accentFor, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
+import { Link } from 'react-router-dom';
+import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateShort } from '@/lib/formatUtils';
@@ -202,6 +204,7 @@ const TeamSetupDialog: React.FC<{
 const AdminDashboardPage: React.FC = () => {
   const { currentUser } = useAuth();
   const queryClient = useQueryClient();
+  const teamPath = useTeamPath();
   const [dialogRequest, setDialogRequest] = useState<TeamRequest | null>(null);
   const [createMode, setCreateMode] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -260,6 +263,11 @@ const AdminDashboardPage: React.FC = () => {
           >
             <Plus className="mr-2 h-4 w-4" />
             Create a team
+          </Button>
+        }
+        secondaryActions={
+          <Button asChild variant="outline" size="sm">
+            <Link to={teamPath('/admin/clipboard')}>Clipboard inspector</Link>
           </Button>
         }
       />
