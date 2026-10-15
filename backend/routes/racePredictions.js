@@ -1,11 +1,12 @@
-// Race prediction: for an athlete's next race, project their course-
-// adjusted pace trend this season (lib/courseDifficulty.js), add back the
-// target race's own course-difficulty rating when this team has one, shape
-// the result into a predicted split profile from their own recent splits,
-// and correct for their own historical prediction error once they have
-// one. See lib/racePrediction.js for the actual math — everything here is
-// data access (what Prisma query feeds which pure function) and the
-// freeze-on-first-view policy.
+// Race prediction: for an athlete's next race, project their raw-pace
+// trend this season (lib/racePrediction.js's projectSeasonFitness), add in
+// the target race's own course-difficulty rating when this team has one
+// (lib/courseDifficulty.js, rated from multiple seasons' visits — see
+// resolveCourseDifficultyForRace), shape the result into a predicted split
+// profile from their own recent splits, and correct for their own
+// historical prediction error once they have one. See lib/racePrediction.js
+// for the actual math — everything here is data access (what Prisma query
+// feeds which pure function) and the freeze-on-first-view policy.
 //
 // Keyed on Meet, not Race (see RacePrediction's own schema comment for the
 // full reasoning): this team's races only exist once the season scraper
@@ -36,12 +37,7 @@ const { authenticate, requireTeam, requireRole } = require('../middleware/auth')
 const { FULL_COACH } = require('../lib/teamRoles');
 const { paceSecPerMile } = require('../lib/groupAnalytics');
 const { markersForRace, closingSegmentLabel, segments, overallPaceSecPerMile } = require('../lib/splitMath');
-const {
-  buildRaceContributors,
-  averageDelta,
-  computeCourseDifficulty,
-  computeSeasonAdjustedPaces,
-} = require('../lib/courseDifficulty');
+const { buildRaceContributors, averageDelta, computeCourseDifficulty } = require('../lib/courseDifficulty');
 const {
   projectSeasonFitness,
   computeBiasAndMargin,
@@ -112,17 +108,29 @@ async function resolveCourseDifficultyForRace(teamId, race) {
   return computeCourseDifficulty(visits);
 }
 
-// This athlete's course-adjusted pace trend input for `season` — built
-// from the WHOLE team's results that season (computeSeasonAdjustedPaces
-// needs the full field to rate each race, not just this one athlete),
-// then filtered down to their own rated races.
+// This athlete's pace trend input for `season` — their own raw pace at
+// each race, in date order. Deliberately NOT run through
+// computeSeasonAdjustedPaces: that function's "baseline" for a race is an
+// athlete's own average pace at every OTHER race that season, which for a
+// team that's genuinely getting fitter over the season is mostly future
+// (faster) races early on and mostly past (slower) races late on. That
+// makes early races look artificially "easy" and late races artificially
+// "hard" in a way that tracks the calendar, not the course — exactly the
+// team's real fitness trend, leaking into what's supposed to be a
+// course-only adjustment. Feeding that into projectSeasonFitness's own
+// date-based trend fit double-counts the same improvement and produces a
+// slope steeper than anything actually run (confirmed against production
+// data: an athlete whose raw pace improved by one amount had this
+// same-season "adjustment" improving by nearly 4x that over the same
+// races). The target race's own course difficulty is still applied
+// separately once it's real — see resolveCourseDifficultyForRace, which
+// rates a course from multiple seasons' visits and isn't exposed to this
+// same single-season confound.
 async function getAthleteSeasonTrendHistory(teamId, athleteId, season) {
   const seasonResults = await getSeasonPacedResults(teamId, season);
-  const dateByRaceId = new Map(seasonResults.map((r) => [r.raceId, r.date]));
-  const adjusted = computeSeasonAdjustedPaces(seasonResults);
-  return adjusted
-    .filter((r) => r.athleteId === athleteId && r.adjustedPaceSecPerMile != null)
-    .map((r) => ({ date: dateByRaceId.get(r.raceId), adjustedPaceSecPerMile: r.adjustedPaceSecPerMile }));
+  return seasonResults
+    .filter((r) => r.athleteId === athleteId)
+    .map((r) => ({ date: r.date, adjustedPaceSecPerMile: r.paceSecPerMile }));
 }
 
 // This athlete's most recent FINISHED race before `beforeDate` with real
