@@ -438,9 +438,9 @@ router.post('/import-season-csv', authenticate, requireRole(FULL_COACH), async (
   if (!check.ok) return res.status(400).json({ message: check.message });
 
   try {
-    // Stale races are only removed when the paste covers both genders —
-    // see importSeasonCsv's removeStale.
-    const summary = await importSeasonCsv(req.user.team, yearNum, csv, { removeStale: check.genders.size === 2 });
+    // A paste never deletes anything: it may be filtered, one gender, or an
+    // earlier moment in the season. Races it doesn't mention are left as they are.
+    const summary = await importSeasonCsv(req.user.team, yearNum, csv, { removeStale: false });
     res.status(200).json({
       success: true,
       message: `Imported ${summary.recordsProcessed} results for season ${yearNum}. Analytics are calculating in the background.`,
