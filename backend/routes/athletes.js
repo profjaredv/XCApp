@@ -753,6 +753,8 @@ router.post('/merge', authenticate, requireTeam, requireRole(DESTRUCTIVE), async
       // hang off the loser by onDelete: Cascade and would otherwise be
       // destroyed with it, reopening every one of those older merges.
       await tx.athleteAliasId.updateMany({ where: { athleteId: loserId }, data: { athleteId: keeperId } });
+      // Name aliases are unique per team, so moving them to the keeper cannot collide.
+      await tx.athleteAlias.updateMany({ where: { athleteId: loserId }, data: { athleteId: keeperId } });
 
       if (loser.athleticAthleteId) {
         if (!keeper.athleticAthleteId) {

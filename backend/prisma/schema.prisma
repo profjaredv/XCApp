@@ -128,6 +128,7 @@ model Team {
   teamMembers             TeamMember[]
   athletes                Athlete[]
   athleteAliasIds         AthleteAliasId[]
+  athleteAliases          AthleteAlias[]
   races                   Race[]
   results                 Result[]
   seasons                 Season[]
@@ -306,6 +307,26 @@ model AthleteAliasId {
   @@map("athlete_alias_ids")
 }
 
+// A name a coach confirmed belongs to an existing athlete when a results
+// paste spelled it differently ("Sam" for "Samuel"). Remembered per team so
+// the next paste matches without asking. Not AthleteAliasId, which remembers
+// retired Athletic.net profile LINKS after a merge; this remembers NAMES.
+model AthleteAlias {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  athleteId String   @map("athlete_id") @db.Uuid
+  alias     String // normalized (lib/athleteMatching.js normalizeAthleteName)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, alias])
+  @@index([athleteId])
+  @@map("athlete_aliases")
+}
+
+
 model Athlete {
   id                String   @id @default(uuid()) @db.Uuid
   teamId            String   @map("team_id") @db.Uuid
@@ -354,6 +375,7 @@ model Athlete {
   trainingLogImportBatches TrainingLogImportBatch[]
   guardianLinks            GuardianLink[]
   aliasIds                 AthleteAliasId[]
+  nameAliases              AthleteAlias[]
   groupMemberships         GroupMembership[]
   meetEntries              MeetEntry[]
   raceReflections          RaceReflection[]

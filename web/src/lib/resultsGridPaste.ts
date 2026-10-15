@@ -29,8 +29,15 @@ export interface GridRow {
   distance: string;
 }
 
+export interface GridAthleteRef {
+  name: string;
+  url: string;
+}
+
 export interface ParsedGrid {
   year: number | null;
+  /** Every athlete row on the page, including ones with no times. */
+  athletes: GridAthleteRef[];
   gender: GridGender | null;
   teamId: string | null;
   meets: GridMeet[];
@@ -56,7 +63,7 @@ export function looksLikeGridHtml(text: string): boolean {
 }
 
 export function parseResultsGrid(html: string): ParsedGrid {
-  const out: ParsedGrid = { year: null, gender: null, teamId: null, meets: [], rows: [], notes: [], errors: [], unknownDistance: 0 };
+  const out: ParsedGrid = { year: null, athletes: [], gender: null, teamId: null, meets: [], rows: [], notes: [], errors: [], unknownDistance: 0 };
   const doc = new DOMParser().parseFromString(html, 'text/html');
 
   const title = clean(doc.querySelector('h2')?.textContent) || clean(doc.querySelector('[ngbdropdowntoggle]')?.textContent) || clean(doc.querySelector('title')?.textContent);
@@ -121,6 +128,7 @@ export function parseResultsGrid(html: string): ParsedGrid {
     if (!nameLink) return;
     const athleteName = clean(nameLink.textContent);
     const href = nameLink.getAttribute('href') ?? '';
+    out.athletes.push({ name: athleteName, url: absolute(href) });
     let grade = clean(tr.querySelector('td.grade')?.textContent);
     if (!/^\d+$/.test(grade)) grade = (tr.className.match(/\by(\d+)\b/) ?? [])[1] ?? '';
 

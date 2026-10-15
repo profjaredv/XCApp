@@ -29,7 +29,7 @@ export interface TodayMeet {
   races: Array<{ id: string; name: string }>;
 }
 
-export type TodayAttentionItemType = 'splits' | 'unpublished-plan' | 'overdue-equipment';
+export type TodayAttentionItemType = 'splits' | 'unpublished-plan' | 'overdue-equipment' | 'update-results';
 
 export interface TodayAttentionItem {
   type: TodayAttentionItemType;

@@ -20,6 +20,7 @@ const { raceIdentityKey, groupRacesIntoColumns } = require('../lib/meetMapping')
 const { linkRacesToMeets } = require('../lib/meetLinking');
 const { describeScrapeFailure } = require('../lib/scrapeFailure');
 const { checkSeasonCsv } = require('../lib/seasonCsv');
+const { previewGridPaste, commitGridPaste } = require('../lib/gridPasteDb');
 
 // F2 (LeadPack Master Build Handoff): self-serve team creation is gone.
 // POST /api/teams used to let any signed-in user become HEAD_COACH of any
@@ -450,6 +451,49 @@ router.post('/import-season-csv', authenticate, requireRole(FULL_COACH), async (
   } catch (error) {
     console.error('Error importing pasted season CSV:', error.message);
     res.status(500).json({ message: 'Could not finish importing those results. Paste and import them again: rows update in place, so a second run is safe.' });
+  }
+});
+
+// POST /api/teams/results-paste/preview  { season, grids, decisions? }
+// POST /api/teams/results-paste/commit   { season, grids, decisions? }
+// The Results Grid paste import (docs: LeadPack-results-grid-paste.md). The
+// coach copies their Athletic.net Results Grid, the browser reads it into
+// `grids` (web/src/lib/gridTextParse.ts), and these two routes decide and
+// apply what it changes (lib/gridPaste.js, lib/gridPasteDb.js). Nothing here
+// contacts Athletic.net; nothing is deleted because it is missing from a paste.
+router.post('/results-paste/preview', authenticate, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const out = await previewGridPaste(prisma, req.user.team, req.body);
+    if (!out.ok) return res.status(400).json({ message: out.message });
+    const { writes, hasChanges, ...plan } = out.plan; // eslint-disable-line no-unused-vars
+    res.json({ ...plan, hasChanges });
+  } catch (error) {
+    console.error('Error previewing results paste:', error.message);
+    res.status(500).json({ message: 'Could not read that paste. Please try again.' });
+  }
+});
+
+router.post('/results-paste/commit', authenticate, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const out = await commitGridPaste(prisma, req.user.team, req.body);
+    if (!out.ok) return res.status(out.status).json({ message: out.message });
+    if (out.applied) {
+      // Same fire-and-forget metrics trigger every other results write uses.
+      calculationService
+        .calculateAllMetrics(req.user.team.id, Number(req.body.season))
+        .catch((calcError) => console.error(`Error calculating analytics after results paste for season ${req.body.season}:`, calcError.message));
+    }
+    res.json({
+      success: true,
+      applied: out.applied,
+      summary: out.summary,
+      message: out.applied
+        ? 'Results saved. Analytics are calculating in the background.'
+        : 'Nothing new in that paste. Everything was already in LeadPack.',
+    });
+  } catch (error) {
+    console.error('Error saving results paste:', error.message);
+    res.status(500).json({ message: 'Could not save those results. Nothing was changed; paste again to retry.' });
   }
 });
 

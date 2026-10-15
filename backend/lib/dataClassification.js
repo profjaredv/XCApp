@@ -136,6 +136,11 @@ const CLASSIFICATION = {
     what: "Athletic.net profile links that used to belong to a duplicate roster row, before a merge folded it into this athlete.",
     why: 'A public results-site URL for a student already identified by name on that same site — the same directory-level fact as Athlete.athleticAthleteId, which it exists to remember after a merge.',
   },
+  AthleteAlias: {
+    class: CLASSES.DIRECTORY,
+    what: 'A spelling of an athlete\'s name that a coach confirmed during a results paste.',
+    why: 'A name variant of a student who is already on the roster by name; the same directory-level fact as Athlete.name, kept only so the next paste matches without asking.',
+  },
   Meet: {
     class: CLASSES.DIRECTORY,
     what: 'Meet name, date, location and logistics.',

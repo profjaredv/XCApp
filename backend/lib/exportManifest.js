@@ -43,6 +43,8 @@ const EXCLUDED_MODELS = {
     'A coach\'s request to LeadPack to create their team — correspondence with us, like Feedback, not data the team created.',
   AthleteAliasId:
     'Internal plumbing for matching future imports, not data the team created. The link it remembers is a public Athletic.net URL, and the athlete it points at is exported in full.',
+  AthleteAlias:
+    'Internal plumbing for matching future results pastes, not data the team created. The athlete it points at, and their name, are exported in full.',
   TrainingLogImportBatch:
     'Bookkeeping for the undo button, not training data. What it records — where a log came from — travels on each training log\'s own `source` column, which IS exported.',
   PhotoVolunteerSession:
