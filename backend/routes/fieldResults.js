@@ -19,14 +19,11 @@
 // they're about to upload by looking at their own CSV before submitting,
 // not by round-tripping through this API.
 //
-// Cross-team sharing: the same real meet is scraped/imported separately by
-// every XCApp team that attends it (deliberate multi-tenancy — see NOTES.md
-// "Duplicate strategy" on Meet), so once one team uploads a meet's field,
-// every other team's Race row for that same meet+race (joined on
-// Race.athleticMeetId + name, see findSharedFieldSource below) can adopt
-// the same aggregate numbers instead of re-pasting an identical CSV. This
-// is a one-time copy of arithmetic, not a live sync and not a shared
-// FieldResult roster — see copy-from-meet below for why.
+// Names: only our own athletes are stored by name (lib/fieldAnonymize.js).
+// Every other finisher is kept as time, place, gender, division, status and
+// school, so field statistics and team scoring work without holding other
+// schools' athletes' names. There is no cross-team copying: each team pastes
+// its own field.
 
 const express = require('express');
 const router = express.Router();
@@ -37,32 +34,10 @@ const { requireFeature } = require('../middleware/teamFeatures');
 const { FULL_COACH } = require('../lib/teamRoles');
 const { computeFieldStats } = require('../lib/fieldNormalization');
 const { parseFieldResultsCsv } = require('../lib/fieldResultsCsv');
+const { anonymizeFieldRows } = require('../lib/fieldAnonymize');
 const { computeRacePlacements, finishedFieldResults, matchResultsToFieldResults } = require('../lib/fieldPlacement');
 const perfCache = require('../services/performance/cache');
 const calculationService = require('../services/performance/calculationService');
-
-// A meet's full field is the same real-world data no matter which XCApp
-// team uploaded it — 20 different teams at the same invitational shouldn't
-// each have to paste the identical results CSV. `athleticMeetId` (Phase 2
-// step 1) plus the race's own `name` is the join key: same meet, same named
-// race (Athletic.net already splits boys/girls/JV into separate races, so
-// name is enough to disambiguate within one meet). Only ever copies the
-// three AGGREGATE fields — never a FieldResult row, never a source team's
-// identity — so the no-named-rows-across-teams invariant on FieldResult
-// itself is untouched; this is sharing arithmetic, not roster data.
-async function findSharedFieldSource(race) {
-  if (!race.athleticMeetId) return null;
-  return prisma.race.findFirst({
-    where: {
-      athleticMeetId: race.athleticMeetId,
-      name: race.name,
-      teamId: { not: race.teamId },
-      fieldFinisherCount: { not: null },
-    },
-    select: { fieldMeanSec: true, fieldMedianSec: true, fieldFinisherCount: true },
-    orderBy: { updatedAt: 'desc' },
-  });
-}
 
 // Race place / division / overall place (lib/fieldPlacement.js, Result
 // schema comments) are recomputed for THIS race only — Race stays scoped to
@@ -142,10 +117,6 @@ router.get('/races', authenticate, requireFeature('fieldResults'), requireTeam, 
     const result = await Promise.all(
       races.map(async (r) => {
         const hasFieldData = r.fieldFinisherCount != null && r.fieldFinisherCount > 0;
-        // Only bother checking for a sharable source when this race has
-        // nothing of its own yet — once a team has real data, its own
-        // upload always wins.
-        const sharedSource = hasFieldData ? null : await findSharedFieldSource(r);
         // How many of THIS team's own results the upload actually found
         // in the field, by athlete name (lib/fieldPlacement.js — the same
         // matcher every other field-results feature uses). A CSV whose
@@ -197,8 +168,6 @@ router.get('/races', authenticate, requireFeature('fieldResults'), requireTeam, 
           // math actually did.
           hasFieldData,
           normalizationMet: r.fieldMeanSec != null,
-          availableFromOtherTeam: sharedSource != null,
-          otherTeamFieldFinisherCount: sharedSource?.fieldFinisherCount ?? null,
           ourResultCount,
           ourMatchedCount,
           unmatchedAthleteNames,
@@ -261,10 +230,15 @@ router.post('/:raceId', authenticate, requireFeature('fieldResults'), requireTea
     // e.g. an old-format manual paste) replaces the race's undivided field.
     const divisionsInBatch = [...new Set(results.map((r) => r.division))];
 
+    // Other schools' athletes are stored without a name or grade — only our
+    // own athletes keep theirs, because placement matches on them.
+    const teamAthletes = await prisma.athlete.findMany({ where: { teamId }, select: { name: true, preferredName: true } });
+    const { rows: storedRows } = anonymizeFieldRows(results, teamAthletes);
+
     await prisma.$transaction([
       ...divisionsInBatch.map((division) => prisma.fieldResult.deleteMany({ where: { raceId: race.id, division } })),
       prisma.fieldResult.createMany({
-        data: results.map((r) => ({ ...r, raceId: race.id })),
+        data: storedRows.map((r) => ({ ...r, raceId: race.id })),
       }),
     ]);
 
@@ -319,52 +293,12 @@ router.post('/:raceId', authenticate, requireFeature('fieldResults'), requireTea
   }
 });
 
-// POST /api/field-results/:raceId/copy-from-meet
-// Adopts another team's already-uploaded field stats for the same meet+race
-// (see findSharedFieldSource above) instead of re-pasting an identical CSV.
-// Re-derives the source itself server-side via the athleticMeetId+name join
-// — never trusts a client-supplied source race, so this can't be used to
-// probe another team's race IDs. Copies only the three aggregate numbers;
-// creates no FieldResult rows (there's no per-team roster of other schools'
-// finishers to own here, just borrowed arithmetic). A later real upload to
-// this race overwrites these with the team's own computed stats as normal.
-router.post('/:raceId/copy-from-meet', authenticate, requireFeature('fieldResults'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
-  const teamId = req.user.teamId;
-
-  try {
-    const race = await prisma.race.findFirst({ where: { id: req.params.raceId, teamId } });
-    if (!race) {
-      return res.status(404).json({ success: false, message: 'Race not found.' });
-    }
-
-    const source = await findSharedFieldSource(race);
-    if (!source) {
-      return res.status(404).json({
-        success: false,
-        message: 'No other team has uploaded field results for this meet yet.',
-      });
-    }
-
-    await prisma.race.update({
-      where: { id: race.id },
-      data: {
-        fieldMeanSec: source.fieldMeanSec,
-        fieldMedianSec: source.fieldMedianSec,
-        fieldFinisherCount: source.fieldFinisherCount,
-      },
-    });
-
-    res.json({
-      success: true,
-      fieldFinisherCount: source.fieldFinisherCount,
-      normalizationMet: source.fieldMeanSec != null,
-      fieldMeanSec: source.fieldMeanSec,
-      fieldMedianSec: source.fieldMedianSec,
-    });
-  } catch (err) {
-    console.error('Error copying shared field results:', err.message);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
+// POST /api/field-results/:raceId/copy-from-meet — retired. It copied one
+// team's field statistics into another team's race, which crosses the
+// team boundary (paste-in data spec rule 3). Each team pastes its own field.
+// Answered with 410 so an old client gets a clear message instead of a 404.
+router.post('/:raceId/copy-from-meet', authenticate, requireFeature('fieldResults'), requireTeam, requireRole(FULL_COACH), (req, res) => {
+  res.status(410).json({ success: false, message: 'Sharing field results between teams has been turned off. Paste this meet\'s results to add the field.' });
 });
 
 // DELETE /api/field-results/:raceId — undo an upload (bad file, wrong

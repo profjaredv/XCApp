@@ -969,7 +969,9 @@ model RacePrediction {
 model FieldResult {
   id          String  @id @default(uuid()) @db.Uuid
   raceId      String  @map("race_id") @db.Uuid
-  athleteName String  @map("athlete_name")
+  // Null for every finisher who is not on our team (lib/fieldAnonymize.js):
+  // other schools' athletes are kept as time/place/school only, never by name.
+  athleteName String? @map("athlete_name")
   schoolName  String? @map("school_name")
   gender      String?
   // The division/heat text this row's own results page reported it under
