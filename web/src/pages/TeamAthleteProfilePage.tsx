@@ -9,6 +9,7 @@ import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSumma
 import { useAthletePerformance, useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
 import { performanceService } from '@/api/performanceService';
 import { athleteService } from '@/api/athleteService';
+import { athleticAthleteUrl } from '@/lib/athleticLinks';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeasonModeSelector } from '@/components/analytics/SeasonModeSelector';
@@ -309,6 +310,11 @@ const TeamAthleteProfilePage = () => {
         </div>
 
         <div className="flex items-center gap-4">
+          {athleticAthleteUrl(athleteIdentity.athleticAthleteId) && (
+            <Button variant="outline" asChild>
+              <a href={athleticAthleteUrl(athleteIdentity.athleticAthleteId) as string} target="_blank" rel="noopener noreferrer">Athletic.net profile ↗</a>
+            </Button>
+          )}
           <Button variant="outline" asChild>
             <Link to={teamPath(`/athlete/${athleteId}/journey`)}>View Journey</Link>
           </Button>

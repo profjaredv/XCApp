@@ -13,6 +13,7 @@ export interface AthleteListRow {
   name: string;
   /** Legal name, kept for search. */
   legalName: string;
+  athleticAthleteId: string | null;
   gender: string | null;
   grade: number | null;
   isCaptain: boolean;
@@ -53,6 +54,7 @@ export function buildAthleteRows(
       id: a.id,
       name: a.preferredName || a.name,
       legalName: a.name,
+      athleticAthleteId: a.athleticAthleteId ?? null,
       gender: a.gender ?? null,
       grade: a.grade,
       isCaptain: !!a.isCaptain,

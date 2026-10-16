@@ -23,6 +23,7 @@ import { formatDateShort, formatTime } from '@/lib/formatUtils';
 import { DISTANCE_PRESETS } from '@/lib/distancePresets';
 import { cn } from '@/lib/utils';
 import MeetDetailPage from '../MeetDetailPage';
+import { ATHLETIC_SOURCE_LINE, athleticMeetUrl } from '@/lib/athleticLinks';
 import { MeetPredictionsCard } from '@/components/predictions/MeetPredictionsCard';
 import { RaceDistanceDialog } from '@/components/meets/RaceDistanceDialog';
 import { ImportResultsDialog } from '@/components/meets/ImportResultsDialog';
@@ -115,6 +116,13 @@ const MeetPageNext: React.FC = () => {
           {raceDay ? 'Race day' : daysOut > 0 ? (daysOut === 1 ? 'Tomorrow' : `In ${daysOut} days`) : 'Done'}
         </span>
       </div>
+      {athleticMeetUrl(summary.athleticMeetId) && (
+        <p className="-mt-2 mb-4 text-sm">
+          <a href={athleticMeetUrl(summary.athleticMeetId) as string} target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline-offset-2 hover:underline">
+            Full results on Athletic.net ↗
+          </a>
+        </p>
+      )}
       <SegmentedTabs<Tab>
         label="Meet"
         tabs={tabs}
@@ -135,6 +143,8 @@ const MeetPageNext: React.FC = () => {
       )}
       {tab === 'results' && coach && <ResultsTab races={races} seasonYear={detail?.seasonYear ?? activeYear ?? null} fullCoach={fullCoach} />}
       {tab === 'history' && <HistoryTab raceIds={races.map((r) => r.id)} coach={fullCoach} />}
+
+      <p className="mt-8 text-center text-xs text-muted-foreground">{ATHLETIC_SOURCE_LINE}</p>
 
       {startTimer && <StickyActionBar>{startTimer}</StickyActionBar>}
 

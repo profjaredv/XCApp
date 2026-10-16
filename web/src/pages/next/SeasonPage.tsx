@@ -1,3 +1,4 @@
+import { ATHLETIC_SOURCE_LINE } from '@/lib/athleticLinks';
 import React, { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
@@ -46,6 +47,7 @@ const SeasonPage: React.FC = () => {
     <div className="mx-auto max-w-6xl">
       <NextPageHeader title="Season" subtitle={activeYear ? `${activeYear}` : undefined} />
       <AnalyticsPage visibleTabs={tabs} groupScopeIds={scopeIds} />
+      <p className="mt-8 text-center text-xs text-muted-foreground">{ATHLETIC_SOURCE_LINE}</p>
     </div>
   );
 };

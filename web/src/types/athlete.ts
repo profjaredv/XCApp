@@ -4,6 +4,8 @@ export interface Athlete {
   id: string;
   name: string;
   preferredName?: string | null;
+  /** Athletic.net id or profile URL, when one was pasted/imported. */
+  athleticAthleteId?: string | null;
   gender: 'M' | 'F' | 'O';
   graduationYear?: number;
   isActive: boolean;
