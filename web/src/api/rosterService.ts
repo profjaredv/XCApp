@@ -117,6 +117,12 @@ export const rosterService = {
    * against every athlete already on the team by name before creating
    * anyone new, so re-running this doesn't create duplicates.
    */
+  /** The blank roster import template (CSV), for the coach to fill in and upload. */
+  async downloadTemplate(): Promise<Blob> {
+    const response = await api.get<Blob>('/athletes/roster-template', { responseType: 'blob' });
+    return response.data;
+  },
+
   async importRoster(season: number, csvData: string): Promise<RosterImportResult> {
     const response = await api.post<RosterImportResult>('/athletes/import-roster', { season, csvData });
     return response.data;
