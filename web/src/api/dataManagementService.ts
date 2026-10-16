@@ -35,29 +35,6 @@ export const dataManagementService = {
   },
 
   /**
-   * Import data for a specific team and season
-   */
-  importData: async (teamId: string, season: string): Promise<ImportDataResponse> => {
-    // Parameter 'teamId' is not required by /teams/scrape (team inferred from auth),
-    // but we accept it to keep a consistent API. Mark as intentionally unused.
-    // An athleticNetTeamId argument used to sit alongside it and was voided
-    // the same way — the UI collected it in a required field that the server
-    // never read. Removed rather than kept as decoration.
-    void teamId;
-    // Use the proven scraper endpoint used by ImportPage: POST /teams/scrape with { year }
-    // Backend derives the team from auth context; teamId is not required by this endpoint.
-    const resp = await api.post(`/teams/scrape`, { year: season });
-    // Transform response to the expected shape for the Data Management UI
-    // teams/scrape returns: { success, message, recordsProcessed, skippedMissing, skippedDate, totalRecords }
-    const processed = resp.data?.recordsProcessed ?? 0;
-    return {
-      racesImported: processed, // best available proxy; backend does not return per-type counts here
-      athletesImported: 0,
-      resultsImported: processed,
-    };
-  },
-
-  /**
    * Calculate metrics for a specific team and season
    */
   calculateMetrics: async (teamId: string, season: string): Promise<CalculateMetricsResponse> => {

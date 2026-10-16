@@ -11,7 +11,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTeamPath } from '../hooks/useTeamRoute';
 import { useSeasonSelection } from '../contexts/SeasonContext';
 import { currentCalendarSeason } from '../lib/seasonUtils';
-import { ImportDataPanel } from '../components/data-management/ImportDataPanel';
 import { UpdateResultsPanel } from '../components/data-management/UpdateResultsPanel';
 import { EnhancedCalculateMetricsPanel } from '../components/data-management/EnhancedCalculateMetricsPanel';
 
@@ -173,15 +172,6 @@ export function DataManagementPage() {
           <UpdateResultsPanel
             season={selectedSeason}
             onComplete={() => markStepCompleted(DataManagementStep.IMPORT)}
-          />
-          <ImportDataPanel 
-            teamId={teamId} 
-            season={selectedSeason}
-            onComplete={() => {
-              markStepCompleted(DataManagementStep.IMPORT);
-              goToNextStep();
-            }}
-            setIsProcessing={setIsProcessing}
           />
         </TabsContent>
         

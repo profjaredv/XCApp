@@ -245,7 +245,7 @@ const MeetDetailPage: React.FC<{ detailsOnly?: boolean }> = ({ detailsOnly = fal
               {meet.races.length === 0 && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   Used to predict times until a real race exists for this meet — races only link once results
-                  are scraped.
+                  are imported.
                 </p>
               )}
             </div>
@@ -384,7 +384,7 @@ const MeetDetailPage: React.FC<{ detailsOnly?: boolean }> = ({ detailsOnly = fal
         <CardContent className="space-y-4">
           {meet.races.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              This meet has no races linked yet — scraped results link automatically, or add one by hand (e.g. a time trial).
+              This meet has no races linked yet — imported results link automatically, or add one by hand (e.g. a time trial).
               Once it has results it's treated exactly like any other race.
             </p>
           ) : (

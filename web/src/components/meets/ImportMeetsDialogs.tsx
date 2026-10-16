@@ -91,7 +91,7 @@ export const ImportMeetsDialog: React.FC<{
     const count = row.raceIds.length;
     const confirmed = window.confirm(
       `Delete ${count} race${count === 1 ? '' : 's'} from "${row.proposedName}"?\n\n` +
-        `Any results recorded on a manually-entered race go with it. A scraped race isn't removed this way — ` +
+        `Any results recorded on a manually-entered race go with it. An imported race isn't removed this way — ` +
         `re-import it into a meet if you want to keep it.\n\nThis cannot be undone.`
     );
     if (!confirmed) {
@@ -140,7 +140,7 @@ export const ImportMeetsDialog: React.FC<{
           <p className="text-sm text-muted-foreground py-4">Loading races…</p>
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4">
-            No unlinked races found for this season — either everything's already grouped into a meet, or nothing's been scraped yet.
+            No unlinked races found for this season — either everything's already grouped into a meet, or no results have been imported yet.
           </p>
         ) : (
           <div className="space-y-3 max-h-[50vh] overflow-y-auto">
@@ -338,7 +338,7 @@ export const ImportCalendarDialog: React.FC<{
         ) : loadError ? (
           <p className="text-sm text-destructive py-4">{loadError}</p>
         ) : askForLink && !proposed ? null : rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">No meets found on this team's Athletic.net schedule for this season.</p>
+          <p className="text-sm text-muted-foreground py-4">No meets found on this calendar for this season.</p>
         ) : (
           <div className="space-y-3 max-h-[50vh] overflow-y-auto">
             {rows.map((row, i) => (
@@ -361,7 +361,7 @@ export const ImportCalendarDialog: React.FC<{
                     {row.date.slice(0, 10)}
                     {row.location ? ` · ${row.location}` : ''}
                     {row.unlinkedRaceCount > 0
-                      ? ` · ${row.unlinkedRaceCount} scraped result${row.unlinkedRaceCount === 1 ? '' : 's'} will be linked`
+                      ? ` · ${row.unlinkedRaceCount} imported result${row.unlinkedRaceCount === 1 ? '' : 's'} will be linked`
                       : ''}
                   </p>
                 </div>

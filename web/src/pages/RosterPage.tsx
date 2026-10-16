@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, GraduationCap, Users, RefreshCw, AlertTriangle, Star, Upload, Loader2, Merge, ClipboardList, Search, X, Eye, Download } from 'lucide-react';
+import { UserPlus, GraduationCap, Users, AlertTriangle, Star, Upload, Loader2, Merge, ClipboardList, Search, X, Eye, Download } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { rosterService, type RosterAthlete, type RosterImportResult } from '@/api/rosterService';
 import { AddAthleteDialog } from '@/components/roster/AddAthleteDialog';
@@ -106,23 +106,9 @@ const RosterPage: React.FC = () => {
     queryClient.invalidateQueries({ queryKey: ['teamContext'] });
     queryClient.invalidateQueries({ queryKey: ['availableSeasons'] });
     // Participants/attrition on the Program tab are computed straight from
-    // the roster — a sync or add/remove here changes those numbers too.
+    // the roster — an import or add/remove here changes those numbers too.
     queryClient.invalidateQueries({ queryKey: ['programAnalytics'] });
   };
-
-  const syncRoster = useMutation({
-    mutationFn: () => rosterService.syncFromAthleticNet(season!),
-    onSuccess: (result) => {
-      toast.success(result.message);
-      invalidate();
-    },
-    onError: (err: unknown) => {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Could not sync from Athletic.net';
-      toast.error(message);
-    },
-  });
 
 
   // T1: captain designation — coach-only, no action required from the
@@ -236,16 +222,6 @@ const RosterPage: React.FC = () => {
         }
         secondaryActions={<>
           {isCoach && (
-            <Button
-              variant="outline"
-              onClick={() => syncRoster.mutate()}
-              disabled={syncRoster.isPending || season === undefined}
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${syncRoster.isPending ? 'animate-spin' : ''}`} />
-              {syncRoster.isPending ? 'Syncing…' : 'Sync from Athletic.net'}
-            </Button>
-          )}
-          {isCoach && (
             <Button variant="outline" onClick={() => setImportRosterOpen(true)} disabled={season === undefined}>
               <Upload className="mr-2 h-4 w-4" />
               Import Roster
@@ -339,8 +315,8 @@ const RosterPage: React.FC = () => {
             <div>
               <p className="font-semibold">No athletes on the {season} roster yet</p>
               <p className="text-sm text-muted-foreground">
-                Add them by hand, or import a season from Athletic.net to build the roster
-                automatically.
+                Add them by hand, upload your roster from the import template, or paste your results into
+                Data Management to add everyone who raced.
               </p>
             </div>
             <Button onClick={() => setAddOpen(true)}>
@@ -401,7 +377,7 @@ const RosterPage: React.FC = () => {
                       {athlete.flaggedForRemoval && (
                         <Badge variant="destructive" className={ROW_BADGE}>
                           <AlertTriangle className="mr-1 h-3 w-3" />
-                          Not on Athletic.net
+                          Flagged for review
                         </Badge>
                       )}
                     </div>
