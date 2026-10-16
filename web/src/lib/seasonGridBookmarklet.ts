@@ -3,7 +3,7 @@
 // in the coach's own browser.
 //
 // Why a bookmarklet: Athletic.net now answers server-side scraping with a
-// Cloudflare bot check (see backend/lib/scrapeFailure.js), and moved the
+// Cloudflare bot check (see archive/athletic-net-scrapers), and moved the
 // season grid to an Angular page the old scraper can't read. The coach
 // already opens this page as a normal visitor; this reads what is on their
 // screen, one page, when they click it — it does not fetch anything else

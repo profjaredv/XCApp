@@ -6,7 +6,7 @@ const { chromium } = require('playwright');
 // the calling app itself created, so it cannot read an arbitrary shared
 // album at all. Scraping the public share page is the only way in, the
 // same reasoning (and the same tool) this codebase already uses for
-// Athletic.net — see scrape_roster_playwright.js.
+// Athletic.net — see archive/athletic-net-scrapers.
 //
 // Unlike that script, this one HAS been run against a real, live, public
 // album from this dev sandbox (reachable once Chromium is pointed at the
@@ -211,7 +211,7 @@ if (require.main === module) {
   scrapeAlbumPhotoUrls(albumUrl)
     .then((urls) => {
       // One URL per line on stdout — diagnostics all went to stderr above,
-      // same split as scrape_roster_playwright.js's CSV/stderr convention.
+      // same split as the archived roster scraper's CSV/stderr convention.
       for (const url of urls) console.log(url);
       process.exit(0);
     })
