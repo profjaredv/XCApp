@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { AthleteGroupsCard } from '../AthleteGroupsCard';
 import { Avatar, SegmentedTabs, Stat } from './Visual';
 import { CareerProgress } from './CareerProgress';
+import { AthleteTimeTrial } from './TimeTrialPanel';
 import { RacePredictionCard } from '../predictions/RacePredictionCard';
 import { CourseAdjustedProgressionCard } from '../athletes/CourseAdjustedProgressionCard';
 import { AthleteAdminPanel } from '../athletes/AthleteAdminPanel';
@@ -100,7 +101,7 @@ export const AthleteInspector: React.FC<{
         <SegmentedTabs<Tab> label="Athlete" tabs={tabs} value={tab} onChange={setTab} />
       </div>
       <div className={cn('space-y-4', page ? 'pt-4' : 'min-h-0 flex-1 overflow-y-auto p-4')}>
-        {tab === 'summary' && <SummaryTab athlete={athlete} />}
+        {tab === 'summary' && <SummaryTab athlete={athlete} season={season} />}
         {tab === 'races' && <RacesTab athleteId={athlete.id} />}
         {tab === 'reflections' && <ReflectionsTab athleteId={athlete.id} />}
         {tab === 'admin' && season != null && <AthleteAdminPanel athleteId={athlete.id} season={season} />}
@@ -109,13 +110,14 @@ export const AthleteInspector: React.FC<{
   );
 };
 
-const SummaryTab: React.FC<{ athlete: AthleteListRow }> = ({ athlete }) => (
+const SummaryTab: React.FC<{ athlete: AthleteListRow; season: number | undefined }> = ({ athlete, season }) => (
   <>
     <div className="grid grid-cols-3 gap-2">
       <Stat label="SB 5K" value={formatFiveK(athlete.sb)} />
       <Stat label="PR 5K" value={formatFiveK(athlete.pr)} />
       <Stat label="Races" value={athlete.races} />
     </div>
+    <AthleteTimeTrial athleteId={athlete.id} season={season} />
     <CareerProgress athleteId={athlete.id} name={athlete.name} gender={athlete.gender} />
     <CourseAdjustedProgressionCard athleteId={athlete.id} />
     <RacePredictionCard athleteId={athlete.id} />

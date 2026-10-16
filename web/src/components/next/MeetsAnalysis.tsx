@@ -1,17 +1,18 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { axiosInstance as api } from '@/api/axios';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAnalyticsData } from '@/hooks/useAnalyticsData';
 import { useGroupScope } from '@/contexts/GroupScopeContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { formatPace } from '@/lib/formatUtils';
-import { buildMeetTrend, type GridAthlete, type GridColumn, type MeetTrendPoint } from '@/lib/meetTrend';
+import { buildMeetTrend, type MeetTrendPoint } from '@/lib/meetTrend';
+import { isTimeTrial } from '@/lib/timeTrial';
 import { cn } from '@/lib/utils';
 import { MeetsTab } from '@/components/analytics/MeetsTab';
 import { DateTile, Panel, SectionHeading } from './Visual';
+import { TimeTrialPanel } from './TimeTrialPanel';
+import { useResultsGrid } from './useResultsGrid';
 
 // Meets → Analysis (next shell): how the team ran at each meet and how
 // that moved from race to race, with pace as the common measure. Then
@@ -63,16 +64,20 @@ export const MeetsAnalysis: React.FC<{ season: number | undefined }> = ({ season
   const scope = useGroupScope();
   // The trend reads every athlete's time in every race (the Results Grid
   // payload); the classic breakdown below keeps its own analytics data.
-  const { data: grid, isLoading } = useQuery({
-    queryKey: ['resultsGrid', season],
-    queryFn: async () => (await api.get<{ races: GridColumn[]; athletes: GridAthlete[] }>(`/teams/results-grid?seasons=${season}`)).data,
-    enabled: season != null,
-  });
+  const { data: grid, isLoading } = useResultsGrid(season);
   const { data } = useAnalyticsData(season);
   const meets = useMemo(() => data?.meets ?? [], [data]);
   const athletes = useMemo(() => data?.athletes ?? [], [data]);
   const trend = useMemo(
-    () => (grid ? buildMeetTrend(grid.races, grid.athletes, scope.athleteIdsInScope) : []),
+    () =>
+      grid
+        ? buildMeetTrend(
+            // A time trial is a 1 mile effort, not a race to compare against 5K paces; it has its own panel below.
+            grid.races.map((c) => (isTimeTrial(c.name, c.distanceMeters) ? { ...c, distanceMeters: null } : c)),
+            grid.athletes,
+            scope.athleteIdsInScope
+          )
+        : [],
     [grid, scope.athleteIdsInScope]
   );
   const scoped = !!scope.athleteIdsInScope;
@@ -144,6 +149,8 @@ export const MeetsAnalysis: React.FC<{ season: number | undefined }> = ({ season
           </ResponsiveContainer>
         </div>
       </Panel>
+
+      <TimeTrialPanel season={season} />
 
       <section>
         <SectionHeading title="Meet to meet" />
