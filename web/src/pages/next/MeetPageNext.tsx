@@ -503,7 +503,7 @@ const HistoryTab: React.FC<{ raceIds: string[]; coach: boolean }> = ({ raceIds, 
       <p className="text-sm text-muted-foreground">
         Meet series: <span className="font-medium text-foreground">{history.groupName}</span> · team averages; years run at a different distance aren't compared.
       </p>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2">
         {history.rows.map((row) => (
           <HistoryCard key={`${row.season}-${row.distanceMeters}`} row={row} showMine={showMine} />
         ))}
