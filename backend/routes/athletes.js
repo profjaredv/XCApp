@@ -16,7 +16,7 @@ const { decideCanAcceptAthleteInvite } = require('../lib/athleteInvites');
 const { sendEmail } = require('../lib/email');
 const { requireActivePlan } = require('../lib/entitlements');
 const calculationService = require('../services/performance/calculationService');
-const { parseRosterCsv } = require('../lib/rosterCsv');
+const { parseRosterCsv, rosterTemplateCsv } = require('../lib/rosterCsv');
 const { matchAthlete, normalizeAthleteName } = require('../lib/athleteMatching');
 const { validateImportRequest } = require('../lib/trainingLogImport');
 const { decideCanHaveAccount } = require('../lib/minorPolicy');
@@ -147,6 +147,15 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
     console.error('Error in GET /athletes:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
+});
+
+// GET /api/athletes/roster-template — the blank CSV a coach fills in (from a
+// registration sheet, FinalForms, or by hand) and uploads on the Roster page.
+// Registered before GET /:athleteId so "roster-template" is not read as an id.
+router.get('/roster-template', authenticate, requireTeam, requireRole(FULL_COACH), (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="leadpack-roster-template.csv"');
+  res.send(rosterTemplateCsv());
 });
 
 router.get('/:athleteId', authenticate, requireTeam, async (req, res) => {

@@ -94,4 +94,15 @@ function parseRosterCsv(rows) {
   return { athletes, errors, skipped };
 }
 
-module.exports = { parseRosterCsv };
+// The blank import template a coach downloads (GET /api/athletes/roster-template),
+// fills in from their registration sheet, and uploads. Every header here is one
+// parseRosterCsv understands; keep the two together (test/rosterTemplate.test.js
+// parses the template through it). Header row only: example rows would import as
+// real athletes if left in.
+const ROSTER_TEMPLATE_HEADERS = ['First Name', 'Last Name', 'Preferred Name', 'Grade', 'Gender'];
+
+function rosterTemplateCsv() {
+  return `${ROSTER_TEMPLATE_HEADERS.join(',')}\n`;
+}
+
+module.exports = { parseRosterCsv, ROSTER_TEMPLATE_HEADERS, rosterTemplateCsv };

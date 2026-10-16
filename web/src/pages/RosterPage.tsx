@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { UserPlus, GraduationCap, Users, RefreshCw, AlertTriangle, Star, Upload, Loader2, Merge, ClipboardList, Search, X, Eye } from 'lucide-react';
+import { UserPlus, GraduationCap, Users, RefreshCw, AlertTriangle, Star, Upload, Loader2, Merge, ClipboardList, Search, X, Eye, Download } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { rosterService, type RosterAthlete, type RosterImportResult } from '@/api/rosterService';
 import { AddAthleteDialog } from '@/components/roster/AddAthleteDialog';
@@ -543,20 +543,38 @@ const ImportRosterDialog: React.FC<{ open: boolean; onOpenChange: (open: boolean
     setResult(null);
   };
 
+  const downloadTemplate = async () => {
+    try {
+      const blob = await rosterService.downloadTemplate();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'leadpack-roster-template.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Could not download the template.');
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Import roster for {season}</DialogTitle>
           <DialogDescription>
-            Columns: Name, or First Name / Last Name (one or the other required), Grade or Graduation Year (one
-            required), Gender (optional), and Preferred Name, Nickname, or Preferred First Name (optional — a
-            preferred first name is paired with the last name automatically). An athlete already on the team
-            (matched by name) is never duplicated — only a missing gender, graduation year, or nickname gets filled
-            in; anything already verified is left alone.
+            Download the template, fill it in from your registration sheet (or copy the same columns into any
+            spreadsheet), save it as CSV, and upload it here. One row per athlete: First Name, Last Name, Grade (9-12)
+            and Gender are the basics; Preferred Name is optional. A Name column, or a Graduation Year instead of Grade,
+            also works. An athlete already on the team (matched by name) is never duplicated; only a missing gender,
+            graduation year, or nickname gets filled in, and anything already verified is left alone.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <Button type="button" variant="outline" size="sm" onClick={downloadTemplate}>
+            <Download className="mr-2 h-4 w-4" />
+            Download template (CSV)
+          </Button>
           <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} className="text-sm" />
           <Textarea
             rows={8}
