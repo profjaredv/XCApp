@@ -158,7 +158,7 @@ const GroupTiles: React.FC<{ groups: Group[]; days: (GroupDay | undefined)[]; xt
           </Link>
         }
       />
-      <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-2 md:px-0">
+      <div className="-mx-3 flex snap-x gap-3 overflow-x-auto px-3 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-2 md:px-0">
         {groups.map((g, i) => {
           const d = days[i];
           const here = d ? d.counts.PRESENT + d.counts.LATE : 0;
@@ -350,7 +350,7 @@ const CoachDashboard: React.FC<{ seasonId: string }> = ({ seasonId }) => {
   return (
     <div className="space-y-5">
       <SeasonReadinessChecklist />
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-5">
           <PracticeHero seasonId={seasonId} groups={groups} days={dayData} loading={scope.isLoading || days.some((d) => d.isLoading)} />
           <QuickActions />
@@ -360,7 +360,7 @@ const CoachDashboard: React.FC<{ seasonId: string }> = ({ seasonId }) => {
           <AttentionBlock seasonId={seasonId} />
         </div>
       </div>
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <GroupTiles groups={groups} days={dayData} xt={xt} />
         <RecentResultBlock seasonId={seasonId} />
       </div>
@@ -461,7 +461,7 @@ const AthleteTodayNext: React.FC<{ athleteId: string }> = ({ athleteId }) => {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-5">
           {meetLoading ? (
             <Skeleton className="h-44 w-full rounded-3xl" />
