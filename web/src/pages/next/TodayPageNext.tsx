@@ -269,7 +269,9 @@ const AttentionBlock: React.FC<{ seasonId: string }> = ({ seasonId }) => {
     >
       <ul className="-mx-2">
         {items.map((item, i) => {
-          const Icon = ATTENTION_ICON[item.type];
+          // An item type this build doesn't know (the server can ship one before the page reloads)
+          // gets a generic icon instead of crashing the whole screen.
+          const Icon = ATTENTION_ICON[item.type] ?? AlertTriangle;
           return (
             <li key={i}>
               <Link to={linkFor(item)} className="flex min-h-12 items-center gap-3 rounded-2xl px-2 text-sm hover:bg-accent">
