@@ -37,9 +37,9 @@ test('athleticIdKey matches old and new Athletic.net athlete links', () => {
   );
 });
 
-test('the pasted import route checks the CSV and only removes stale races for a two-gender paste', () => {
+test('the pasted import route checks the CSV and never removes races that are missing from the paste', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'routes', 'teams.js'), 'utf8');
   assert.match(src, /router\.post\('\/import-season-csv', authenticate, requireRole\(FULL_COACH\)/);
-  assert.match(src, /importSeasonCsv\(req\.user\.team, yearNum, csv, \{ removeStale: check\.genders\.size === 2 \}\)/);
+  assert.match(src, /importSeasonCsv\(req\.user\.team, yearNum, csv, \{ removeStale: false \}\)/);
   assert.match(src, /if \(removeStale && existingRaceIdByKey\.size > 0\)/);
 });

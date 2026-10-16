@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   CalendarDays,
   Flag,
+  ClipboardPaste,
   AlertTriangle,
   Trophy,
   ArrowRight,
@@ -201,6 +202,7 @@ const ATTENTION_ICON: Record<TodayAttentionItem['type'], React.ComponentType<{ c
   splits: Flag,
   'unpublished-plan': CalendarDays,
   'overdue-equipment': Package,
+  'update-results': ClipboardPaste,
 };
 
 function attentionLink(item: TodayAttentionItem, teamPath: (p: string) => string): string {
@@ -214,6 +216,8 @@ function attentionLink(item: TodayAttentionItem, teamPath: (p: string) => string
       return teamPath('/schedule');
     case 'overdue-equipment':
       return teamPath('/equipment');
+    case 'update-results':
+      return teamPath('/data-management');
     default:
       return teamPath('/analytics');
   }
