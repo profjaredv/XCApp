@@ -15,9 +15,9 @@ describe('athleticMeetUrl', () => {
 
 describe('athleticAthleteUrl', () => {
   it('accepts a bare id or a stored profile URL', () => {
-    expect(athleticAthleteUrl('9876')).toBe('https://www.athletic.net/athlete/9876');
-    expect(athleticAthleteUrl('https://www.athletic.net/athlete/9876/cross-country/')).toBe('https://www.athletic.net/athlete/9876');
-    expect(athleticAthleteUrl('https://www.athletic.net/Athlete.aspx?AID=4321')).toBe('https://www.athletic.net/athlete/4321');
+    expect(athleticAthleteUrl('9876')).toBe('https://www.athletic.net/athlete/9876/cross-country');
+    expect(athleticAthleteUrl('https://www.athletic.net/athlete/9876/cross-country/')).toBe('https://www.athletic.net/athlete/9876/cross-country');
+    expect(athleticAthleteUrl('https://www.athletic.net/Athlete.aspx?AID=4321')).toBe('https://www.athletic.net/athlete/4321/cross-country');
   });
   it('returns null when there is no usable id', () => {
     expect(athleticAthleteUrl(null)).toBeNull();

@@ -20,5 +20,5 @@ export function athleticMeetUrl(meetId: string | null | undefined): string | nul
 
 export function athleticAthleteUrl(value: string | null | undefined): string | null {
   const id = athleteIdDigits(value);
-  return id ? `https://www.athletic.net/athlete/${id}` : null;
+  return id ? `https://www.athletic.net/athlete/${id}/cross-country` : null;
 }
