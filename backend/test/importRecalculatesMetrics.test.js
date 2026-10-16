@@ -12,17 +12,17 @@ const assert = require('node:assert/strict');
 const TEAMS = fs.readFileSync(path.join(__dirname, '..', 'routes', 'teams.js'), 'utf8');
 
 test('a season import fires calculateAllMetrics after importing, without awaiting it', () => {
-  // The import (shared by POST /teams/scrape and POST /teams/import-season-csv)
-  // lives in importSeasonCsv; both routes await it and only then answer.
+  // The import (used by POST /teams/import-season-csv)
+  // lives in importSeasonCsv; the route awaits it and only then answer.
   const start = TEAMS.indexOf('async function importSeasonCsv(');
-  const end = TEAMS.indexOf('\n// POST /api/teams/scrape', start);
+  const end = TEAMS.indexOf('\n// POST /api/teams/import-season-csv', start);
   const fn = TEAMS.slice(start, end);
   const calcAt = fn.indexOf('.calculateAllMetrics(team.id, yearNum)');
   assert.ok(calcAt > -1, 'import must trigger the metrics calculation');
   assert.match(fn.slice(calcAt - 60, calcAt), /calculationService\s*$/, 'not awaited: the import response must not wait on it');
   assert.match(fn.slice(calcAt, calcAt + 200), /\.catch\(/, 'a calculation failure must not fail the import');
   assert.ok(calcAt < fn.indexOf('return { recordsProcessed'), 'fired before the import returns');
-  for (const call of ['await importSeasonCsv(team, yearNum, csvData)', 'await importSeasonCsv(req.user.team, yearNum, csv,']) {
+  for (const call of ['await importSeasonCsv(req.user.team, yearNum, csv,']) {
     const at = TEAMS.indexOf(call);
     assert.ok(at > -1 && at < TEAMS.indexOf('success: true', at), `${call} answers only after the import`);
   }

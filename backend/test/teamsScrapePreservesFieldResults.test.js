@@ -1,4 +1,4 @@
-// POST /api/teams/scrape, re-importing an already-imported season, used to
+// Re-importing an already-imported season, used to
 // unconditionally wipe every non-manual race for that season BEFORE
 // re-scraping — "just in case" a meet was removed. But the upsert further
 // down already matches an existing race by its natural key (teamId, name,
@@ -23,21 +23,20 @@ const assert = require('node:assert/strict');
 
 const ROUTES = fs.readFileSync(path.join(__dirname, '..', 'routes', 'teams.js'), 'utf8');
 
-// The import itself now lives in importSeasonCsv, shared by POST /scrape
-// and POST /import-season-csv (the coach's pasted Results Grid copy), so
-// both get the same protections. The assertions below run against it.
+// The import itself now lives in importSeasonCsv, used by
+// POST /import-season-csv (the coach's pasted Results Grid copy), so
+// it gets the same protections. The assertions below run against it.
 function importFunction() {
   const start = ROUTES.indexOf('async function importSeasonCsv(');
   assert.ok(start > -1, 'could not find importSeasonCsv');
-  const end = ROUTES.indexOf("\n// POST /api/teams/scrape", start);
+  const end = ROUTES.indexOf("\n// POST /api/teams/import-season-csv", start);
   assert.ok(end > start, 'could not find the end of importSeasonCsv');
   return ROUTES.slice(start, end);
 }
 
 const scrapeHandler = importFunction();
 
-test('both season imports go through importSeasonCsv', () => {
-  assert.match(ROUTES, /const summary = await importSeasonCsv\(team, yearNum, csvData\);/);
+test('the season import goes through importSeasonCsv', () => {
   assert.match(ROUTES, /const summary = await importSeasonCsv\(req\.user\.team, yearNum, csv, /);
 });
 
