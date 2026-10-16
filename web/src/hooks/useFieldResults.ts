@@ -17,11 +17,6 @@ export interface FieldResultRace {
   fieldFinisherCount: number | null;
   hasFieldData: boolean;
   normalizationMet: boolean;
-  // Another XCApp team already uploaded this same meet+race's field — see
-  // findSharedFieldSource in routes/fieldResults.js. Only set when this
-  // race has no field data of its own yet.
-  availableFromOtherTeam: boolean;
-  otherTeamFieldFinisherCount: number | null;
   // How many of this team's own results (out of ourResultCount) the
   // upload actually matched to a field finisher, by athlete name — 0 for
   // both when the race has no field data uploaded yet, so a coach who
@@ -69,29 +64,6 @@ export const useUploadFieldResults = () => {
   return useMutation<UploadFieldResultsResponse, Error, { raceId: string; csvData: string }>({
     mutationFn: async ({ raceId, csvData }) => {
       const response = await api.post<UploadFieldResultsResponse>(`/field-results/${raceId}`, { csvData });
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['fieldResultRaces'] });
-      queryClient.invalidateQueries({ queryKey: ['bandAnalytics'] });
-      queryClient.invalidateQueries({ queryKey: ['programAnalytics'] });
-    },
-  });
-};
-
-export interface CopyFieldResultsResponse {
-  success: boolean;
-  fieldFinisherCount: number;
-  normalizationMet: boolean;
-  fieldMeanSec: number | null;
-  fieldMedianSec: number | null;
-}
-
-export const useCopyFieldResultsFromMeet = () => {
-  const queryClient = useQueryClient();
-  return useMutation<CopyFieldResultsResponse, Error, { raceId: string }>({
-    mutationFn: async ({ raceId }) => {
-      const response = await api.post<CopyFieldResultsResponse>(`/field-results/${raceId}/copy-from-meet`);
       return response.data;
     },
     onSuccess: () => {
