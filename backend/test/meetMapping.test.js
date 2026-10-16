@@ -80,7 +80,7 @@ test('location uses the most common non-null value across the group', () => {
   assert.equal(meets[0].location, 'Sunfair Park');
 });
 
-// POST /scrape (routes/teams.js) deletes and recreates every non-manual
+// Older season re-imports deleted and recreated every non-manual
 // race for a season on every re-import — this is what carries an
 // already-grouped race's meetId across that cycle, so re-scraping a
 // season a coach already ran Import on doesn't silently un-group it.

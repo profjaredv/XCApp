@@ -29,16 +29,6 @@ const teamService = {
       console.error('Error fetching current team:', error);
       throw error;
     }
-  },
-  
-  switchTeam: async (teamId: string): Promise<Team | null> => {
-    try {
-      const response = await api.post<Team>('/teams/switch', { teamId });
-      return response.data;
-    } catch (error) {
-      console.error('Error switching team:', error);
-      return null;
-    }
   }
 };
 
@@ -75,25 +65,11 @@ export function useTeam() {
     }
   }, [authLoading, fetchTeam]);
 
-  const switchTeam = async (teamId: string) => {
-    try {
-      setLoading(true);
-      const team = await teamService.switchTeam(teamId);
-      if (team) {
-        setCurrentTeam(team);
-      }
-      setLoading(false);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to switch team'));
-      setLoading(false);
-    }
-  };
 
   return { 
     currentTeam,
     loading,
     error,
-    switchTeam,
     refreshTeam: fetchTeam
   };
 }

@@ -120,8 +120,8 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         onRoster: hasExplicitRoster
           ? Boolean(rosterEntry && rosterEntry.isActive)
           : races.length > 0 || isEnrolled(a.graduationYear, seasonYear),
-        // Set by a roster sync (routes/teams.js POST /scrape-roster) when
-        // this athlete no longer appears on Athletic.net — a review signal
+        // Set by an earlier roster sync (retired) when
+        // this athlete no longer appeared on Athletic.net — a review signal
         // for the coach, never an automatic removal.
         flaggedForRemoval: Boolean(rosterEntry?.flaggedForRemoval),
         // Truthy exactly when this roster row is linked to an account —
@@ -353,8 +353,8 @@ router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req,
 // (from a prior Athletic.net import OR a prior roster-CSV import) using
 // the exact same name/athleticAthleteId matching the scraper uses
 // (lib/athleteMatching.js) — a matched row only ever backfills a field
-// that's currently null, same "never overwrite what the scraper already
-// verified" rule /scrape-roster follows for athleticAthleteId. Never
+// that's currently null, same "never overwrite what an earlier import already
+// verified" rule for athleticAthleteId. Never
 // writes athleticAthleteId itself (this source has no such id) or the
 // deprecated Athlete.grade column — grade is per-season, on SeasonRoster.
 router.post('/import-roster', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
@@ -408,7 +408,7 @@ router.post('/import-roster', authenticate, requireTeam, requireRole(FULL_COACH)
         const genderValue = row.genderRaw ? normalizeGender(row.genderRaw) : null;
         // Whichever the row gave (Grade or Graduation Year), derive the
         // other side of the same relationship — same round-trip
-        // /scrape-roster uses (teams.js).
+        // the roster import used.
         const graduationYear = row.graduationYear ?? (row.grade != null ? deriveGraduationYear(row.grade, seasonYear) : null);
         const seasonGrade = row.grade ?? (row.graduationYear != null ? deriveGrade(row.graduationYear, seasonYear) : null);
 

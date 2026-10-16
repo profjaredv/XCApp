@@ -7,7 +7,7 @@
 // stats. Once the scraper exists, this stays as the fallback/manual-fix
 // path for races it can't reach — not replaced.
 //
-// Authorization: same tier as the season scraper's /scrape (data-entry
+// Authorization: same tier as the season import (data-entry
 // action, not head-coach-only) — authenticate, requireTeam, requireRole
 // (['HEAD_COACH', 'COACH']) on the write endpoints; read-only status is
 // requireTeam-only (any team member can see whether a race has field data).
