@@ -92,6 +92,8 @@ model Team {
   coachUid        String?  @map("coach_uid") @db.Uuid
   joinCode        String   @unique @map("join_code")
   athleticTeamId  String   @unique @map("athletic_team_id")
+  // The team's Athletic.net calendar (iCal) link, pasted by a coach. Fetched only when a coach clicks Import calendar.
+  calendarFeedUrl String?  @map("calendar_feed_url")
   importedSeasons Int[]    @default([]) @map("imported_seasons")
   currentSeason   Int?     @map("current_season")
   createdAt       DateTime @default(now()) @map("created_at")

@@ -117,7 +117,7 @@ const MeetsPage: React.FC = () => {
           )}
           <Button variant="outline" onClick={() => setCalendarImportOpen(true)}>
             <CalendarDays className="h-4 w-4 mr-2" />
-            Import from Athletic.net
+            Import from calendar link
           </Button>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Download className="h-4 w-4 mr-2" />
