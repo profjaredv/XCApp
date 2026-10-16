@@ -69,7 +69,7 @@ function buildMeetMappingProposal({ races }) {
   return { meets, noSeason };
 }
 
-// A re-scrape (routes/teams.js POST /scrape) deletes and recreates every
+// A season re-import (older versions of routes/teams.js) deleted and recreated every
 // non-manual race for the season from scratch — Athletic.net gives no
 // stable "this is still the same race" id beyond name+date+distance, the
 // same fields the (teamId, name, date, distance) unique index already

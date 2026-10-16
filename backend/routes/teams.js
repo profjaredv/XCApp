@@ -350,9 +350,9 @@ async function importSeasonCsv(team, yearNum, csvData, { removeStale = true } = 
 }
 
 // POST /api/teams/import-season-csv  { year, csv }
-// The same season import as /scrape, but the CSV comes from the coach's own
-// browser instead of a server-side scraper. Athletic.net's Cloudflare check
-// blocks the server (see lib/scrapeFailure.js); the Results Grid bookmarklet
+// Season import from a CSV the coach's own browser produced. The server no
+// longer contacts Athletic.net (the old scrapers are archived on branch
+// archive/athletic-net-scrapers); the Results Grid bookmarklet
 // (web/src/lib/seasonGridBookmarklet.ts) reads the season results grid the
 // coach already has open, copies it in the scraper's own CSV columns, and the
 // coach pastes it into Data Management. Nothing here fetches Athletic.net.
@@ -1023,5 +1023,5 @@ router.delete('/:athleticTeamId/results', authenticate, requireRole(DESTRUCTIVE)
 });
 
 module.exports = router;
-// For tests: the season import shared by /scrape and /import-season-csv.
+// For tests: the season import behind /import-season-csv.
 module.exports.importSeasonCsv = importSeasonCsv;
