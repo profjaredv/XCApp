@@ -13,7 +13,7 @@ import {
   useConfirmCalendarImport,
   useDeleteRace,
 } from '@/hooks/useMeetOps';
-import { type ProposedMeet, type ProposedCalendarMeet } from '@/api/meetOpsService';
+import { meetOpsService, type ProposedMeet, type ProposedCalendarMeet } from '@/api/meetOpsService';
 
 // The two flows that create Meet rows — from this season's scraped races,
 // and from the team's Athletic.net calendar. Moved here verbatim from
@@ -219,30 +219,63 @@ export const ImportCalendarDialog: React.FC<{
   const [rows, setRows] = useState<CalendarImportRow[]>([]);
   const [proposed, setProposed] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The calendar link a coach pastes. Saved on the team, so it is a one-time step.
+  const [link, setLink] = useState('');
+  const [askForLink, setAskForLink] = useState(false);
+  const [savingLink, setSavingLink] = useState(false);
+
+  const errorOf = (err: unknown) => (err as { response?: { data?: { msg?: string; code?: string } } })?.response?.data;
+
+  const loadMeets = () => {
+    setLoadError(null);
+    proposeImport.mutate(undefined, {
+      onSuccess: (data) => {
+        setRows(data.map((m) => ({ ...m, included: true, editedName: m.name })));
+        setProposed(true);
+        setAskForLink(false);
+      },
+      onError: (err: unknown) => {
+        const data = errorOf(err);
+        // No usable link yet (or one for another season): ask for it instead of showing a dead end.
+        if (data?.code === 'NO_CALENDAR_LINK' || data?.code === 'WRONG_SEASON_LINK') setAskForLink(true);
+        setLoadError(data?.msg ?? "Could not load this team's schedule.");
+      },
+    });
+  };
 
   useEffect(() => {
     if (open && !proposed) {
-      setLoadError(null);
-      proposeImport.mutate(undefined, {
-        onSuccess: (data) => {
-          setRows(data.map((m) => ({ ...m, included: true, editedName: m.name })));
-          setProposed(true);
-        },
-        onError: (err: unknown) => {
-          const message =
-            (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ??
-            "Could not load this team's Athletic.net schedule.";
-          setLoadError(message);
-        },
-      });
+      meetOpsService
+        .getCalendarFeed()
+        .then(({ url }) => {
+          setLink(url ?? '');
+          if (url) loadMeets();
+          else setAskForLink(true);
+        })
+        .catch(() => setAskForLink(true));
     }
     if (!open) {
       setProposed(false);
       setRows([]);
       setLoadError(null);
+      setAskForLink(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  const saveLinkAndLoad = async () => {
+    setSavingLink(true);
+    setLoadError(null);
+    try {
+      const saved = await meetOpsService.saveCalendarFeed(link);
+      setLink(saved.url ?? '');
+      loadMeets();
+    } catch (err) {
+      setLoadError(errorOf(err)?.msg ?? 'Could not save that link.');
+    } finally {
+      setSavingLink(false);
+    }
+  };
 
   const handleImport = async () => {
     const selected = rows.filter((r) => r.included && r.editedName.trim());
@@ -265,17 +298,46 @@ export const ImportCalendarDialog: React.FC<{
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Import meets from Athletic.net</DialogTitle>
+          <DialogTitle>Import meets from your calendar</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          Pulls this season's schedule straight from your team's Athletic.net calendar — works before results exist, and safe to
-          re-run for midseason changes. Nothing is created until you confirm.
+          Imports this season's meets from your team's Athletic.net calendar. Copy the calendar (iCal) link from your Athletic.net team
+          calendar and paste it here once; LeadPack reads it only when you open this screen. Safe to re-run for schedule changes, and
+          nothing is created until you confirm.
         </p>
+        {askForLink && (
+          <div className="space-y-2">
+            <label htmlFor="calendar-link" className="text-sm font-medium">
+              Your team calendar link
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="calendar-link"
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="https://www.athletic.net/CrossCountry/Print/ical.ashx?SchoolID=…"
+                className="h-9"
+              />
+              <Button onClick={saveLinkAndLoad} disabled={!link.trim() || savingLink || proposeImport.isPending}>
+                {(savingLink || proposeImport.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Load meets
+              </Button>
+            </div>
+          </div>
+        )}
+        {proposed && !askForLink && (
+          <p className="text-xs text-muted-foreground">
+            Using your saved calendar link.{' '}
+            <button type="button" className="underline" onClick={() => setAskForLink(true)}>
+              Change link
+            </button>
+          </p>
+        )}
         {proposeImport.isPending ? (
           <p className="text-sm text-muted-foreground py-4">Loading schedule…</p>
         ) : loadError ? (
           <p className="text-sm text-destructive py-4">{loadError}</p>
-        ) : rows.length === 0 ? (
+        ) : askForLink && !proposed ? null : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4">No meets found on this team's Athletic.net schedule for this season.</p>
         ) : (
           <div className="space-y-3 max-h-[50vh] overflow-y-auto">

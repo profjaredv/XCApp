@@ -330,6 +330,18 @@ export const meetOpsService = {
     return response.data;
   },
 
+  /** The team's saved Athletic.net calendar (iCal) link, if a coach has pasted one. */
+  async getCalendarFeed(): Promise<{ url: string | null }> {
+    const response = await api.get<{ url: string | null }>('/meet-ops/calendar-feed');
+    return response.data;
+  },
+
+  /** Saves the calendar link a coach pasted (an empty value clears it). Rejects a link that is not an Athletic.net calendar. */
+  async saveCalendarFeed(url: string): Promise<{ url: string | null; season: number | null }> {
+    const response = await api.put<{ url: string | null; season: number | null }>('/meet-ops/calendar-feed', { url });
+    return response.data;
+  },
+
   async confirmCalendarImport(
     seasonId: string,
     meets: Array<{ athleticMeetId: string; name: string; date: string; location?: string | null }>

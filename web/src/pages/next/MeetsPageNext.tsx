@@ -62,7 +62,7 @@ const MeetsPageNext: React.FC = () => {
         overflow={
           fullCoach
             ? [
-                { label: 'Import the Athletic.net calendar', onClick: () => setCalendarOpen(true), icon: CalendarDays },
+                { label: 'Import meets from your calendar link', onClick: () => setCalendarOpen(true), icon: CalendarDays },
                 { label: 'New meet', onClick: () => setNewOpen(true), icon: Plus },
                 { label: 'Meet series', to: teamPath('/settings#meet-groups'), icon: Link2 },
               ]
@@ -90,7 +90,7 @@ const MeetsPageNext: React.FC = () => {
       ) : isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : meets.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No meets this season yet.{fullCoach ? ' Import them from your Athletic.net calendar or from races already imported.' : ''}</p>
+        <p className="text-sm text-muted-foreground">No meets this season yet.{fullCoach ? ' Import them from your calendar link or from races already imported.' : ''}</p>
       ) : (
         <div className="space-y-6">
           {upcoming[0] ? (
