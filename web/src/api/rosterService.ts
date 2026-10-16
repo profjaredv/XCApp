@@ -18,6 +18,7 @@ export interface ExistingAthleteConflict {
 export interface RosterAthlete {
   id: string;
   name: string;
+  athleticAthleteId?: string | null;
   /** What the athlete actually goes by — show this instead of `name` wherever set. `name` stays the legal name (Athletic.net matching, claim verification). */
   preferredName?: string | null;
   gender?: string | null;

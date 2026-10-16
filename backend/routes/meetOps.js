@@ -55,7 +55,7 @@ router.get('/', authenticate, requireTeam, requireRole(ANY_TEAM_MEMBER), async (
     const meets = await prisma.meet.findMany({
       where: { seasonId },
       include: {
-        races: { select: { id: true, name: true, distance: true } },
+        races: { select: { id: true, name: true, distance: true, athleticMeetId: true } },
       },
       orderBy: { date: 'asc' },
     });
@@ -84,9 +84,12 @@ router.get('/', authenticate, requireTeam, requireRole(ANY_TEAM_MEMBER), async (
         date: m.date,
         location: m.location,
         isHome: m.isHome,
-        races: linkedAthleteId
+        // The meet's own Athletic.net id, else the one its races carry — for the "Full results on Athletic.net" link-out.
+        athleticMeetId: m.athleticMeetId ?? m.races.find((r) => r.athleticMeetId)?.athleticMeetId ?? null,
+        races: (linkedAthleteId
           ? m.races.map((r) => ({ ...r, myEntryStatus: myEntriesByRaceId.get(r.id) ?? 'NOT_ENTERED' }))
-          : m.races,
+          : m.races
+        ).map(({ athleticMeetId, ...race }) => race),
       }))
     );
   } catch (error) {

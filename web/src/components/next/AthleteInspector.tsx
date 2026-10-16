@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Eye, Map as MapIcon, Compass, Maximize2, Minimize2, X } from 'lucide-react';
+import { Eye, ExternalLink, Map as MapIcon, Compass, Maximize2, Minimize2, X } from 'lucide-react';
+import { athleticAthleteUrl } from '@/lib/athleticLinks';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
@@ -91,6 +92,11 @@ export const AthleteInspector: React.FC<{
         <Link to={teamPath(`/athlete/${athlete.id}/strategy`)} className={action}>
           <Compass className="h-4 w-4" /> Strategy
         </Link>
+        {athleticAthleteUrl(athlete.athleticAthleteId) && (
+          <a href={athleticAthleteUrl(athlete.athleticAthleteId) as string} target="_blank" rel="noopener noreferrer" className={action}>
+            <ExternalLink className="h-4 w-4" /> Athletic.net profile ↗
+          </a>
+        )}
         {fullCoach && (
           <button type="button" className={action} onClick={() => setPreviewAthlete(athlete.id, athlete.name, teamPath)}>
             <Eye className="h-4 w-4" /> Preview as athlete

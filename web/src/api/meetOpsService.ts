@@ -16,6 +16,8 @@ export interface MeetSummary {
   id: string;
   name: string;
   date: string;
+  /** Athletic.net's own id for this meet, when known. */
+  athleticMeetId?: string | null;
   location: string | null;
   isHome: boolean | null;
   // myEntryStatus is only present when the caller has a linkedAthlete — the
