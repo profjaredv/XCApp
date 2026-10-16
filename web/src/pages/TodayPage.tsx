@@ -238,7 +238,9 @@ const CoachAttentionBlock: React.FC<{ seasonId: string; teamPath: (p: string) =>
     <BlockShell title="Needs attention" icon={AlertTriangle} isLoading={isLoading} isError={isError} linkTo={teamPath('/analytics')} linkLabel="Analytics">
       <ul className="space-y-2">
         {items.map((item, i) => {
-          const Icon = ATTENTION_ICON[item.type];
+          // An item type this build doesn't know (the server can ship one before the page reloads)
+          // gets a generic icon instead of crashing the whole screen.
+          const Icon = ATTENTION_ICON[item.type] ?? AlertTriangle;
           return (
             <li key={i}>
               <Link to={attentionLink(item, teamPath)} className="flex items-center gap-2 text-sm hover:text-primary">
