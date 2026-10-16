@@ -21,7 +21,6 @@ const code = (src: string) =>
 const dataMgmt = code(read('pages/DataManagementPage.tsx'));
 const header = code(read('components/analytics/AnalyticsHeader.tsx'));
 const analytics = code(read('pages/AnalyticsPage.tsx'));
-const importPanel = code(read('components/data-management/ImportDataPanel.tsx'));
 const settings = code(read('pages/SettingsPage.tsx'));
 
 describe('the flow is import then calculate', () => {
@@ -58,21 +57,18 @@ describe('clearing survives in exactly one place', () => {
   });
 });
 
-describe('the Athletic.net Team ID field', () => {
-  it('is gone — the import resolves the team from the session', () => {
-    // It was a REQUIRED field gating the button on a value the server
-    // never reads, and it implied you could import another team's season.
-    expect(importPanel).not.toContain('Athletic.net Team ID');
-    expect(importPanel).not.toContain('athleticNetTeamId');
+describe('the server-side Athletic.net import is gone', () => {
+  it('the Data Management page offers Update results, not a scrape button', () => {
+    expect(dataMgmt).toContain('UpdateResultsPanel');
+    expect(dataMgmt).not.toContain('ImportDataPanel');
   });
 
-  it('no longer blocks the button on it', () => {
-    expect(importPanel).toContain('disabled={isImporting}');
-    expect(importPanel).not.toContain('|| !athleticNetTeamId');
-  });
-
-  it('is dropped from the mutation contract too, not just hidden', () => {
+  it('nothing in the client calls the scraper endpoints', () => {
     const hooks = code(read('hooks/useDataManagement.ts'));
-    expect(hooks).not.toContain('athleticNetTeamId');
+    const service = code(read('api/dataManagementService.ts'));
+    const roster = code(read('api/rosterService.ts'));
+    expect(hooks).not.toContain('useImportData');
+    expect(service).not.toContain('/teams/scrape');
+    expect(roster).not.toContain('/teams/scrape-roster');
   });
 });

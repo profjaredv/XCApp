@@ -37,24 +37,13 @@ export interface RosterAthlete {
     sentAt?: string;
     acceptedAt?: string;
   };
-  /** Active on the roster, but missing from the last Athletic.net sync — needs a coach's review. */
+  /** Active on the roster but flagged for a coach's review (cleared from the athlete's admin panel). */
   flaggedForRemoval?: boolean;
   /** Captaincy is annual — lives on the per-season roster row, not the athlete. */
   isCaptain?: boolean;
   captainNotes?: string | null;
   /** The season row's id, needed to call setCaptain below. Null if no explicit Season row exists yet. */
   seasonId?: string | null;
-}
-
-export interface RosterSyncResult {
-  success: boolean;
-  season: number;
-  totalScraped: number;
-  added: string[];
-  reactivated: string[];
-  updated: string[];
-  flaggedForRemoval: string[];
-  message: string;
 }
 
 export interface RosterImportResult {
@@ -150,16 +139,6 @@ export const rosterService = {
   /** Deactivates the roster entry; the athlete's results are never deleted. */
   async removeFromRoster(season: number, athleteId: string) {
     const response = await api.delete(`/teams/seasons/${season}/roster/${athleteId}`);
-    return response.data;
-  },
-
-  /**
-   * Pulls the current roster from Athletic.net and merges it in: adds new
-   * athletes, reactivates/updates matches, and flags anyone missing for
-   * review — never removes anyone automatically.
-   */
-  async syncFromAthleticNet(season: number): Promise<RosterSyncResult> {
-    const response = await api.post<RosterSyncResult>('/teams/scrape-roster', { year: season });
     return response.data;
   },
 

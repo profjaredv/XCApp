@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient, UseMutationResult } from '@tanstack/react-query';
 import dataManagementService, {
   ClearDataResponse,
-  ImportDataResponse,
   CalculateMetricsResponse
 } from '../api/dataManagementService';
 
@@ -29,14 +28,6 @@ interface ClearDataParams {
   season: string;
 }
 
-// No athleticNetTeamId: POST /teams/scrape resolves the team from the
-// authenticated session and never reads one from the body. Carrying it here
-// meant the UI collected a value the server ignored.
-interface ImportDataParams {
-  teamId: string;
-  season: string;
-}
-
 interface CalculateMetricsParams {
   teamId: string;
   season: string;
@@ -53,22 +44,6 @@ export const useClearData = (): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ teamId, season }: ClearDataParams) => dataManagementService.clearData(teamId, season),
-    onSuccess: () => invalidateAfterDataChange(queryClient),
-  });
-};
-
-/**
- * Hook for importing data for a specific team and season
- */
-export const useImportData = (): UseMutationResult<
-  ImportDataResponse,
-  Error,
-  ImportDataParams
-> => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ teamId, season }: ImportDataParams) =>
-      dataManagementService.importData(teamId, season),
     onSuccess: () => invalidateAfterDataChange(queryClient),
   });
 };

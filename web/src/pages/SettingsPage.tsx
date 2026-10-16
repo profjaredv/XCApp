@@ -240,7 +240,7 @@ const SimpleSettingsPage: React.FC = () => {
                 )}
                 {!isEditing && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    This ID is used for importing data from Athletic.net
+                    This ID is used to link to your team's pages on Athletic.net
                   </p>
                 )}
               </div>

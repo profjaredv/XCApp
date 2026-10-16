@@ -168,7 +168,7 @@ const TeamSetupDialog: React.FC<{
                 placeholder="e.g. 12345"
               />
               <p className="text-xs text-muted-foreground">
-                The number in the team's Athletic.net URL. Used to sync the roster and results.
+                The number in the team's Athletic.net URL. Used to link to the team's Athletic.net pages.
               </p>
             </div>
             <div className="space-y-2">

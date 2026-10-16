@@ -37,7 +37,7 @@ const COACH_STEPS: StepCopy[] = [
   {
     navKey: 'athletes',
     description:
-      'Your roster, season by season. Add athletes, invite them to their own login, mark captains, and merge duplicates when a scrape brings the same runner in twice.',
+      'Your roster, season by season. Add athletes, invite them to their own login, mark captains, and merge duplicates when the same runner is added twice.',
     cta: 'Open Roster',
   },
   {

@@ -24,7 +24,7 @@ describe('F1: no meet entry status for athletes', () => {
 
 describe('F3: Data Management step labels', () => {
   it('each step card is headed with its own tab number', () => {
-    expect(read('components/data-management/ImportDataPanel.tsx')).toContain('Step 1: Import Season Data');
+    expect(read('pages/DataManagementPage.tsx')).toContain('Step 1: Import');
     expect(read('components/data-management/EnhancedCalculateMetricsPanel.tsx')).toContain('Step 2: Calculate Metrics');
   });
 
