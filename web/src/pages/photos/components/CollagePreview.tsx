@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useExportPalette } from '../../../hooks/useTeamColors';
 import { renderCollage, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
 import { templateFor } from '../lib/templates';
 import { hitTestSlot, nextFocalPoint } from '../lib/focalDrag';
@@ -41,6 +42,7 @@ interface DragState {
 
 export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreviewProps>(
   ({ templateSize, photos, header, stats = null, focalPoints = [], onFocalChange }, ref) => {
+    const palette = useExportPalette();
     const innerRef = useRef<HTMLCanvasElement>(null);
     const canvasRef = (ref as React.RefObject<HTMLCanvasElement>) ?? innerRef;
     const dragRef = useRef<DragState | null>(null);
@@ -61,14 +63,14 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       // must not request) crossOrigin-loaded images; see collageRender.ts's
       // own comment on why that matters. Logged, not thrown: a blank slot
       // here is already visible as the gray placeholder box.
-      renderCollage(canvas, PAGE_W, PAGE_H, templateSize, urls, header, false, stats, effectiveFocalPoints).catch(
+      renderCollage(canvas, PAGE_W, PAGE_H, templateSize, urls, header, false, stats, effectiveFocalPoints, palette?.paperAccent).catch(
         (error) => console.error('Collage preview failed to render:', error),
       );
       // effectiveFocalPoints is a fresh array each render by design (it
       // folds in the live drag override), so it's compared by its actual
       // entries here rather than by reference.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canvasRef, templateSize, photos, header, stats, JSON.stringify(effectiveFocalPoints)]);
+    }, [canvasRef, templateSize, photos, header, stats, palette?.paperAccent, JSON.stringify(effectiveFocalPoints)]);
 
     function canvasPoint(e: React.PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
       const rect = e.currentTarget.getBoundingClientRect();

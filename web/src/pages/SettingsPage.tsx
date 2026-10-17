@@ -25,6 +25,7 @@ import { SettingsSection } from '@/components/settings/SettingsSection';
 import { DataPracticesCard } from '@/components/settings/DataPracticesCard';
 import { SeasonRolloverCard } from '@/components/settings/SeasonRolloverCard';
 import { TeamFeaturesCard } from '@/components/settings/TeamFeaturesCard';
+import { TeamColorsCard } from '@/components/settings/TeamColorsCard';
 import { PageHeader } from '@/components/PageHeader';
 import { TeamJoinCodeCard } from '@/components/team/TeamJoinCodeCard';
 import { PendingClaimsCard } from '@/components/PendingClaimsCard';
@@ -32,7 +33,7 @@ import { PendingGuardianLinksCard } from '@/components/PendingGuardianLinksCard'
 import { PendingParentRequestsCard } from '@/components/PendingParentRequestsCard';
 import { useExpandedSections } from '@/hooks/useExpandedSections';
 import { isFullCoach, canDeleteData, isImpersonatingAdmin } from '@/lib/teamRole';
-import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2, CalendarPlus, ToggleLeft, KeyRound } from 'lucide-react';
+import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2, CalendarPlus, ToggleLeft, KeyRound, Palette } from 'lucide-react';
 
 interface Team {
   id: string;
@@ -342,6 +343,20 @@ const SimpleSettingsPage: React.FC = () => {
                 <PendingParentRequestsCard />
               </div>
             )}
+          </SettingsSection>
+        )}
+
+        {team && (isFullCoach(currentUser) || isImpersonatingAdmin(currentUser)) && (
+          <SettingsSection
+            id="team-colors"
+            section="season"
+            title="Team colors"
+            description="Your colors for the app, dark mode and exported images."
+            icon={Palette}
+            open={isOpen('team-colors')}
+            onToggle={() => toggle('team-colors')}
+          >
+            {isMounted('team-colors') && <TeamColorsCard />}
           </SettingsSection>
         )}
 

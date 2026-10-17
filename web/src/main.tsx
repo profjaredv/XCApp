@@ -13,6 +13,7 @@ import { AuthProvider } from './components/AuthProvider';
 import { NerdModeProvider } from './contexts/NerdModeProvider';
 import { UiVersionProvider } from './contexts/UiVersionProvider';
 import { ThemeProvider } from './contexts/ThemeProvider';
+import { TeamThemeStyles, applyCachedTeamTheme } from './components/TeamThemeStyles';
 import { installErrorBuffer } from './lib/errorBuffer';
 import { registerServiceWorker } from './registerServiceWorker';
 import './index.css';
@@ -20,6 +21,7 @@ import './index.css';
 // Start capturing console errors before anything renders, so a crash during
 // initial mount is still attached to any feedback filed afterwards.
 installErrorBuffer();
+applyCachedTeamTheme();
 
 // Makes the app installable to a phone's home screen and precaches the
 // shell so it opens without waiting on a school's wifi. No-ops in dev
@@ -71,6 +73,7 @@ createRoot(document.getElementById('root')!).render(
               reason, and inside AuthProvider because the account's saved
               choice wins over this device's. */}
           <ThemeProvider>
+            <TeamThemeStyles />
             <NerdModeProvider>
               <UiVersionProvider>
                 <RouterProvider router={router} />

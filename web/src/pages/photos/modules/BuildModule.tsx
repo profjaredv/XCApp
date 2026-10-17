@@ -8,6 +8,7 @@ import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { renderCollage, type FocalPoint } from '../lib/collageRender';
 import { athletesById as buildAthletesById } from '../lib/selectors';
 import { isPhotoVisible } from '../lib/tagRules';
+import { useExportPalette } from '../../../hooks/useTeamColors';
 import { photosService } from '../../../api/photosService';
 import type { AthleteBuildStats } from '../state/types';
 
@@ -15,6 +16,7 @@ const EXPORT_W = 2550;
 const EXPORT_H = 3300;
 
 export const BuildModule: React.FC = () => {
+  const palette = useExportPalette();
   const { state, actor, teamName, setPhotoFocal } = usePhotosWorkspace();
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
   const [stats, setStats] = useState<AthleteBuildStats | null>(null);
@@ -117,6 +119,7 @@ export const BuildModule: React.FC = () => {
         true, // requireExportableCanvas — this is the canvas toDataURL() reads below
         stats,
         focalPoints,
+        palette?.paperAccent,
       );
       const url = canvas.toDataURL('image/png');
       const link = document.createElement('a');

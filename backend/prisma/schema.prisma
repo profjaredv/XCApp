@@ -116,6 +116,10 @@ model Team {
   // instead of silently disappearing. See lib/teamFeatures.js.
   features Json?
 
+  // The team's own colors for the app and its exports ({ primary, accent, ... }
+  // as #rrggbb). Null means LeadPack's default green. See lib/teamColors.js.
+  colors Json?
+
   // A shared "meet day" password that unlocks Photos tagging (view + tag,
   // nothing else — no upload, no build, no hide/delete) with no account at
   // all. Null means the coach never set one, which keeps this door closed

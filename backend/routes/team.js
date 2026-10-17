@@ -10,6 +10,7 @@ const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 const { sendEmail } = require('../lib/email');
 const { requireActivePlan } = require('../lib/entitlements');
 const { describeFeatures, applyFeatureUpdate, resolveFeatures } = require('../lib/teamFeatures');
+const { normalizeColors, applyColorUpdate } = require('../lib/teamColors');
 
 // www, not the apex — the apex leadpack.cc has no DNS record pointed at
 // the app, so bare-domain invite links 404 at the DNS level before ever
@@ -869,6 +870,34 @@ router.patch('/features', authenticate, requireTeam, requireRole(FULL_COACH), as
     res.json({ features: describeFeatures(updated.features), enabled: resolveFeatures(updated.features) });
   } catch (error) {
     console.error('Error updating team features:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/team/colors — any team member (every screen is drawn in them).
+router.get('/colors', authenticate, requireTeam, async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({ where: { id: req.user.teamId }, select: { colors: true } });
+    if (!team) return res.status(404).json({ msg: 'Team not found' });
+    res.json({ colors: normalizeColors(team.colors) });
+  } catch (error) {
+    console.error('Error loading team colors:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// PATCH /api/team/colors — a partial { key: '#rrggbb' | null }; null clears
+// one color back to the default. Coaches only.
+router.patch('/colors', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({ where: { id: req.user.teamId }, select: { colors: true } });
+    if (!team) return res.status(404).json({ msg: 'Team not found' });
+    const { colors, error } = applyColorUpdate(team.colors, req.body);
+    if (error) return res.status(400).json({ msg: error });
+    await prisma.team.update({ where: { id: req.user.teamId }, data: { colors: Object.keys(colors).length ? colors : null } });
+    res.json({ colors });
+  } catch (error) {
+    console.error('Error updating team colors:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
