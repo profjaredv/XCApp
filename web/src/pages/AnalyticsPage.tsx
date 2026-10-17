@@ -23,6 +23,7 @@ import { DashboardTab } from '@/components/analytics/DashboardTab';
 import { AthletesTab } from '@/components/analytics/AthletesTab';
 import { MeetsTab } from '@/components/analytics/MeetsTab';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
+import { readCareerMetrics, type SeasonMetricsLike } from '@/lib/athleteSeasonMetrics';
 import { SeasonMode } from '@/components/analytics/types';
 import type { Athlete, Race } from '@/types/analytics';
 import { AuthContext } from '@/contexts/AuthContext';
@@ -350,38 +351,13 @@ const AnalyticsPage = ({ visibleTabs, groupScopeIds }: AnalyticsPageProps = {}) 
     races: (selectedAthlete as EnhancedAthlete).races || []
   } : null;
 
-  const careerSummary = useMemo<CareerSummary>(() => {
-    const seasons = athleteAllSeasons?.data?.seasons || [];
-    if (!seasons.length) return { totalRaces: 0, totalMiles: 0, avgPace: 0, best5kTime: 0 };
-    const totals = seasons.reduce((acc, season) => {
-      // GET /performance/athlete/:id/all-seasons spreads the raw
-      // AthleteSeasonMetrics row, whose fields are flat camelCase
-      // (totalRaces, totalMiles, averagePace) — never snake_case, never
-      // nested under `.metrics`. Only best5kTime is separately set by the
-      // route handler, which is why PR/SB 5K worked while races/miles/pace
-      // silently zeroed out: those were the only two fallbacks that could
-      // ever actually match.
-      const totalRaces = season.totalRaces ?? season.total_races ?? season.metrics?.totalRaces ?? 0;
-      const totalMiles = season.totalMiles ?? season.total_miles ?? season.metrics?.totalMiles ?? 0;
-      const avgPace = season.averagePace ?? season.average_pace ?? season.metrics?.avgMilePace?.overall ?? 0;
-      const best5k = season.best5kTime ?? season.best_time_5k ?? season.metrics?.best5kTime ?? Infinity;
-      
-      return {
-        totalRaces: acc.totalRaces + totalRaces,
-        totalMiles: acc.totalMiles + totalMiles,
-        totalTime: acc.totalTime + (totalMiles > 0 && avgPace > 0 ? totalMiles * avgPace : 0),
-        // `|| Infinity` (F5): a season with no 5K comes back as 0, which
-        // otherwise wins the min and erases a real 5K from another season.
-        best5kTime: Math.min(acc.best5kTime, best5k || Infinity)
-      };
-    }, { totalRaces: 0, totalMiles: 0, totalTime: 0, best5kTime: Infinity });
-    return {
-      totalRaces: totals.totalRaces,
-      totalMiles: parseFloat(totals.totalMiles.toFixed(2)),
-      avgPace: totals.totalMiles > 0 ? Math.round(totals.totalTime / totals.totalMiles) : 0,
-      best5kTime: Number.isFinite(totals.best5kTime) ? totals.best5kTime : 0
-    };
-  }, [athleteAllSeasons?.data?.seasons]);
+  // GET /performance/athlete/:id/all-seasons spreads the raw flat
+  // AthleteSeasonMetrics row; lib/athleteSeasonMetrics.ts reads it (and the
+  // legacy shapes) so this page and the athlete profile cannot drift apart.
+  const careerSummary = useMemo<CareerSummary>(
+    () => readCareerMetrics(athleteAllSeasons?.data?.seasons as SeasonMetricsLike[] | undefined),
+    [athleteAllSeasons?.data?.seasons]
+  );
 
   const seasonBreakdown = useMemo<SeasonBreakdown[]>(() => {
     // Same field-name fix as careerSummary above: the real response is flat

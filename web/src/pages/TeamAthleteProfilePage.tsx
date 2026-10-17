@@ -9,6 +9,7 @@ import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSumma
 import { useAthletePerformance, useAthleteAllSeasons } from '@/hooks/usePerformanceMetrics';
 import { performanceService } from '@/api/performanceService';
 import { athleteService } from '@/api/athleteService';
+import { readCareerMetrics, readSeasonMetrics, type SeasonMetricsLike } from '@/lib/athleteSeasonMetrics';
 import { athleticAthleteUrl } from '@/lib/athleticLinks';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -139,6 +140,7 @@ const TeamAthleteProfilePage = () => {
   const enhancedAthlete: (Athlete & { bestTimeDate?: string; raceCount?: number; firstRaceTime?: number; lastRaceTime?: number; races: Race[] }) | null = useMemo(() => {
     if (!athletePerf?.data) return null;
     const { data } = athletePerf;
+    const seasonNow = readSeasonMetrics(data as unknown as SeasonMetricsLike);
     // Identity comes from the identity query first. The metrics endpoint
     // is keyed on a season's calculated row and had no athleteName field
     // at all, so this rendered a blank heading and a chart legend that
@@ -159,49 +161,29 @@ const TeamAthleteProfilePage = () => {
       seasons: [], // This will be populated by athleteAllSeasons
       currentSeason: {} as AthleteSeasonData, // Placeholder
       personalBests: {}, // Placeholder
-      races: (data.metrics?.races as unknown as Race[]) || [],
-      bestTime: data.metrics?.best?.bestTime || 0,
-      avgPace: data.metrics?.current?.avgMilePace?.overall || 0,
+      races: ((data.metrics?.races ?? (data as unknown as { races?: unknown }).races) as unknown as Race[]) || [],
+      // The live payload is the flat metrics row (see lib/athleteSeasonMetrics.ts);
+      // the nested reads are the legacy shape, kept as a fallback.
+      bestTime: seasonNow.best5kTime || data.metrics?.best?.bestTime || 0,
+      avgPace: seasonNow.avgPace || data.metrics?.current?.avgMilePace?.overall || 0,
       improvementPercent: 0, // Placeholder
-      raceCount: data.metrics?.current?.totalRaces || 0,
+      raceCount: seasonNow.totalRaces || data.metrics?.current?.totalRaces || 0,
       firstRaceTime: 0, // Placeholder
       lastRaceTime: 0, // Placeholder
       bestTimeDate: '' // Placeholder
     };
   }, [athletePerf, athleteId, athleteIdentity]);
 
-  const careerSummary = useMemo<CareerSummary>(() => {
-    const seasons = athleteAllSeasons?.data?.seasons || [];
-    if (!seasons.length) return { totalRaces: 0, totalMiles: 0, avgPace: 0, best5kTime: 0 };
-    const totals = seasons.reduce((acc, season) => {
-      const metrics = season.metrics;
-      const miles = metrics?.totalMiles ?? 0;
-      return {
-        totalRaces: acc.totalRaces + (metrics?.totalRaces ?? 0),
-        totalMiles: acc.totalMiles + miles,
-        totalTime: acc.totalTime + (miles > 0 && (metrics?.avgMilePace?.overall ?? 0) > 0 ? miles * metrics.avgMilePace.overall : 0),
-        // `|| Infinity`, not `?? Infinity` (F5): a season with no 5K comes
-        // back as 0, which made every career best 0 — "no 5K" for an
-        // athlete who has one.
-        best5kTime: Math.min(acc.best5kTime, metrics?.best5kTime || Infinity)
-      };
-    }, { totalRaces: 0, totalMiles: 0, totalTime: 0, best5kTime: Infinity });
-    return {
-      totalRaces: totals.totalRaces,
-      totalMiles: parseFloat(totals.totalMiles.toFixed(2)),
-      avgPace: totals.totalMiles > 0 ? Math.round(totals.totalTime / totals.totalMiles) : 0,
-      best5kTime: Number.isFinite(totals.best5kTime) ? totals.best5kTime : 0
-    };
-  }, [athleteAllSeasons?.data?.seasons]);
+  const careerSummary = useMemo<CareerSummary>(
+    () => readCareerMetrics(athleteAllSeasons?.data?.seasons as SeasonMetricsLike[] | undefined),
+    [athleteAllSeasons?.data?.seasons]
+  );
 
   const seasonBreakdown = useMemo<SeasonBreakdown[]>(() => {
-    return (athleteAllSeasons?.data?.seasons || []).map(s => ({
-      season: s.season,
-      totalRaces: s.metrics?.totalRaces ?? 0,
-      totalMiles: s.metrics?.totalMiles ?? 0,
-      avgPace: s.metrics?.avgMilePace?.overall ?? 0,
-      best5kTime: s.metrics?.best5kTime ?? 0,
-    }));
+    return (athleteAllSeasons?.data?.seasons || []).map(s => {
+      const m = readSeasonMetrics(s as SeasonMetricsLike);
+      return { season: s.season, totalRaces: m.totalRaces, totalMiles: m.totalMiles, avgPace: m.avgPace, best5kTime: m.best5kTime };
+    });
   }, [athleteAllSeasons?.data?.seasons]);
 
   const allSeasonsRaces = useMemo<RaceData[]>(() => {

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamColors } from '@/hooks/useTeamColors';
-import { buildThemeCss } from '@/lib/teamColors';
+import { buildThemeCss, resolveColors } from '@/lib/teamColors';
 
 // Paints the app in the signed-in team's colors by keeping one <style> tag
 // in <head> in step with the team's saved colors. No colors saved → no tag →
@@ -14,6 +14,15 @@ import { buildThemeCss } from '@/lib/teamColors';
 
 const STYLE_ID = 'team-theme';
 const CACHE_KEY = 'xc_team_theme_css';
+
+// The browser's address/status bar color. index.html ships LeadPack green; a
+// team with its own colors gets its main color (the light-mode one, which is
+// always dark enough for white status icons).
+const DEFAULT_BAR = '#005827';
+function setBarColor(hex: string | null) {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', hex ?? DEFAULT_BAR);
+}
 
 function setStyle(css: string) {
   let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
@@ -47,6 +56,7 @@ export const TeamThemeStyles: React.FC = () => {
     if (loading) return;
     if (!signedIn) {
       setStyle('');
+      setBarColor(null);
       try {
         window.localStorage.removeItem(CACHE_KEY);
       } catch {
@@ -57,6 +67,7 @@ export const TeamThemeStyles: React.FC = () => {
     if (!isSuccess) return;
     const css = buildThemeCss(data?.colors);
     setStyle(css);
+    setBarColor(resolveColors(data?.colors)?.light.primary ?? null);
     try {
       if (css) window.localStorage.setItem(CACHE_KEY, css);
       else window.localStorage.removeItem(CACHE_KEY);
