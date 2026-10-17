@@ -21,7 +21,6 @@ import {
   Target,
   Timer,
   TrendingUp,
-  Trophy,
   Users,
 } from 'lucide-react';
 import { accentFor, type SectionKey } from '@/lib/sectionAccent';
