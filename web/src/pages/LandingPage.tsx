@@ -6,7 +6,13 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  ClipboardPaste,
   Download,
+  FileSpreadsheet,
+  Palette,
+  Upload,
+  PencilLine,
+  X,
   Flag,
   GraduationCap,
   Lock,
@@ -15,7 +21,6 @@ import {
   Target,
   Timer,
   TrendingUp,
-  Trophy,
   Users,
 } from 'lucide-react';
 import { accentFor, type SectionKey } from '@/lib/sectionAccent';
@@ -68,6 +73,44 @@ const AUDIENCES: Array<{
   },
 ];
 
+const PAIN: string[] = [
+  'Roster in one file, results in another, and the version someone emailed last week in a third.',
+  'Attendance on paper, then retyped. Or never retyped.',
+  'Meet entries rebuilt from scratch every weekend.',
+  'Paces worked out by hand, or copied from a chart taped inside a clipboard.',
+  'Last season’s results somewhere on a laptop that is no longer yours.',
+  'An assistant who needs the sheet, and can now see (or break) all of it.',
+];
+
+const COMPARE: Array<{ job: string; sheet: string; app: string }> = [
+  { job: 'Roster', sheet: 'Retyped and re-sorted every August', app: 'Built once; class years roll over and seniors retire themselves' },
+  { job: 'Attendance', sheet: 'A column per day that nobody trusts', app: 'Taken on a phone at the trailhead, by group, in seconds' },
+  { job: 'Results', sheet: 'Pasted into tabs, formulas that break', app: 'Paste or upload; every season kept and comparable' },
+  { job: 'Workout paces', sheet: 'Calculated by hand', app: 'Worked out for each athlete from their own recent races' },
+  { job: 'Meet day', sheet: 'A new sheet every weekend', app: 'Entries, heats, a live timer and scoring in one place' },
+  { job: 'Who is improving', sheet: 'Squint at a chart you built once', app: 'Pack spread, course-adjusted progress, who has stalled' },
+  { job: 'Access', sheet: 'Everyone sees everything, or nobody gets it', app: 'Assistants and volunteers see only their own groups' },
+  { job: 'Athletes', sheet: 'Not in the sheet at all', app: 'Their own private log, goals and reflections' },
+];
+
+const INTAKE: Array<{ icon: typeof Upload; title: string; body: string }> = [
+  {
+    icon: ClipboardPaste,
+    title: 'Paste your results',
+    body: 'Copy the results from the page you are already looking at and paste them in. You see exactly what will be added before anything is saved.',
+  },
+  {
+    icon: Upload,
+    title: 'Upload a file',
+    body: 'Rosters and results from a CSV or spreadsheet export you already have. A ready-made template is one click away.',
+  },
+  {
+    icon: PencilLine,
+    title: 'Type it in',
+    body: 'Enter a race, a time or an athlete by hand. Nothing has to come from anywhere else.',
+  },
+];
+
 const FEATURES: Array<{
   icon: typeof ClipboardList;
   title: string;
@@ -76,14 +119,14 @@ const FEATURES: Array<{
 }> = [
   {
     icon: ClipboardList,
-    title: 'Roster & season management',
-    body: 'Build the roster once and carry it forward. Class years roll over, graduating athletes retire themselves, and last season stays intact for comparison.',
+    title: 'A roster that carries forward',
+    body: 'Build it once. Class years roll over, graduating athletes retire themselves, and last season stays intact for comparison.',
     section: 'athletes',
   },
   {
     icon: CalendarDays,
     title: 'Attendance & practice plans',
-    body: 'Take attendance in seconds on your phone at the trailhead. Plan practices, assign workouts to groups, and see who has actually been there.',
+    body: 'Take attendance on your phone at the trailhead. Plan practices, assign workouts to groups, and see who has actually been there.',
     section: 'groups',
   },
   {
@@ -95,7 +138,7 @@ const FEATURES: Array<{
   {
     icon: BarChart3,
     title: 'Meet day, handled',
-    body: 'Entries, heat assignments, a live timer, and full field-results scoring — so you know where you actually placed, not just who finished first for you.',
+    body: 'Entries, heat assignments, a live timer, and scoring against the whole field, so you know where you actually placed.',
     section: 'meets',
   },
   {
@@ -105,14 +148,19 @@ const FEATURES: Array<{
     section: 'program',
   },
   {
-    icon: Trophy,
-    title: 'Athletes see their own story',
-    body: 'A private training log, race reflections, and their own progress — plus imports from Garmin, Strava, Apple Health or any watch that exports a file.',
+    icon: Palette,
+    title: 'Looks like your team',
+    body: 'Set your team’s colors once. The app, dark mode and the images you export all wear them.',
     section: 'season',
   },
 ];
 
 const TRUST = [
+  {
+    icon: ClipboardPaste,
+    title: 'You bring the results',
+    body: 'Results and rosters come from what you paste, upload or type. LeadPack does not log in anywhere as you, does not hold your passwords for other sites, and does not pull results in the background.',
+  },
   {
     icon: Lock,
     title: 'Nothing is public',
@@ -192,16 +240,17 @@ export default function LandingPage() {
       <section className="container mx-auto px-4 py-20 text-center sm:py-28">
         <div className="mx-auto max-w-3xl">
           <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
-            Run the whole season
-            <br className="hidden sm:block" /> from one place
+            Your season has outgrown
+            <br className="hidden sm:block" /> the spreadsheet
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl">
-            Cross country team management and analytics — roster, attendance, workouts, meet day,
-            and every result your program has ever run. Built for high school, college and club
-            teams.
+            LeadPack replaces the Google Sheets, Excel files and group texts you run your cross
+            country team on. Paste or upload your results and roster, and get attendance, workouts,
+            meet day and analytics that a spreadsheet never will.
           </p>
           <p className="mt-4 text-sm text-muted-foreground">
-            Made by a coach who got tired of the spreadsheet.
+            Made by a coach who got tired of the spreadsheet. For high school, college and club
+            teams.
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Link to="/start">
@@ -210,21 +259,115 @@ export default function LandingPage() {
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
-            <Link to="/policies">
+            <a href="#spreadsheet">
               <Button size="lg" variant="outline" className="w-full px-8 sm:w-auto">
-                How we handle your data
+                See what replaces your sheet
               </Button>
-            </Link>
+            </a>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            No credit card required · Free for 30 days
+            No credit card required · Free for 30 days · Bring your own results, paste or upload
+          </p>
+        </div>
+      </section>
+
+      {/* The problem */}
+      <section className="border-y bg-muted/40">
+        <div className="container mx-auto max-w-5xl px-4 py-16">
+          <div className="mx-auto max-w-2xl text-center">
+            <FileSpreadsheet className={cn('mx-auto h-9 w-9', accentFor('season').text)} />
+            <h2 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
+              Sound like your August?
+            </h2>
+            <p className="mt-3 text-lg text-muted-foreground">
+              Running a program is a few hundred small jobs. A spreadsheet can hold the numbers. It
+              can’t do the jobs.
+            </p>
+          </div>
+          <ul className="mx-auto mt-10 grid max-w-4xl gap-4 md:grid-cols-2">
+            {PAIN.map((line) => (
+              <li key={line} className="flex gap-3 rounded-2xl border bg-card p-5 text-sm shadow-sm">
+                <X className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+                <span className="leading-relaxed text-muted-foreground">{line}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* Spreadsheet vs LeadPack */}
+      <section id="spreadsheet" className="container mx-auto max-w-5xl scroll-mt-20 px-4 py-20">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+            Everything your sheet does. Then everything it can’t.
+          </h2>
+          <p className="mt-3 text-lg text-muted-foreground">
+            Same data you already keep, with the work done for you.
+          </p>
+        </div>
+        <div className="mt-10 overflow-hidden rounded-2xl border bg-card shadow-sm">
+          <div className="hidden grid-cols-[10rem_1fr_1fr] border-b bg-muted/50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
+            <span />
+            <span>The spreadsheet</span>
+            <span className="text-primary">LeadPack</span>
+          </div>
+          <ul className="divide-y">
+            {COMPARE.map((row) => (
+              <li key={row.job} className="grid gap-1 px-5 py-4 text-sm md:grid-cols-[10rem_1fr_1fr] md:gap-4">
+                <span className="font-semibold">{row.job}</span>
+                <span className="text-muted-foreground">
+                  <span className="mr-2 text-xs font-semibold uppercase tracking-wide md:hidden">Sheet:</span>
+                  {row.sheet}
+                </span>
+                <span>
+                  <span className="mr-2 text-xs font-semibold uppercase tracking-wide text-primary md:hidden">LeadPack:</span>
+                  {row.app}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* How the data gets in */}
+      <section className="border-y bg-muted/40">
+        <div className="container mx-auto max-w-5xl px-4 py-20">
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              Your results. Your hands.
+            </h2>
+            <p className="mt-3 text-lg text-muted-foreground">
+              Every result in LeadPack is one you put there. Nothing is fetched on your behalf and
+              nothing runs in the background.
+            </p>
+          </div>
+          <div className="mt-10 grid gap-6 md:grid-cols-3">
+            {INTAKE.map(({ icon: Icon, title, body }, i) => (
+              <div key={title} className="rounded-2xl border bg-card p-6 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+                    {i + 1}
+                  </span>
+                  <Icon className={cn('h-5 w-5', accentFor('season').text)} aria-hidden />
+                </div>
+                <h3 className="mt-4 text-lg font-semibold">{title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{body}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-muted-foreground">
+            Whatever you paste or upload, you see a preview first. Nothing is saved until you say
+            so, and nothing is ever deleted by an import.
           </p>
         </div>
       </section>
 
       {/* Who it's for */}
-      <section className="border-y bg-muted/40">
-        <div className="container mx-auto grid gap-6 px-4 py-16 md:grid-cols-3">
+      <section className="container mx-auto px-4 pt-20">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Built for the team you actually coach</h2>
+        </div>
+        <div className="mt-10 grid gap-6 md:grid-cols-3">
           {AUDIENCES.map((item) => (
             <div key={item.title} className="rounded-2xl border bg-card p-6 shadow-sm">
               <IconTile icon={item.icon} section={item.section} />
@@ -239,10 +382,10 @@ export default function LandingPage() {
       <section className="container mx-auto px-4 py-20">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            Everything the season actually needs
+            The daily work, not just the charts
           </h2>
           <p className="mt-3 text-lg text-muted-foreground">
-            Not just charts. The daily work of running a program.
+            What the spreadsheet couldn’t do, done.
           </p>
         </div>
 
@@ -315,7 +458,7 @@ export default function LandingPage() {
             </h3>
             <ul className="mt-4 space-y-3">
               {[
-                'Run roster, attendance, workouts and meet day without a spreadsheet',
+                'Retire the roster sheet, the attendance sheet and the meet-day sheet',
                 'See who is improving, who has stalled, and how the pack is closing',
                 'Give assistants and volunteers access to just their own groups',
                 'Keep every season, so a senior’s whole four years is one picture',
@@ -338,7 +481,7 @@ export default function LandingPage() {
             <ul className="mt-4 space-y-3">
               {[
                 'A training log that is actually private until you share it',
-                'Import your runs from Garmin, Strava, Apple Health or your watch',
+                'Add your runs from Garmin, Strava, Apple Health or any watch that exports a file',
                 'Know your paces for every workout, from your own recent races',
                 'Set goals before a race and reflect on it after, in your own words',
               ].map((line) => (
@@ -357,10 +500,10 @@ export default function LandingPage() {
       {/* CTA */}
       <section className="border-t bg-muted/40">
         <div className="container mx-auto max-w-2xl px-4 py-20 text-center">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Ready to lead your pack?</h2>
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Ready to close the spreadsheet?</h2>
           <p className="mt-3 text-lg text-muted-foreground">
-            Start with your current roster and last season’s results. You will have a working season
-            in an afternoon.
+            Upload your roster, paste last season’s results, and you will have a working season in
+            an afternoon.
           </p>
           <Link to="/start">
             <Button size="lg" className="mt-8 px-8">
@@ -377,7 +520,7 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="border-t">
         <div className="container mx-auto space-y-2 px-4 py-8 text-center text-sm text-muted-foreground">
-          <p>&copy; 2025 LeadPack XC. Built for cross country coaches and athletes.</p>
+          <p>&copy; {new Date().getFullYear()} LeadPack XC. Built for cross country coaches and athletes.</p>
           <p>
             <Link to="/policies" className="underline underline-offset-4 hover:text-foreground">
               Your data, and what we do with it
