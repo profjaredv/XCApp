@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { useExportPalette } from '@/hooks/useTeamColors';
 import { formatFiveK } from '@/lib/fiveK';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
@@ -48,6 +49,8 @@ export const AthleteHighlightCard: React.FC<AthleteHighlightCardProps> = ({
   teamName
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
+  // The team's own export colors; null keeps the original look (slate with blue/purple by gender).
+  const palette = useExportPalette();
 
   const handleExport = async () => {
     if (!cardRef.current) return;
@@ -69,7 +72,7 @@ export const AthleteHighlightCard: React.FC<AthleteHighlightCardProps> = ({
         scale: 2, // 2x resolution for quality
         useCORS: true,
         allowTaint: false,
-        backgroundColor: '#020617', // slate-950
+        backgroundColor: palette?.background ?? '#020617', // slate-950 by default
         logging: false,
         windowWidth: cardRef.current.scrollWidth,
         windowHeight: cardRef.current.scrollHeight,
@@ -162,8 +165,12 @@ export const AthleteHighlightCard: React.FC<AthleteHighlightCardProps> = ({
   };
 
   const getAccentColor = () => {
-    return gender === 'M' ? 'bg-blue-500' : 'bg-purple-500';
+    return palette ? '' : gender === 'M' ? 'bg-blue-500' : 'bg-purple-500';
   };
+  const accentStyle = palette ? { backgroundColor: palette.accent } : undefined;
+  const GLOW_DIR = { br: 'bg-gradient-to-br', tr: 'bg-gradient-to-tr', r: 'bg-gradient-to-r' } as const;
+  const glow = (dir: keyof typeof GLOW_DIR) => (palette ? '' : `${GLOW_DIR[dir]} ${getGenderColor()}`);
+  const glowStyle = palette ? { backgroundColor: palette.primary } : undefined;
 
   // Simple sparkline SVG
   const renderSparkline = () => {
@@ -212,14 +219,14 @@ export const AthleteHighlightCard: React.FC<AthleteHighlightCardProps> = ({
       <div
         ref={cardRef}
         data-export-card
-        className="relative w-full max-w-2xl mx-auto bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-3xl overflow-hidden shadow-2xl"
-        style={{ minHeight: '800px' }}
+        className={`relative w-full max-w-2xl mx-auto ${palette ? '' : 'bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950'} rounded-3xl overflow-hidden shadow-2xl`}
+        style={{ minHeight: '800px', ...(palette ? { backgroundColor: palette.background } : {}) }}
       >
         {/* Animated Gradient Background */}
         <div className="absolute inset-0 opacity-20">
-          <div className={`absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br ${getGenderColor()} rounded-full blur-3xl transform translate-x-1/3 -translate-y-1/3 animate-pulse`}></div>
-          <div className={`absolute bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr ${getGenderColor()} rounded-full blur-3xl transform -translate-x-1/3 translate-y-1/3 animate-pulse`} style={{ animationDelay: '1s' }}></div>
-          <div className={`absolute top-1/2 left-1/2 w-[400px] h-[400px] bg-gradient-to-r ${getGenderColor()} rounded-full blur-3xl transform -translate-x-1/2 -translate-y-1/2 opacity-50`}></div>
+          <div className={`absolute top-0 right-0 w-[500px] h-[500px] ${glow('br')} rounded-full blur-3xl transform translate-x-1/3 -translate-y-1/3 animate-pulse`} style={glowStyle}></div>
+          <div className={`absolute bottom-0 left-0 w-[500px] h-[500px] ${glow('tr')} rounded-full blur-3xl transform -translate-x-1/3 translate-y-1/3 animate-pulse`} style={{ animationDelay: '1s', ...glowStyle }}></div>
+          <div className={`absolute top-1/2 left-1/2 w-[400px] h-[400px] ${glow('r')} rounded-full blur-3xl transform -translate-x-1/2 -translate-y-1/2 opacity-50`} style={glowStyle}></div>
         </div>
         
         {/* Gradient Overlay for depth */}
@@ -233,7 +240,7 @@ export const AthleteHighlightCard: React.FC<AthleteHighlightCardProps> = ({
           {/* Header */}
           <div className="mb-8">
             <div className="flex items-center justify-between mb-2">
-              <div className={`text-xs font-bold uppercase tracking-wider ${getAccentColor()} text-white px-3 py-1 rounded-full`}>
+              <div className={`text-xs font-bold uppercase tracking-wider ${getAccentColor()} text-white px-3 py-1 rounded-full`} style={accentStyle}>
                 {mode === 'season' ? `${season} Season` : 'Career Highlights'}
               </div>
               <div className="text-white/60 text-sm font-medium">
@@ -364,7 +371,7 @@ export const AthleteHighlightCard: React.FC<AthleteHighlightCardProps> = ({
               <div className="text-white/40 text-sm">
                 {new Date().getFullYear()} • Cross Country
               </div>
-              <div className={`${getAccentColor()} w-12 h-12 rounded-full flex items-center justify-center`}>
+              <div className={`${getAccentColor()} w-12 h-12 rounded-full flex items-center justify-center`} style={accentStyle}>
                 <span className="text-white font-black text-xl">🏃</span>
               </div>
             </div>

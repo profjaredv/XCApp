@@ -161,6 +161,7 @@
   --ink-foreground: oklch(0.96 0.008 152);
   --ink-muted: oklch(0.78 0.02 152);
   --ink-border: oklch(0.34 0.03 152);
+  --hero-end: oklch(0.3 0.09 160);
 }
 
 .dark {
@@ -226,6 +227,7 @@
   --ink-foreground: oklch(0.96 0.008 152);
   --ink-muted: oklch(0.78 0.02 152);
   --ink-border: oklch(0.34 0.03 152);
+  --hero-end: oklch(0.3 0.09 160);
 }
 
 @layer base {

@@ -99,7 +99,7 @@ const RULE = '#cfcabd';
 // keep in sync by hand.
 const ACCENT = 'oklch(0.68 0.17 45)';
 
-function drawStatStrip(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, pageW: number, pageH: number, stats: AthleteBuildStats | null) {
+function drawStatStrip(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, pageW: number, pageH: number, stats: AthleteBuildStats | null, accent: string) {
   if (!stats) return;
   // The career PR leads, bolded in ink with a small accent mark ahead of
   // it — a flat run of same-weight gray text was the "boring" part; this
@@ -118,7 +118,7 @@ function drawStatStrip(ctx: CanvasRenderingContext2D, rect: { x: number; y: numb
   ctx.textBaseline = 'middle';
 
   const markSize = fontSize * 0.42;
-  ctx.fillStyle = ACCENT;
+  ctx.fillStyle = accent;
   ctx.fillRect(x, y - markSize / 2, markSize, markSize);
 
   let cursorX = x + markSize + fontSize * 0.45;
@@ -143,7 +143,7 @@ function drawStatStrip(ctx: CanvasRenderingContext2D, rect: { x: number; y: numb
  * choice as a missing photo drawing a gray box instead of failing the
  * whole render.
  */
-function drawResultsBlock(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, pageW: number, pageH: number, stats: AthleteBuildStats | null) {
+function drawResultsBlock(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, pageW: number, pageH: number, stats: AthleteBuildStats | null, accent: string) {
   if (!stats || (stats.bestByDistance.length === 0 && stats.races.length === 0)) return;
 
   const left = rect.x * pageW;
@@ -157,7 +157,7 @@ function drawResultsBlock(ctx: CanvasRenderingContext2D, rect: { x: number; y: n
 
   // --- Best by distance: one line, e.g. "5K 17:32  ·  2 Mile 11:05" ---
   if (stats.bestByDistance.length > 0) {
-    ctx.fillStyle = ACCENT;
+    ctx.fillStyle = accent;
     ctx.font = `700 ${labelSize}px system-ui, sans-serif`;
     ctx.fillText('SEASON BEST BY DISTANCE', left, cursorY);
     cursorY += labelSize * 1.6;
@@ -181,7 +181,7 @@ function drawResultsBlock(ctx: CanvasRenderingContext2D, rect: { x: number; y: n
   ctx.stroke();
   cursorY += rowSize * 0.9;
 
-  ctx.fillStyle = ACCENT;
+  ctx.fillStyle = accent;
   ctx.font = `700 ${labelSize}px system-ui, sans-serif`;
   ctx.fillText('RACES THIS SEASON', left, cursorY);
   cursorY += labelSize * 1.6;
@@ -252,6 +252,8 @@ export async function renderCollage(
   // undefined/missing entries default to centered, same as no focal point
   // ever having been saved for that photo.
   focalPoints: (FocalPoint | undefined)[] = [],
+  // The team's own accent (a color readable on this light page); the app's default otherwise.
+  accent: string = ACCENT,
 ): Promise<void> {
   canvas.width = pageWidth;
   canvas.height = pageHeight;
@@ -302,7 +304,7 @@ export async function renderCollage(
   const ribbonThickness = Math.max(3, pageHeight * 0.003);
   const photoBandTop = (template.statStrip.y + template.statStrip.h) * pageHeight;
   const photoBandBottom = template.resultsBlock.y * pageHeight;
-  ctx.fillStyle = ACCENT;
+  ctx.fillStyle = accent;
   ctx.fillRect(0, photoBandTop - ribbonThickness, pageWidth, ribbonThickness);
   ctx.fillRect(0, photoBandBottom, pageWidth, ribbonThickness);
 
@@ -319,7 +321,7 @@ export async function renderCollage(
   // A short accent-colored rule under the name — a small masthead touch
   // so the header has something to anchor it beyond plain stacked text.
   const ruleY = headerY + nameSize * 1.1;
-  ctx.fillStyle = ACCENT;
+  ctx.fillStyle = accent;
   ctx.fillRect(headerX, ruleY, pageWidth * 0.09, Math.max(2, pageHeight * 0.0022));
 
   // header.team is blank until BuildModule.tsx's teamName (GET
@@ -332,8 +334,8 @@ export async function renderCollage(
     ctx.fillText(subtitle, headerX, ruleY + pageHeight * 0.012);
   }
 
-  drawStatStrip(ctx, template.statStrip, pageWidth, pageHeight, stats);
-  drawResultsBlock(ctx, template.resultsBlock, pageWidth, pageHeight, stats);
+  drawStatStrip(ctx, template.statStrip, pageWidth, pageHeight, stats, accent);
+  drawResultsBlock(ctx, template.resultsBlock, pageWidth, pageHeight, stats, accent);
 
   // The export canvas (requireExportableCanvas) is the one place a failed
   // load is worth refusing over, rather than just drawing a gray box and

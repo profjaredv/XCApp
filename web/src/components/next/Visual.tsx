@@ -148,7 +148,7 @@ export const Panel: React.FC<{ title?: string; action?: React.ReactNode; classNa
 export const Hero: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => (
   <section
     className={cn(
-      'relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-[oklch(0.3_0.09_160)] p-5 text-primary-foreground shadow-md',
+      'relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-[var(--hero-end)] p-5 text-primary-foreground shadow-md',
       className
     )}
   >
