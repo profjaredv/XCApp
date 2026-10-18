@@ -92,7 +92,7 @@ export default function ExampleCharts() {
       <Card
         title="Season progress"
         headline={`${mmss(first - last)} per mile faster`}
-        caption="Team average pace at every meet, September to the league championship. Higher on the chart is faster."
+        caption="Team average pace at each meet. Lower is faster."
         table={<Table head={['Meet', 'Avg pace']} rows={SEASON.map((p) => [p.meet, `${mmss(p.pace)}/mi`])} />}
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -100,7 +100,6 @@ export default function ExampleCharts() {
             <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="meet" tick={AXIS} tickLine={false} axisLine={{ stroke: GRID }} interval="preserveStartEnd" />
             <YAxis
-              reversed
               domain={[360, 420]}
               ticks={[372, 390, 408]}
               tick={AXIS}
@@ -113,7 +112,7 @@ export default function ExampleCharts() {
             <Area
               type="monotone"
               dataKey="pace"
-              baseValue={420}
+              baseValue={360}
               stroke="var(--chart-1)"
               strokeWidth={2}
               fill="var(--chart-1)"
@@ -129,7 +128,7 @@ export default function ExampleCharts() {
                   const { x, y, index } = p as unknown as { x: number; y: number; index: number };
                   if (index !== 0 && index !== SEASON.length - 1) return null;
                   return (
-                    <text x={x} y={index === 0 ? y + 22 : y - 10} textAnchor={index === 0 ? 'start' : 'end'} fontSize={12} fontWeight={600} fill="var(--foreground)">
+                    <text x={x} y={index === 0 ? y - 10 : y + 22} textAnchor={index === 0 ? 'start' : 'end'} fontSize={12} fontWeight={600} fill="var(--foreground)">
                       {mmss(SEASON[index].pace)}
                     </text>
                   );
@@ -143,14 +142,14 @@ export default function ExampleCharts() {
       <Card
         title="Athlete growth"
         headline={`${mmss(gFirst - gLast)} faster in four seasons`}
-        caption="One athlete’s best 5K in each season, freshman to senior. Every season stays on the record."
+        caption="One athlete’s best 5K each season, 9th to 12th grade. Lower is faster."
         table={<Table head={['Season', 'Grade', 'Best 5K']} rows={GROWTH.map((p) => [p.season, p.grade, mmss(p.best5k)])} />}
       >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={GROWTH} margin={{ top: 16, right: 20, bottom: 0, left: 0 }}>
             <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="season" tick={AXIS} tickLine={false} axisLine={{ stroke: GRID }} />
-            <YAxis reversed domain={[1100, 1450]} ticks={[1160, 1305, 1450]} tick={AXIS} tickLine={false} axisLine={false} width={46} tickFormatter={mmss} />
+            <YAxis domain={[1100, 1450]} ticks={[1160, 1305, 1450]} tick={AXIS} tickLine={false} axisLine={false} width={46} tickFormatter={mmss} />
             <Tooltip {...TOOLTIP} labelFormatter={(l, items) => `${l} · ${(items?.[0]?.payload as { grade?: string })?.grade ?? ''}`} formatter={(v: number) => [mmss(v), 'Best 5K']} />
             <Line
               type="monotone"
@@ -166,7 +165,7 @@ export default function ExampleCharts() {
                 content={(p) => {
                   const { x, y, index } = p as unknown as { x: number; y: number; index: number };
                   return (
-                    <text x={x} y={index === 0 ? y + 24 : y - 12} textAnchor={index === 0 ? 'start' : index === GROWTH.length - 1 ? 'end' : 'middle'} fontSize={12} fontWeight={600} fill="var(--foreground)">
+                    <text x={x} y={index === GROWTH.length - 1 ? y + 24 : y - 12} textAnchor={index === 0 ? 'start' : index === GROWTH.length - 1 ? 'end' : 'middle'} fontSize={12} fontWeight={600} fill="var(--foreground)">
                       {mmss(GROWTH[index].best5k)}
                     </text>
                   );
@@ -180,7 +179,7 @@ export default function ExampleCharts() {
       <Card
         title="Pack spread"
         headline="Top five within 0:48"
-        caption="Seconds behind the team’s first finisher at one meet. Runners 1–5 score; 6 and 7 push other teams’ scores up."
+        caption="Seconds behind the team’s first runner. Five score; two displace."
         legend={
         <div className="mt-2 flex gap-4 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--chart-1)' }} aria-hidden />Scores</span>

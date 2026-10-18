@@ -60,60 +60,48 @@ const AUDIENCES: Array<{
 }> = [
   {
     icon: School,
-    title: 'High school programs',
-    body: 'Class years, eligibility, JV and varsity, parent access, and the season-over-season history that makes a four-year athlete’s arc visible. We sign your district’s data privacy agreement.',
+    title: 'High school',
+    body: 'Class years, JV and varsity, parent access, and four years of history per athlete. We sign your district’s data privacy agreement.',
     section: 'season',
   },
   {
     icon: GraduationCap,
-    title: 'College teams',
-    body: 'Larger rosters, training groups with their own assistant coaches, deeper workout data, and multi-year progression for athletes recruited on a five-year clock.',
+    title: 'College',
+    body: 'Big rosters, training groups with their own assistants, and multi-year progression.',
     section: 'athletes',
   },
   {
     icon: Flag,
-    title: 'Club teams',
-    body: 'Mixed ages and schools, volunteer coaches with scoped access, and meet logistics for a roster that does not share a building.',
+    title: 'Club',
+    body: 'Mixed ages and schools, volunteer coaches with limited access, and meet logistics.',
     section: 'meets',
   },
 ];
 
 const PAIN: string[] = [
-  'Roster in one file, results in another, and the version someone emailed last week in a third.',
-  'Attendance on paper, then retyped. Or never retyped.',
-  'Meet entries rebuilt from scratch every weekend.',
-  'Paces worked out by hand, or copied from a chart taped inside a clipboard.',
-  'Last season’s results somewhere on a laptop that is no longer yours.',
-  'An assistant who needs the sheet, and can now see (or break) all of it.',
+  'Roster in one file, results in another, the latest version in an email.',
+  'Attendance on paper, then retyped. Or not.',
+  'Meet entries rebuilt every weekend.',
+  'Paces worked out by hand.',
+  'Last season’s results on a laptop that’s gone.',
+  'An assistant who needs the sheet, and now sees all of it.',
 ];
 
 const COMPARE: Array<{ job: string; sheet: string; app: string }> = [
-  { job: 'Roster', sheet: 'Retyped and re-sorted every August', app: 'Built once; class years roll over and seniors retire themselves' },
-  { job: 'Attendance', sheet: 'A column per day that nobody trusts', app: 'Taken on a phone at the trailhead, by group, in seconds' },
-  { job: 'Results', sheet: 'Pasted into tabs, formulas that break', app: 'Paste or upload; every season kept and comparable' },
-  { job: 'Workout paces', sheet: 'Calculated by hand', app: 'Worked out for each athlete from their own recent races' },
-  { job: 'Meet day', sheet: 'A new sheet every weekend', app: 'Entries, heats, a live timer and scoring in one place' },
-  { job: 'Who is improving', sheet: 'Squint at a chart you built once', app: 'Pack spread, course-adjusted progress, who has stalled' },
-  { job: 'Access', sheet: 'Everyone sees everything, or nobody gets it', app: 'Assistants and volunteers see only their own groups' },
-  { job: 'Athletes', sheet: 'Not in the sheet at all', app: 'Their own private log, goals and reflections' },
+  { job: 'Roster', sheet: 'Retyped every August', app: 'Built once, rolls over' },
+  { job: 'Attendance', sheet: 'A column nobody trusts', app: 'Taken on your phone, by group' },
+  { job: 'Results', sheet: 'Pasted into tabs, broken formulas', app: 'Paste or upload; every season kept' },
+  { job: 'Workout paces', sheet: 'Calculated by hand', app: 'From each athlete’s own races' },
+  { job: 'Meet day', sheet: 'A new sheet every weekend', app: 'Entries, heats, timer, scoring' },
+  { job: 'Who’s improving', sheet: 'A chart you built once', app: 'Pack spread, progress, who’s stalled' },
+  { job: 'Access', sheet: 'Everyone sees everything', app: 'Assistants see only their groups' },
+  { job: 'Athletes', sheet: 'Not in the sheet', app: 'Their own private log and goals' },
 ];
 
 const INTAKE: Array<{ icon: typeof Upload; title: string; body: string }> = [
-  {
-    icon: ClipboardPaste,
-    title: 'Paste your results',
-    body: 'Copy the results from the page you are already looking at and paste them in. You see exactly what will be added before anything is saved.',
-  },
-  {
-    icon: Upload,
-    title: 'Upload a file',
-    body: 'Rosters and results from a CSV or spreadsheet export you already have. A ready-made template is one click away.',
-  },
-  {
-    icon: PencilLine,
-    title: 'Type it in',
-    body: 'Enter a race, a time or an athlete by hand. Nothing has to come from anywhere else.',
-  },
+  { icon: ClipboardPaste, title: 'Paste', body: 'Copy results from the page you’re looking at. Preview before anything saves.' },
+  { icon: Upload, title: 'Upload', body: 'A CSV or spreadsheet you already have. Template included.' },
+  { icon: PencilLine, title: 'Type', body: 'Enter a race, time or athlete by hand.' },
 ];
 
 const FEATURES: Array<{
@@ -125,37 +113,37 @@ const FEATURES: Array<{
   {
     icon: ClipboardList,
     title: 'A roster that carries forward',
-    body: 'Build it once. Class years roll over, graduating athletes retire themselves, and last season stays intact for comparison.',
+    body: 'Build it once. Class years roll over and seniors retire themselves.',
     section: 'athletes',
   },
   {
     icon: CalendarDays,
     title: 'Attendance & practice plans',
-    body: 'Take attendance on your phone at the trailhead. Plan practices, assign workouts to groups, and see who has actually been there.',
+    body: 'Take attendance at the trailhead. Plan practices and assign workouts by group.',
     section: 'groups',
   },
   {
     icon: Timer,
-    title: 'Workouts in your own language',
-    body: 'Define what Threshold and VO2 mean for your program, and every interval session calculates paces from each athlete’s own recent races. McMillan defaults included.',
+    title: 'Workouts in your language',
+    body: 'Define Threshold and VO2 your way. Paces come from each athlete’s own races.',
     section: 'training',
   },
   {
     icon: BarChart3,
     title: 'Meet day, handled',
-    body: 'Entries, heat assignments, a live timer, and scoring against the whole field, so you know where you actually placed.',
+    body: 'Entries, heats, a live timer, and team scoring.',
     section: 'meets',
   },
   {
     icon: TrendingUp,
-    title: 'Analytics that answer questions',
-    body: 'Pack spread, course-adjusted comparisons, who is improving and who has stalled, and career progression across every season an athlete has run.',
+    title: 'Analytics that answer',
+    body: 'Who’s improving, who’s stalled, how tight the pack is, across every season.',
     section: 'program',
   },
   {
     icon: Palette,
     title: 'Looks like your team',
-    body: 'Set your team’s colors once. The app, dark mode and the images you export all wear them.',
+    body: 'Set your colors once. The app and your exports wear them.',
     section: 'season',
   },
 ];
@@ -164,37 +152,37 @@ const TRUST = [
   {
     icon: ClipboardPaste,
     title: 'You bring the results',
-    body: 'Results and rosters come from what you paste, upload or type. LeadPack does not log in anywhere as you, does not hold your passwords for other sites, and does not pull results in the background.',
+    body: 'Everything comes from what you paste, upload or type. No logging in as you. No pulling in the background.',
   },
   {
     icon: Lock,
     title: 'Nothing is public',
-    body: 'No public profiles, no public rosters, no searchable athlete pages. Every screen requires signing in and being on the team.',
+    body: 'No public profiles or rosters. Every screen needs a sign-in and a team.',
   },
   {
     icon: ShieldCheck,
-    title: "We will sign your district's agreement",
-    body: 'LeadPack is built to operate as a school official under a signed data privacy agreement — yours or the standard NDPA. We can hand your district a complete inventory of every category of student data we store.',
+    title: 'We sign your district’s agreement',
+    body: 'Built to work as a school official under your agreement or the standard NDPA, with a full inventory of the student data we store.',
   },
   {
     icon: Users,
-    title: 'The athlete’s own writing is hers',
-    body: 'Training logs are private by default. A coach sees one only when the athlete shares it. She can see everyone who can see anything of hers, on one screen, and change it.',
+    title: 'Athletes own their writing',
+    body: 'Training logs are private until the athlete shares them, and she can see exactly who sees what.',
   },
   {
     icon: Download,
-    title: 'Your data is yours, and you can take it',
-    body: 'Export everything — the whole team or one athlete — any time, without asking us. No lock-in, no export fee, no support ticket.',
+    title: 'Your data is yours',
+    body: 'Export the team or one athlete any time. No fee, no ticket.',
   },
   {
     icon: Target,
-    title: 'Never sold. Never advertised against.',
-    body: 'We don’t sell student data and we don’t run ads. Our one AI feature strips every athlete’s name before anything leaves our servers — the model writing your team’s insights never learns who anyone is.',
+    title: 'Never sold. No ads.',
+    body: 'Our one AI feature removes every name before anything leaves our servers.',
   },
   {
     icon: GraduationCap,
     title: 'Accounts start at 9th grade',
-    body: 'Younger athletes can be rostered and scored by their coach, but cannot create an account. Enforced in the software, not just promised here.',
+    body: 'Younger athletes can be rostered, but can’t sign up. Enforced in the software.',
   },
 ];
 
@@ -249,14 +237,9 @@ export default function LandingPage() {
           </p>
           <h1 className="mt-3 text-5xl font-bold tracking-tight sm:text-7xl">LeadPack XC</h1>
           <p className="mt-2 text-2xl font-semibold tracking-tight sm:text-4xl">Team management for cross country</p>
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl">
-            Your season has outgrown the spreadsheet. LeadPack replaces the Google Sheets, Excel files and group texts you run your cross
-            country team on. Paste or upload your results and roster, and get attendance, workouts,
-            meet day and analytics that a spreadsheet never will.
-          </p>
-          <p className="mt-4 text-sm text-muted-foreground">
-            Made by a coach who got tired of the spreadsheet. For high school, college and club
-            teams.
+          <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground sm:text-xl">
+            Your season has outgrown the spreadsheet. Paste or upload your results and get
+            attendance, workouts, meet day and analytics.
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Link to="/start">
@@ -272,7 +255,7 @@ export default function LandingPage() {
             </a>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            No credit card required · Free for 30 days · Bring your own results, paste or upload
+            No credit card · Free for 30 days
           </p>
         </div>
         <AppPreview />
@@ -287,8 +270,7 @@ export default function LandingPage() {
               Sound like your August?
             </h2>
             <p className="mt-3 text-lg text-muted-foreground">
-              Running a program is a few hundred small jobs. A spreadsheet can hold the numbers. It
-              can’t do the jobs.
+              A spreadsheet holds the numbers. It doesn’t do the jobs.
             </p>
           </div>
           <ul className="mx-auto mt-10 grid max-w-4xl gap-4 md:grid-cols-2">
@@ -306,11 +288,9 @@ export default function LandingPage() {
       <section id="spreadsheet" className="container mx-auto max-w-5xl scroll-mt-20 px-4 py-20">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            Everything your sheet does. Then everything it can’t.
+            What replaces your sheet
           </h2>
-          <p className="mt-3 text-lg text-muted-foreground">
-            Same data you already keep, with the work done for you.
-          </p>
+          <p className="mt-3 text-lg text-muted-foreground">Same data, work done for you.</p>
         </div>
         <div className="mt-10 overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="hidden grid-cols-[10rem_1fr_1fr] border-b bg-muted/50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
@@ -340,10 +320,7 @@ export default function LandingPage() {
       <section className="container mx-auto max-w-6xl px-4 py-20">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">See the season. See the growth.</h2>
-          <p className="mt-3 text-lg text-muted-foreground">
-            Put your results in once. These come out, for the team and for every athlete, without
-            building a single chart.
-          </p>
+          <p className="mt-3 text-lg text-muted-foreground">Enter results once. The charts build themselves.</p>
         </div>
         <div className="mt-10">
           <Suspense fallback={<div className="h-96 rounded-2xl border bg-muted/30" aria-hidden />}>
@@ -360,8 +337,7 @@ export default function LandingPage() {
               Your results. Your hands.
             </h2>
             <p className="mt-3 text-lg text-muted-foreground">
-              Every result in LeadPack is one you put there. Nothing is fetched on your behalf and
-              nothing runs in the background.
+              Every result is one you put there. Nothing is fetched for you.
             </p>
           </div>
           <div className="mt-10 grid gap-6 md:grid-cols-3">
@@ -379,8 +355,7 @@ export default function LandingPage() {
             ))}
           </div>
           <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-muted-foreground">
-            Whatever you paste or upload, you see a preview first. Nothing is saved until you say
-            so, and nothing is ever deleted by an import.
+            You always see a preview first. Imports never delete anything.
           </p>
         </div>
       </section>
@@ -388,7 +363,7 @@ export default function LandingPage() {
       {/* Who it's for */}
       <section className="container mx-auto px-4 pt-20">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Built for the team you actually coach</h2>
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Built for your kind of team</h2>
         </div>
         <div className="mt-10 grid gap-6 md:grid-cols-3">
           {AUDIENCES.map((item) => (
@@ -404,12 +379,7 @@ export default function LandingPage() {
       {/* Features */}
       <section className="container mx-auto px-4 py-20">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            The daily work, not just the charts
-          </h2>
-          <p className="mt-3 text-lg text-muted-foreground">
-            What the spreadsheet couldn’t do, done.
-          </p>
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">The daily work, done</h2>
         </div>
 
         <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -435,10 +405,7 @@ export default function LandingPage() {
             <h2 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
               Student data, taken seriously
             </h2>
-            <p className="mt-3 text-lg text-ink-muted">
-              Most of our athletes are minors. Here is exactly what that means in the software —
-              not a badge, the actual behaviour.
-            </p>
+            <p className="mt-3 text-lg text-ink-muted">Most athletes are minors. Here is what that means in the software.</p>
           </div>
 
           <div className="mt-12 grid gap-x-10 gap-y-8 md:grid-cols-2">
@@ -460,7 +427,7 @@ export default function LandingPage() {
                 variant="outline"
                 className="border-ink-border bg-transparent text-ink-foreground hover:bg-ink-foreground hover:text-ink"
               >
-                Read the whole policy
+                Read the policy
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
@@ -481,10 +448,10 @@ export default function LandingPage() {
             </h3>
             <ul className="mt-4 space-y-3">
               {[
-                'Retire the roster sheet, the attendance sheet and the meet-day sheet',
-                'See who is improving, who has stalled, and how the pack is closing',
-                'Give assistants and volunteers access to just their own groups',
-                'Keep every season, so a senior’s whole four years is one picture',
+                'Retire the roster, attendance and meet-day sheets',
+                'See who’s improving and who’s stalled',
+                'Give assistants access to just their groups',
+                'Keep every season, four years in one picture',
               ].map((line) => (
                 <li key={line} className="flex gap-3 text-sm">
                   <CheckCircle2
@@ -503,10 +470,10 @@ export default function LandingPage() {
             </h3>
             <ul className="mt-4 space-y-3">
               {[
-                'A training log that is actually private until you share it',
-                'Add your runs from Garmin, Strava, Apple Health or any watch that exports a file',
-                'Know your paces for every workout, from your own recent races',
-                'Set goals before a race and reflect on it after, in your own words',
+                'A training log that’s private until you share it',
+                'Add runs from Garmin, Strava, Apple Health or any watch file',
+                'Workout paces from your own recent races',
+                'Set goals before a race, reflect after',
               ].map((line) => (
                 <li key={line} className="flex gap-3 text-sm">
                   <CheckCircle2
@@ -524,10 +491,7 @@ export default function LandingPage() {
       <section className="border-t bg-muted/40">
         <div className="container mx-auto max-w-2xl px-4 py-20 text-center">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Ready to close the spreadsheet?</h2>
-          <p className="mt-3 text-lg text-muted-foreground">
-            Upload your roster, paste last season’s results, and you will have a working season in
-            an afternoon.
-          </p>
+          <p className="mt-3 text-lg text-muted-foreground">Upload your roster, paste last season. Working in an afternoon.</p>
           <Link to="/start">
             <Button size="lg" className="mt-8 px-8">
               Start your free trial
