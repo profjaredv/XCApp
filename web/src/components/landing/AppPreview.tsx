@@ -12,7 +12,7 @@ function Sparkline() {
   const h = 56;
   const min = Math.min(...SEASON.map((p) => p.pace));
   const max = Math.max(...SEASON.map((p) => p.pace));
-  const pts = SEASON.map((p, i) => [(i / (SEASON.length - 1)) * (w - 8) + 4, 4 + ((p.pace - min) / (max - min)) * (h - 8)] as const);
+  const pts = SEASON.map((p, i) => [(i / (SEASON.length - 1)) * (w - 8) + 4, h - 4 - ((p.pace - min) / (max - min)) * (h - 8)] as const);
   const line = pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   const [lx, ly] = pts[pts.length - 1];
   return (
