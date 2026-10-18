@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { Suspense, lazy } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   ArrowRight,
@@ -25,6 +26,10 @@ import {
 } from 'lucide-react';
 import { accentFor, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
+import { AppPreview } from '@/components/landing/AppPreview';
+
+// Recharts is the heavy part of this page; it loads after the first paint.
+const ExampleCharts = lazy(() => import('@/components/landing/ExampleCharts'));
 
 // The public landing page.
 //
@@ -239,12 +244,13 @@ export default function LandingPage() {
       {/* Hero */}
       <section className="container mx-auto px-4 py-20 text-center sm:py-28">
         <div className="mx-auto max-w-3xl">
-          <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
-            Your season has outgrown
-            <br className="hidden sm:block" /> the spreadsheet
-          </h1>
+          <p className="text-sm font-semibold uppercase tracking-widest text-primary">
+            Cross country team management
+          </p>
+          <h1 className="mt-3 text-5xl font-bold tracking-tight sm:text-7xl">LeadPack XC</h1>
+          <p className="mt-2 text-2xl font-semibold tracking-tight sm:text-4xl">Team management for cross country</p>
           <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl">
-            LeadPack replaces the Google Sheets, Excel files and group texts you run your cross
+            Your season has outgrown the spreadsheet. LeadPack replaces the Google Sheets, Excel files and group texts you run your cross
             country team on. Paste or upload your results and roster, and get attendance, workouts,
             meet day and analytics that a spreadsheet never will.
           </p>
@@ -269,6 +275,7 @@ export default function LandingPage() {
             No credit card required · Free for 30 days · Bring your own results, paste or upload
           </p>
         </div>
+        <AppPreview />
       </section>
 
       {/* The problem */}
@@ -326,6 +333,22 @@ export default function LandingPage() {
               </li>
             ))}
           </ul>
+        </div>
+      </section>
+
+      {/* What you get out */}
+      <section className="container mx-auto max-w-6xl px-4 py-20">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">See the season. See the growth.</h2>
+          <p className="mt-3 text-lg text-muted-foreground">
+            Put your results in once. These come out, for the team and for every athlete, without
+            building a single chart.
+          </p>
+        </div>
+        <div className="mt-10">
+          <Suspense fallback={<div className="h-96 rounded-2xl border bg-muted/30" aria-hidden />}>
+            <ExampleCharts />
+          </Suspense>
         </div>
       </section>
 
