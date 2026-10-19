@@ -112,7 +112,7 @@ export const MeetsAnalysis: React.FC<{ season: number | undefined }> = ({ season
         }
       >
         <p className="-mt-2 mb-3 text-xs text-muted-foreground">
-          Average pace per meet{scoped ? ` for ${scope.label}` : ''}. Faster is up. Pace puts different distances on one scale; course and weather still
+          Average pace per meet{scoped ? ` for ${scope.label}` : ''}. Lower is faster. Pace puts different distances on one scale; course and weather still
           matter, and an average also moves with who ran, so each meet below compares athletes with their own last race.
         </p>
         <div className="h-64 md:h-72">
@@ -121,7 +121,6 @@ export const MeetsAnalysis: React.FC<{ season: number | undefined }> = ({ season
               <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="name" tickFormatter={short} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={{ stroke: 'var(--border)' }} interval="preserveStartEnd" />
               <YAxis
-                reversed
                 domain={[lo, hi]}
                 tickFormatter={(v: number) => formatPace(v).replace('/mi', '')}
                 tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}

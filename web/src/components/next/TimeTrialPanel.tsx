@@ -114,14 +114,14 @@ export const AthleteTimeTrial: React.FC<{ athleteId: string; season: number | un
           <LineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={{ stroke: 'var(--border)' }} />
-            <YAxis reversed domain={[lo, hi]} tickFormatter={(v: number) => formatPace(v).replace('/mi', '')} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} width={40} />
+            <YAxis domain={[lo, hi]} tickFormatter={(v: number) => formatPace(v).replace('/mi', '')} tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} width={40} />
             <Tooltip formatter={(v) => formatPace(Number(v))} labelFormatter={(_, p) => p?.[0]?.payload?.name ?? ''} />
             <ReferenceLine y={row.tt.pace} stroke="var(--muted-foreground)" strokeDasharray="4 4" label={{ value: 'Mile', position: 'insideTopRight', fontSize: 11, fill: 'var(--muted-foreground)' }} />
             <Line type="monotone" dataKey="pace" stroke="var(--primary)" strokeWidth={2.5} dot={{ r: 4, strokeWidth: 2, fill: 'var(--card)' }} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-xs text-muted-foreground">Faster is up. The dashed line is the time trial mile pace.</p>
+      <p className="text-xs text-muted-foreground">Lower is faster. The dashed line is the time trial mile pace.</p>
     </Panel>
   );
 };
