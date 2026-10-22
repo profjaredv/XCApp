@@ -136,6 +136,10 @@ const VOLUNTEER_WRITE_ROUTES = [
   'photos.js POST /meets',
   'photos.js POST /import/google-album',
   'photos.js PUT /tag-password',
+  // Emailing a parent a link to photos they could already see themselves
+  // by logging in — no more sensitive than the hide/unhide and authorize
+  // actions just above, which volunteers already get team-wide.
+  'photos.js POST /athletes/:athleteId/download-link',
 ];
 
 test('volunteers get team-wide write access only where it is intended', () => {

@@ -9,6 +9,7 @@ const r2 = require('../lib/r2');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/teamFeatures');
 const { resolvePhotosTeam, requirePhotosFeatureEnabled } = require('../middleware/photosTeam');
+const { isFeatureEnabled } = require('../lib/teamFeatures');
 const { authenticateUserOrVolunteer } = require('../middleware/photosVolunteer');
 const photosVolunteerAccess = require('../lib/photosVolunteerAccess');
 const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
@@ -18,7 +19,14 @@ const photoBuildStats = require('../lib/photoBuildStats');
 const { getActiveMembershipsForTeamSeason } = require('../lib/groups');
 const { importGoogleAlbum, validateGooglePhotosUrl } = require('../lib/googlePhotosImport');
 const googlePhotosImportJobs = require('../lib/googlePhotosImportJobs');
+const { sendEmail } = require('../lib/email');
 const { MAX_PICKS } = photosAccess;
+
+// Same fallback every other email-sending route uses (routes/athletes.js,
+// routes/admin.js, routes/team.js) — repeated per-file rather than shared,
+// matching how those already do it.
+const FRONTEND_URL = process.env.FRONTEND_URL
+  || (process.env.NODE_ENV === 'production' ? 'https://www.leadpack.cc' : 'http://localhost:5173');
 
 // LeadPack Photos (build spec: docs/leadpack-photos-build-spec.md), Phases
 // 3 ("Upload"), 4 ("Tagging"), and 5 ("Picks and collage" — the metadata
@@ -73,6 +81,32 @@ const googleImportLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
   message: { msg: 'Too many album imports in a row. Try again in an hour.' },
+});
+
+// Sends a real email to an address a coach typed in, so a generous but
+// finite ceiling — about not letting a typo'd or malicious loop spam one
+// inbox or burn through the team's email quota, not about normal day-to-
+// day use (this is a once-or-twice-per-athlete action).
+const downloadLinkLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
+  message: { msg: 'Too many download links sent in a row. Try again in an hour.' },
+});
+
+// A token-link request has no session to key a limiter on — IP is the
+// only thing available, same as volunteerLoginLimiter below. Generous
+// since a parent re-opening the same email link several times (or a
+// household sharing one IP) is completely normal.
+const downloadLinkAccessLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { msg: 'Too many attempts. Try again in a few minutes.' },
 });
 
 async function attachPhotoActor(req, res, next) {
@@ -712,6 +746,107 @@ router.get('/groups/:groupId/download', authenticate, requireFeature('photos'), 
       archive.append(stream, { name: `${photo.id}.jpg` });
     } catch (error) {
       console.error(`Group photo download: skipped ${photo.id} (${error.message})`);
+    }
+  }
+  await archive.finalize();
+});
+
+// POST /api/photos/athletes/:athleteId/download-link — "email the parent a
+// download link": coach-only. Body: { email }. Mints a PhotoDownloadLink
+// (lib/photosAccess.js) and best-effort emails it — the coach still gets
+// the raw link back either way (same "a down or unconfigured eusend never
+// blocks the action" pattern as routes/athletes.js's invite email), so the
+// frontend can fall back to a copy-link UI if emailSent comes back false.
+router.post('/athletes/:athleteId/download-link', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), attachPhotoActor, downloadLinkLimiter, async (req, res) => {
+  const { email } = req.body || {};
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    return res.status(400).json({ msg: 'A valid email is required.' });
+  }
+  let link;
+  try {
+    link = await photosAccess.createPhotoDownloadLink(prisma, req.photosTeamId, req.params.athleteId, req.photoActor, email);
+  } catch (error) {
+    return sendAccessError(res, error, 'Error in POST /photos/athletes/:athleteId/download-link:');
+  }
+
+  const downloadUrl = `${FRONTEND_URL}/photos/download/${link.token}`;
+  let emailSent = false;
+  try {
+    const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { name: true } });
+    const result = await sendEmail({
+      to: email,
+      subject: `Your photos from ${team?.name ?? 'your team'} are ready to download`,
+      html:
+        `<p>${req.user.name || 'Your coach'} sent you a link to download this season's tagged photos.</p>`
+        + `<p><a href="${downloadUrl}">${downloadUrl}</a></p>`
+        + `<p>This link works until ${link.expiresAt.toDateString()} — no account or login needed.</p>`,
+    });
+    emailSent = result.sent;
+  } catch (error) {
+    console.error('Error sending photo download link email:', error.message);
+  }
+
+  res.status(201).json({ emailSent, downloadUrl, expiresAt: link.expiresAt });
+});
+
+// GET /api/photos/download-link/:token — unauthenticated on purpose: the
+// token itself is the only check (see PhotoDownloadLink's schema comment
+// on why this is deliberately not the "public share link" the build spec
+// otherwise bars). Returns just enough to render the landing page — never
+// the photos themselves, that's the companion /zip route below.
+router.get('/download-link/:token', downloadLinkAccessLimiter, async (req, res) => {
+  try {
+    const link = await photosAccess.resolvePhotoDownloadLink(prisma, req.params.token);
+    // A link minted before the team turned Photos off should behave like
+    // every other Photos route once it's off — closed, not grandfathered.
+    if (!isFeatureEnabled(link.team.features, 'photos')) {
+      return res.status(403).json({ msg: 'This team has turned Photos off.', code: 'FEATURE_DISABLED', feature: 'photos' });
+    }
+    res.json({
+      athleteName: link.athlete.preferredName || link.athlete.name,
+      teamName: link.team.name,
+      expiresAt: link.expiresAt,
+    });
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/download-link/:token:');
+  }
+});
+
+// GET /api/photos/download-link/:token/zip — the actual download. Separate
+// from the info route above so a link preview/safety-scan that only ever
+// GETs the landing page's own API call never also streams the full ZIP.
+router.get('/download-link/:token/zip', downloadLinkAccessLimiter, async (req, res) => {
+  let link;
+  try {
+    link = await photosAccess.resolvePhotoDownloadLink(prisma, req.params.token);
+  } catch (error) {
+    return sendAccessError(res, error, 'Error in GET /photos/download-link/:token/zip:');
+  }
+  if (!isFeatureEnabled(link.team.features, 'photos')) {
+    return res.status(403).json({ msg: 'This team has turned Photos off.', code: 'FEATURE_DISABLED', feature: 'photos' });
+  }
+  const photos = await photosAccess.listPhotosForDownloadLinkTarget(prisma, link.teamId, link.athleteId);
+  if (photos.length === 0) {
+    return res.status(404).json({ msg: 'No photos found yet.' });
+  }
+
+  const archive = new ZipArchive({ zlib: { level: 6 } });
+  // Opaque id only, same privacy rule as every other download route.
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="leadpack-photos-${link.athleteId}.zip"`);
+
+  archive.on('error', (err) => {
+    console.error('Photo download-link archive failed:', err.message);
+    res.destroy();
+  });
+  archive.pipe(res);
+
+  for (const photo of photos) {
+    try {
+      const stream = await r2.getObjectStream(photo.objectKey);
+      archive.append(stream, { name: `${photo.id}.jpg` });
+    } catch (error) {
+      console.error(`Photo download-link: skipped ${photo.id} (${error.message})`);
     }
   }
   await archive.finalize();

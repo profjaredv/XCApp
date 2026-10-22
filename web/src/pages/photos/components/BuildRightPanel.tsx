@@ -1,9 +1,12 @@
-import React from 'react';
-import { ChevronLeft, ChevronRight, Download, Plus, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronLeft, ChevronRight, Download, Mail, Plus, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
+import { photosService } from '../../../api/photosService';
+import { getApiErrorMessage } from '../../../lib/apiError';
 import type { Athlete, Photo, PhotoAthleteTags, TemplateSize } from '../state/types';
 
 interface BuildRightPanelProps {
@@ -29,8 +32,41 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   onDownload,
   downloading,
 }) => {
-  const { state, teamName, setBuildTemplate, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
+  const { state, actor, teamName, setBuildTemplate, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
   const dragIndexRef = React.useRef<number | null>(null);
+  const [parentEmail, setParentEmail] = useState('');
+  const [sendingLink, setSendingLink] = useState(false);
+
+  // "Notify parent" — coach-only, same authority as the download button
+  // just below it. A family viewing their own athlete is already signed
+  // in and can click Download directly; this exists for the parent who
+  // isn't, and never will be, a LeadPack account holder. See
+  // DownloadLinkPage.tsx for where the emailed link actually lands.
+  async function handleSendDownloadLink() {
+    if (!athlete || !parentEmail.trim()) return;
+    setSendingLink(true);
+    try {
+      const result = await photosService.sendDownloadLink(athlete.id, parentEmail.trim());
+      if (result.emailSent) {
+        toast.success('Download link emailed.', {
+          description: `Works until ${new Date(result.expiresAt).toLocaleDateString()}.`,
+        });
+        setParentEmail('');
+      } else {
+        // Best-effort send failed (eusend down/unconfigured) — same
+        // fallback the athlete-invite flow uses: the link still exists,
+        // so hand it to the coach to pass along themselves.
+        await navigator.clipboard.writeText(result.downloadUrl).catch(() => {});
+        toast.error("Couldn't send the email, but the link is copied — paste it to the parent yourself.", {
+          description: result.downloadUrl,
+        });
+      }
+    } catch (error) {
+      toast.error("Couldn't create a download link.", { description: getApiErrorMessage(error) });
+    } finally {
+      setSendingLink(false);
+    }
+  }
 
   if (!athlete) {
     return <div className="flex h-full items-center justify-center p-4 text-sm text-ink-muted">Choose an athlete.</div>;
@@ -200,6 +236,26 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
         <Button size="sm" variant="outline" className="gap-1.5" disabled={downloading} onClick={onDownload}>
           <Download className="h-3.5 w-3.5" /> {downloading ? 'Downloading…' : 'Download photos (ZIP)'}
         </Button>
+        {actor.isCoach && (
+          <div className="flex gap-1.5">
+            <Input
+              type="email"
+              value={parentEmail}
+              onChange={(e) => setParentEmail(e.target.value)}
+              placeholder="Email a parent a download link"
+              className="h-8 flex-1 border-ink-border bg-transparent text-xs text-ink-foreground"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={sendingLink || !parentEmail.trim()}
+              onClick={handleSendDownloadLink}
+            >
+              <Mail className="h-3.5 w-3.5" /> {sendingLink ? 'Sending…' : 'Send'}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
