@@ -33,6 +33,9 @@ const {
   importReadyPhoto,
   listAthletePhotosForDownload,
   listGroupPhotosForDownload,
+  createPhotoDownloadLink,
+  resolvePhotoDownloadLink,
+  listPhotosForDownloadLinkTarget,
 } = photosAccess;
 
 function stub(model, method, impl) {
@@ -997,5 +1000,120 @@ test('listGroupPhotosForDownload returns an empty list, without querying photos,
     restoreGroup();
     restoreMembership();
     restorePhoto();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// createPhotoDownloadLink / resolvePhotoDownloadLink / listPhotosForDownloadLinkTarget
+// ---------------------------------------------------------------------------
+
+test('createPhotoDownloadLink refuses a non-coach outright, before even looking up the athlete', async () => {
+  const guardian = { userId: 'parent-1', isCoach: false, selfAthleteId: 'athlete-1', guardianAthleteIds: ['athlete-1'], linkedAthleteIds: ['athlete-1'] };
+  const restore = stub('athlete', 'findFirst', () => {
+    throw new Error('should not be called — the coach check comes first');
+  });
+  try {
+    await assert.rejects(
+      () => createPhotoDownloadLink(prisma, 'team-1', 'athlete-1', guardian, 'parent@example.com'),
+      /Only a coach/,
+    );
+  } finally {
+    restore();
+  }
+});
+
+test('createPhotoDownloadLink 404s an athlete from another team', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restore = stub('athlete', 'findFirst', () => null);
+  try {
+    await assert.rejects(
+      () => createPhotoDownloadLink(prisma, 'team-1', 'athlete-of-another-team', coach, 'parent@example.com'),
+      /Athlete not found/,
+    );
+  } finally {
+    restore();
+  }
+});
+
+test('createPhotoDownloadLink creates a row with a ~30-day expiry and records who it was sent to', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1' }));
+  let seenData;
+  const restoreCreate = stub('photoDownloadLink', 'create', (args) => {
+    seenData = args.data;
+    return { id: 'link-1', token: 'tok-1', ...args.data };
+  });
+  const before = Date.now();
+  try {
+    const link = await createPhotoDownloadLink(prisma, 'team-1', 'athlete-1', coach, 'parent@example.com');
+    assert.equal(seenData.athleteId, 'athlete-1');
+    assert.equal(seenData.teamId, 'team-1');
+    assert.equal(seenData.sentBy, 'coach-1');
+    assert.equal(seenData.sentTo, 'parent@example.com');
+    const ttlMs = seenData.expiresAt.getTime() - before;
+    assert.ok(ttlMs > 29 * 24 * 60 * 60 * 1000 && ttlMs <= 30 * 24 * 60 * 60 * 1000, 'expiry should be about 30 days out');
+    assert.equal(link.id, 'link-1');
+  } finally {
+    restoreAthlete();
+    restoreCreate();
+  }
+});
+
+test('resolvePhotoDownloadLink 410s a token that does not exist', async () => {
+  const restore = stub('photoDownloadLink', 'findUnique', () => null);
+  try {
+    await assert.rejects(() => resolvePhotoDownloadLink(prisma, 'no-such-token'), /expired or is no longer valid/);
+  } finally {
+    restore();
+  }
+});
+
+test('resolvePhotoDownloadLink 410s a token that has expired', async () => {
+  const restore = stub('photoDownloadLink', 'findUnique', () => ({
+    id: 'link-1',
+    athleteId: 'athlete-1',
+    teamId: 'team-1',
+    expiresAt: new Date(Date.now() - 1000),
+    athlete: { name: 'A', preferredName: null },
+    team: { name: 'Team', features: null },
+  }));
+  try {
+    await assert.rejects(() => resolvePhotoDownloadLink(prisma, 'expired-token'), /expired or is no longer valid/);
+  } finally {
+    restore();
+  }
+});
+
+test('resolvePhotoDownloadLink returns the link, athlete, and team for a valid token', async () => {
+  const row = {
+    id: 'link-1',
+    athleteId: 'athlete-1',
+    teamId: 'team-1',
+    expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+    athlete: { name: 'Full Name', preferredName: 'Nickname' },
+    team: { name: 'Team Name', features: null },
+  };
+  const restore = stub('photoDownloadLink', 'findUnique', () => row);
+  try {
+    const link = await resolvePhotoDownloadLink(prisma, 'good-token');
+    assert.equal(link.athlete.preferredName, 'Nickname');
+    assert.equal(link.team.name, 'Team Name');
+  } finally {
+    restore();
+  }
+});
+
+test('listPhotosForDownloadLinkTarget queries by athleteId with no actor check at all', async () => {
+  let queryArgs;
+  const restore = stub('photo', 'findMany', (args) => {
+    queryArgs = args;
+    return [{ id: 'photo-1', objectKey: 'teams/team-1/photos/photo-1/orig.jpg' }];
+  });
+  try {
+    const photos = await listPhotosForDownloadLinkTarget(prisma, 'team-1', 'athlete-1');
+    assert.equal(photos.length, 1);
+    assert.deepEqual(queryArgs.where, { teamId: 'team-1', status: 'READY', tags: { some: { athleteId: 'athlete-1' } } });
+  } finally {
+    restore();
   }
 });

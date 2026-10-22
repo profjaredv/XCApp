@@ -49,6 +49,8 @@ const EXCLUDED_MODELS = {
     'Bookkeeping for the undo button, not training data. What it records — where a log came from — travels on each training log\'s own `source` column, which IS exported.',
   PhotoVolunteerSession:
     'Exists only to carry a live session token (the no-account Photos tagging path) — not data the team created, and the tags made through it are already exported via PhotoAthlete.',
+  PhotoDownloadLink:
+    'Exists only to carry a live download token for one parent — not data the team created, and the photos it unlocks are already exported via Photo/PhotoAthlete.',
 };
 
 /**

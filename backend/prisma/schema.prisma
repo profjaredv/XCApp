@@ -77,6 +77,7 @@ model User {
   teamRequestsResolved      TeamRequest[]            @relation("TeamRequestResolver")
   uploadedPhotos            Photo[]                  @relation("PhotoUploader")
   photoTagsMade             PhotoAthlete[]           @relation("PhotoAthleteTagger")
+  photoDownloadLinksSent    PhotoDownloadLink[]      @relation("PhotoDownloadLinkSender")
 
   @@index([teamId])
   @@map("users")
@@ -162,6 +163,7 @@ model Team {
   paceZones               PaceZone[]
   photos                  Photo[]
   photoVolunteerSessions  PhotoVolunteerSession[]
+  photoDownloadLinks      PhotoDownloadLink[]
 
   @@index([coachUid])
   @@map("teams")
@@ -332,7 +334,6 @@ model AthleteAlias {
   @@map("athlete_aliases")
 }
 
-
 model Athlete {
   id                String   @id @default(uuid()) @db.Uuid
   teamId            String   @map("team_id") @db.Uuid
@@ -392,6 +393,7 @@ model Athlete {
   photoTags                PhotoAthlete[]
   photoPicks               Pick[]
   collages                 Collage[]
+  photoDownloadLinks       PhotoDownloadLink[]
   racePredictions          RacePrediction[]
 
   // Relaxed from @@unique (Build Spec Phase 2 step 5): two students named
@@ -2122,4 +2124,36 @@ model Collage {
 
   @@index([athleteId, seasonId])
   @@map("collages")
+}
+
+// A coach-sent "download your photos" link for one family — the build
+// spec's privacy rule bars a public gallery or share link for these
+// photos (they're of minors), so this is deliberately NOT that: the
+// token is an unguessable secret (same bearer-credential shape as
+// AthleteInvite.token below), scoped to exactly one athlete, and expires.
+// It stays valid (re-downloadable) until expiresAt rather than being
+// single-use, specifically because email providers commonly prefetch or
+// safety-scan links in a message before a person ever opens it — a
+// single-use token would get silently burned by that scan, and the
+// parent it was meant for would find a dead link. See
+// routes/photos.js's GET /download-link/:token (unauthenticated — the
+// token itself is the only check) and POST
+// /athletes/:athleteId/download-link (coach-only, sends the email).
+model PhotoDownloadLink {
+  id        String   @id @default(uuid()) @db.Uuid
+  athleteId String   @map("athlete_id") @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  token     String   @unique @default(uuid())
+  sentBy    String?  @map("sent_by") @db.Uuid
+  sentTo    String   @map("sent_to") // the guardian email it was actually sent to, for the coach's own record
+  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime @map("expires_at")
+
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  sender  User?   @relation("PhotoDownloadLinkSender", fields: [sentBy], references: [id], onDelete: SetNull)
+
+  @@index([athleteId])
+  @@index([expiresAt])
+  @@map("photo_download_links")
 }

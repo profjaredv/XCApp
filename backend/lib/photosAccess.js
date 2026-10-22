@@ -514,6 +514,75 @@ async function listGroupPhotosForDownload(prisma, teamId, groupId, actor) {
   });
 }
 
+// --- Photo download links (coach-sent, token-gated, no login needed) ------
+//
+// Build spec, "What the system does not do": "No public gallery, no share
+// links." This is deliberately NOT that — see PhotoDownloadLink's own
+// schema comment — but it's the one place in Photos where the caller on
+// the read side is a bare token, not a session, so it gets its own small
+// section rather than folding into the actor-based functions above.
+
+const DOWNLOAD_LINK_TTL_DAYS = 30;
+
+/**
+ * Coach-only: mints a fresh token-gated link for one athlete's season of
+ * photos and records who it was sent to (the coach's own audit trail —
+ * see sentTo on the model). Only ever touches the DB row; the caller
+ * (routes/photos.js) sends the actual email.
+ */
+async function createPhotoDownloadLink(prisma, teamId, athleteId, actor, sentTo) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can send a photo download link.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId }, select: { id: true } });
+  if (!athlete) {
+    const err = new Error('Athlete not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const expiresAt = new Date(Date.now() + DOWNLOAD_LINK_TTL_DAYS * 24 * 60 * 60 * 1000);
+  return prisma.photoDownloadLink.create({
+    data: { athleteId, teamId, sentBy: actor.userId, sentTo, expiresAt },
+  });
+}
+
+/**
+ * The unauthenticated side: resolves a token to the link it was minted
+ * for, or throws (410, deliberately the same code an expired AthleteInvite
+ * uses) if it doesn't exist or has expired. No "used" flag is ever
+ * checked or set — see the schema's own comment on why this link stays
+ * valid until expiresAt instead of being single-use.
+ */
+async function resolvePhotoDownloadLink(prisma, token) {
+  const link = await prisma.photoDownloadLink.findUnique({
+    where: { token },
+    include: { athlete: { select: { name: true, preferredName: true } }, team: { select: { name: true, features: true } } },
+  });
+  if (!link || link.expiresAt < new Date()) {
+    const err = new Error('This link has expired or is no longer valid. Ask your coach to send a new one.');
+    err.statusCode = 410;
+    throw err;
+  }
+  return link;
+}
+
+/**
+ * Same photo set listAthletePhotosForDownload returns, for the
+ * unauthenticated token-link path specifically — the already-resolved,
+ * already-expiry-checked PhotoDownloadLink IS the authorization, so
+ * there is no actor to check here at all (unlike every other function in
+ * this file).
+ */
+async function listPhotosForDownloadLinkTarget(prisma, teamId, athleteId) {
+  return prisma.photo.findMany({
+    where: { teamId, status: 'READY', tags: { some: { athleteId } } },
+    select: { id: true, objectKey: true, takenAt: true, meet: { select: { name: true } } },
+    orderBy: { takenAt: 'asc' },
+  });
+}
+
 // --- Import (Google Photos album) -----------------------------------------
 
 /**
@@ -584,4 +653,7 @@ module.exports = {
   importReadyPhoto,
   listAthletePhotosForDownload,
   listGroupPhotosForDownload,
+  createPhotoDownloadLink,
+  resolvePhotoDownloadLink,
+  listPhotosForDownloadLinkTarget,
 };

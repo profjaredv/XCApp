@@ -318,6 +318,11 @@ const CLASSIFICATION = {
     what: 'A device that unlocked Photos tagging with the team\'s shared password instead of an account.',
     why: 'An access token, not a record about any student — names no one. The tags a volunteer session makes (PhotoAthlete, above) are the student data; this is only how that device got in.',
   },
+  PhotoDownloadLink: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'A coach-sent, time-limited link a parent uses to download one athlete\'s tagged photos without logging in.',
+    why: 'Names which student\'s photos the link unlocks and the email address it was sent to. The token is a bearer credential, not a public link — see the LeadPack Photos build spec\'s privacy rules — and it expires rather than being revocable per-use.',
+  },
 
   // --- Athlete-authored: hers ---------------------------------------------
   TrainingLog: {

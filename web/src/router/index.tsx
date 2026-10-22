@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
-import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage } from '../pages';
+import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage, PhotoDownloadLinkPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
 import { FeatureGate } from '../components/FeatureGate';
 import GroupDayPage from '../pages/GroupDayPage';
@@ -116,6 +116,14 @@ export const router = createBrowserRouter([
       {
         path: '/claim/:token',
         element: <ClaimTeamPage />,
+      },
+      // LeadPack Photos: a coach-sent, token-gated link so a parent can
+      // download their athlete's season photos with no sign-in and no
+      // LeadPack account at all — see DownloadLinkPage's own header
+      // comment and BuildRightPanel.tsx's "Notify parent" action.
+      {
+        path: '/photos/download/:token',
+        element: <PhotoDownloadLinkPage />,
       },
       {
         path: '/join-team',

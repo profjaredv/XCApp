@@ -38,6 +38,23 @@ export interface ApiPhoto {
   tags: PhotoAthlete[];
 }
 
+export interface SendDownloadLinkResult {
+  emailSent: boolean;
+  downloadUrl: string;
+  expiresAt: string;
+}
+
+// Shown on the public DownloadLinkPage — note this never includes an
+// athlete id or any photo data, only enough to render a "ready to
+// download" confirmation. See backend/routes/photos.js's GET
+// /download-link/:token for why the actual photos need their own
+// (also-token-gated) route.
+export interface PhotoDownloadLinkInfo {
+  athleteName: string;
+  teamName: string;
+  expiresAt: string;
+}
+
 export interface AuthorizeFile {
   sha256: string;
   width?: number;
@@ -242,5 +259,28 @@ export const photosService = {
 
   downloadGroupPhotos(groupId: string): Promise<void> {
     return downloadBlobFile(api, `/photos/groups/${groupId}/download`, `leadpack-photos-group-${groupId}.zip`, 'zip');
+  },
+
+  // Coach-only: emails a parent a time-limited link to DownloadLinkPage
+  // (web/src/pages/photos/DownloadLinkPage.tsx) so they can get their
+  // athlete's photos without ever creating a LeadPack account. See
+  // PhotoDownloadLink's schema comment for why this isn't the "public
+  // share link" the build spec otherwise bars.
+  async sendDownloadLink(athleteId: string, email: string): Promise<SendDownloadLinkResult> {
+    const response = await api.post<SendDownloadLinkResult>(`/photos/athletes/${athleteId}/download-link`, { email });
+    return response.data;
+  },
+
+  // The two halves of the public landing page: info first (so a link
+  // preview/safety-scan never also pulls the full ZIP), then the download
+  // itself only on an explicit click. No auth header is needed or sent —
+  // the token itself is the credential.
+  async getDownloadLinkInfo(token: string): Promise<PhotoDownloadLinkInfo> {
+    const response = await api.get<PhotoDownloadLinkInfo>(`/photos/download-link/${token}`);
+    return response.data;
+  },
+
+  downloadViaLink(token: string): Promise<void> {
+    return downloadBlobFile(api, `/photos/download-link/${token}/zip`, `leadpack-photos-${token}.zip`, 'zip');
   },
 };
