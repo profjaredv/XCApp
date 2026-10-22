@@ -8,6 +8,7 @@ import type {
   Photo,
   PhotoAthlete,
   PhotoAthleteTags,
+  PhotoGroup,
   PreviewRole,
   TemplateSize,
 } from './types';
@@ -28,6 +29,7 @@ export interface WorkspaceState {
   bootstrapError: string | null;
 
   athletes: Athlete[];
+  groups: PhotoGroup[];
   meets: Meet[];
   photos: Photo[];
   tags: PhotoAthleteTags;
@@ -45,6 +47,13 @@ export interface WorkspaceState {
 
   tagFilter: TagFilter;
   meetFilter: string | null;
+  // Narrows the Tag/Build left panels' roster (and what "Generate all"/
+  // "Export by group" act on) to one group — shared across modules so
+  // switching from Tag to Build doesn't lose it. Coach/admin only; a
+  // captain's read-only group-coverage view (lib/tagRules.ts's
+  // ledGroupIds) doesn't use this at all, it's always scoped to their own
+  // led group(s) regardless.
+  groupFilter: string | null;
   searchQuery: string;
   timeWindow: { start: string; end: string } | null;
 
@@ -72,6 +81,7 @@ export type Action =
   | {
       type: 'BOOTSTRAPPED';
       athletes: Athlete[];
+      groups: PhotoGroup[];
       meets: Meet[];
       photos: Photo[];
       tags: PhotoAthleteTags;
@@ -92,6 +102,7 @@ export type Action =
   | { type: 'SET_THUMB_SIZE'; size: number }
   | { type: 'SET_TAG_FILTER'; filter: TagFilter }
   | { type: 'SET_MEET_FILTER'; meetId: string | null }
+  | { type: 'SET_GROUP_FILTER'; groupId: string | null }
   | { type: 'SET_SEARCH'; query: string }
   | { type: 'SET_TIME_WINDOW'; range: { start: string; end: string } | null }
   | { type: 'SET_BATCH_FILTER'; photoIds: string[] | null; meetId: string }
@@ -168,6 +179,7 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
         loading: false,
         bootstrapError: null,
         athletes: action.athletes,
+        groups: action.groups,
         meets: action.meets,
         photos: action.photos,
         tags: action.tags,
@@ -219,6 +231,8 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
       return { ...state, tagFilter: action.filter, batchFilterPhotoIds: null };
     case 'SET_MEET_FILTER':
       return { ...state, meetFilter: action.meetId, timeWindow: null, batchFilterPhotoIds: null };
+    case 'SET_GROUP_FILTER':
+      return { ...state, groupFilter: action.groupId };
     case 'SET_SEARCH':
       return { ...state, searchQuery: action.query, batchFilterPhotoIds: null };
     case 'SET_TIME_WINDOW':

@@ -1,6 +1,6 @@
 import api from './api';
 import { downloadBlobFile } from '../lib/downloadBlob';
-import type { Athlete, AthleteBuildStats, Meet, Photo, PhotoAthlete, TagSource } from '../pages/photos/state/types';
+import type { Athlete, AthleteBuildStats, Meet, Photo, PhotoAthlete, PhotoGroup, TagSource } from '../pages/photos/state/types';
 
 // Backend routes: backend/routes/photos.js. Every call is scoped by the
 // authenticated session's team (or, for a guardian, their approved
@@ -14,6 +14,11 @@ export interface PhotosMe {
   isVolunteer: boolean;
   selfAthleteId: string | null;
   guardianAthleteIds: string[];
+  // Groups (any type — training, captain, custom) this account leads, for
+  // the active season — a captain's read-only group-coverage capability.
+  // Always empty for a coach (isCoach already covers every group) or a
+  // volunteer.
+  ledGroupIds: string[];
   // The Build module's collage subtitle default — resolved server-side the
   // same way for a coach, an athlete, or a guardian (unlike GET
   // /teams/context, the app's usual source for this, which 403s for a
@@ -102,8 +107,8 @@ export const photosService = {
     return response.data;
   },
 
-  async roster(): Promise<Athlete[]> {
-    const response = await api.get<Athlete[]>('/photos/roster');
+  async roster(): Promise<{ athletes: Athlete[]; groups: PhotoGroup[] }> {
+    const response = await api.get<{ athletes: Athlete[]; groups: PhotoGroup[] }>('/photos/roster');
     return response.data;
   },
 
@@ -233,5 +238,9 @@ export const photosService = {
   // through axios as a blob rather than a plain link.
   downloadAthletePhotos(athleteId: string): Promise<void> {
     return downloadBlobFile(api, `/photos/athletes/${athleteId}/download`, `leadpack-photos-${athleteId}.zip`, 'zip');
+  },
+
+  downloadGroupPhotos(groupId: string): Promise<void> {
+    return downloadBlobFile(api, `/photos/groups/${groupId}/download`, `leadpack-photos-group-${groupId}.zip`, 'zip');
   },
 };

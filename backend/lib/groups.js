@@ -137,4 +137,27 @@ async function getActiveMembersOf(groupId, date = new Date()) {
   return memberships.filter((m) => isMembershipActiveOn(m, date));
 }
 
-module.exports = { getGroupOn, getActiveMembersOf, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn, normalizeDate };
+// The roster-wide counterpart to getGroupOn/getActiveMembersOf: every
+// athlete's active membership(s), across every group and every GroupType,
+// for one team's season, in one query — built for LeadPack Photos' "filter
+// by group" and "needs photos, by group" views, which need this for the
+// whole roster at once rather than one athlete or one group at a time.
+// Same "load them all, filter active in JS" shape as the two helpers
+// above, for the same reason (one shared source of truth for "active").
+async function getActiveMembershipsForTeamSeason(teamId, seasonId, date = new Date()) {
+  const memberships = await prisma.groupMembership.findMany({
+    where: { group: { teamId, seasonId } },
+    include: { group: true },
+  });
+  return memberships.filter((m) => isMembershipActiveOn(m, date));
+}
+
+module.exports = {
+  getGroupOn,
+  getActiveMembersOf,
+  getActiveMembershipsForTeamSeason,
+  moveAthleteToGroup,
+  removeAthleteFromGroup,
+  isMembershipActiveOn,
+  normalizeDate,
+};

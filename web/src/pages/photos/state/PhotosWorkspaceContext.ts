@@ -27,6 +27,7 @@ export interface PhotosWorkspaceValue {
   setThumbSize: (size: number) => void;
   setTagFilter: (filter: TagFilter) => void;
   setMeetFilter: (meetId: string | null) => void;
+  setGroupFilter: (groupId: string | null) => void;
   setSearch: (query: string) => void;
   setTimeWindow: (range: { start: string; end: string } | null) => void;
 

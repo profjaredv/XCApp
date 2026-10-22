@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
-import { searchAthletes } from '../lib/selectors';
+import { filterByGroup, searchAthletes } from '../lib/selectors';
+import { GroupFilterSelect } from './GroupFilterSelect';
 import type { Athlete, AthletePicks } from '../state/types';
 
 interface BuildLeftPanelProps {
@@ -21,7 +22,7 @@ function PickDots({ count }: { count: number }) {
 }
 
 export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({ athletes, picks }) => {
-  const { state, actor, setBuildAthlete } = usePhotosWorkspace();
+  const { state, actor, setBuildAthlete, setGroupFilter } = usePhotosWorkspace();
   const [query, setQuery] = useState('');
 
   if (!actor.isCoach) {
@@ -48,8 +49,11 @@ export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({ athletes, picks 
     );
   }
 
+  const groupFilteredAthletes = filterByGroup(athletes, state.groupFilter);
+
   return (
     <div className="flex h-full flex-col gap-2 p-3">
+      <GroupFilterSelect groups={state.groups} value={state.groupFilter} onChange={setGroupFilter} />
       <div className="flex items-center gap-1.5 px-1">
         <Search className="h-3.5 w-3.5 text-ink-muted" />
         <input
@@ -60,7 +64,7 @@ export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({ athletes, picks 
         />
       </div>
       <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
-        {searchAthletes(athletes, query).map((athlete) => {
+        {searchAthletes(groupFilteredAthletes, query).map((athlete) => {
           const count = picks[athlete.id]?.length ?? 0;
           return (
             <li key={athlete.id}>

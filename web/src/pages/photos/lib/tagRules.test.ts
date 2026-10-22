@@ -5,18 +5,25 @@ import {
   canRemoveTag,
   canHidePhoto,
   canPickPhoto,
+  canViewGroupCoverage,
   isPhotoVisible,
   tagSourceFor,
   type Actor,
 } from './tagRules';
 import type { Athlete, Photo } from '../state/types';
 
-const coach: Actor = { userId: 'coach-1', isCoach: true, role: 'coach', linkedAthleteIds: [] };
-const parent: Actor = { userId: 'parent-1', isCoach: false, role: 'guardian', linkedAthleteIds: ['athlete-1', 'athlete-2'] };
-const athleteSelf: Actor = { userId: 'athlete-1', isCoach: false, role: 'athlete', linkedAthleteIds: ['athlete-1'] };
+const coach: Actor = { userId: 'coach-1', isCoach: true, role: 'coach', linkedAthleteIds: [], ledGroupIds: [] };
+const parent: Actor = {
+  userId: 'parent-1',
+  isCoach: false,
+  role: 'guardian',
+  linkedAthleteIds: ['athlete-1', 'athlete-2'],
+  ledGroupIds: [],
+};
+const athleteSelf: Actor = { userId: 'athlete-1', isCoach: false, role: 'athlete', linkedAthleteIds: ['athlete-1'], ledGroupIds: [] };
 // Unlocked tagging with the team's shared password (middleware/photosVolunteer.js
 // on the backend) instead of any account — no userId, no linked athletes.
-const volunteer: Actor = { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [] };
+const volunteer: Actor = { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [], ledGroupIds: [] };
 
 describe('canTagAthlete', () => {
   it('lets a coach tag any athlete', () => {
@@ -80,6 +87,30 @@ describe('canHidePhoto', () => {
   });
 });
 
+describe('canViewGroupCoverage', () => {
+  const captain: Actor = {
+    userId: 'captain-1',
+    isCoach: false,
+    role: 'athlete',
+    linkedAthleteIds: ['athlete-1'],
+    ledGroupIds: ['group-blue'],
+  };
+
+  it('lets a coach view coverage for any group', () => {
+    expect(canViewGroupCoverage(coach, 'group-blue')).toBe(true);
+    expect(canViewGroupCoverage(coach, 'group-red')).toBe(true);
+  });
+
+  it('lets a captain view only the group(s) they lead', () => {
+    expect(canViewGroupCoverage(captain, 'group-blue')).toBe(true);
+    expect(canViewGroupCoverage(captain, 'group-red')).toBe(false);
+  });
+
+  it('refuses a plain athlete/guardian with no led groups', () => {
+    expect(canViewGroupCoverage(parent, 'group-blue')).toBe(false);
+  });
+});
+
 describe('canPickPhoto', () => {
   it('requires the athlete to already be tagged in that photo', () => {
     const tags = [{ athleteId: 'athlete-1', source: 'self' as const, taggedBy: 'parent-1' }];
@@ -91,8 +122,8 @@ describe('canPickPhoto', () => {
 
 describe('isPhotoVisible', () => {
   const athletesById = new Map<string, Athlete>([
-    ['athlete-1', { id: 'athlete-1', name: 'A', photosOptOut: false }],
-    ['athlete-2', { id: 'athlete-2', name: 'B', photosOptOut: true }],
+    ['athlete-1', { id: 'athlete-1', name: 'A', photosOptOut: false, groupIds: [] }],
+    ['athlete-2', { id: 'athlete-2', name: 'B', photosOptOut: true, groupIds: [] }],
   ]);
   const photo: Photo = { id: 'p1', meetId: 'm1', takenAt: '', width: 1, height: 1, status: 'ready', thumbUrl: '', webUrl: '' };
 

@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
-import { coverage, searchAthletes, tagCountForAthlete } from '../lib/selectors';
+import { coverage, filterByGroup, searchAthletes, tagCountForAthlete } from '../lib/selectors';
 import { TimeWindowJump } from './TimeWindowJump';
+import { GroupFilterSelect } from './GroupFilterSelect';
+import { photosService } from '../../../api/photosService';
 import type { Athlete, Meet, Photo, PhotoAthleteTags } from '../state/types';
 import type { TagFilter } from '../state/reducer';
 
@@ -21,9 +24,25 @@ function meetCounts(meetId: string, photos: Photo[], tags: PhotoAthleteTags) {
 }
 
 export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags, athletes }) => {
-  const { state, actor, setMeetFilter, setTagFilter, setSearch, armAthlete } = usePhotosWorkspace();
+  const { state, actor, setMeetFilter, setTagFilter, setGroupFilter, setSearch, armAthlete } = usePhotosWorkspace();
   const [query, setQuery] = useState('');
   const [coverageOpen, setCoverageOpen] = useState(false);
+  const [downloadingGroup, setDownloadingGroup] = useState(false);
+
+  async function handleDownloadGroup() {
+    if (!state.groupFilter) return;
+    setDownloadingGroup(true);
+    try {
+      await photosService.downloadGroupPhotos(state.groupFilter);
+    } catch (error) {
+      console.error("Couldn't download that group's photos:", error);
+      toast.error("Couldn't download that group's photos.", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setDownloadingGroup(false);
+    }
+  }
 
   const SAVED_FILTERS: { key: TagFilter; label: string }[] = [
     { key: 'untagged', label: 'Untagged' },
@@ -55,6 +74,19 @@ export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags,
     // description's "families skip arming" note. A guardian of more than
     // one athlete still gets to switch who they're tagging for.
     const own = athletes.filter((a) => actor.linkedAthleteIds.includes(a.id));
+
+    // A captain (GroupLeader, see lib/tagRules.ts's ledGroupIds) gets a
+    // read-only view of their own group's coverage below their normal
+    // tagging flow — never an arm button, since arming someone they can't
+    // actually tag would just produce a 403 from the backend the first
+    // time they tried to use it. Pure visibility: "does everyone in my
+    // group have at least a few photos yet."
+    const myGroups = state.groups.filter((g) => actor.ledGroupIds.includes(g.id));
+    const myGroupCoverage = myGroups.map((group) => ({
+      group,
+      rows: coverage(filterByGroup(athletes, group.id), tags, photos),
+      memberCount: filterByGroup(athletes, group.id).length,
+    }));
 
     return (
       <div className="flex h-full flex-col gap-4 p-3">
@@ -93,11 +125,30 @@ export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags,
           </select>
         </div>
         <TimeWindowJump meet={currentMeet} />
+        {myGroupCoverage.map(({ group, rows, memberCount }) => (
+          <div key={group.id}>
+            <div className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+              {group.name} — needs photos ({rows.length}/{memberCount})
+            </div>
+            <ul className="max-h-40 space-y-0.5 overflow-y-auto">
+              {rows.map(({ athlete, taggedCount }) => (
+                <li key={athlete.id} className="flex items-center justify-between rounded-md px-2 py-1 text-sm text-ink-muted">
+                  <span className="truncate">{athlete.preferredName || athlete.name}</span>
+                  <span className="shrink-0 text-xs opacity-70">{taggedCount} tagged</span>
+                </li>
+              ))}
+              {rows.length === 0 && (
+                <li className="px-2 py-1 text-xs text-ink-muted">Everyone in this group has at least 3 tagged photos.</li>
+              )}
+            </ul>
+          </div>
+        ))}
       </div>
     );
   }
 
-  const coverageRows = coverage(athletes, tags, photos);
+  const groupFilteredAthletes = filterByGroup(athletes, state.groupFilter);
+  const coverageRows = coverage(groupFilteredAthletes, tags, photos);
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-3">
@@ -140,6 +191,21 @@ export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags,
       </div>
 
       {state.meetFilter && <TimeWindowJump meet={meets.find((m) => m.id === state.meetFilter)} />}
+
+      <div>
+        <div className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">Group</div>
+        <GroupFilterSelect groups={state.groups} value={state.groupFilter} onChange={setGroupFilter} />
+        {state.groupFilter && (
+          <button
+            type="button"
+            onClick={handleDownloadGroup}
+            disabled={downloadingGroup}
+            className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-md bg-ink-border/40 px-2 py-1.5 text-xs text-ink-foreground hover:bg-ink-border/60 disabled:opacity-50"
+          >
+            <Download className="h-3.5 w-3.5" /> {downloadingGroup ? 'Downloading…' : "Download this group's photos (ZIP)"}
+          </button>
+        )}
+      </div>
 
       <div>
         <div className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">Saved filters</div>
@@ -215,7 +281,7 @@ export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags,
           />
         </div>
         <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
-          {searchAthletes(athletes, query).map((athlete) => (
+          {searchAthletes(groupFilteredAthletes, query).map((athlete) => (
             <li key={athlete.id}>
               <button
                 type="button"

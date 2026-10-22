@@ -15,6 +15,7 @@ const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
 const { resolveActiveSeason, deriveGrade, isEnrolled } = require('../lib/season');
 const photosAccess = require('../lib/photosAccess');
 const photoBuildStats = require('../lib/photoBuildStats');
+const { getActiveMembershipsForTeamSeason } = require('../lib/groups');
 const { importGoogleAlbum, validateGooglePhotosUrl } = require('../lib/googlePhotosImport');
 const googlePhotosImportJobs = require('../lib/googlePhotosImportJobs');
 const { MAX_PICKS } = photosAccess;
@@ -81,7 +82,15 @@ async function attachPhotoActor(req, res, next) {
       // authorizeTag. userId stays null — there's no account to
       // attribute a volunteer's tags to (photo_athletes.tagged_by is
       // nullable for exactly this).
-      req.photoActor = { userId: null, isCoach: false, isVolunteer: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+      req.photoActor = {
+        userId: null,
+        isCoach: false,
+        isVolunteer: true,
+        selfAthleteId: null,
+        guardianAthleteIds: [],
+        linkedAthleteIds: [],
+        ledGroupIds: [],
+      };
       return next();
     }
     const teamId = req.photosTeamId || req.user.teamId;
@@ -172,6 +181,7 @@ router.get('/me', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosF
     isVolunteer: Boolean(req.photoActor.isVolunteer),
     selfAthleteId: req.photoActor.selfAthleteId,
     guardianAthleteIds: req.photoActor.guardianAthleteIds,
+    ledGroupIds: req.photoActor.ledGroupIds,
     teamName: team?.name ?? null,
   });
 });
@@ -216,8 +226,29 @@ router.get('/roster', authenticateUserOrVolunteer, resolvePhotosTeam, requirePho
       return (raceCountByAthlete.get(a.id) ?? 0) > 0 || isEnrolled(a.graduationYear, seasonYear);
     });
 
-    res.json(
-      onCurrentRoster.map((a) => {
+    // Group filter + coverage data (LeadPack Photos' "filter by group" /
+    // captain coverage view) — every group for this team's active season,
+    // plus which of those groups each athlete on the roster currently
+    // belongs to. Both come back empty when the team has no Season row
+    // yet, same as the roster-grade fallback above.
+    const [groups, memberships] = seasonRow
+      ? await Promise.all([
+          prisma.group.findMany({
+            where: { teamId: req.photosTeamId, seasonId: seasonRow.id, archived: false },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+          }),
+          getActiveMembershipsForTeamSeason(req.photosTeamId, seasonRow.id),
+        ])
+      : [[], []];
+    const groupIdsByAthlete = new Map();
+    for (const m of memberships) {
+      const ids = groupIdsByAthlete.get(m.athleteId) ?? [];
+      ids.push(m.groupId);
+      groupIdsByAthlete.set(m.athleteId, ids);
+    }
+
+    res.json({
+      athletes: onCurrentRoster.map((a) => {
         const rosterEntry = rosterEntryByAthlete.get(a.id);
         return {
           id: a.id,
@@ -225,9 +256,11 @@ router.get('/roster', authenticateUserOrVolunteer, resolvePhotosTeam, requirePho
           preferredName: a.preferredName,
           grade: rosterEntry?.grade ?? deriveGrade(a.graduationYear, seasonYear),
           photosOptOut: a.photosOptOut,
+          groupIds: groupIdsByAthlete.get(a.id) ?? [],
         };
       }),
-    );
+      groups: groups.map((g) => ({ id: g.id, name: g.name, type: g.type, color: g.color })),
+    });
   } catch (error) {
     sendAccessError(res, error, 'Error in GET /photos/roster:');
   }
@@ -639,6 +672,46 @@ router.get('/athletes/:athleteId/download', authenticate, resolvePhotosTeam, req
       // "one bad file doesn't fail the batch" principle as everywhere
       // else in this feature.
       console.error(`Photo download: skipped ${photo.id} (${error.message})`);
+    }
+  }
+  await archive.finalize();
+});
+
+// GET /api/photos/groups/:groupId/download — "export this group's
+// photos": every READY photo tagged with any athlete CURRENTLY active in
+// the group, full resolution, as one ZIP. Coach-only — same reasoning as
+// the per-athlete download route above (a bulk export of originals, not
+// the read-only coverage view a captain's ledGroupIds grants).
+router.get('/groups/:groupId/download', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), attachPhotoActor, async (req, res) => {
+  let photos;
+  try {
+    photos = await photosAccess.listGroupPhotosForDownload(prisma, req.photosTeamId, req.params.groupId, req.photoActor);
+  } catch (error) {
+    return sendAccessError(res, error, 'Error in GET /photos/groups/:groupId/download:');
+  }
+  if (photos.length === 0) {
+    return res.status(404).json({ msg: 'No photos found for that group yet.' });
+  }
+
+  const archive = new ZipArchive({ zlib: { level: 6 } });
+  // Opaque id only, same privacy rule as the per-athlete download above —
+  // no group name in the filename either, consistent with "no athlete
+  // name ever appears in a key, URL, or download filename."
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="leadpack-photos-group-${req.params.groupId}.zip"`);
+
+  archive.on('error', (err) => {
+    console.error('Group photo download archive failed:', err.message);
+    res.destroy();
+  });
+  archive.pipe(res);
+
+  for (const photo of photos) {
+    try {
+      const stream = await r2.getObjectStream(photo.objectKey);
+      archive.append(stream, { name: `${photo.id}.jpg` });
+    } catch (error) {
+      console.error(`Group photo download: skipped ${photo.id} (${error.message})`);
     }
   }
   await archive.finalize();

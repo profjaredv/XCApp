@@ -56,6 +56,23 @@ export interface Athlete {
   preferredName?: string | null;
   grade?: number;
   photosOptOut: boolean;
+  // Every group this athlete is currently (today) an active member of —
+  // a training group and a captain/custom group can run concurrently
+  // (backend/lib/groups.js), so this is a list, not a single id.
+  groupIds: string[];
+}
+
+// A team's training/captain/custom group for the active season — the
+// Photos module's own minimal read of backend's Group model (see
+// routes/groups.js for the fuller coach-facing version this doesn't need:
+// leader contacts, member counts, dynamic-group rules). Used to build the
+// "filter by group" dropdown in Tag/Build's left panels and a captain's
+// own read-only group-coverage view.
+export interface PhotoGroup {
+  id: string;
+  name: string;
+  type: 'TRAINING' | 'CAPTAIN' | 'CUSTOM' | 'X_TRAINING';
+  color: string | null;
 }
 
 export type Module = 'load' | 'tag' | 'build';
