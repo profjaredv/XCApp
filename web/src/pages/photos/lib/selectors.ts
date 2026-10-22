@@ -79,3 +79,9 @@ export function searchAthletes(athletes: Athlete[], query: string): Athlete[] {
   if (!q) return athletes;
   return athletes.filter((a) => a.name.toLowerCase().includes(q) || a.preferredName?.toLowerCase().includes(q));
 }
+
+/** The Tag/Build left panels' "filter by group" dropdown — null means every group. */
+export function filterByGroup(athletes: Athlete[], groupId: string | null): Athlete[] {
+  if (!groupId) return athletes;
+  return athletes.filter((a) => a.groupIds.includes(groupId));
+}

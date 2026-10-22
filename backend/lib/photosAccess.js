@@ -14,6 +14,7 @@ const { hasTeamRole } = require('../middleware/auth');
 const { ANY_COACH } = require('./teamRoles');
 const { resolveActiveSeason, isAthleteOnSeasonRoster } = require('./season');
 const { authorizeTag, canManageAthlete, canRemoveTag, canHidePhoto } = require('./photoTagRules');
+const { getActiveMembersOf } = require('./groups');
 const r2 = require('./r2');
 
 const MAX_PICKS = 5;
@@ -35,22 +36,45 @@ async function resolveActor(prisma, user, teamId) {
 
   // A coach's authority already covers every athlete (authorizeTag checks
   // isCoach first) — skip the guardian-link lookup entirely rather than
-  // run a query whose result can never change the outcome.
+  // run a query whose result can never change the outcome. ledGroupIds is
+  // the captain-only capability below; a coach's isCoach already covers
+  // every group, so it stays empty rather than duplicating that authority.
   if (isCoach) {
-    return { userId: user.id, isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+    return { userId: user.id, isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [], ledGroupIds: [] };
   }
 
   const selfAthleteId = user.linkedAthlete && user.linkedAthlete.teamId === teamId ? user.linkedAthlete.id : null;
 
-  const guardianLinks = await prisma.guardianLink.findMany({
-    where: { userId: user.id, status: 'approved', athlete: { teamId } },
-    select: { athleteId: true },
-  });
+  const [guardianLinks, ledGroupIds] = await Promise.all([
+    prisma.guardianLink.findMany({
+      where: { userId: user.id, status: 'approved', athlete: { teamId } },
+      select: { athleteId: true },
+    }),
+    ledGroupIdsFor(prisma, user.id, teamId),
+  ]);
   const guardianAthleteIds = guardianLinks.map((l) => l.athleteId);
 
   const linkedAthleteIds = Array.from(new Set([selfAthleteId, ...guardianAthleteIds].filter(Boolean)));
 
-  return { userId: user.id, isCoach, selfAthleteId, guardianAthleteIds, linkedAthleteIds };
+  return { userId: user.id, isCoach, selfAthleteId, guardianAthleteIds, linkedAthleteIds, ledGroupIds };
+}
+
+// A new, deliberately narrow read capability: a non-coach account (an
+// athlete captain, most commonly) who is a GroupLeader for a group gets to
+// SEE that group's roster/coverage in the Photos workspace — never
+// tagging, upload, export, or any authority over an athlete who isn't
+// their own linked one (canTagAthlete/canManageAthlete never consult this
+// field). Scoped to the team's active season so a captaincy from a past
+// season doesn't leak into this one.
+async function ledGroupIdsFor(prisma, userId, teamId) {
+  const seasonYear = await resolveActiveSeason(teamId);
+  const season = await prisma.season.findFirst({ where: { teamId, year: seasonYear }, select: { id: true } });
+  if (!season) return [];
+  const led = await prisma.groupLeader.findMany({
+    where: { userId, group: { teamId, seasonId: season.id } },
+    select: { groupId: true },
+  });
+  return led.map((l) => l.groupId);
 }
 
 // --- Single-photo lookups ----------------------------------------------
@@ -459,6 +483,37 @@ async function listAthletePhotosForDownload(prisma, teamId, athleteId, actor) {
   });
 }
 
+/**
+ * Every READY photo tagged with any athlete CURRENTLY (today) active in
+ * this group — the coach "export by group" feature, same ZIP-of-originals
+ * shape as listAthletePhotosForDownload above, just fanned out to a whole
+ * group instead of one athlete. Coach-only: a group's roster is a
+ * management view, not something a captain's read-only coverage
+ * capability (ledGroupIds) extends to — canViewGroupCoverage never
+ * authorizes a bulk export of originals, only seeing tagged-count numbers.
+ */
+async function listGroupPhotosForDownload(prisma, teamId, groupId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can download a group\'s photos.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const group = await prisma.group.findFirst({ where: { id: groupId, teamId }, select: { id: true } });
+  if (!group) {
+    const err = new Error('Group not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const memberships = await getActiveMembersOf(groupId);
+  const athleteIds = memberships.map((m) => m.athleteId);
+  if (athleteIds.length === 0) return [];
+  return prisma.photo.findMany({
+    where: { teamId, status: 'READY', tags: { some: { athleteId: { in: athleteIds } } } },
+    select: { id: true, objectKey: true, takenAt: true, meet: { select: { name: true } } },
+    orderBy: { takenAt: 'asc' },
+  });
+}
+
 // --- Import (Google Photos album) -----------------------------------------
 
 /**
@@ -528,4 +583,5 @@ module.exports = {
   setAthleteOptOut,
   importReadyPhoto,
   listAthletePhotosForDownload,
+  listGroupPhotosForDownload,
 };

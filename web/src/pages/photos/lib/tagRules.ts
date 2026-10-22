@@ -24,6 +24,19 @@ export interface Actor {
   // volunteer — canTagAthlete grants it a different way, and
   // canManageAthlete (picks/opt-out) deliberately does not.
   linkedAthleteIds: string[];
+  // Groups (backend/prisma's Group, any type) this account is a
+  // GroupLeader for — most commonly a team captain. Grants a READ-ONLY
+  // capability only (see canViewGroupCoverage below): seeing that group's
+  // roster/coverage in the Tag and Build left panels. It never widens
+  // canTagAthlete/canManageAthlete — leading a group is not the same
+  // authority as being linked to an athlete.
+  ledGroupIds: string[];
+}
+
+/** A coach sees every group; a captain (GroupLeader) sees only their own. */
+export function canViewGroupCoverage(actor: Actor, groupId: string): boolean {
+  if (actor.isCoach) return true;
+  return actor.ledGroupIds.includes(groupId);
 }
 
 export function tagSourceFor(actor: Actor): TagSource {

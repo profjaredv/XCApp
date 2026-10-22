@@ -23,6 +23,7 @@ function initialState(): WorkspaceState {
     bootstrapError: null,
 
     athletes: [],
+    groups: [],
     meets: [],
     photos: [],
     tags: {},
@@ -40,6 +41,7 @@ function initialState(): WorkspaceState {
 
     tagFilter: 'all',
     meetFilter: null,
+    groupFilter: null,
     searchQuery: '',
     timeWindow: null,
 
@@ -116,7 +118,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     let cancelled = false;
     (async () => {
       try {
-        const [meResult, roster, meets, photosResult, picks] = await Promise.all([
+        const [meResult, rosterResult, meets, photosResult, picks] = await Promise.all([
           photosService.me(),
           photosService.roster(),
           photosService.meets(),
@@ -134,7 +136,15 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         ]);
         if (cancelled) return;
         setMe(meResult);
-        dispatch({ type: 'BOOTSTRAPPED', athletes: roster, meets, photos: photosResult.photos, tags: photosResult.tags, picks });
+        dispatch({
+          type: 'BOOTSTRAPPED',
+          athletes: rosterResult.athletes,
+          groups: rosterResult.groups,
+          meets,
+          photos: photosResult.photos,
+          tags: photosResult.tags,
+          picks,
+        });
       } catch (error) {
         if (cancelled) return;
         console.error('Failed to load LeadPack Photos:', error);
@@ -150,13 +160,19 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
 
   const actor: Actor = useMemo(() => {
     if (import.meta.env.DEV && devPreviewRole === 'family') {
-      return { userId: 'dev-family', isCoach: false, role: 'guardian', linkedAthleteIds: devFamilyAthleteIds };
+      return { userId: 'dev-family', isCoach: false, role: 'guardian', linkedAthleteIds: devFamilyAthleteIds, ledGroupIds: [] };
     }
-    if (!me) return { userId: '', isCoach: false, role: 'guardian', linkedAthleteIds: [] };
-    if (me.isVolunteer) return { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [] };
-    if (me.isCoach) return { userId: me.userId, isCoach: true, role: 'coach', linkedAthleteIds: [] };
+    if (!me) return { userId: '', isCoach: false, role: 'guardian', linkedAthleteIds: [], ledGroupIds: [] };
+    if (me.isVolunteer) return { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [], ledGroupIds: [] };
+    if (me.isCoach) return { userId: me.userId, isCoach: true, role: 'coach', linkedAthleteIds: [], ledGroupIds: [] };
     const linkedAthleteIds = [me.selfAthleteId, ...me.guardianAthleteIds].filter((id): id is string => Boolean(id));
-    return { userId: me.userId, isCoach: false, role: me.selfAthleteId ? 'athlete' : 'guardian', linkedAthleteIds };
+    return {
+      userId: me.userId,
+      isCoach: false,
+      role: me.selfAthleteId ? 'athlete' : 'guardian',
+      linkedAthleteIds,
+      ledGroupIds: me.ledGroupIds,
+    };
   }, [me, devPreviewRole, devFamilyAthleteIds]);
 
   const setGridOrder = useCallback((order: GridOrder) => {
@@ -185,6 +201,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   const setThumbSize = useCallback((size: number) => dispatch({ type: 'SET_THUMB_SIZE', size }), []);
   const setTagFilter = useCallback((filter: TagFilter) => dispatch({ type: 'SET_TAG_FILTER', filter }), []);
   const setMeetFilter = useCallback((meetId: string | null) => dispatch({ type: 'SET_MEET_FILTER', meetId }), []);
+  const setGroupFilter = useCallback((groupId: string | null) => dispatch({ type: 'SET_GROUP_FILTER', groupId }), []);
   const setSearch = useCallback((query: string) => dispatch({ type: 'SET_SEARCH', query }), []);
   const setTimeWindow = useCallback(
     (range: { start: string; end: string } | null) => dispatch({ type: 'SET_TIME_WINDOW', range }),
@@ -445,6 +462,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     setThumbSize,
     setTagFilter,
     setMeetFilter,
+    setGroupFilter,
     setSearch,
     setTimeWindow,
     tagPhoto,
