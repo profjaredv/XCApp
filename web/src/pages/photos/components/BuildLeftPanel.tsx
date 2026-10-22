@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search } from 'lucide-react';
+import { Layers, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { filterByGroup, searchAthletes } from '../lib/selectors';
@@ -9,6 +9,14 @@ import type { Athlete, AthletePicks } from '../state/types';
 interface BuildLeftPanelProps {
   athletes: Athlete[];
   picks: AthletePicks;
+  // "Generate all" (build spec: Admin extras / Collage generation) — given
+  // the roster this panel is currently showing (post group-filter), the
+  // caller (BuildModule.tsx, which owns the hidden export canvas) renders
+  // and zips one collage per eligible athlete. This panel only decides
+  // *which* athletes that means; BuildModule decides eligibility (opt-out,
+  // pick count) and does the actual rendering.
+  onGenerateAll: (candidates: Athlete[]) => void;
+  generatingAll: boolean;
 }
 
 function PickDots({ count }: { count: number }) {
@@ -21,7 +29,7 @@ function PickDots({ count }: { count: number }) {
   );
 }
 
-export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({ athletes, picks }) => {
+export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({ athletes, picks, onGenerateAll, generatingAll }) => {
   const { state, actor, setBuildAthlete, setGroupFilter } = usePhotosWorkspace();
   const [query, setQuery] = useState('');
 
@@ -54,6 +62,15 @@ export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({ athletes, picks 
   return (
     <div className="flex h-full flex-col gap-2 p-3">
       <GroupFilterSelect groups={state.groups} value={state.groupFilter} onChange={setGroupFilter} />
+      <button
+        type="button"
+        onClick={() => onGenerateAll(groupFilteredAthletes)}
+        disabled={generatingAll}
+        className="flex w-full items-center justify-center gap-1.5 rounded-md bg-ink-border/40 px-2 py-1.5 text-xs text-ink-foreground hover:bg-ink-border/60 disabled:opacity-50"
+        title={state.groupFilter ? 'Generate a collage for every eligible athlete in this group' : 'Generate a collage for every eligible athlete on the roster'}
+      >
+        <Layers className="h-3.5 w-3.5" /> {generatingAll ? 'Generating…' : 'Generate all (ZIP)'}
+      </button>
       <div className="flex items-center gap-1.5 px-1">
         <Search className="h-3.5 w-3.5 text-ink-muted" />
         <input

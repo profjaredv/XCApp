@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { filterByGroup } from './selectors';
-import type { Athlete } from '../state/types';
+import { eligibleForCollage, filterByGroup } from './selectors';
+import type { Athlete, AthletePicks } from '../state/types';
 
-function athlete(id: string, groupIds: string[]): Athlete {
-  return { id, name: id, photosOptOut: false, groupIds };
+function athlete(id: string, groupIds: string[], photosOptOut = false): Athlete {
+  return { id, name: id, photosOptOut, groupIds };
 }
 
 describe('filterByGroup', () => {
@@ -17,5 +17,24 @@ describe('filterByGroup', () => {
     const otherGroup = athlete('b', ['g2']);
     const noGroup = athlete('c', []);
     expect(filterByGroup([inGroup, otherGroup, noGroup], 'g1')).toEqual([inGroup]);
+  });
+});
+
+describe('eligibleForCollage', () => {
+  it('requires at least 3 picks', () => {
+    const picks: AthletePicks = { a: ['p1', 'p2'], b: ['p1', 'p2', 'p3'] };
+    const athletes = [athlete('a', []), athlete('b', [])];
+    expect(eligibleForCollage(athletes, picks).map((a) => a.id)).toEqual(['b']);
+  });
+
+  it('skips an opted-out athlete even with 3+ picks', () => {
+    const picks: AthletePicks = { a: ['p1', 'p2', 'p3'] };
+    const athletes = [athlete('a', [], true)];
+    expect(eligibleForCollage(athletes, picks)).toEqual([]);
+  });
+
+  it('treats a missing picks entry as zero picks, not a crash', () => {
+    const athletes = [athlete('a', [])];
+    expect(eligibleForCollage(athletes, {})).toEqual([]);
   });
 });

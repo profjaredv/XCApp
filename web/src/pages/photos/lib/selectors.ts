@@ -1,4 +1,4 @@
-import type { Athlete, Photo, PhotoAthleteTags } from '../state/types';
+import type { Athlete, AthletePicks, Photo, PhotoAthleteTags } from '../state/types';
 import type { TagFilter } from '../state/reducer';
 import { isPhotoVisible, type Actor } from './tagRules';
 
@@ -84,4 +84,16 @@ export function searchAthletes(athletes: Athlete[], query: string): Athlete[] {
 export function filterByGroup(athletes: Athlete[], groupId: string | null): Athlete[] {
   if (!groupId) return athletes;
   return athletes.filter((a) => a.groupIds.includes(groupId));
+}
+
+/**
+ * Build spec, "Collage generation": "generate all" renders a collage "for
+ * every athlete with at least three picks" — and separately, an
+ * opted-out athlete is "skipped by collage generation" outright. Used by
+ * BuildModule.tsx's handleGenerateAll; the single-athlete "Export PNG"
+ * button has no pick-count floor (a coach there already chose that one
+ * athlete deliberately) but still skips an opted-out athlete the same way.
+ */
+export function eligibleForCollage(athletes: Athlete[], picks: AthletePicks): Athlete[] {
+  return athletes.filter((a) => !a.photosOptOut && (picks[a.id]?.length ?? 0) >= 3);
 }
