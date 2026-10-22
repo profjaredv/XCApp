@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import JSZip from 'jszip';
 import { toast } from 'sonner';
 import { ModuleShell } from '../components/ModuleShell';
 import { BuildLeftPanel } from '../components/BuildLeftPanel';
@@ -6,11 +7,11 @@ import { BuildRightPanel } from '../components/BuildRightPanel';
 import { CollagePreview } from '../components/CollagePreview';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { renderCollage, type FocalPoint } from '../lib/collageRender';
-import { athletesById as buildAthletesById } from '../lib/selectors';
+import { athletesById as buildAthletesById, eligibleForCollage } from '../lib/selectors';
 import { isPhotoVisible } from '../lib/tagRules';
 import { useExportPalette } from '../../../hooks/useTeamColors';
 import { photosService } from '../../../api/photosService';
-import type { AthleteBuildStats } from '../state/types';
+import type { Athlete, AthleteBuildStats } from '../state/types';
 
 const EXPORT_W = 2550;
 const EXPORT_H = 3300;
@@ -21,6 +22,7 @@ export const BuildModule: React.FC = () => {
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
   const [stats, setStats] = useState<AthleteBuildStats | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [generatingAll, setGeneratingAll] = useState(false);
 
   // The real team's name once a coach hasn't typed a custom one in —
   // same "blank means use the sensible default" pattern as the athlete
@@ -98,6 +100,81 @@ export const BuildModule: React.FC = () => {
     setPhotoFocal(photoId, athlete.id, focal.x, focal.y);
   }
 
+  function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+    return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  }
+
+  // "Generate all" (build spec, Collage generation: "renders a collage for
+  // every athlete with at least three picks, one at a time in a queue").
+  // Reuses the exact same renderCollage() the single "Export PNG" button
+  // calls, on the same hidden canvas, one athlete at a time — there's no
+  // separate server render path (see collageRender.ts's own header
+  // comment on why that's fine: it's instant and free either way). Each
+  // athlete's own name/stats/focal points are used, never the manual
+  // header overrides, which only ever make sense for the one athlete
+  // currently open in the right panel.
+  async function handleGenerateAll(candidates: Athlete[]) {
+    const canvas = exportCanvasRef.current;
+    if (!canvas) return;
+    const eligible = eligibleForCollage(candidates, state.picks);
+    if (eligible.length === 0) {
+      toast.error('No athletes with at least 3 picks (and not opted out) in this selection.');
+      return;
+    }
+
+    setGeneratingAll(true);
+    const zip = new JSZip();
+    let failed = 0;
+    try {
+      for (const candidate of eligible) {
+        try {
+          const candidatePicks = (state.picks[candidate.id] ?? []).filter((id) => visiblePhotosById.has(id));
+          const candidateFocalPoints: (FocalPoint | undefined)[] = candidatePicks.map((photoId) => {
+            const tag = state.tags[photoId]?.find((t) => t.athleteId === candidate.id);
+            return tag?.focalX != null && tag?.focalY != null ? { x: tag.focalX, y: tag.focalY } : undefined;
+          });
+          const candidateStats = await photosService.getAthleteBuildStats(candidate.id);
+          await renderCollage(
+            canvas,
+            EXPORT_W,
+            EXPORT_H,
+            state.buildTemplateSize,
+            candidatePicks.map((id) => visiblePhotosById.get(id)?.webUrl ?? ''),
+            { name: candidate.preferredName || candidate.name, team: teamLabel, season: state.buildHeader.season },
+            true,
+            candidateStats,
+            candidateFocalPoints,
+            palette?.paperAccent,
+          );
+          const blob = await canvasToPngBlob(canvas);
+          if (!blob) throw new Error('canvas.toBlob returned null');
+          zip.file(`leadpack-photos-collage-${candidate.id}.png`, blob);
+        } catch (error) {
+          console.error(`Collage generation failed for one athlete in the batch:`, error);
+          failed += 1;
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `leadpack-photos-collages-${state.buildTemplateSize}up.zip`;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      const succeeded = eligible.length - failed;
+      toast.success(`Generated ${succeeded} collage${succeeded === 1 ? '' : 's'}`, {
+        description: failed > 0 ? `${failed} failed — try ${failed === 1 ? 'it' : 'those'} individually.` : undefined,
+      });
+    } catch (error) {
+      console.error('Batch collage generation failed:', error);
+      toast.error("Couldn't generate the collages.", { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setGeneratingAll(false);
+    }
+  }
+
   async function handleExport() {
     // The spec's opt-out rule: an opted-out athlete is "skipped by collage
     // generation" outright, not just hidden from grids.
@@ -141,7 +218,14 @@ export const BuildModule: React.FC = () => {
     <ModuleShell
       leftLabel="Athletes"
       rightLabel="Build"
-      leftPanel={<BuildLeftPanel athletes={state.athletes} picks={state.picks} />}
+      leftPanel={
+        <BuildLeftPanel
+          athletes={state.athletes}
+          picks={state.picks}
+          onGenerateAll={handleGenerateAll}
+          generatingAll={generatingAll}
+        />
+      }
       rightPanel={
         <BuildRightPanel
           athlete={athlete}
