@@ -6,6 +6,7 @@ import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { coverage, filterByGroup, searchAthletes, tagCountForAthlete } from '../lib/selectors';
 import { TimeWindowJump } from './TimeWindowJump';
 import { GroupFilterSelect } from './GroupFilterSelect';
+import { AthleteFilterSelect } from './AthleteFilterSelect';
 import { photosService } from '../../../api/photosService';
 import type { Athlete, Meet, Photo, PhotoAthleteTags } from '../state/types';
 import type { TagFilter } from '../state/reducer';
@@ -24,7 +25,8 @@ function meetCounts(meetId: string, photos: Photo[], tags: PhotoAthleteTags) {
 }
 
 export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags, athletes }) => {
-  const { state, actor, setMeetFilter, setTagFilter, setGroupFilter, setSearch, armAthlete } = usePhotosWorkspace();
+  const { state, actor, setMeetFilter, setTagFilter, setGroupFilter, setAthleteFilter, setSearch, armAthlete } =
+    usePhotosWorkspace();
   const [query, setQuery] = useState('');
   const [coverageOpen, setCoverageOpen] = useState(false);
   const [downloadingGroup, setDownloadingGroup] = useState(false);
@@ -205,6 +207,11 @@ export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags,
             <Download className="h-3.5 w-3.5" /> {downloadingGroup ? 'Downloading…' : "Download this group's photos (ZIP)"}
           </button>
         )}
+      </div>
+
+      <div>
+        <div className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">Filter by athlete</div>
+        <AthleteFilterSelect athletes={groupFilteredAthletes} value={state.athleteFilter} onChange={setAthleteFilter} />
       </div>
 
       <div>

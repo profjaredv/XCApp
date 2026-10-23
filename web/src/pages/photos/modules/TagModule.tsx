@@ -23,6 +23,8 @@ export const TagModule: React.FC = () => {
     armedAthleteId: state.armedAthleteId,
     timeWindow: state.timeWindow,
     batchFilterPhotoIds: state.batchFilterPhotoIds,
+    groupFilter: state.groupFilter,
+    athleteFilter: state.athleteFilter,
   });
 
   const selectedPhotoId = state.selectedPhotoIds[state.selectedPhotoIds.length - 1] ?? null;

@@ -42,6 +42,7 @@ function initialState(): WorkspaceState {
     tagFilter: 'all',
     meetFilter: null,
     groupFilter: null,
+    athleteFilter: null,
     searchQuery: '',
     timeWindow: null,
 
@@ -202,6 +203,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   const setTagFilter = useCallback((filter: TagFilter) => dispatch({ type: 'SET_TAG_FILTER', filter }), []);
   const setMeetFilter = useCallback((meetId: string | null) => dispatch({ type: 'SET_MEET_FILTER', meetId }), []);
   const setGroupFilter = useCallback((groupId: string | null) => dispatch({ type: 'SET_GROUP_FILTER', groupId }), []);
+  const setAthleteFilter = useCallback((athleteId: string | null) => dispatch({ type: 'SET_ATHLETE_FILTER', athleteId }), []);
   const setSearch = useCallback((query: string) => dispatch({ type: 'SET_SEARCH', query }), []);
   const setTimeWindow = useCallback(
     (range: { start: string; end: string } | null) => dispatch({ type: 'SET_TIME_WINDOW', range }),
@@ -463,6 +465,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     setTagFilter,
     setMeetFilter,
     setGroupFilter,
+    setAthleteFilter,
     setSearch,
     setTimeWindow,
     tagPhoto,

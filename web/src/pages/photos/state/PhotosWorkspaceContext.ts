@@ -28,6 +28,7 @@ export interface PhotosWorkspaceValue {
   setTagFilter: (filter: TagFilter) => void;
   setMeetFilter: (meetId: string | null) => void;
   setGroupFilter: (groupId: string | null) => void;
+  setAthleteFilter: (athleteId: string | null) => void;
   setSearch: (query: string) => void;
   setTimeWindow: (range: { start: string; end: string } | null) => void;
 
