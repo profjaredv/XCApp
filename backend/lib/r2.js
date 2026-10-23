@@ -33,6 +33,17 @@ function getClient() {
       accessKeyId: requireEnv('R2_ACCESS_KEY_ID'),
       secretAccessKey: requireEnv('R2_SECRET_ACCESS_KEY'),
     },
+    // Without this, the AWS SDK v3's default addressing style signs
+    // presigned URLs as https://{bucket}.{accountId}.r2.cloudflarestorage.com/{key}
+    // (virtual-hosted-style). R2 does not reliably apply a bucket's CORS
+    // policy to that form — the bucket's CORS rule (Cloudflare dashboard)
+    // only takes effect for the path-style form,
+    // https://{accountId}.r2.cloudflarestorage.com/{bucket}/{key}, which
+    // this forces. Symptom without it: the browser console shows "No
+    // Access-Control-Allow-Origin header is present" for every presigned
+    // GET even with a correct, saved CORS policy — the request never
+    // reached the code path that applies it.
+    forcePathStyle: true,
   });
   return client;
 }
