@@ -7,11 +7,13 @@ import { BuildRightPanel } from '../components/BuildRightPanel';
 import { CollagePreview } from '../components/CollagePreview';
 import { BuildPaceChart } from '../components/BuildPaceChart';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
-import { renderCollage, type FocalPoint } from '../lib/collageRender';
+import { renderCollage, renderCollageBack, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
+import { buildTwoPagePdf } from '../lib/pdfExport';
 import { athletesById as buildAthletesById, eligibleForCollage } from '../lib/selectors';
 import { isPhotoVisible } from '../lib/tagRules';
 import { useExportPalette } from '../../../hooks/useTeamColors';
 import { photosService } from '../../../api/photosService';
+import { cn } from '@/lib/utils';
 import type { Athlete, AthleteBuildStats } from '../state/types';
 
 const EXPORT_W = 2550;
@@ -24,6 +26,9 @@ export const BuildModule: React.FC = () => {
   const [stats, setStats] = useState<AthleteBuildStats | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [generatingAll, setGeneratingAll] = useState(false);
+  // Which page of the two-sided PDF the preview canvas currently shows —
+  // the export itself always produces both pages regardless of this.
+  const [previewSide, setPreviewSide] = useState<'front' | 'back'>('front');
 
   // The real team's name once a coach hasn't typed a custom one in —
   // same "blank means use the sensible default" pattern as the athlete
@@ -101,10 +106,6 @@ export const BuildModule: React.FC = () => {
     setPhotoFocal(photoId, athlete.id, focal.x, focal.y);
   }
 
-  function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
-    return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-  }
-
   // The export canvas loads photos same-origin (photosService.getPhotoWebBlobUrl)
   // rather than straight from R2, so it never depends on CORS surviving the
   // user's own network — see that function's own comment for why. One
@@ -150,21 +151,28 @@ export const BuildModule: React.FC = () => {
             loadExportableUrls(candidatePicks),
           ]);
           exportable = candidateExportable;
+          const candidateHeader: CollageHeaderText = {
+            name: candidate.preferredName || candidate.name,
+            team: teamLabel,
+            season: state.buildHeader.season,
+          };
           await renderCollage(
             canvas,
             EXPORT_W,
             EXPORT_H,
             state.buildTemplateSize,
             exportable.urls,
-            { name: candidate.preferredName || candidate.name, team: teamLabel, season: state.buildHeader.season },
+            candidateHeader,
             true,
             candidateStats,
             candidateFocalPoints,
             palette?.paperAccent,
           );
-          const blob = await canvasToPngBlob(canvas);
-          if (!blob) throw new Error('canvas.toBlob returned null');
-          zip.file(`leadpack-photos-collage-${candidate.id}.png`, blob);
+          const frontDataUrl = canvas.toDataURL('image/png');
+          renderCollageBack(canvas, EXPORT_W, EXPORT_H, candidateHeader, candidateStats, palette?.paperAccent);
+          const backDataUrl = canvas.toDataURL('image/png');
+          const pdfBlob = buildTwoPagePdf(frontDataUrl, backDataUrl).output('blob');
+          zip.file(`leadpack-photos-collage-${candidate.id}.pdf`, pdfBlob);
         } catch (error) {
           console.error(`Collage generation failed for one athlete in the batch:`, error);
           failed += 1;
@@ -202,30 +210,30 @@ export const BuildModule: React.FC = () => {
     let exportable: { urls: string[]; revoke: () => void } | null = null;
     try {
       exportable = await loadExportableUrls(picks);
+      const header: CollageHeaderText = {
+        name: state.buildHeader.name || athlete.preferredName || athlete.name,
+        team: teamLabel,
+        season: state.buildHeader.season,
+      };
       await renderCollage(
         canvas,
         EXPORT_W,
         EXPORT_H,
         state.buildTemplateSize,
         exportable.urls,
-        {
-          name: state.buildHeader.name || athlete.preferredName || athlete.name,
-          team: teamLabel,
-          season: state.buildHeader.season,
-        },
+        header,
         true, // requireExportableCanvas — this is the canvas toDataURL() reads below
         stats,
         focalPoints,
         palette?.paperAccent,
       );
-      const url = canvas.toDataURL('image/png');
-      const link = document.createElement('a');
-      link.href = url;
+      const frontDataUrl = canvas.toDataURL('image/png');
+      renderCollageBack(canvas, EXPORT_W, EXPORT_H, header, stats, palette?.paperAccent);
+      const backDataUrl = canvas.toDataURL('image/png');
       // Opaque id only — the spec's privacy rule bars an athlete's name
       // from ever appearing in a key, URL, or download filename.
-      link.download = `leadpack-photos-collage-${athlete.id}.png`;
-      link.click();
-      toast.success('Collage exported', { description: `${EXPORT_W}×${EXPORT_H}px, ready to print at letter size.` });
+      buildTwoPagePdf(frontDataUrl, backDataUrl).save(`leadpack-photos-collage-${athlete.id}.pdf`);
+      toast.success('Collage exported', { description: 'Two-page PDF, ready to print double-sided at letter size.' });
     } catch (error) {
       console.error('Collage export failed:', error);
       toast.error("Couldn't export that collage.", {
@@ -263,6 +271,21 @@ export const BuildModule: React.FC = () => {
       center={
         athlete ? (
           <div className="flex h-full flex-col items-center gap-3 overflow-y-auto bg-ink/40 p-6">
+            <div className="flex gap-1.5">
+              {(['front', 'back'] as const).map((side) => (
+                <button
+                  key={side}
+                  type="button"
+                  onClick={() => setPreviewSide(side)}
+                  className={cn(
+                    'rounded-md px-3 py-1 text-xs capitalize',
+                    previewSide === side ? 'bg-accent text-accent-foreground' : 'bg-ink-border/40 hover:bg-ink-border/60',
+                  )}
+                >
+                  {side === 'front' ? 'Front · Photos' : 'Back · Stats'}
+                </button>
+              ))}
+            </div>
             <CollagePreview
               templateSize={state.buildTemplateSize}
               photos={pickedPhotos}
@@ -274,8 +297,11 @@ export const BuildModule: React.FC = () => {
               stats={stats}
               focalPoints={focalPoints}
               onFocalChange={handleFocalChange}
+              side={previewSide}
             />
-            {picks.length > 0 && <p className="text-xs text-ink-muted">Drag a photo to reposition it within its frame.</p>}
+            {previewSide === 'front' && picks.length > 0 && (
+              <p className="text-xs text-ink-muted">Drag a photo to reposition it within its frame.</p>
+            )}
             <BuildPaceChart stats={stats} />
           </div>
         ) : (

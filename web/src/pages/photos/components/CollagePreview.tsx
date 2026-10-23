@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useExportPalette } from '../../../hooks/useTeamColors';
-import { renderCollage, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
+import { renderCollage, renderCollageBack, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
 import { templateFor } from '../lib/templates';
 import { hitTestSlot, nextFocalPoint } from '../lib/focalDrag';
 import type { AthleteBuildStats, Photo, TemplateSize } from '../state/types';
@@ -22,6 +22,12 @@ interface CollagePreviewProps {
   // through the parent's state.
   onFocalChange?: (index: number, focal: FocalPoint) => void;
   scale?: number;
+  // Which side of the printed sheet this canvas currently shows — see
+  // modules/BuildModule.tsx's Front/Back toggle. 'front' (the default) is
+  // the existing photo page; 'back' is the new stats-only page
+  // (renderCollageBack), which has no photo slots so focal-point dragging
+  // is disabled for it below.
+  side?: 'front' | 'back';
 }
 
 // US letter at 300dpi is 2550x3300 — the preview renders at 1/3 that
@@ -41,7 +47,7 @@ interface DragState {
 }
 
 export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreviewProps>(
-  ({ templateSize, photos, header, stats = null, focalPoints = [], onFocalChange }, ref) => {
+  ({ templateSize, photos, header, stats = null, focalPoints = [], onFocalChange, side = 'front' }, ref) => {
     const palette = useExportPalette();
     const innerRef = useRef<HTMLCanvasElement>(null);
     const canvasRef = (ref as React.RefObject<HTMLCanvasElement>) ?? innerRef;
@@ -58,6 +64,12 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
     useEffect(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
+      if (side === 'back') {
+        // Synchronous and image-free (pure stats drawing) — no .catch
+        // needed, unlike the front page's photo loading below.
+        renderCollageBack(canvas, PAGE_W, PAGE_H, header, stats, palette?.paperAccent);
+        return;
+      }
       const urls = photos.map((p) => p?.webUrl ?? '');
       // Preview only — never the export canvas, so this doesn't need (and
       // must not request) crossOrigin-loaded images; see collageRender.ts's
@@ -70,7 +82,7 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       // folds in the live drag override), so it's compared by its actual
       // entries here rather than by reference.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canvasRef, templateSize, photos, header, stats, palette?.paperAccent, JSON.stringify(effectiveFocalPoints)]);
+    }, [canvasRef, side, templateSize, photos, header, stats, palette?.paperAccent, JSON.stringify(effectiveFocalPoints)]);
 
     function canvasPoint(e: React.PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
       const rect = e.currentTarget.getBoundingClientRect();
@@ -81,6 +93,8 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
     }
 
     function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+      // The back page has no photo slots to drag — nothing to hit-test.
+      if (side === 'back') return;
       const point = canvasPoint(e);
       const hit = hitTestSlot(
         templateFor(templateSize),
@@ -141,7 +155,9 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        className="h-auto max-h-full w-auto cursor-grab touch-none rounded-sm shadow-2xl active:cursor-grabbing"
+        className={`h-auto max-h-full w-auto touch-none rounded-sm shadow-2xl ${
+          side === 'front' ? 'cursor-grab active:cursor-grabbing' : ''
+        }`}
         style={{ aspectRatio: `${PAGE_W} / ${PAGE_H}` }}
       />
     );
