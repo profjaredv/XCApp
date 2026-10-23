@@ -151,7 +151,12 @@ function drawResultsBlock(ctx: CanvasRenderingContext2D, rect: { x: number; y: n
   const width = rect.w * pageW;
   const labelSize = Math.round(pageH * 0.0125);
   const rowSize = Math.round(pageH * 0.0125);
-  let cursorY = top;
+  // The photo band above runs full-bleed right up to this rect's own top
+  // edge (templates.ts's own comment: "no gap on either side") — without
+  // this, "SEASON BEST BY DISTANCE" started drawing exactly on that same
+  // line, reading as text crammed against the bottom photo's edge instead
+  // of its own block.
+  let cursorY = top + rowSize * 1.2;
 
   ctx.textBaseline = 'top';
 

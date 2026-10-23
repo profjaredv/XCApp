@@ -17,12 +17,30 @@ export interface VisiblePhotosArgs {
   timeWindow: { start: string; end: string } | null;
   /** "Tag these now" — scope to one just-finished upload batch. */
   batchFilterPhotoIds?: string[] | null;
+  // The Tag left panel's "Group"/"Filter by athlete" selectors — both null
+  // means no narrowing. Independent of armedAthleteId/tagFilter's 'mine'
+  // (arming is about who tagging applies TO; these are purely about what
+  // the grid shows), so a coach can browse one athlete's or one group's
+  // photos without changing who the next tag action targets.
+  groupFilter?: string | null;
+  athleteFilter?: string | null;
 }
 
 /** The single pipeline every grid (Tag's grid, Build's "tagged photos" list) filters through. */
 export function visiblePhotos(args: VisiblePhotosArgs): Photo[] {
-  const { photos, tags, athletesByIdMap, actor, meetFilter, tagFilter, armedAthleteId, timeWindow, batchFilterPhotoIds } =
-    args;
+  const {
+    photos,
+    tags,
+    athletesByIdMap,
+    actor,
+    meetFilter,
+    tagFilter,
+    armedAthleteId,
+    timeWindow,
+    batchFilterPhotoIds,
+    groupFilter,
+    athleteFilter,
+  } = args;
   const batchSet = batchFilterPhotoIds ? new Set(batchFilterPhotoIds) : null;
 
   return photos
@@ -41,6 +59,18 @@ export function visiblePhotos(args: VisiblePhotosArgs): Photo[] {
       const t = new Date(p.takenAt).getTime();
       return t >= new Date(timeWindow.start).getTime() && t <= new Date(timeWindow.end).getTime();
     })
+    .filter((p) => {
+      if (!groupFilter) return true;
+      const entries = tags[p.id] ?? [];
+      // An untagged photo belongs to no group yet — same "visible so it
+      // can be claimed" reasoning as isPhotoVisible's own untagged rule,
+      // not something a group filter should hide outright (that would
+      // make it impossible to find and tag a new photo of this group
+      // from inside the filtered view).
+      if (entries.length === 0) return true;
+      return entries.some((t) => athletesByIdMap.get(t.athleteId)?.groupIds.includes(groupFilter));
+    })
+    .filter((p) => !athleteFilter || (tags[p.id] ?? []).some((t) => t.athleteId === athleteFilter))
     .sort((a, b) => new Date(a.takenAt).getTime() - new Date(b.takenAt).getTime());
 }
 

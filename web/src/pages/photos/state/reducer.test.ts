@@ -27,6 +27,7 @@ function baseState(loadBatches: LoadBatch[]): WorkspaceState {
     tagFilter: 'all',
     meetFilter: null,
     groupFilter: null,
+    athleteFilter: null,
     searchQuery: '',
     timeWindow: null,
     buildAthleteId: null,

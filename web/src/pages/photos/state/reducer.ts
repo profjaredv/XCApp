@@ -54,6 +54,13 @@ export interface WorkspaceState {
   // ledGroupIds) doesn't use this at all, it's always scoped to their own
   // led group(s) regardless.
   groupFilter: string | null;
+  // The Tag left panel's "Filter by athlete" selector — narrows the grid
+  // (lib/selectors.ts's visiblePhotos) to photos tagged with exactly this
+  // athlete. Independent of armedAthleteId: arming decides who the next
+  // tag/untag applies to, this decides what the grid shows, and a coach
+  // routinely wants those to differ (e.g. browsing one athlete's photos
+  // while tagging a teammate who was just added mid-browse).
+  athleteFilter: string | null;
   searchQuery: string;
   timeWindow: { start: string; end: string } | null;
 
@@ -103,6 +110,7 @@ export type Action =
   | { type: 'SET_TAG_FILTER'; filter: TagFilter }
   | { type: 'SET_MEET_FILTER'; meetId: string | null }
   | { type: 'SET_GROUP_FILTER'; groupId: string | null }
+  | { type: 'SET_ATHLETE_FILTER'; athleteId: string | null }
   | { type: 'SET_SEARCH'; query: string }
   | { type: 'SET_TIME_WINDOW'; range: { start: string; end: string } | null }
   | { type: 'SET_BATCH_FILTER'; photoIds: string[] | null; meetId: string }
@@ -233,6 +241,8 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
       return { ...state, meetFilter: action.meetId, timeWindow: null, batchFilterPhotoIds: null };
     case 'SET_GROUP_FILTER':
       return { ...state, groupFilter: action.groupId };
+    case 'SET_ATHLETE_FILTER':
+      return { ...state, athleteFilter: action.athleteId };
     case 'SET_SEARCH':
       return { ...state, searchQuery: action.query, batchFilterPhotoIds: null };
     case 'SET_TIME_WINDOW':
