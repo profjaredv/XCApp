@@ -49,9 +49,15 @@ test('getAthleteBuildStats 404s an athlete from another team', async (t) => {
   await assert.rejects(() => getAthleteBuildStats(prisma, 'team-1', 'athlete-of-another-team', COACH), /Athlete not found/);
 });
 
-test('getAthleteBuildStats assembles name, career PR, season totals, best-by-distance and the race list', async (t) => {
+test('getAthleteBuildStats assembles name, grade, career PR, season totals, best-by-distance, and both the season and career race lists', async (t) => {
   const restoreSeason = withActiveSeason(2026);
-  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alexandra Smith', preferredName: 'Alex' }));
+  // graduationYear 2028 in season 2026 (deriveGrade: 12 - (2028 - 2026 - 1)) = grade 11 (junior).
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({
+    id: 'athlete-1',
+    name: 'Alexandra Smith',
+    preferredName: 'Alex',
+    graduationYear: 2028,
+  }));
   const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', (args) => {
     assert.deepEqual(args.where.athleteId_teamId_season, { athleteId: 'athlete-1', teamId: 'team-1', season: 2026 });
     return { totalMiles: 142.3, averagePace: 444, totalRaces: 9, bestTime5k: 1052 };
@@ -60,12 +66,24 @@ test('getAthleteBuildStats assembles name, career PR, season totals, best-by-dis
     assert.deepEqual(args.where, { teamId: 'team-1', athleteId: 'athlete-1' });
     return { _min: { bestTime5k: 1030 } }; // career PR, faster (lower) than this season's own best
   });
+  // Two prisma.result.findMany calls happen (season-scoped, then
+  // career-wide) — distinguished by whether `where.race.season` is set,
+  // since this codebase's stub() replaces the method for every call in
+  // the test, not just one.
   const restoreResults = stub('result', 'findMany', (args) => {
     assert.equal(args.where.athleteId, 'athlete-1');
-    assert.equal(args.where.race.season, 2026);
+    if (args.where.race?.season) {
+      assert.equal(args.where.race.season, 2026);
+      return [
+        { time: 1052, race: { id: 'race-1', name: 'EHS Invitational', date: new Date('2026-09-05'), distanceMeters: 5000, distance: '5K' } },
+        { time: 665, race: { id: 'race-2', name: 'Relay Classic', date: new Date('2026-09-12'), distanceMeters: 3200, distance: '2 Mile' } },
+      ];
+    }
+    assert.equal('race' in args.where, false, 'the career query must not filter by race at all');
     return [
-      { time: 1052, race: { id: 'race-1', name: 'EHS Invitational', date: new Date('2026-09-05'), distanceMeters: 5000, distance: '5K' } },
-      { time: 665, race: { id: 'race-2', name: 'Relay Classic', date: new Date('2026-09-12'), distanceMeters: 3200, distance: '2 Mile' } },
+      { time: 1180, race: { id: 'race-0', name: 'Freshman Opener', date: new Date('2024-09-03'), distanceMeters: 5000, distance: '5K', season: 2024 } },
+      { time: 1052, race: { id: 'race-1', name: 'EHS Invitational', date: new Date('2026-09-05'), distanceMeters: 5000, distance: '5K', season: 2026 } },
+      { time: 665, race: { id: 'race-2', name: 'Relay Classic', date: new Date('2026-09-12'), distanceMeters: 3200, distance: '2 Mile', season: 2026 } },
     ];
   });
   t.after(() => {
@@ -80,6 +98,7 @@ test('getAthleteBuildStats assembles name, career PR, season totals, best-by-dis
 
   assert.equal(stats.name, 'Alex');
   assert.equal(stats.season, 2026);
+  assert.equal(stats.grade, 11);
   assert.equal(stats.careerBest5kSec, 1030);
   assert.equal(stats.totalMiles, 142.3);
   assert.equal(stats.averagePaceSecPerMile, 444);
@@ -90,6 +109,32 @@ test('getAthleteBuildStats assembles name, career PR, season totals, best-by-dis
   assert.equal(stats.bestByDistance.length, 2);
   assert.ok(stats.bestByDistance.some((d) => d.distanceMeters === 5000 && d.timeSec === 1052));
   assert.ok(stats.bestByDistance.some((d) => d.distanceMeters === 3200 && d.timeSec === 665));
+  assert.equal(stats.careerRaces.length, 3);
+  assert.equal(stats.careerRaces[0].raceName, 'Freshman Opener');
+  assert.equal(stats.careerRaces[0].season, 2024);
+});
+
+test('getAthleteBuildStats grade is null when graduationYear is unknown, not a guess', async (t) => {
+  const restoreSeason = withActiveSeason(2026);
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({
+    id: 'athlete-1',
+    name: 'Alex',
+    preferredName: null,
+    graduationYear: null,
+  }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', () => []);
+  t.after(() => {
+    restoreSeason();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+  assert.equal(stats.grade, null);
 });
 
 test('getAthleteBuildStats falls back to counting this season\'s results when there is no AthleteSeasonMetrics row yet', async (t) => {
