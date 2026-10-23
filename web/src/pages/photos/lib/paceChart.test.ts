@@ -22,6 +22,7 @@ function stats(overrides: Partial<AthleteBuildStats> = {}): AthleteBuildStats {
     bestByDistance: [],
     races: [seasonRace()],
     careerRaces: [careerRace()],
+    coaches: [],
     ...overrides,
   };
 }

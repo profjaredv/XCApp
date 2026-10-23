@@ -1,5 +1,5 @@
 import React from 'react';
-import { ImagePlus, Tags, LayoutTemplate } from 'lucide-react';
+import { ImagePlus, Tags, LayoutTemplate, GalleryHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { canReachModule } from '../lib/tagRules';
@@ -9,6 +9,7 @@ const TABS: { key: Module; label: string; icon: typeof Tags }[] = [
   { key: 'load', label: 'Load', icon: ImagePlus },
   { key: 'tag', label: 'Tag', icon: Tags },
   { key: 'build', label: 'Build', icon: LayoutTemplate },
+  { key: 'slideshow', label: 'Slideshow', icon: GalleryHorizontal },
 ];
 
 export const MobileTabBar: React.FC = () => {

@@ -220,6 +220,33 @@ router.get('/me', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosF
   });
 });
 
+// GET/PUT /api/photos/group-photo — the one photo shared across every
+// athlete's collage back page and the Slideshow collection's template
+// (lib/photosAccess.js's setGroupPhoto). Read is open to anyone
+// resolvePhotosTeam lets through, same as the rest of Build; only a
+// coach can set it. Body/response shape: { photoId: string | null }.
+router.get('/group-photo', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { groupPhotoId: true } });
+    res.json({ photoId: team?.groupPhotoId ?? null });
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/group-photo:');
+  }
+});
+
+router.put('/group-photo', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  const { photoId } = req.body || {};
+  if (photoId !== null && typeof photoId !== 'string') {
+    return res.status(400).json({ msg: 'photoId (or null to clear it) is required.' });
+  }
+  try {
+    const team = await photosAccess.setGroupPhoto(prisma, req.photosTeamId, photoId, req.photoActor);
+    res.json({ photoId: team.groupPhotoId });
+  } catch (error) {
+    sendAccessError(res, error, 'Error in PUT /photos/group-photo:');
+  }
+});
+
 // GET /api/photos/roster — the team's athletes (id, name, preferredName,
 // grade, photosOptOut), open to anyone resolvePhotosTeam lets through
 // (coach, athlete, or approved guardian). A guardian is never a TeamMember
@@ -626,6 +653,90 @@ router.put('/picks/:athleteId', authenticate, resolvePhotosTeam, requirePhotosFe
   } catch (error) {
     sendAccessError(res, error, 'Error in PUT /photos/picks/:athleteId:');
   }
+});
+
+// --- Slideshow collection ---------------------------------------------
+//
+// A coach's flat, ordered photo collection for an end-of-season
+// slideshow — browsed and curated from the Slideshow module (NOT the
+// Build module's per-athlete picks). Coach-only end to end; the actor
+// check lives in lib/photosAccess.js, same as every other write here.
+
+// GET /api/photos/slideshow — ordered photo ids (add order), for the
+// active season. The Slideshow module already has full photo metadata
+// via GET /photos, so this stays a plain id list rather than duplicating
+// thumbUrl/webUrl here.
+router.get('/slideshow', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    const items = await photosAccess.listSlideshowItems(prisma, req.photosTeamId, req.photoActor);
+    res.json(items.map((i) => i.photoId));
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/slideshow:');
+  }
+});
+
+// POST/DELETE /api/photos/slideshow/:photoId — add/remove one photo.
+// Both return the full updated ordered list, so the Slideshow module
+// never has to make a second round trip to stay in sync with the
+// server's own order.
+router.post('/slideshow/:photoId', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    await photosAccess.addSlideshowItem(prisma, req.photosTeamId, req.params.photoId, req.photoActor);
+    const items = await photosAccess.listSlideshowItems(prisma, req.photosTeamId, req.photoActor);
+    res.json(items.map((i) => i.photoId));
+  } catch (error) {
+    sendAccessError(res, error, 'Error in POST /photos/slideshow/:photoId:');
+  }
+});
+
+router.delete('/slideshow/:photoId', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    await photosAccess.removeSlideshowItem(prisma, req.photosTeamId, req.params.photoId, req.photoActor);
+    const items = await photosAccess.listSlideshowItems(prisma, req.photosTeamId, req.photoActor);
+    res.json(items.map((i) => i.photoId));
+  } catch (error) {
+    sendAccessError(res, error, 'Error in DELETE /photos/slideshow/:photoId:');
+  }
+});
+
+// GET /api/photos/slideshow/download — every READY photo in the
+// collection, zipped in add order. Filenames are zero-padded indexes
+// (not opaque photo ids like the other download routes) ON PURPOSE: a
+// slideshow tool that imports a folder typically plays files back in
+// filename order, so this is the one download where order has to survive
+// the ZIP — see lib/photosAccess.js's listSlideshowPhotosForDownload.
+router.get('/slideshow/download', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  let photos;
+  try {
+    photos = await photosAccess.listSlideshowPhotosForDownload(prisma, req.photosTeamId, req.photoActor);
+  } catch (error) {
+    return sendAccessError(res, error, 'Error in GET /photos/slideshow/download:');
+  }
+  if (photos.length === 0) {
+    return res.status(404).json({ msg: 'The slideshow collection is empty.' });
+  }
+
+  const archive = new ZipArchive({ zlib: { level: 6 } });
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename="leadpack-slideshow-photos.zip"');
+
+  archive.on('error', (err) => {
+    console.error('Slideshow download archive failed:', err.message);
+    res.destroy();
+  });
+  archive.pipe(res);
+
+  const pad = String(photos.length).length;
+  for (let i = 0; i < photos.length; i++) {
+    const photo = photos[i];
+    try {
+      const stream = await r2.getObjectStream(photo.objectKey);
+      archive.append(stream, { name: `${String(i + 1).padStart(pad, '0')}.jpg` });
+    } catch (error) {
+      console.error(`Slideshow download: skipped ${photo.id} (${error.message})`);
+    }
+  }
+  await archive.finalize();
 });
 
 // POST /api/photos/:id/hide and /unhide — coach only, reversible (spec:

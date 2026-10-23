@@ -28,6 +28,10 @@ interface CollagePreviewProps {
   // (renderCollageBack), which has no photo slots so focal-point dragging
   // is disabled for it below.
   side?: 'front' | 'back';
+  // The team's shared group photo (lib/photosAccess.js's setGroupPhoto),
+  // drawn full-bleed at the bottom of the back page — null until a coach
+  // sets one. Unused when side is 'front'.
+  groupPhotoUrl?: string | null;
 }
 
 // US letter at 300dpi is 2550x3300 — the preview renders at 1/3 that
@@ -47,7 +51,7 @@ interface DragState {
 }
 
 export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreviewProps>(
-  ({ templateSize, photos, header, stats = null, focalPoints = [], onFocalChange, side = 'front' }, ref) => {
+  ({ templateSize, photos, header, stats = null, focalPoints = [], onFocalChange, side = 'front', groupPhotoUrl = null }, ref) => {
     const palette = useExportPalette();
     const innerRef = useRef<HTMLCanvasElement>(null);
     const canvasRef = (ref as React.RefObject<HTMLCanvasElement>) ?? innerRef;
@@ -65,9 +69,12 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       const canvas = canvasRef.current;
       if (!canvas) return;
       if (side === 'back') {
-        // Synchronous and image-free (pure stats drawing) — no .catch
-        // needed, unlike the front page's photo loading below.
-        renderCollageBack(canvas, PAGE_W, PAGE_H, header, stats, palette?.paperAccent);
+        // Preview only, same as the front page's own photo loading below
+        // — a plain (non-crossOrigin) URL, so this never needs the
+        // export's same-origin blob fetch.
+        renderCollageBack(canvas, PAGE_W, PAGE_H, header, stats, groupPhotoUrl, false, palette?.paperAccent).catch((error) =>
+          console.error('Collage back page failed to render:', error),
+        );
         return;
       }
       const urls = photos.map((p) => p?.webUrl ?? '');
@@ -82,7 +89,7 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       // folds in the live drag override), so it's compared by its actual
       // entries here rather than by reference.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canvasRef, side, templateSize, photos, header, stats, palette?.paperAccent, JSON.stringify(effectiveFocalPoints)]);
+    }, [canvasRef, side, templateSize, photos, header, stats, groupPhotoUrl, palette?.paperAccent, JSON.stringify(effectiveFocalPoints)]);
 
     function canvasPoint(e: React.PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
       const rect = e.currentTarget.getBoundingClientRect();

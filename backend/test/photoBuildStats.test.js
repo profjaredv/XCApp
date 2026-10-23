@@ -19,9 +19,13 @@ function stub(model, method, impl) {
 
 function withActiveSeason(year) {
   const restores = [
-    stub('team', 'findUnique', () => ({ currentSeason: year })),
+    // Also stands in for getAthleteBuildStats' own second team.findUnique
+    // call (the coach-credit lookup) — coach: null here means an empty
+    // coaches list unless a test overrides this stub itself.
+    stub('team', 'findUnique', () => ({ currentSeason: year, coach: null })),
     stub('season', 'findFirst', () => ({ id: 'season-1', year })),
     stub('race', 'findMany', () => []),
+    stub('teamMember', 'findMany', () => []),
   ];
   return () => restores.forEach((r) => r());
 }
@@ -176,4 +180,37 @@ test('a family account reaches its own linked athlete\'s stats', async (t) => {
 
   const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', OWN_GUARDIAN);
   assert.equal(stats.name, 'Alex');
+});
+
+test('getAthleteBuildStats includes the team\'s coach list (owner + assistants) for the back page\'s small-print credit', async (t) => {
+  // Overrides withActiveSeason's own team.findUnique/teamMember.findMany
+  // stubs with ones that actually carry coach data, same "stub the thing
+  // this one test cares about" pattern as the metrics/aggregate overrides
+  // in the 'assembles' test above.
+  const restoreTeam = stub('team', 'findUnique', () => ({
+    currentSeason: 2026,
+    coach: { id: 'coach-1', name: 'Pat Owner', email: 'pat@x.com' },
+  }));
+  const restoreSeasonRow = stub('season', 'findFirst', () => ({ id: 'season-1', year: 2026 }));
+  const restoreRace = stub('race', 'findMany', () => []);
+  const restoreTeamMember = stub('teamMember', 'findMany', () => [
+    { userId: 'coach-2', role: 'COACH', user: { name: 'Jamie Assistant', email: 'jamie@x.com' } },
+  ]);
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', () => []);
+  t.after(() => {
+    restoreTeam();
+    restoreSeasonRow();
+    restoreRace();
+    restoreTeamMember();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+  assert.deepEqual(stats.coaches, ['Pat Owner', 'Jamie Assistant']);
 });

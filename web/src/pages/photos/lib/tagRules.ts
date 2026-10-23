@@ -87,6 +87,7 @@ export function canHidePhoto(actor: Actor): boolean {
  */
 export function canReachModule(actor: Actor, module: Module): boolean {
   if (module === 'load') return actor.isCoach;
+  if (module === 'slideshow') return actor.isCoach;
   if (module === 'build') return actor.role !== 'volunteer';
   return true;
 }

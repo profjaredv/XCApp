@@ -82,17 +82,27 @@ export function templateFor(size: TemplateSize): CollageTemplate {
 // The back page (lib/collageRender.ts's renderCollageBack) — stats only,
 // so unlike the front it doesn't vary by pick count/template size. One
 // fixed layout: a header, a row of highlight stat cards, the pace trend
-// chart, then the season's race timeline filling the rest of the page.
+// chart, the season's race timeline, then a full-bleed team group photo
+// and small-print coach credit filling the rest of the page.
 export interface BackTemplate {
   header: TemplateRect;
   highlightCards: TemplateRect;
   paceChart: TemplateRect;
   timeline: TemplateRect;
+  // Full-bleed (x:0, w:1), like the front page's own photo slots — the
+  // one deliberate break from everyone else's 0.06 margin on this page.
+  groupPhoto: TemplateRect;
+  // A thin solid credit strip directly under the group photo, not part
+  // of the photo band itself — see drawCoachCredit's own comment on why
+  // this is a separate band rather than text overlaid on the image.
+  coachCredit: TemplateRect;
 }
 
 export const BACK_TEMPLATE: BackTemplate = {
   header: { x: 0.06, y: 0.03, w: 0.88, h: 0.07 },
   highlightCards: { x: 0.06, y: 0.115, w: 0.88, h: 0.1 },
   paceChart: { x: 0.06, y: 0.235, w: 0.88, h: 0.3 },
-  timeline: { x: 0.06, y: 0.56, w: 0.88, h: 0.38 },
+  timeline: { x: 0.06, y: 0.56, w: 0.88, h: 0.29 },
+  groupPhoto: { x: 0, y: 0.85, w: 1, h: 0.12 },
+  coachCredit: { x: 0, y: 0.97, w: 1, h: 0.03 },
 };

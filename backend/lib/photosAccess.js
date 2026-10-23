@@ -434,6 +434,97 @@ async function deleteTeamPhoto(prisma, teamId, photoId, actor) {
   return { ok: true };
 }
 
+// --- Team group photo -------------------------------------------------
+//
+// One photo, shared across every athlete's collage back page (Build
+// module) and the Slideshow collection's own template — e.g. a team photo
+// at the start of the season. Coach-only to set; read is open to anyone
+// who can already view the collage (resolvePhotosTeam), same as the rest
+// of Build.
+
+async function setGroupPhoto(prisma, teamId, photoId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can set the team\'s group photo.');
+    err.statusCode = 403;
+    throw err;
+  }
+  if (photoId != null) {
+    const photo = await getTeamPhoto(prisma, teamId, photoId);
+    if (!photo) {
+      const err = new Error('Photo not found.');
+      err.statusCode = 404;
+      throw err;
+    }
+  }
+  return prisma.team.update({ where: { id: teamId }, data: { groupPhotoId: photoId } });
+}
+
+// --- Slideshow collection ---------------------------------------------
+//
+// A coach's flat, ordered photo collection for an end-of-season slideshow
+// — see SlideshowItem's own schema comment for why this is deliberately
+// not Pick. Coach-only end to end (unlike tags/picks, an athlete's own
+// linked account never touches this — it's purely a coach curation tool
+// with no "this is my own photo" authority to extend to anyone else).
+
+async function listSlideshowItems(prisma, teamId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can view the slideshow collection.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const season = await resolveActiveSeasonRow(prisma, teamId);
+  return prisma.slideshowItem.findMany({ where: { teamId, seasonId: season.id }, orderBy: { createdAt: 'asc' } });
+}
+
+/** Idempotent: adding a photo already in the collection just returns the existing row rather than erroring. */
+async function addSlideshowItem(prisma, teamId, photoId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can add to the slideshow collection.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const photo = await getTeamPhoto(prisma, teamId, photoId);
+  if (!photo) {
+    const err = new Error('Photo not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const season = await resolveActiveSeasonRow(prisma, teamId);
+  return prisma.slideshowItem.upsert({
+    where: { seasonId_photoId: { seasonId: season.id, photoId } },
+    update: {},
+    create: { teamId, seasonId: season.id, photoId, addedBy: actor.userId },
+  });
+}
+
+/** Idempotent: removing a photo that isn't in the collection is a no-op, not an error. */
+async function removeSlideshowItem(prisma, teamId, photoId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can remove from the slideshow collection.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const season = await resolveActiveSeasonRow(prisma, teamId);
+  await prisma.slideshowItem.deleteMany({ where: { teamId, seasonId: season.id, photoId } });
+}
+
+/** Every READY photo in the collection, in add order — the "Download ZIP" feature. */
+async function listSlideshowPhotosForDownload(prisma, teamId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can download the slideshow collection.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const season = await resolveActiveSeasonRow(prisma, teamId);
+  const items = await prisma.slideshowItem.findMany({
+    where: { teamId, seasonId: season.id },
+    orderBy: { createdAt: 'asc' },
+    select: { photo: { select: { id: true, objectKey: true, status: true } } },
+  });
+  return items.map((item) => item.photo).filter((photo) => photo.status === 'READY');
+}
+
 // --- Opt-out (Phase 6) -----------------------------------------------------
 
 async function setAthleteOptOut(prisma, teamId, athleteId, optOut, actor) {
@@ -656,4 +747,9 @@ module.exports = {
   createPhotoDownloadLink,
   resolvePhotoDownloadLink,
   listPhotosForDownloadLinkTarget,
+  setGroupPhoto,
+  listSlideshowItems,
+  addSlideshowItem,
+  removeSlideshowItem,
+  listSlideshowPhotosForDownload,
 };

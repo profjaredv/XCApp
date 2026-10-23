@@ -690,19 +690,56 @@ function drawSeasonTimeline(ctx: CanvasRenderingContext2D, rect: TemplateRect, p
 }
 
 /**
- * The back page: highlight cards, the pace trend chart, and the season
- * timeline — printed on the reverse of the photo page (see pdfExport.ts).
- * Same "degrade, don't break" rule as the front page's own stat blocks —
- * a null/thin stats object just draws less, never throws.
+ * A thin solid credit strip at the very bottom of the back page, naming
+ * the team's coaches in small print — a separate band below the group
+ * photo (BACK_TEMPLATE.coachCredit), not text overlaid on the photo
+ * itself. Overlay legibility would depend on whatever colors happen to
+ * be in that particular photo; a solid background stays readable no
+ * matter what the coach picks. Draws nothing when there's no coach on
+ * record, rather than an empty ink bar for no reason.
  */
-export function renderCollageBack(
+function drawCoachCredit(ctx: CanvasRenderingContext2D, rect: TemplateRect, pageW: number, pageH: number, coaches: string[]) {
+  if (coaches.length === 0) return;
+  const top = rect.y * pageH;
+  const height = rect.h * pageH;
+  ctx.fillStyle = INK;
+  ctx.fillRect(0, top, pageW, height);
+
+  const fontSize = Math.round(pageH * 0.011);
+  ctx.fillStyle = '#f7f6f2';
+  ctx.font = `${fontSize}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`Coached by ${coaches.join(', ')}`, pageW / 2, top + height / 2);
+}
+
+/**
+ * The back page: highlight cards, the pace trend chart, the season
+ * timeline, a full-bleed team group photo, and the coach credit strip —
+ * printed on the reverse of the photo page (see pdfExport.ts). Same
+ * "degrade, don't break" rule as the front page's own stat blocks — a
+ * null/thin stats object, or a group photo that fails to load, just
+ * draws less, never throws. That last part is deliberate even for the
+ * export canvas (unlike renderCollage's own photo slots, which DO throw
+ * on a failed load): the group photo is one shared team asset reused
+ * across every athlete's export, not something specific to the athlete
+ * on this page, so it's never worth failing an entire batch over.
+ */
+export async function renderCollageBack(
   canvas: HTMLCanvasElement,
   pageWidth: number,
   pageHeight: number,
   header: CollageHeaderText,
   stats: AthleteBuildStats | null = null,
+  // null until a coach sets one (Build module) — see lib/photosAccess.js's
+  // setGroupPhoto. Same crossOrigin tradeoff as renderCollage's own photo
+  // slots: the preview passes a plain presigned URL with
+  // requireExportableCanvas=false, the export passes a same-origin blob:
+  // URL (photosService.getPhotoWebBlobUrl) with it true.
+  groupPhotoUrl: string | null = null,
+  requireExportableCanvas = false,
   accent: string = ACCENT,
-): void {
+): Promise<void> {
   canvas.width = pageWidth;
   canvas.height = pageHeight;
   const ctx = canvas.getContext('2d');
@@ -739,4 +776,16 @@ export function renderCollageBack(
   drawPaceChartCanvas(ctx, t.paceChart, pageWidth, pageHeight, data, isCareer, accent);
 
   drawSeasonTimeline(ctx, t.timeline, pageWidth, pageHeight, stats, accent);
+
+  if (groupPhotoUrl) {
+    try {
+      const img = await loadImage(groupPhotoUrl, requireExportableCanvas);
+      const rect = t.groupPhoto;
+      drawCover(ctx, img, rect.x * pageWidth, rect.y * pageHeight, rect.w * pageWidth, rect.h * pageHeight);
+    } catch (error) {
+      console.error(`Collage back page: group photo failed to load: ${(error as Error).message}`);
+    }
+  }
+
+  drawCoachCredit(ctx, t.coachCredit, pageWidth, pageHeight, stats?.coaches ?? []);
 }

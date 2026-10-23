@@ -36,6 +36,11 @@ const {
   createPhotoDownloadLink,
   resolvePhotoDownloadLink,
   listPhotosForDownloadLinkTarget,
+  setGroupPhoto,
+  listSlideshowItems,
+  addSlideshowItem,
+  removeSlideshowItem,
+  listSlideshowPhotosForDownload,
 } = photosAccess;
 
 function stub(model, method, impl) {
@@ -1115,5 +1120,172 @@ test('listPhotosForDownloadLinkTarget queries by athleteId with no actor check a
     assert.deepEqual(queryArgs.where, { teamId: 'team-1', status: 'READY', tags: { some: { athleteId: 'athlete-1' } } });
   } finally {
     restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// setGroupPhoto
+// ---------------------------------------------------------------------------
+
+test('setGroupPhoto refuses a non-coach', async () => {
+  const guardian = { userId: 'parent-1', isCoach: false, selfAthleteId: 'athlete-1', guardianAthleteIds: ['athlete-1'], linkedAthleteIds: ['athlete-1'] };
+  await assert.rejects(() => setGroupPhoto(prisma, 'team-1', 'photo-1', guardian), /Only a coach/);
+});
+
+test('setGroupPhoto 404s a photo from another team', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restore = stub('photo', 'findFirst', () => null);
+  try {
+    await assert.rejects(() => setGroupPhoto(prisma, 'team-1', 'photo-of-another-team', coach), /Photo not found/);
+  } finally {
+    restore();
+  }
+});
+
+test('setGroupPhoto sets the team\'s groupPhotoId', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restorePhoto = stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' }));
+  let seenData;
+  const restoreUpdate = stub('team', 'update', (args) => {
+    seenData = args.data;
+    return { id: 'team-1', groupPhotoId: args.data.groupPhotoId };
+  });
+  try {
+    const team = await setGroupPhoto(prisma, 'team-1', 'photo-1', coach);
+    assert.equal(seenData.groupPhotoId, 'photo-1');
+    assert.equal(team.groupPhotoId, 'photo-1');
+  } finally {
+    restorePhoto();
+    restoreUpdate();
+  }
+});
+
+test('setGroupPhoto clears the group photo when photoId is null, without looking up a photo', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restorePhoto = stub('photo', 'findFirst', () => {
+    throw new Error('should not be called when clearing');
+  });
+  const restoreUpdate = stub('team', 'update', (args) => ({ id: 'team-1', groupPhotoId: args.data.groupPhotoId }));
+  try {
+    const team = await setGroupPhoto(prisma, 'team-1', null, coach);
+    assert.equal(team.groupPhotoId, null);
+  } finally {
+    restorePhoto();
+    restoreUpdate();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Slideshow collection: listSlideshowItems / addSlideshowItem /
+// removeSlideshowItem / listSlideshowPhotosForDownload
+// ---------------------------------------------------------------------------
+
+test('listSlideshowItems refuses a non-coach', async () => {
+  const guardian = { userId: 'parent-1', isCoach: false, selfAthleteId: 'athlete-1', guardianAthleteIds: ['athlete-1'], linkedAthleteIds: ['athlete-1'] };
+  await assert.rejects(() => listSlideshowItems(prisma, 'team-1', guardian), /Only a coach/);
+});
+
+test('listSlideshowItems returns the active season\'s rows in add order', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
+  let queryArgs;
+  const restoreFind = stub('slideshowItem', 'findMany', (args) => {
+    queryArgs = args;
+    return [{ photoId: 'photo-1' }, { photoId: 'photo-2' }];
+  });
+  try {
+    const items = await listSlideshowItems(prisma, 'team-1', coach);
+    assert.deepEqual(queryArgs.where, { teamId: 'team-1', seasonId: 'season-1' });
+    assert.deepEqual(queryArgs.orderBy, { createdAt: 'asc' });
+    assert.equal(items.length, 2);
+  } finally {
+    restoreSeason();
+    restoreFind();
+  }
+});
+
+test('addSlideshowItem refuses a non-coach outright, before looking up the photo', async () => {
+  const guardian = { userId: 'parent-1', isCoach: false, selfAthleteId: 'athlete-1', guardianAthleteIds: ['athlete-1'], linkedAthleteIds: ['athlete-1'] };
+  const restore = stub('photo', 'findFirst', () => {
+    throw new Error('should not be called — the coach check comes first');
+  });
+  try {
+    await assert.rejects(() => addSlideshowItem(prisma, 'team-1', 'photo-1', guardian), /Only a coach/);
+  } finally {
+    restore();
+  }
+});
+
+test('addSlideshowItem 404s a photo from another team', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restore = stub('photo', 'findFirst', () => null);
+  try {
+    await assert.rejects(() => addSlideshowItem(prisma, 'team-1', 'photo-of-another-team', coach), /Photo not found/);
+  } finally {
+    restore();
+  }
+});
+
+test('addSlideshowItem upserts on (seasonId, photoId), recording who added it', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
+  const restorePhoto = stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' }));
+  let seenArgs;
+  const restoreUpsert = stub('slideshowItem', 'upsert', (args) => {
+    seenArgs = args;
+    return { id: 'item-1', teamId: 'team-1', seasonId: 'season-1', photoId: 'photo-1', addedBy: 'coach-1' };
+  });
+  try {
+    await addSlideshowItem(prisma, 'team-1', 'photo-1', coach);
+    assert.deepEqual(seenArgs.where, { seasonId_photoId: { seasonId: 'season-1', photoId: 'photo-1' } });
+    assert.deepEqual(seenArgs.create, { teamId: 'team-1', seasonId: 'season-1', photoId: 'photo-1', addedBy: 'coach-1' });
+  } finally {
+    restoreSeason();
+    restorePhoto();
+    restoreUpsert();
+  }
+});
+
+test('removeSlideshowItem refuses a non-coach', async () => {
+  const guardian = { userId: 'parent-1', isCoach: false, selfAthleteId: 'athlete-1', guardianAthleteIds: ['athlete-1'], linkedAthleteIds: ['athlete-1'] };
+  await assert.rejects(() => removeSlideshowItem(prisma, 'team-1', 'photo-1', guardian), /Only a coach/);
+});
+
+test('removeSlideshowItem scopes the delete to this team and season', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
+  let seenWhere;
+  const restoreDelete = stub('slideshowItem', 'deleteMany', (args) => {
+    seenWhere = args.where;
+    return { count: 1 };
+  });
+  try {
+    await removeSlideshowItem(prisma, 'team-1', 'photo-1', coach);
+    assert.deepEqual(seenWhere, { teamId: 'team-1', seasonId: 'season-1', photoId: 'photo-1' });
+  } finally {
+    restoreSeason();
+    restoreDelete();
+  }
+});
+
+test('listSlideshowPhotosForDownload refuses a non-coach', async () => {
+  const guardian = { userId: 'parent-1', isCoach: false, selfAthleteId: 'athlete-1', guardianAthleteIds: ['athlete-1'], linkedAthleteIds: ['athlete-1'] };
+  await assert.rejects(() => listSlideshowPhotosForDownload(prisma, 'team-1', guardian), /Only a coach/);
+});
+
+test('listSlideshowPhotosForDownload returns only READY photos, in add order', async () => {
+  const coach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
+  const restoreFind = stub('slideshowItem', 'findMany', () => [
+    { photo: { id: 'photo-1', objectKey: 'teams/team-1/photos/photo-1/orig.jpg', status: 'READY' } },
+    { photo: { id: 'photo-2', objectKey: 'teams/team-1/photos/photo-2/orig.jpg', status: 'PENDING' } },
+  ]);
+  try {
+    const photos = await listSlideshowPhotosForDownload(prisma, 'team-1', coach);
+    assert.equal(photos.length, 1);
+    assert.equal(photos[0].id, 'photo-1');
+  } finally {
+    restoreSeason();
+    restoreFind();
   }
 });

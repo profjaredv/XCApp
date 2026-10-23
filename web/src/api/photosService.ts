@@ -175,6 +175,43 @@ export const photosService = {
     return { focalX: response.data.focalX, focalY: response.data.focalY };
   },
 
+  // The one photo shared across every athlete's collage back page and
+  // the Slideshow collection's own template — null until a coach sets
+  // one (Build module). setGroupPhoto is coach-only server-side; pass
+  // null to clear it.
+  async getGroupPhoto(): Promise<string | null> {
+    const response = await api.get<{ photoId: string | null }>('/photos/group-photo');
+    return response.data.photoId;
+  },
+
+  async setGroupPhoto(photoId: string | null): Promise<string | null> {
+    const response = await api.put<{ photoId: string | null }>('/photos/group-photo', { photoId });
+    return response.data.photoId;
+  },
+
+  // The Slideshow module's flat, ordered (add order) photo collection —
+  // coach-only. add/remove return the full updated id list so the module
+  // never needs a second round trip to stay in sync with the server's
+  // own order.
+  async slideshowItems(): Promise<string[]> {
+    const response = await api.get<string[]>('/photos/slideshow');
+    return response.data;
+  },
+
+  async addSlideshowItem(photoId: string): Promise<string[]> {
+    const response = await api.post<string[]>(`/photos/slideshow/${photoId}`);
+    return response.data;
+  },
+
+  async removeSlideshowItem(photoId: string): Promise<string[]> {
+    const response = await api.delete<string[]>(`/photos/slideshow/${photoId}`);
+    return response.data;
+  },
+
+  downloadSlideshowPhotos(): Promise<void> {
+    return downloadBlobFile(api, '/photos/slideshow/download', 'leadpack-slideshow-photos.zip', 'zip');
+  },
+
   async picks(): Promise<Record<string, string[]>> {
     const response = await api.get<Record<string, string[]>>('/photos/picks');
     return response.data;

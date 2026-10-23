@@ -323,6 +323,11 @@ const CLASSIFICATION = {
     what: 'A coach-sent, time-limited link a parent uses to download one athlete\'s tagged photos without logging in.',
     why: 'Names which student\'s photos the link unlocks and the email address it was sent to. The token is a bearer credential, not a public link — see the LeadPack Photos build spec\'s privacy rules — and it expires rather than being revocable per-use.',
   },
+  SlideshowItem: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'One photo a coach added to the end-of-season slideshow collection, and when.',
+    why: 'A coach-only curation list, same posture as Pick above — never an athlete\'s own choice to make private from the coach.',
+  },
 
   // --- Athlete-authored: hers ---------------------------------------------
   TrainingLog: {
