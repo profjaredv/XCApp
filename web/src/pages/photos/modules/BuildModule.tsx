@@ -5,6 +5,7 @@ import { ModuleShell } from '../components/ModuleShell';
 import { BuildLeftPanel } from '../components/BuildLeftPanel';
 import { BuildRightPanel } from '../components/BuildRightPanel';
 import { CollagePreview } from '../components/CollagePreview';
+import { BuildPaceChart } from '../components/BuildPaceChart';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { renderCollage, type FocalPoint } from '../lib/collageRender';
 import { athletesById as buildAthletesById, eligibleForCollage } from '../lib/selectors';
@@ -240,7 +241,7 @@ export const BuildModule: React.FC = () => {
       }
       center={
         athlete ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 bg-ink/40 p-6">
+          <div className="flex h-full flex-col items-center gap-3 overflow-y-auto bg-ink/40 p-6">
             <CollagePreview
               templateSize={state.buildTemplateSize}
               photos={pickedPhotos}
@@ -254,6 +255,7 @@ export const BuildModule: React.FC = () => {
               onFocalChange={handleFocalChange}
             />
             {picks.length > 0 && <p className="text-xs text-ink-muted">Drag a photo to reposition it within its frame.</p>}
+            <BuildPaceChart stats={stats} />
           </div>
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-ink-muted">

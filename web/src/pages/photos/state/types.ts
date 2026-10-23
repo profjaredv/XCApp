@@ -118,9 +118,19 @@ export interface AthleteRaceResult {
   timeSec: number;
 }
 
+// Same shape as AthleteRaceResult plus which season it happened in — the
+// pace chart's "career" view (components/BuildPaceChart.tsx) needs this
+// to tell a freshman's single season of data from a returning athlete's
+// multi-season history.
+export interface AthleteCareerRaceResult extends AthleteRaceResult {
+  season: number;
+}
+
 export interface AthleteBuildStats {
   name: string;
   season: number;
+  /** Null when graduationYear itself is unknown — never guessed. */
+  grade: number | null;
   /** Career best 5K, not season-best — null if this athlete has no 5K result yet. */
   careerBest5kSec: number | null;
   totalMiles: number | null;
@@ -128,4 +138,6 @@ export interface AthleteBuildStats {
   totalRaces: number;
   bestByDistance: AthleteBestByDistance[];
   races: AthleteRaceResult[];
+  /** Every FINISHED result this athlete has, any season — see AthleteCareerRaceResult. */
+  careerRaces: AthleteCareerRaceResult[];
 }
