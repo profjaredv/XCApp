@@ -250,6 +250,23 @@ export const photosService = {
     return response.data;
   },
 
+  // Fetches a photo's web-size image through our own API (same-origin),
+  // not the presigned R2 URL in Photo.webUrl, and hands back a local
+  // blob: URL. Built for the Build module's export canvas specifically
+  // (see collageRender.ts's crossOrigin note) — a <img crossOrigin=
+  // "anonymous"> pointed straight at R2 depends on R2's CORS response
+  // headers surviving whatever network the browser is on, and a school/
+  // district content filter or TLS-inspecting proxy can strip those
+  // headers while still letting the bytes through, which makes the export
+  // fail with what looks like a CORS error no R2 setting can fix. A blob:
+  // URL loaded from an authenticated same-origin fetch never needs CORS
+  // at all. Caller owns the URL's lifetime — revoke it with
+  // URL.revokeObjectURL once the image has been drawn to canvas.
+  async getPhotoWebBlobUrl(photoId: string): Promise<string> {
+    const response = await api.get(`/photos/${photoId}/web`, { responseType: 'blob' });
+    return URL.createObjectURL(response.data as Blob);
+  },
+
   // "Download my athlete's folder" — a ZIP of every photo this athlete is
   // tagged in, full resolution. See lib/downloadBlob.ts for why this goes
   // through axios as a blob rather than a plain link.
