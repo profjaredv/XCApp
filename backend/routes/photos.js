@@ -521,6 +521,43 @@ router.get('/:id/original', authenticateUserOrVolunteer, resolvePhotosTeam, requ
   }
 });
 
+// GET /api/photos/:id/web — the web-size image, proxied through this
+// server rather than a presigned R2 URL. Built specifically for the
+// Build module's export canvas (web/src/pages/photos/lib/collageRender.ts),
+// which loads images with crossOrigin="anonymous" so canvas.toDataURL()
+// doesn't throw — and that mode requires R2's CORS response headers to
+// survive the round trip over whatever network the browser is on. A
+// school/district content filter or TLS-inspecting proxy can (and in
+// practice does) strip response headers like Access-Control-Allow-Origin
+// while still letting the image bytes through unmarked, which makes a
+// plain <img> (the on-screen preview, no crossOrigin) work fine while the
+// export fails with what looks like a CORS error no R2 bucket setting can
+// fix — the request never left their network with the header intact. This
+// route sidesteps the whole dependency: same-origin as the app itself
+// (this API shares an origin with the frontend in production — see
+// server.js's static-file serving), so the browser never needs a CORS
+// response at all, regardless of what's inspecting traffic in between.
+router.get('/:id/web', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    const photo = await photosAccess.getTeamPhoto(prisma, req.photosTeamId, req.params.id);
+    if (!photo || photo.status === 'HIDDEN') {
+      return res.status(404).json({ msg: 'Photo not found.' });
+    }
+    const stream = await r2.getObjectStream(r2.photoWebKey(req.photosTeamId, photo.id));
+    res.setHeader('Content-Type', 'image/webp');
+    // Private: this is one team's own photo, not a public asset — a shared
+    // cache (a school's proxy included) must not keep a copy.
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    stream.on('error', (err) => {
+      console.error(`Photo web-proxy stream failed for ${photo.id}:`, err.message);
+      res.destroy();
+    });
+    stream.pipe(res);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/:id/web:');
+  }
+});
+
 // POST /api/photos/:id/tags — Tag module. Body: { athleteId }.
 router.post('/:id/tags', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { athleteId } = req.body || {};

@@ -105,6 +105,16 @@ export const BuildModule: React.FC = () => {
     return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   }
 
+  // The export canvas loads photos same-origin (photosService.getPhotoWebBlobUrl)
+  // rather than straight from R2, so it never depends on CORS surviving the
+  // user's own network — see that function's own comment for why. One
+  // fetch per pick, done once up front so renderCollage's own per-slot
+  // image loading never touches the network at all.
+  async function loadExportableUrls(photoIds: string[]): Promise<{ urls: string[]; revoke: () => void }> {
+    const urls = await Promise.all(photoIds.map((id) => photosService.getPhotoWebBlobUrl(id)));
+    return { urls, revoke: () => urls.forEach((url) => URL.revokeObjectURL(url)) };
+  }
+
   // "Generate all" (build spec, Collage generation: "renders a collage for
   // every athlete with at least three picks, one at a time in a queue").
   // Reuses the exact same renderCollage() the single "Export PNG" button
@@ -128,19 +138,24 @@ export const BuildModule: React.FC = () => {
     let failed = 0;
     try {
       for (const candidate of eligible) {
+        let exportable: { urls: string[]; revoke: () => void } | null = null;
         try {
           const candidatePicks = (state.picks[candidate.id] ?? []).filter((id) => visiblePhotosById.has(id));
           const candidateFocalPoints: (FocalPoint | undefined)[] = candidatePicks.map((photoId) => {
             const tag = state.tags[photoId]?.find((t) => t.athleteId === candidate.id);
             return tag?.focalX != null && tag?.focalY != null ? { x: tag.focalX, y: tag.focalY } : undefined;
           });
-          const candidateStats = await photosService.getAthleteBuildStats(candidate.id);
+          const [candidateStats, candidateExportable] = await Promise.all([
+            photosService.getAthleteBuildStats(candidate.id),
+            loadExportableUrls(candidatePicks),
+          ]);
+          exportable = candidateExportable;
           await renderCollage(
             canvas,
             EXPORT_W,
             EXPORT_H,
             state.buildTemplateSize,
-            candidatePicks.map((id) => visiblePhotosById.get(id)?.webUrl ?? ''),
+            exportable.urls,
             { name: candidate.preferredName || candidate.name, team: teamLabel, season: state.buildHeader.season },
             true,
             candidateStats,
@@ -153,6 +168,8 @@ export const BuildModule: React.FC = () => {
         } catch (error) {
           console.error(`Collage generation failed for one athlete in the batch:`, error);
           failed += 1;
+        } finally {
+          exportable?.revoke();
         }
       }
 
@@ -182,13 +199,15 @@ export const BuildModule: React.FC = () => {
     if (!athlete || athlete.photosOptOut) return;
     const canvas = exportCanvasRef.current;
     if (!canvas) return;
+    let exportable: { urls: string[]; revoke: () => void } | null = null;
     try {
+      exportable = await loadExportableUrls(picks);
       await renderCollage(
         canvas,
         EXPORT_W,
         EXPORT_H,
         state.buildTemplateSize,
-        picks.map((id) => visiblePhotosById.get(id)?.webUrl ?? ''),
+        exportable.urls,
         {
           name: state.buildHeader.name || athlete.preferredName || athlete.name,
           team: teamLabel,
@@ -212,6 +231,8 @@ export const BuildModule: React.FC = () => {
       toast.error("Couldn't export that collage.", {
         description: error instanceof Error ? error.message : undefined,
       });
+    } finally {
+      exportable?.revoke();
     }
   }
 
