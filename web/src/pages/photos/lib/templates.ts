@@ -78,3 +78,21 @@ export const TEMPLATES: Record<TemplateSize, CollageTemplate> = {
 export function templateFor(size: TemplateSize): CollageTemplate {
   return TEMPLATES[size];
 }
+
+// The back page (lib/collageRender.ts's renderCollageBack) — stats only,
+// so unlike the front it doesn't vary by pick count/template size. One
+// fixed layout: a header, a row of highlight stat cards, the pace trend
+// chart, then the season's race timeline filling the rest of the page.
+export interface BackTemplate {
+  header: TemplateRect;
+  highlightCards: TemplateRect;
+  paceChart: TemplateRect;
+  timeline: TemplateRect;
+}
+
+export const BACK_TEMPLATE: BackTemplate = {
+  header: { x: 0.06, y: 0.03, w: 0.88, h: 0.07 },
+  highlightCards: { x: 0.06, y: 0.115, w: 0.88, h: 0.1 },
+  paceChart: { x: 0.06, y: 0.235, w: 0.88, h: 0.3 },
+  timeline: { x: 0.06, y: 0.56, w: 0.88, h: 0.38 },
+};
