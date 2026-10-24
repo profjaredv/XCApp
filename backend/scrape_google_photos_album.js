@@ -102,6 +102,25 @@ async function collectEmbeddedPhotoUrls(page) {
   return extractEmbeddedPhotoUrlsFromHtml(await page.content());
 }
 
+// Resolves as soon as ANY promise resolves; rejects only once every one of
+// them has rejected (with the last rejection's reason). Plain Promise.race
+// rejects on the FIRST rejection even if a later promise would still have
+// succeeded, which is exactly backwards for "try two independent ways to
+// detect the page is ready, and only give up if both fail."
+function firstToResolve(promises) {
+  return new Promise((resolve, reject) => {
+    let remaining = promises.length;
+    let lastError;
+    for (const p of promises) {
+      p.then(resolve).catch((error) => {
+        lastError = error;
+        remaining -= 1;
+        if (remaining === 0) reject(lastError);
+      });
+    }
+  });
+}
+
 // Finds whichever element actually owns the scroll — a share page's own
 // <html>/<body> never scrolls; the gallery lives in an inner container
 // (a <c-wiz> in current markup, but that's not a selector worth pinning
@@ -145,7 +164,20 @@ async function scrapeAlbumPhotoUrls(albumUrl) {
       try {
         console.error(`Navigating (attempt ${attempt}/${MAX_ATTEMPTS}): ${albumUrl}`);
         await page.goto(albumUrl, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-        await page.waitForSelector('img[src*="googleusercontent.com"]', { timeout: IMAGE_SELECTOR_TIMEOUT });
+        // Two independent "the gallery is actually here" signals, since a
+        // Google markup change could break either one on its own: a
+        // rendered <img> (the original check), or the photo list already
+        // sitting in the page's raw HTML (the same lh3.googleusercontent.com
+        // /pw/ pattern collectEmbeddedPhotoUrls itself reads, and per this
+        // file's own header comment, the more durable source of the two —
+        // it doesn't depend on the virtualized grid having rendered
+        // anything as a DOM node yet). Whichever resolves first is enough.
+        await firstToResolve([
+          page.waitForSelector('img[src*="googleusercontent.com"]', { timeout: IMAGE_SELECTOR_TIMEOUT }),
+          page.waitForFunction(() => /https:\/\/lh3\.googleusercontent\.com\/pw\//.test(document.documentElement.outerHTML), {
+            timeout: IMAGE_SELECTOR_TIMEOUT,
+          }),
+        ]);
         loaded = true;
         break;
       } catch (err) {
@@ -221,4 +253,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { scrapeAlbumPhotoUrls, baseUrlOf, extractEmbeddedPhotoUrlsFromHtml };
+module.exports = { scrapeAlbumPhotoUrls, baseUrlOf, extractEmbeddedPhotoUrlsFromHtml, firstToResolve };
