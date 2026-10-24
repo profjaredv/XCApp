@@ -11,7 +11,7 @@ const prisma = require('../lib/db');
 const photosAccess = require('../lib/photosAccess');
 const googlePhotosImport = require('../lib/googlePhotosImport');
 const { validateGooglePhotosUrl, importGoogleAlbum, downloadOriginal } = googlePhotosImport;
-const { baseUrlOf, extractEmbeddedPhotoUrlsFromHtml } = require('../scrape_google_photos_album');
+const { baseUrlOf, extractEmbeddedPhotoUrlsFromHtml, firstToResolve } = require('../scrape_google_photos_album');
 
 function stub(obj, method, impl) {
   const original = obj[method];
@@ -117,6 +117,34 @@ test('extractEmbeddedPhotoUrlsFromHtml collapses the same photo seen at multiple
 
 test('extractEmbeddedPhotoUrlsFromHtml returns an empty set when nothing matches', () => {
   assert.deepEqual([...extractEmbeddedPhotoUrlsFromHtml('<html><body>No photos here</body></html>')], []);
+});
+
+// ---------------------------------------------------------------------------
+// firstToResolve — the "page is ready" check now races two independent
+// signals (a rendered <img>, or the photo list already embedded in the raw
+// HTML) instead of depending on one selector alone. A real-world failure
+// ("waiting for locator('img[src*=\"googleusercontent.com\"]') to be
+// visible") came from relying on just the DOM-node signal; this pins the
+// race helper itself, since the two real Playwright waits it races can't be
+// exercised without a live browser.
+// ---------------------------------------------------------------------------
+
+test('firstToResolve resolves as soon as the first promise resolves, even if others are still pending', async () => {
+  const slow = new Promise((resolve) => setTimeout(() => resolve('slow'), 50));
+  const fast = Promise.resolve('fast');
+  assert.equal(await firstToResolve([slow, fast]), 'fast');
+});
+
+test('firstToResolve resolves from a later promise even if an earlier one in the list rejects first', async () => {
+  const rejectsFirst = new Promise((_, reject) => setTimeout(() => reject(new Error('selector timed out')), 10));
+  const resolvesLater = new Promise((resolve) => setTimeout(() => resolve('html match'), 30));
+  assert.equal(await firstToResolve([rejectsFirst, resolvesLater]), 'html match');
+});
+
+test('firstToResolve rejects only once every promise has rejected, with the last rejection reason', async () => {
+  const first = Promise.reject(new Error('first failed'));
+  const second = new Promise((_, reject) => setTimeout(() => reject(new Error('second failed')), 10));
+  await assert.rejects(() => firstToResolve([first, second]), /second failed/);
 });
 
 // ---------------------------------------------------------------------------
