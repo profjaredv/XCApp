@@ -75,7 +75,7 @@ export interface PhotoGroup {
   color: string | null;
 }
 
-export type Module = 'load' | 'tag' | 'build';
+export type Module = 'load' | 'tag' | 'build' | 'slideshow';
 
 export type PreviewRole = 'coach' | 'family';
 
@@ -140,4 +140,6 @@ export interface AthleteBuildStats {
   races: AthleteRaceResult[];
   /** Every FINISHED result this athlete has, any season — see AthleteCareerRaceResult. */
   careerRaces: AthleteCareerRaceResult[];
+  /** Display names, owner + active TeamMember coaches merged — the back page's small-print credit line. */
+  coaches: string[];
 }

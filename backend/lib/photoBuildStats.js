@@ -17,6 +17,7 @@
 const { resolveActiveSeason, deriveGrade } = require('./season');
 const { computePRs } = require('./athleteJourney');
 const { canManageAthlete } = require('./photoTagRules');
+const { mergeStaffRoster } = require('./teamStaff');
 
 /**
  * Coach or the athlete's own linked account only — same authority as
@@ -41,7 +42,7 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
 
   const season = await resolveActiveSeason(teamId);
 
-  const [metrics, seasonResults, careerResults, careerBest] = await Promise.all([
+  const [metrics, seasonResults, careerResults, careerBest, teamOwner, coachTeamMembers] = await Promise.all([
     prisma.athleteSeasonMetrics.findUnique({
       where: { athleteId_teamId_season: { athleteId, teamId, season } },
     }),
@@ -71,7 +72,20 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
       where: { teamId, athleteId },
       _min: { bestTime5k: true },
     }),
+    // The back page's small-print coach credit line — same merge
+    // (owner + TeamMember rows) routes/today.js's staff list already
+    // uses, so "who coaches this team" never disagrees between the two.
+    prisma.team.findUnique({ where: { id: teamId }, select: { coach: { select: { id: true, name: true, email: true } } } }),
+    prisma.teamMember.findMany({
+      where: { teamId, active: true, role: { in: ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'] } },
+      select: { userId: true, role: true, user: { select: { name: true, email: true } } },
+    }),
   ]);
+
+  const coaches = mergeStaffRoster(
+    teamOwner?.coach ?? null,
+    coachTeamMembers.map((m) => ({ userId: m.userId, role: m.role, name: m.user.name, email: m.user.email })),
+  ).map((c) => c.name || c.email);
 
   const seasonResultsFlat = seasonResults.map((r) => ({
     raceId: r.race.id,
@@ -116,6 +130,7 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
       timeSec: r.time,
       season: r.race.season,
     })),
+    coaches,
   };
 }
 

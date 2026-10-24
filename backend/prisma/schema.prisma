@@ -77,6 +77,7 @@ model User {
   teamRequestsResolved      TeamRequest[]            @relation("TeamRequestResolver")
   uploadedPhotos            Photo[]                  @relation("PhotoUploader")
   photoTagsMade             PhotoAthlete[]           @relation("PhotoAthleteTagger")
+  slideshowItemsAdded       SlideshowItem[]          @relation("SlideshowItemAddedBy")
   photoDownloadLinksSent    PhotoDownloadLink[]      @relation("PhotoDownloadLinkSender")
 
   @@index([teamId])
@@ -130,7 +131,15 @@ model Team {
   // account credential.
   photosTagPassword String? @map("photos_tag_password")
 
+  // One photo, shared across every athlete's collage back page and the
+  // Slideshow collection's own template — e.g. a team photo at the start
+  // of the season. Null until a coach picks one (Build module). Not
+  // scoped to a season: the same group photo carries over until replaced,
+  // same as photosTagPassword above.
+  groupPhotoId String? @map("group_photo_id") @db.Uuid
+
   coach                   User?                    @relation("TeamCoach", fields: [coachUid], references: [id])
+  groupPhoto              Photo?                   @relation("TeamGroupPhoto", fields: [groupPhotoId], references: [id], onDelete: SetNull)
   members                 User[]                   @relation("TeamUsers")
   teamMembers             TeamMember[]
   athletes                Athlete[]
@@ -164,6 +173,7 @@ model Team {
   photos                  Photo[]
   photoVolunteerSessions  PhotoVolunteerSession[]
   photoDownloadLinks      PhotoDownloadLink[]
+  slideshowItems          SlideshowItem[]
 
   @@index([coachUid])
   @@map("teams")
@@ -1159,6 +1169,7 @@ model Season {
   attendanceSessions   AttendanceSession[]
   picks                Pick[]
   collages             Collage[]
+  slideshowItems       SlideshowItem[]
 
   @@unique([teamId, year, sport])
   @@index([teamId])
@@ -2030,11 +2041,17 @@ model Photo {
   uploadedBy String?     @map("uploaded_by") @db.Uuid
   createdAt  DateTime    @default(now()) @map("created_at")
 
-  team     Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  meet     Meet           @relation(fields: [meetId], references: [id], onDelete: Cascade)
-  uploader User?          @relation("PhotoUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
-  tags     PhotoAthlete[]
-  picks    Pick[]
+  team               Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  meet               Meet            @relation(fields: [meetId], references: [id], onDelete: Cascade)
+  uploader           User?           @relation("PhotoUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+  tags               PhotoAthlete[]
+  picks              Pick[]
+  // A team's group-photo pointer (Team.groupPhotoId) back-references here
+  // — in practice at most one team ever points at a given photo (a photo
+  // belongs to exactly one team already, via `team` above), but Prisma
+  // still models the FK's "many" side as a list.
+  groupPhotoForTeams Team[]          @relation("TeamGroupPhoto")
+  slideshowItems     SlideshowItem[]
 
   @@unique([teamId, sha256])
   @@index([meetId, takenAt])
@@ -2087,6 +2104,34 @@ model Pick {
   @@id([athleteId, seasonId, position])
   @@unique([athleteId, seasonId, photoId])
   @@map("picks")
+}
+
+// A coach's flat, ordered collection of photos for an end-of-season
+// slideshow — deliberately NOT Pick above: not per-athlete, not gated on
+// the photo being tagged to anyone, and not capped at 5. Order is simply
+// the order a coach added them (createdAt), downloaded as one ZIP
+// (routes/photos.js's GET /slideshow/download) rather than rendered into
+// anything — the actual slideshow gets built elsewhere. The unique
+// constraint just stops the same photo being added twice, not any
+// "one per athlete" rule — that's left as a soft UI hint (lib/photosAccess.js),
+// since a coach may legitimately want two photos of one athlete and zero
+// of another.
+model SlideshowItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  seasonId  String   @map("season_id") @db.Uuid
+  photoId   String   @map("photo_id") @db.Uuid
+  addedBy   String?  @map("added_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  photo  Photo  @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  adder  User?  @relation("SlideshowItemAddedBy", fields: [addedBy], references: [id], onDelete: SetNull)
+
+  @@unique([seasonId, photoId])
+  @@index([seasonId, createdAt])
+  @@map("slideshow_items")
 }
 
 // One row per device that unlocked tagging with the team's shared password

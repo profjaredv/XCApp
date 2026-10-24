@@ -137,6 +137,10 @@ const TEAM_EXPORT = [
   { key: 'photoAthletes', model: 'photoAthlete', where: via('photo'), label: 'Photo tags' },
   { key: 'picks', model: 'pick', where: via('athlete'), label: 'Collage picks' },
   { key: 'collages', model: 'collage', where: via('athlete'), label: 'Generated collages (metadata only — bytes live in R2)' },
+  // Flat and team-wide, not athlete-scoped — same reasoning as photos'
+  // own absence from ATHLETE_EXPORT below (no athlete FK at all; a listed
+  // photo may depict several athletes or none).
+  { key: 'slideshowItems', model: 'slideshowItem', where: direct, label: 'Slideshow collection (metadata only — bytes live in R2)' },
 
   // --- things this app computed ---
   { key: 'teamSeasonMetrics', model: 'teamSeasonMetrics', where: direct, label: 'Team season metrics', derived: true },

@@ -29,6 +29,16 @@ export const BuildModule: React.FC = () => {
   // Which page of the two-sided PDF the preview canvas currently shows —
   // the export itself always produces both pages regardless of this.
   const [previewSide, setPreviewSide] = useState<'front' | 'back'>('front');
+  // The team's shared group photo for the back page — team-wide, not
+  // athlete-specific, so this is fetched once here rather than as part
+  // of per-athlete stats. null until a coach sets one (BuildRightPanel).
+  const [groupPhotoId, setGroupPhotoId] = useState<string | null>(null);
+
+  useEffect(() => {
+    photosService.getGroupPhoto().then(setGroupPhotoId).catch((error) => {
+      console.error('Failed to load the team group photo:', error);
+    });
+  }, []);
 
   // The real team's name once a coach hasn't typed a custom one in —
   // same "blank means use the sensible default" pattern as the athlete
@@ -92,6 +102,11 @@ export const BuildModule: React.FC = () => {
   const pickedPhotos = picks.map((id) => visiblePhotosById.get(id));
   const exportBlocked = Boolean(athlete?.photosOptOut);
 
+  // Preview-only URL for the back page's group photo — a plain presigned
+  // URL straight off state.photos, same as every other on-screen
+  // thumbnail (never the same-origin blob the export needs).
+  const groupPhotoPreviewUrl = (groupPhotoId && state.photos.find((p) => p.id === groupPhotoId)?.webUrl) || null;
+
   // Each pick's crop position for this athlete — lives on the tag, not
   // the pick, so it survives a swap-out/swap-back. Aligned 1:1 with
   // `picks`/`pickedPhotos`.
@@ -116,6 +131,16 @@ export const BuildModule: React.FC = () => {
     return { urls, revoke: () => urls.forEach((url) => URL.revokeObjectURL(url)) };
   }
 
+  // Same same-origin-blob reasoning as loadExportableUrls above, for the
+  // one shared group photo — fetched once per export (or once for the
+  // whole "Generate all" batch, not once per athlete, since it's the
+  // same photo on every back page).
+  async function loadGroupPhotoExportUrl(): Promise<{ url: string | null; revoke: () => void }> {
+    if (!groupPhotoId) return { url: null, revoke: () => {} };
+    const url = await photosService.getPhotoWebBlobUrl(groupPhotoId);
+    return { url, revoke: () => URL.revokeObjectURL(url) };
+  }
+
   // "Generate all" (build spec, Collage generation: "renders a collage for
   // every athlete with at least three picks, one at a time in a queue").
   // Reuses the exact same renderCollage() the single "Export PNG" button
@@ -137,7 +162,9 @@ export const BuildModule: React.FC = () => {
     setGeneratingAll(true);
     const zip = new JSZip();
     let failed = 0;
+    let groupPhotoExport: { url: string | null; revoke: () => void } | null = null;
     try {
+      groupPhotoExport = await loadGroupPhotoExportUrl();
       for (const candidate of eligible) {
         let exportable: { urls: string[]; revoke: () => void } | null = null;
         try {
@@ -169,7 +196,16 @@ export const BuildModule: React.FC = () => {
             palette?.paperAccent,
           );
           const frontDataUrl = canvas.toDataURL('image/png');
-          renderCollageBack(canvas, EXPORT_W, EXPORT_H, candidateHeader, candidateStats, palette?.paperAccent);
+          await renderCollageBack(
+            canvas,
+            EXPORT_W,
+            EXPORT_H,
+            candidateHeader,
+            candidateStats,
+            groupPhotoExport.url,
+            true,
+            palette?.paperAccent,
+          );
           const backDataUrl = canvas.toDataURL('image/png');
           const pdfBlob = buildTwoPagePdf(frontDataUrl, backDataUrl).output('blob');
           zip.file(`leadpack-photos-collage-${candidate.id}.pdf`, pdfBlob);
@@ -198,6 +234,7 @@ export const BuildModule: React.FC = () => {
       toast.error("Couldn't generate the collages.", { description: error instanceof Error ? error.message : undefined });
     } finally {
       setGeneratingAll(false);
+      groupPhotoExport?.revoke();
     }
   }
 
@@ -208,8 +245,9 @@ export const BuildModule: React.FC = () => {
     const canvas = exportCanvasRef.current;
     if (!canvas) return;
     let exportable: { urls: string[]; revoke: () => void } | null = null;
+    let groupPhotoExport: { url: string | null; revoke: () => void } | null = null;
     try {
-      exportable = await loadExportableUrls(picks);
+      [exportable, groupPhotoExport] = await Promise.all([loadExportableUrls(picks), loadGroupPhotoExportUrl()]);
       const header: CollageHeaderText = {
         name: state.buildHeader.name || athlete.preferredName || athlete.name,
         team: teamLabel,
@@ -228,7 +266,7 @@ export const BuildModule: React.FC = () => {
         palette?.paperAccent,
       );
       const frontDataUrl = canvas.toDataURL('image/png');
-      renderCollageBack(canvas, EXPORT_W, EXPORT_H, header, stats, palette?.paperAccent);
+      await renderCollageBack(canvas, EXPORT_W, EXPORT_H, header, stats, groupPhotoExport.url, true, palette?.paperAccent);
       const backDataUrl = canvas.toDataURL('image/png');
       // Opaque id only — the spec's privacy rule bars an athlete's name
       // from ever appearing in a key, URL, or download filename.
@@ -241,6 +279,7 @@ export const BuildModule: React.FC = () => {
       });
     } finally {
       exportable?.revoke();
+      groupPhotoExport?.revoke();
     }
   }
 
@@ -266,6 +305,8 @@ export const BuildModule: React.FC = () => {
           onExport={handleExport}
           onDownload={handleDownload}
           downloading={downloading}
+          groupPhotoId={groupPhotoId}
+          onGroupPhotoChange={setGroupPhotoId}
         />
       }
       center={
@@ -298,6 +339,7 @@ export const BuildModule: React.FC = () => {
               focalPoints={focalPoints}
               onFocalChange={handleFocalChange}
               side={previewSide}
+              groupPhotoUrl={groupPhotoPreviewUrl}
             />
             {previewSide === 'front' && picks.length > 0 && (
               <p className="text-xs text-ink-muted">Drag a photo to reposition it within its frame.</p>

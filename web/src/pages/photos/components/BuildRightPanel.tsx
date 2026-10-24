@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Mail, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Image as ImageIcon, Mail, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { photosService } from '../../../api/photosService';
@@ -18,6 +19,11 @@ interface BuildRightPanelProps {
   onExport: () => void;
   onDownload: () => void;
   downloading: boolean;
+  // The team's shared group photo (back page, full-bleed) — team-wide,
+  // not athlete-specific, so this lives in BuildModule.tsx rather than
+  // this panel's own state.
+  groupPhotoId: string | null;
+  onGroupPhotoChange: (photoId: string | null) => void;
 }
 
 const TEMPLATE_SIZES: TemplateSize[] = [3, 4, 5];
@@ -31,11 +37,31 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   onExport,
   onDownload,
   downloading,
+  groupPhotoId,
+  onGroupPhotoChange,
 }) => {
   const { state, actor, teamName, setBuildTemplate, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
   const dragIndexRef = React.useRef<number | null>(null);
   const [parentEmail, setParentEmail] = useState('');
   const [sendingLink, setSendingLink] = useState(false);
+  const [groupPhotoPickerOpen, setGroupPhotoPickerOpen] = useState(false);
+  const [settingGroupPhoto, setSettingGroupPhoto] = useState(false);
+
+  // Coach-only, same authority as the rest of this panel's team-wide
+  // settings (template, header). Any team photo is eligible, tagged or
+  // not — this isn't scoped to one athlete.
+  async function handleSetGroupPhoto(photoId: string | null) {
+    setSettingGroupPhoto(true);
+    try {
+      const result = await photosService.setGroupPhoto(photoId);
+      onGroupPhotoChange(result);
+      setGroupPhotoPickerOpen(false);
+    } catch (error) {
+      toast.error("Couldn't set the group photo.", { description: getApiErrorMessage(error) });
+    } finally {
+      setSettingGroupPhoto(false);
+    }
+  }
 
   // "Notify parent" — coach-only, same authority as the download button
   // just below it. A family viewing their own athlete is already signed
@@ -199,6 +225,62 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
         </div>
       </div>
 
+      {actor.isCoach && (
+        <div>
+          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+            Team group photo — back page
+          </div>
+          <div className="flex items-center gap-2">
+            {groupPhotoId && photosById.get(groupPhotoId) ? (
+              <img
+                src={photosById.get(groupPhotoId)!.thumbUrl}
+                alt=""
+                className="h-12 w-16 rounded object-cover ring-1 ring-ink-border/60"
+              />
+            ) : (
+              <div className="flex h-12 w-16 items-center justify-center rounded bg-ink-border/30 text-ink-muted">
+                <ImageIcon className="h-4 w-4" />
+              </div>
+            )}
+            <div className="flex flex-col gap-1">
+              <Button size="sm" variant="outline" onClick={() => setGroupPhotoPickerOpen(true)}>
+                {groupPhotoId ? 'Change' : 'Choose photo'}
+              </Button>
+              {groupPhotoId && (
+                <Button size="sm" variant="ghost" className="text-ink-muted" onClick={() => handleSetGroupPhoto(null)} disabled={settingGroupPhoto}>
+                  Remove
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Dialog open={groupPhotoPickerOpen} onOpenChange={setGroupPhotoPickerOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Choose the team group photo</DialogTitle>
+          </DialogHeader>
+          <div className="grid max-h-96 grid-cols-4 gap-2 overflow-y-auto">
+            {Array.from(photosById.values()).map((photo) => (
+              <button
+                key={photo.id}
+                type="button"
+                disabled={settingGroupPhoto}
+                onClick={() => handleSetGroupPhoto(photo.id)}
+                className={cn(
+                  'aspect-square overflow-hidden rounded ring-1 ring-ink-border/60 hover:ring-accent disabled:opacity-50',
+                  groupPhotoId === photo.id && 'ring-2 ring-accent',
+                )}
+              >
+                <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+              </button>
+            ))}
+            {photosById.size === 0 && <p className="col-span-4 text-sm text-ink-muted">No photos uploaded yet.</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="space-y-1.5">
         <div className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Header</div>
         <Input
@@ -231,7 +313,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
           disabled={picks.length < 3 || exportBlocked}
           onClick={onExport}
         >
-          <Download className="h-3.5 w-3.5" /> Export PNG
+          <Download className="h-3.5 w-3.5" /> Export PDF
         </Button>
         <Button size="sm" variant="outline" className="gap-1.5" disabled={downloading} onClick={onDownload}>
           <Download className="h-3.5 w-3.5" /> {downloading ? 'Downloading…' : 'Download photos (ZIP)'}
