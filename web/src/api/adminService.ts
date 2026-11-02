@@ -59,6 +59,24 @@ export interface TeamRequest {
   user?: { name: string | null; email: string };
 }
 
+export interface DemoJob {
+  state: 'idle' | 'running' | 'done' | 'error';
+  step: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+  rows: number;
+  seasonsDone: number;
+  seasonsTotal: number;
+}
+
+export interface DemoTeamStatus {
+  exists: boolean;
+  team?: { id: string; name: string; athleticTeamId: string; currentSeason: number | null; createdAt: string };
+  counts?: { athletes: number; seasons: number; races: number; results: number };
+  job: DemoJob;
+}
+
 export interface ApproveResult {
   team: { id: string; name: string; athleticTeamId: string; joinCode: string };
   claimLink: string;
@@ -106,6 +124,23 @@ export const adminService = {
 
   async declineRequest(id: string, note?: string): Promise<TeamRequest> {
     const response = await api.post<TeamRequest>(`/admin/team-requests/${id}/decline`, { note });
+    return response.data;
+  },
+
+  /** The demo team: does it exist, how big, is a build running. */
+  async demoTeam(): Promise<DemoTeamStatus> {
+    const response = await api.get<DemoTeamStatus>('/admin/demo-team');
+    return response.data;
+  },
+
+  /** Build (or rebuild) the demo team. Answers at once; poll demoTeam() for progress. */
+  async buildDemoTeam(): Promise<{ message: string; job: DemoJob }> {
+    const response = await api.post<{ message: string; job: DemoJob }>('/admin/demo-team');
+    return response.data;
+  },
+
+  async deleteDemoTeam(): Promise<{ deleted: boolean }> {
+    const response = await api.delete<{ deleted: boolean }>('/admin/demo-team');
     return response.data;
   },
 

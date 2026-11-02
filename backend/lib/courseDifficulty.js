@@ -207,6 +207,7 @@ function adjustedTimeSec(timeSec, adjustedPaceSecPerMile, distanceMeters) {
   return adjustedPaceSecPerMile * (distanceMeters / 1609.34);
 }
 
+module.exports.averageDelta = averageDelta;
 module.exports.buildRaceContributors = buildRaceContributors;
 module.exports.computeSeasonAdjustedPaces = computeSeasonAdjustedPaces;
 module.exports.adjustedTimeSec = adjustedTimeSec;
