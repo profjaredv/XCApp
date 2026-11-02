@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { adminService, type TeamRequest } from '@/api/adminService';
 import { UsageCard } from '@/components/admin/UsageCard';
+import { DemoTeamCard } from '@/components/admin/DemoTeamCard';
 import { PageHeader } from '@/components/PageHeader';
 import { accentFor, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
@@ -263,6 +264,8 @@ const AdminDashboardPage: React.FC = () => {
           </Button>
         }
       />
+
+      <DemoTeamCard />
 
       {/* Requests first: this is the queue that used to be invisible. */}
       <Card>
