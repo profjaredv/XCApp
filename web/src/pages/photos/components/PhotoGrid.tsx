@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { PhotoThumb } from './PhotoThumb';
+import { PhotoThumb, type PhotoThumbTag } from './PhotoThumb';
 import { useVirtualizedGrid } from '../hooks/useVirtualizedGrid';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import type { Athlete, Photo, PhotoAthleteTags } from '../state/types';
@@ -32,10 +32,10 @@ function initialsOf(athlete: Athlete | undefined): string {
   return parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0].slice(0, 2);
 }
 
-function labelFor(photo: Photo, taggedWithArmed: boolean, pickedForArmed: boolean, initials: string[]): string {
+function labelFor(photo: Photo, taggedWithArmed: boolean, pickedForArmed: boolean, tags: PhotoThumbTag[]): string {
   const time = new Date(photo.takenAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const parts = [`Photo taken ${time}`];
-  if (initials.length > 0) parts.push(`tagged: ${initials.join(', ')}`);
+  if (tags.length > 0) parts.push(`tagged: ${tags.map((t) => t.initial).join(', ')}`);
   if (taggedWithArmed) parts.push('tagged with armed athlete');
   if (pickedForArmed) parts.push('picked for armed athlete');
   return parts.join(', ');
@@ -205,7 +205,10 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
         >
           {visible.map((photo) => {
             const entries = tags[photo.id] ?? [];
-            const initials = entries.map((t) => initialsOf(athletesById.get(t.athleteId)));
+            const thumbTags: PhotoThumbTag[] = entries.map((t) => ({
+              athleteId: t.athleteId,
+              initial: initialsOf(athletesById.get(t.athleteId)),
+            }));
             const taggedWithArmed = Boolean(armedAthleteId) && entries.some((t) => t.athleteId === armedAthleteId);
             const pickedForArmed = pickedSet.has(photo.id);
             return (
@@ -222,8 +225,8 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
                   selected={selectedSet.has(photo.id)}
                   taggedWithArmed={taggedWithArmed}
                   pickedForArmed={pickedForArmed}
-                  initials={initials}
-                  label={labelFor(photo, taggedWithArmed, pickedForArmed, initials)}
+                  tags={thumbTags}
+                  label={labelFor(photo, taggedWithArmed, pickedForArmed, thumbTags)}
                   onClick={(e) => handleClick(e, photo)}
                   onDoubleClick={() => handleDoubleClick(photo)}
                 />

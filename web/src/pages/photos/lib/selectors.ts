@@ -1,4 +1,4 @@
-import type { Athlete, Photo, PhotoAthleteTags } from '../state/types';
+import type { Athlete, AthletePicks, Photo, PhotoAthleteTags } from '../state/types';
 import type { TagFilter } from '../state/reducer';
 import { isPhotoVisible, type Actor } from './tagRules';
 
@@ -17,12 +17,30 @@ export interface VisiblePhotosArgs {
   timeWindow: { start: string; end: string } | null;
   /** "Tag these now" — scope to one just-finished upload batch. */
   batchFilterPhotoIds?: string[] | null;
+  // The Tag left panel's "Group"/"Filter by athlete" selectors — both null
+  // means no narrowing. Independent of armedAthleteId/tagFilter's 'mine'
+  // (arming is about who tagging applies TO; these are purely about what
+  // the grid shows), so a coach can browse one athlete's or one group's
+  // photos without changing who the next tag action targets.
+  groupFilter?: string | null;
+  athleteFilter?: string | null;
 }
 
 /** The single pipeline every grid (Tag's grid, Build's "tagged photos" list) filters through. */
 export function visiblePhotos(args: VisiblePhotosArgs): Photo[] {
-  const { photos, tags, athletesByIdMap, actor, meetFilter, tagFilter, armedAthleteId, timeWindow, batchFilterPhotoIds } =
-    args;
+  const {
+    photos,
+    tags,
+    athletesByIdMap,
+    actor,
+    meetFilter,
+    tagFilter,
+    armedAthleteId,
+    timeWindow,
+    batchFilterPhotoIds,
+    groupFilter,
+    athleteFilter,
+  } = args;
   const batchSet = batchFilterPhotoIds ? new Set(batchFilterPhotoIds) : null;
 
   return photos
@@ -41,6 +59,18 @@ export function visiblePhotos(args: VisiblePhotosArgs): Photo[] {
       const t = new Date(p.takenAt).getTime();
       return t >= new Date(timeWindow.start).getTime() && t <= new Date(timeWindow.end).getTime();
     })
+    .filter((p) => {
+      if (!groupFilter) return true;
+      const entries = tags[p.id] ?? [];
+      // An untagged photo belongs to no group yet — same "visible so it
+      // can be claimed" reasoning as isPhotoVisible's own untagged rule,
+      // not something a group filter should hide outright (that would
+      // make it impossible to find and tag a new photo of this group
+      // from inside the filtered view).
+      if (entries.length === 0) return true;
+      return entries.some((t) => athletesByIdMap.get(t.athleteId)?.groupIds.includes(groupFilter));
+    })
+    .filter((p) => !athleteFilter || (tags[p.id] ?? []).some((t) => t.athleteId === athleteFilter))
     .sort((a, b) => new Date(a.takenAt).getTime() - new Date(b.takenAt).getTime());
 }
 
@@ -78,4 +108,22 @@ export function searchAthletes(athletes: Athlete[], query: string): Athlete[] {
   const q = query.trim().toLowerCase();
   if (!q) return athletes;
   return athletes.filter((a) => a.name.toLowerCase().includes(q) || a.preferredName?.toLowerCase().includes(q));
+}
+
+/** The Tag/Build left panels' "filter by group" dropdown — null means every group. */
+export function filterByGroup(athletes: Athlete[], groupId: string | null): Athlete[] {
+  if (!groupId) return athletes;
+  return athletes.filter((a) => a.groupIds.includes(groupId));
+}
+
+/**
+ * Build spec, "Collage generation": "generate all" renders a collage "for
+ * every athlete with at least three picks" — and separately, an
+ * opted-out athlete is "skipped by collage generation" outright. Used by
+ * BuildModule.tsx's handleGenerateAll; the single-athlete "Export PNG"
+ * button has no pick-count floor (a coach there already chose that one
+ * athlete deliberately) but still skips an opted-out athlete the same way.
+ */
+export function eligibleForCollage(athletes: Athlete[], picks: AthletePicks): Athlete[] {
+  return athletes.filter((a) => !a.photosOptOut && (picks[a.id]?.length ?? 0) >= 3);
 }

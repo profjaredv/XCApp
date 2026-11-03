@@ -25,14 +25,31 @@ function normalizeRoute(pathname) {
   return joined || '/';
 }
 
-const COACH_TEAM_ROLES = ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'];
+const COACH_TEAM_ROLES = ['COACH', 'VOLUNTEER_COACH'];
 
 // Coarse bucket only — never a user id, never which specific coach/athlete.
-function roleForLogging({ teamRole, isSuperAdmin }) {
+// Head coaches are their own bucket (docs/leadpack-new-ui-trial.md §1.2):
+// the UI trial is judged per role, and the head coach uses the app
+// differently from an assistant. "parent" is a user with no team role who
+// holds at least one approved GuardianLink — the caller resolves that (one
+// count query, see lib/loggingRole.js) and passes the boolean in, so this
+// stays pure.
+function roleForLogging({ teamRole, isSuperAdmin, isGuardian = false }) {
   if (isSuperAdmin) return 'super_admin';
+  if (teamRole === 'HEAD_COACH') return 'head_coach';
   if (COACH_TEAM_ROLES.includes(teamRole)) return 'coach';
   if (teamRole === 'ATHLETE') return 'athlete';
+  if (!teamRole && isGuardian) return 'parent';
   return 'other';
 }
 
-module.exports = { normalizeRoute, roleForLogging };
+// The two UI shells of the trial. Anything else a client sends — a typo, an
+// old build, a hand-crafted request — is stored as "classic", the shell
+// that existed before the trial, rather than as free text.
+const UI_VERSIONS = ['classic', 'next'];
+
+function normalizeUi(value) {
+  return UI_VERSIONS.includes(value) ? value : 'classic';
+}
+
+module.exports = { normalizeRoute, roleForLogging, normalizeUi, UI_VERSIONS };

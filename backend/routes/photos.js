@@ -9,15 +9,24 @@ const r2 = require('../lib/r2');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/teamFeatures');
 const { resolvePhotosTeam, requirePhotosFeatureEnabled } = require('../middleware/photosTeam');
+const { isFeatureEnabled } = require('../lib/teamFeatures');
 const { authenticateUserOrVolunteer } = require('../middleware/photosVolunteer');
 const photosVolunteerAccess = require('../lib/photosVolunteerAccess');
 const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
 const { resolveActiveSeason, deriveGrade, isEnrolled } = require('../lib/season');
 const photosAccess = require('../lib/photosAccess');
 const photoBuildStats = require('../lib/photoBuildStats');
+const { getActiveMembershipsForTeamSeason } = require('../lib/groups');
 const { importGoogleAlbum, validateGooglePhotosUrl } = require('../lib/googlePhotosImport');
 const googlePhotosImportJobs = require('../lib/googlePhotosImportJobs');
+const { sendEmail } = require('../lib/email');
 const { MAX_PICKS } = photosAccess;
+
+// Same fallback every other email-sending route uses (routes/athletes.js,
+// routes/admin.js, routes/team.js) — repeated per-file rather than shared,
+// matching how those already do it.
+const FRONTEND_URL = process.env.FRONTEND_URL
+  || (process.env.NODE_ENV === 'production' ? 'https://www.leadpack.cc' : 'http://localhost:5173');
 
 // LeadPack Photos (build spec: docs/leadpack-photos-build-spec.md), Phases
 // 3 ("Upload"), 4 ("Tagging"), and 5 ("Picks and collage" — the metadata
@@ -74,6 +83,32 @@ const googleImportLimiter = rateLimit({
   message: { msg: 'Too many album imports in a row. Try again in an hour.' },
 });
 
+// Sends a real email to an address a coach typed in, so a generous but
+// finite ceiling — about not letting a typo'd or malicious loop spam one
+// inbox or burn through the team's email quota, not about normal day-to-
+// day use (this is a once-or-twice-per-athlete action).
+const downloadLinkLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
+  message: { msg: 'Too many download links sent in a row. Try again in an hour.' },
+});
+
+// A token-link request has no session to key a limiter on — IP is the
+// only thing available, same as volunteerLoginLimiter below. Generous
+// since a parent re-opening the same email link several times (or a
+// household sharing one IP) is completely normal.
+const downloadLinkAccessLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { msg: 'Too many attempts. Try again in a few minutes.' },
+});
+
 async function attachPhotoActor(req, res, next) {
   try {
     if (req.isPhotoVolunteer) {
@@ -81,7 +116,15 @@ async function attachPhotoActor(req, res, next) {
       // authorizeTag. userId stays null — there's no account to
       // attribute a volunteer's tags to (photo_athletes.tagged_by is
       // nullable for exactly this).
-      req.photoActor = { userId: null, isCoach: false, isVolunteer: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+      req.photoActor = {
+        userId: null,
+        isCoach: false,
+        isVolunteer: true,
+        selfAthleteId: null,
+        guardianAthleteIds: [],
+        linkedAthleteIds: [],
+        ledGroupIds: [],
+      };
       return next();
     }
     const teamId = req.photosTeamId || req.user.teamId;
@@ -160,13 +203,48 @@ router.put('/tag-password', authenticate, requireFeature('photos'), requireTeam,
 // approved guardian link for. The frontend builds its Actor from this
 // instead of a dev-only role toggle.
 router.get('/me', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  // teamName: the Build module's collage subtitle default — resolved the
+  // same way for a coach, an athlete, or a guardian (req.photosTeamId
+  // already accounts for a guardian never being a TeamMember; GET
+  // /teams/context, the app's usual source for a team's name, requires
+  // req.user.teamId and 403s for exactly that persona).
+  const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { name: true } });
   res.json({
     userId: req.photoActor.userId,
     isCoach: req.photoActor.isCoach,
     isVolunteer: Boolean(req.photoActor.isVolunteer),
     selfAthleteId: req.photoActor.selfAthleteId,
     guardianAthleteIds: req.photoActor.guardianAthleteIds,
+    ledGroupIds: req.photoActor.ledGroupIds,
+    teamName: team?.name ?? null,
   });
+});
+
+// GET/PUT /api/photos/group-photo — the one photo shared across every
+// athlete's collage back page and the Slideshow collection's template
+// (lib/photosAccess.js's setGroupPhoto). Read is open to anyone
+// resolvePhotosTeam lets through, same as the rest of Build; only a
+// coach can set it. Body/response shape: { photoId: string | null }.
+router.get('/group-photo', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { groupPhotoId: true } });
+    res.json({ photoId: team?.groupPhotoId ?? null });
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/group-photo:');
+  }
+});
+
+router.put('/group-photo', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  const { photoId } = req.body || {};
+  if (photoId !== null && typeof photoId !== 'string') {
+    return res.status(400).json({ msg: 'photoId (or null to clear it) is required.' });
+  }
+  try {
+    const team = await photosAccess.setGroupPhoto(prisma, req.photosTeamId, photoId, req.photoActor);
+    res.json({ photoId: team.groupPhotoId });
+  } catch (error) {
+    sendAccessError(res, error, 'Error in PUT /photos/group-photo:');
+  }
 });
 
 // GET /api/photos/roster — the team's athletes (id, name, preferredName,
@@ -209,8 +287,29 @@ router.get('/roster', authenticateUserOrVolunteer, resolvePhotosTeam, requirePho
       return (raceCountByAthlete.get(a.id) ?? 0) > 0 || isEnrolled(a.graduationYear, seasonYear);
     });
 
-    res.json(
-      onCurrentRoster.map((a) => {
+    // Group filter + coverage data (LeadPack Photos' "filter by group" /
+    // captain coverage view) — every group for this team's active season,
+    // plus which of those groups each athlete on the roster currently
+    // belongs to. Both come back empty when the team has no Season row
+    // yet, same as the roster-grade fallback above.
+    const [groups, memberships] = seasonRow
+      ? await Promise.all([
+          prisma.group.findMany({
+            where: { teamId: req.photosTeamId, seasonId: seasonRow.id, archived: false },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+          }),
+          getActiveMembershipsForTeamSeason(req.photosTeamId, seasonRow.id),
+        ])
+      : [[], []];
+    const groupIdsByAthlete = new Map();
+    for (const m of memberships) {
+      const ids = groupIdsByAthlete.get(m.athleteId) ?? [];
+      ids.push(m.groupId);
+      groupIdsByAthlete.set(m.athleteId, ids);
+    }
+
+    res.json({
+      athletes: onCurrentRoster.map((a) => {
         const rosterEntry = rosterEntryByAthlete.get(a.id);
         return {
           id: a.id,
@@ -218,9 +317,11 @@ router.get('/roster', authenticateUserOrVolunteer, resolvePhotosTeam, requirePho
           preferredName: a.preferredName,
           grade: rosterEntry?.grade ?? deriveGrade(a.graduationYear, seasonYear),
           photosOptOut: a.photosOptOut,
+          groupIds: groupIdsByAthlete.get(a.id) ?? [],
         };
       }),
-    );
+      groups: groups.map((g) => ({ id: g.id, name: g.name, type: g.type, color: g.color })),
+    });
   } catch (error) {
     sendAccessError(res, error, 'Error in GET /photos/roster:');
   }
@@ -352,12 +453,11 @@ router.post('/import/google-album', authenticate, requireFeature('photos'), requ
     meetId,
     albumUrl: validatedUrl,
     uploadedById: req.user.id,
-    onFound: ({ total, importing }) => {
-      googlePhotosImportJobs.updateJob(job.id, {
-        status: 'running',
-        total,
-        items: Array.from({ length: importing }, (_, i) => ({ id: `item-${i}`, status: 'queued' })),
-      });
+    onFound: ({ total }) => {
+      // items starts empty and grows as onItemStatus reports each one —
+      // there's no longer one fixed count to pre-seed it with (see
+      // lib/googlePhotosImport.js's own comment on why).
+      googlePhotosImportJobs.updateJob(job.id, { status: 'running', total });
     },
     onItemStatus: (index, patch) => googlePhotosImportJobs.setItemStatus(job.id, index, patch),
   })
@@ -420,6 +520,8 @@ router.get('/', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFea
             athleteId: t.athleteId,
             source: t.source.toLowerCase(),
             taggedBy: t.taggedBy,
+            focalX: t.focalX,
+            focalY: t.focalY,
           })),
         };
       }),
@@ -446,6 +548,43 @@ router.get('/:id/original', authenticateUserOrVolunteer, resolvePhotosTeam, requ
   }
 });
 
+// GET /api/photos/:id/web — the web-size image, proxied through this
+// server rather than a presigned R2 URL. Built specifically for the
+// Build module's export canvas (web/src/pages/photos/lib/collageRender.ts),
+// which loads images with crossOrigin="anonymous" so canvas.toDataURL()
+// doesn't throw — and that mode requires R2's CORS response headers to
+// survive the round trip over whatever network the browser is on. A
+// school/district content filter or TLS-inspecting proxy can (and in
+// practice does) strip response headers like Access-Control-Allow-Origin
+// while still letting the image bytes through unmarked, which makes a
+// plain <img> (the on-screen preview, no crossOrigin) work fine while the
+// export fails with what looks like a CORS error no R2 bucket setting can
+// fix — the request never left their network with the header intact. This
+// route sidesteps the whole dependency: same-origin as the app itself
+// (this API shares an origin with the frontend in production — see
+// server.js's static-file serving), so the browser never needs a CORS
+// response at all, regardless of what's inspecting traffic in between.
+router.get('/:id/web', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    const photo = await photosAccess.getTeamPhoto(prisma, req.photosTeamId, req.params.id);
+    if (!photo || photo.status === 'HIDDEN') {
+      return res.status(404).json({ msg: 'Photo not found.' });
+    }
+    const stream = await r2.getObjectStream(r2.photoWebKey(req.photosTeamId, photo.id));
+    res.setHeader('Content-Type', 'image/webp');
+    // Private: this is one team's own photo, not a public asset — a shared
+    // cache (a school's proxy included) must not keep a copy.
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    stream.on('error', (err) => {
+      console.error(`Photo web-proxy stream failed for ${photo.id}:`, err.message);
+      res.destroy();
+    });
+    stream.pipe(res);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/:id/web:');
+  }
+});
+
 // POST /api/photos/:id/tags — Tag module. Body: { athleteId }.
 router.post('/:id/tags', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { athleteId } = req.body || {};
@@ -465,6 +604,23 @@ router.delete('/:id/tags/:athleteId', authenticateUserOrVolunteer, resolvePhotos
     res.json(result);
   } catch (error) {
     sendAccessError(res, error, 'Error in DELETE /photos/:id/tags/:athleteId:');
+  }
+});
+
+// PUT /api/photos/:id/tags/:athleteId/focal — Build module's "move the
+// photo to see faces" drag. Body: { focalX, focalY }, each 0-1. Plain
+// authenticate (not the volunteer-session middleware): a no-account
+// tagging session can tag a photo but never touches collage layout.
+router.put('/:id/tags/:athleteId/focal', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  const { focalX, focalY } = req.body || {};
+  if (typeof focalX !== 'number' || typeof focalY !== 'number') {
+    return res.status(400).json({ msg: 'focalX and focalY (numbers) are required.' });
+  }
+  try {
+    const tag = await photosAccess.setPhotoFocal(prisma, req.photosTeamId, req.params.id, req.params.athleteId, focalX, focalY, req.photoActor);
+    res.json({ athleteId: tag.athleteId, focalX: tag.focalX, focalY: tag.focalY });
+  } catch (error) {
+    sendAccessError(res, error, 'Error in PUT /photos/:id/tags/:athleteId/focal:');
   }
 });
 
@@ -497,6 +653,90 @@ router.put('/picks/:athleteId', authenticate, resolvePhotosTeam, requirePhotosFe
   } catch (error) {
     sendAccessError(res, error, 'Error in PUT /photos/picks/:athleteId:');
   }
+});
+
+// --- Slideshow collection ---------------------------------------------
+//
+// A coach's flat, ordered photo collection for an end-of-season
+// slideshow — browsed and curated from the Slideshow module (NOT the
+// Build module's per-athlete picks). Coach-only end to end; the actor
+// check lives in lib/photosAccess.js, same as every other write here.
+
+// GET /api/photos/slideshow — ordered photo ids (add order), for the
+// active season. The Slideshow module already has full photo metadata
+// via GET /photos, so this stays a plain id list rather than duplicating
+// thumbUrl/webUrl here.
+router.get('/slideshow', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    const items = await photosAccess.listSlideshowItems(prisma, req.photosTeamId, req.photoActor);
+    res.json(items.map((i) => i.photoId));
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/slideshow:');
+  }
+});
+
+// POST/DELETE /api/photos/slideshow/:photoId — add/remove one photo.
+// Both return the full updated ordered list, so the Slideshow module
+// never has to make a second round trip to stay in sync with the
+// server's own order.
+router.post('/slideshow/:photoId', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    await photosAccess.addSlideshowItem(prisma, req.photosTeamId, req.params.photoId, req.photoActor);
+    const items = await photosAccess.listSlideshowItems(prisma, req.photosTeamId, req.photoActor);
+    res.json(items.map((i) => i.photoId));
+  } catch (error) {
+    sendAccessError(res, error, 'Error in POST /photos/slideshow/:photoId:');
+  }
+});
+
+router.delete('/slideshow/:photoId', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    await photosAccess.removeSlideshowItem(prisma, req.photosTeamId, req.params.photoId, req.photoActor);
+    const items = await photosAccess.listSlideshowItems(prisma, req.photosTeamId, req.photoActor);
+    res.json(items.map((i) => i.photoId));
+  } catch (error) {
+    sendAccessError(res, error, 'Error in DELETE /photos/slideshow/:photoId:');
+  }
+});
+
+// GET /api/photos/slideshow/download — every READY photo in the
+// collection, zipped in add order. Filenames are zero-padded indexes
+// (not opaque photo ids like the other download routes) ON PURPOSE: a
+// slideshow tool that imports a folder typically plays files back in
+// filename order, so this is the one download where order has to survive
+// the ZIP — see lib/photosAccess.js's listSlideshowPhotosForDownload.
+router.get('/slideshow/download', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  let photos;
+  try {
+    photos = await photosAccess.listSlideshowPhotosForDownload(prisma, req.photosTeamId, req.photoActor);
+  } catch (error) {
+    return sendAccessError(res, error, 'Error in GET /photos/slideshow/download:');
+  }
+  if (photos.length === 0) {
+    return res.status(404).json({ msg: 'The slideshow collection is empty.' });
+  }
+
+  const archive = new ZipArchive({ zlib: { level: 6 } });
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename="leadpack-slideshow-photos.zip"');
+
+  archive.on('error', (err) => {
+    console.error('Slideshow download archive failed:', err.message);
+    res.destroy();
+  });
+  archive.pipe(res);
+
+  const pad = String(photos.length).length;
+  for (let i = 0; i < photos.length; i++) {
+    const photo = photos[i];
+    try {
+      const stream = await r2.getObjectStream(photo.objectKey);
+      archive.append(stream, { name: `${String(i + 1).padStart(pad, '0')}.jpg` });
+    } catch (error) {
+      console.error(`Slideshow download: skipped ${photo.id} (${error.message})`);
+    }
+  }
+  await archive.finalize();
 });
 
 // POST /api/photos/:id/hide and /unhide — coach only, reversible (spec:
@@ -614,6 +854,147 @@ router.get('/athletes/:athleteId/download', authenticate, resolvePhotosTeam, req
       // "one bad file doesn't fail the batch" principle as everywhere
       // else in this feature.
       console.error(`Photo download: skipped ${photo.id} (${error.message})`);
+    }
+  }
+  await archive.finalize();
+});
+
+// GET /api/photos/groups/:groupId/download — "export this group's
+// photos": every READY photo tagged with any athlete CURRENTLY active in
+// the group, full resolution, as one ZIP. Coach-only — same reasoning as
+// the per-athlete download route above (a bulk export of originals, not
+// the read-only coverage view a captain's ledGroupIds grants).
+router.get('/groups/:groupId/download', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), attachPhotoActor, async (req, res) => {
+  let photos;
+  try {
+    photos = await photosAccess.listGroupPhotosForDownload(prisma, req.photosTeamId, req.params.groupId, req.photoActor);
+  } catch (error) {
+    return sendAccessError(res, error, 'Error in GET /photos/groups/:groupId/download:');
+  }
+  if (photos.length === 0) {
+    return res.status(404).json({ msg: 'No photos found for that group yet.' });
+  }
+
+  const archive = new ZipArchive({ zlib: { level: 6 } });
+  // Opaque id only, same privacy rule as the per-athlete download above —
+  // no group name in the filename either, consistent with "no athlete
+  // name ever appears in a key, URL, or download filename."
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="leadpack-photos-group-${req.params.groupId}.zip"`);
+
+  archive.on('error', (err) => {
+    console.error('Group photo download archive failed:', err.message);
+    res.destroy();
+  });
+  archive.pipe(res);
+
+  for (const photo of photos) {
+    try {
+      const stream = await r2.getObjectStream(photo.objectKey);
+      archive.append(stream, { name: `${photo.id}.jpg` });
+    } catch (error) {
+      console.error(`Group photo download: skipped ${photo.id} (${error.message})`);
+    }
+  }
+  await archive.finalize();
+});
+
+// POST /api/photos/athletes/:athleteId/download-link — "email the parent a
+// download link": coach-only. Body: { email }. Mints a PhotoDownloadLink
+// (lib/photosAccess.js) and best-effort emails it — the coach still gets
+// the raw link back either way (same "a down or unconfigured eusend never
+// blocks the action" pattern as routes/athletes.js's invite email), so the
+// frontend can fall back to a copy-link UI if emailSent comes back false.
+router.post('/athletes/:athleteId/download-link', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), attachPhotoActor, downloadLinkLimiter, async (req, res) => {
+  const { email } = req.body || {};
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    return res.status(400).json({ msg: 'A valid email is required.' });
+  }
+  let link;
+  try {
+    link = await photosAccess.createPhotoDownloadLink(prisma, req.photosTeamId, req.params.athleteId, req.photoActor, email);
+  } catch (error) {
+    return sendAccessError(res, error, 'Error in POST /photos/athletes/:athleteId/download-link:');
+  }
+
+  const downloadUrl = `${FRONTEND_URL}/photos/download/${link.token}`;
+  let emailSent = false;
+  try {
+    const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { name: true } });
+    const result = await sendEmail({
+      to: email,
+      subject: `Your photos from ${team?.name ?? 'your team'} are ready to download`,
+      html:
+        `<p>${req.user.name || 'Your coach'} sent you a link to download this season's tagged photos.</p>`
+        + `<p><a href="${downloadUrl}">${downloadUrl}</a></p>`
+        + `<p>This link works until ${link.expiresAt.toDateString()} — no account or login needed.</p>`,
+    });
+    emailSent = result.sent;
+  } catch (error) {
+    console.error('Error sending photo download link email:', error.message);
+  }
+
+  res.status(201).json({ emailSent, downloadUrl, expiresAt: link.expiresAt });
+});
+
+// GET /api/photos/download-link/:token — unauthenticated on purpose: the
+// token itself is the only check (see PhotoDownloadLink's schema comment
+// on why this is deliberately not the "public share link" the build spec
+// otherwise bars). Returns just enough to render the landing page — never
+// the photos themselves, that's the companion /zip route below.
+router.get('/download-link/:token', downloadLinkAccessLimiter, async (req, res) => {
+  try {
+    const link = await photosAccess.resolvePhotoDownloadLink(prisma, req.params.token);
+    // A link minted before the team turned Photos off should behave like
+    // every other Photos route once it's off — closed, not grandfathered.
+    if (!isFeatureEnabled(link.team.features, 'photos')) {
+      return res.status(403).json({ msg: 'This team has turned Photos off.', code: 'FEATURE_DISABLED', feature: 'photos' });
+    }
+    res.json({
+      athleteName: link.athlete.preferredName || link.athlete.name,
+      teamName: link.team.name,
+      expiresAt: link.expiresAt,
+    });
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/download-link/:token:');
+  }
+});
+
+// GET /api/photos/download-link/:token/zip — the actual download. Separate
+// from the info route above so a link preview/safety-scan that only ever
+// GETs the landing page's own API call never also streams the full ZIP.
+router.get('/download-link/:token/zip', downloadLinkAccessLimiter, async (req, res) => {
+  let link;
+  try {
+    link = await photosAccess.resolvePhotoDownloadLink(prisma, req.params.token);
+  } catch (error) {
+    return sendAccessError(res, error, 'Error in GET /photos/download-link/:token/zip:');
+  }
+  if (!isFeatureEnabled(link.team.features, 'photos')) {
+    return res.status(403).json({ msg: 'This team has turned Photos off.', code: 'FEATURE_DISABLED', feature: 'photos' });
+  }
+  const photos = await photosAccess.listPhotosForDownloadLinkTarget(prisma, link.teamId, link.athleteId);
+  if (photos.length === 0) {
+    return res.status(404).json({ msg: 'No photos found yet.' });
+  }
+
+  const archive = new ZipArchive({ zlib: { level: 6 } });
+  // Opaque id only, same privacy rule as every other download route.
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="leadpack-photos-${link.athleteId}.zip"`);
+
+  archive.on('error', (err) => {
+    console.error('Photo download-link archive failed:', err.message);
+    res.destroy();
+  });
+  archive.pipe(res);
+
+  for (const photo of photos) {
+    try {
+      const stream = await r2.getObjectStream(photo.objectKey);
+      archive.append(stream, { name: `${photo.id}.jpg` });
+    } catch (error) {
+      console.error(`Photo download-link: skipped ${photo.id} (${error.message})`);
     }
   }
   await archive.finalize();

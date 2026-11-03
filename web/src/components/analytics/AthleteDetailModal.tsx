@@ -11,11 +11,13 @@ import { SplitsAggregateSummary } from '@/components/splits/SplitsAggregateSumma
 import { useAthleteSplitsAggregate } from '@/hooks/useSplits';
 import { useCareerComparison } from '@/hooks/usePerformanceMetrics';
 import { formatTime, formatPace } from '@/lib/formatUtils';
+import { bestFiveK, formatFiveK } from '@/lib/fiveK';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { CourseAdjustedProgressionCard } from '@/components/athletes/CourseAdjustedProgressionCard';
 import { AthleteAdminPanel } from '@/components/athletes/AthleteAdminPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import { enrichRacesWithPRs, getPRBadgeStyle } from '@/utils/prTracking';
+import { isTimeTrial } from '@/lib/timeTrial';
 import type { Athlete, Race } from '@/types/analytics';
 
 interface RaceData {
@@ -181,7 +183,9 @@ export const AthleteDetailModal = ({
   // where no races actually happened.
   const paceChartData = useMemo(() => {
     const points = sortedRaces
-      .filter((race) => race.distanceMi > 0)
+      // A 1-mile time trial is a fitness test, not a race pace: plotted beside
+      // 5K paces it fakes a huge swing, and it drags the trend line.
+      .filter((race) => race.distanceMi > 0 && !isTimeTrial(race.name, race.distanceMi * 1609.344))
       .map((race) => ({
         date: new Date(race.date).getTime(),
         season: race.season || 2022,
@@ -258,7 +262,8 @@ export const AthleteDetailModal = ({
   // Add PR and SB data to career summary
   const enhancedCareerSummary = {
     ...(careerSummary || {}),
-    prBest5K: enhancedSelectedAthlete?.prBest5K || enhancedSelectedAthlete?.bestTime || 0,
+    // Career best across every season first; the single-season best only as a last resort.
+    prBest5K: enhancedSelectedAthlete?.prBest5K || (careerSummary && 'best5kTime' in careerSummary ? careerSummary.best5kTime : 0) || enhancedSelectedAthlete?.bestTime || 0,
     sbBest5K: enhancedSelectedAthlete?.bestTime || 0
   };
 
@@ -312,11 +317,11 @@ export const AthleteDetailModal = ({
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50">
                   <p className="text-sm text-muted-foreground uppercase">PR 5K</p>
-                  <p className="text-2xl font-bold">{enhancedCareerSummary.prBest5K ? formatTime(enhancedCareerSummary.prBest5K) : 'N/A'}</p>
+                  <p className="text-2xl font-bold">{formatFiveK(enhancedCareerSummary.prBest5K)}</p>
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50">
                   <p className="text-sm text-muted-foreground uppercase">SB 5K</p>
-                  <p className="text-2xl font-bold">{enhancedCareerSummary.sbBest5K ? formatTime(enhancedCareerSummary.sbBest5K) : 'N/A'}</p>
+                  <p className="text-2xl font-bold">{formatFiveK(enhancedCareerSummary.sbBest5K)}</p>
                 </div>
               </div>
               <AthleteProgressChart
@@ -334,8 +339,9 @@ export const AthleteDetailModal = ({
                     <p className="text-sm text-muted-foreground">Best 5K times by season</p>
                   </CardHeader>
                   <CardContent>
+                    {seasonBreakdown.some((s) => s.best5kTime > 0) ? (
                     <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={seasonBreakdown}>
+                      <BarChart data={seasonBreakdown.filter((s) => s.best5kTime > 0)}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="season" />
                         <YAxis 
@@ -346,9 +352,14 @@ export const AthleteDetailModal = ({
                           formatter={(value: number) => [formatTime(value), 'Best 5K']}
                           labelFormatter={(label) => `${label} Season`}
                         />
-                        <Bar dataKey="best5kTime" fill="#2563eb" />
+                        <Bar dataKey="best5kTime" fill="var(--chart-1)" />
                       </BarChart>
                     </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-40 items-center justify-center text-center text-sm text-muted-foreground">
+                        No 5K yet. A season shows here once there is a race of about 3.1 miles.
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -368,11 +379,11 @@ export const AthleteDetailModal = ({
                         </div>
                         <div className="p-3 rounded-lg bg-muted/50">
                           <p className="text-xs text-muted-foreground uppercase">Avg Pace</p>
-                          <p className="text-xl font-bold">{formatPace(s.avgPace)}</p>
+                          <p className="text-xl font-bold">{s.avgPace > 0 ? formatPace(s.avgPace) : '—'}</p>
                         </div>
                         <div className="p-3 rounded-lg bg-muted/50">
                           <p className="text-xs text-muted-foreground uppercase">SB 5K</p>
-                          <p className="text-xl font-bold">{formatTime(s.best5kTime)}</p>
+                          <p className="text-xl font-bold">{formatFiveK(s.best5kTime)}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -418,6 +429,9 @@ export const AthleteDetailModal = ({
                             domain={['dataMin - 15', 'dataMax + 15']}
                           />
                           <Tooltip
+                            // Long meet names must wrap inside the card instead of running past its edge on a phone.
+                            wrapperStyle={{ maxWidth: '75%', zIndex: 20 }}
+                            contentStyle={{ whiteSpace: 'normal' }}
                             formatter={(value: number | null, name: string) =>
                               value == null ? ['—', name] : [formatPace(value), name]
                             }
@@ -430,7 +444,7 @@ export const AthleteDetailModal = ({
                           <Line
                             type="monotone"
                             dataKey="pace"
-                            stroke="#2563eb"
+                            stroke="var(--chart-1)"
                             strokeWidth={2}
                             name="Pace (min/mi)"
                             connectNulls={false}
@@ -439,7 +453,7 @@ export const AthleteDetailModal = ({
                           <Line
                             type="linear"
                             dataKey="trend"
-                            stroke="#f97316"
+                            stroke="var(--chart-2)"
                             strokeWidth={2}
                             strokeDasharray="6 4"
                             name="Trend"
@@ -463,13 +477,61 @@ export const AthleteDetailModal = ({
                     <CardTitle>All Races</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="max-h-[400px] overflow-auto">
+                    {/* Phone: one card per race, so time and pace are never off-screen. */}
+                    <ul className="space-y-3 md:hidden" aria-label="Races">
+                      {sortedRaces.map((race, idx) => {
+                        const prBadge = getPRBadgeStyle(race.isPR || false, race.isSeasonPR || false);
+                        return (
+                          <li key={idx} className={`rounded-lg border p-3 ${prBadge.className}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="min-w-0 break-words font-medium">{race.name}</p>
+                              <span className="shrink-0 space-x-1">
+                                {race.isPR && <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-200 dark:bg-yellow-800 text-yellow-900 dark:text-yellow-100 font-bold">PR</span>}
+                                {race.isSeasonPR && !race.isPR && <span className="text-xs px-1.5 py-0.5 rounded bg-blue-200 dark:bg-blue-800 text-blue-900 dark:text-blue-100 font-semibold">SB</span>}
+                              </span>
+                            </div>
+                            {race.division && <p className="text-xs text-muted-foreground">{race.division}</p>}
+                            <p className="mt-1 text-xs text-muted-foreground">{race.season} · {race.distanceMi.toFixed(2)} mi</p>
+                            <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                              <div>
+                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Time</p>
+                                <p className={race.isPR ? 'font-bold' : 'font-medium'}>{formatTime(race.time)}</p>
+                              </div>
+                              <div>
+                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Pace</p>
+                                <p className="font-medium">{formatPace(race.time / race.distanceMi)}</p>
+                              </div>
+                              {race.teamPlace != null && (
+                                <div>
+                                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Team place</p>
+                                  <p className="font-medium">#{race.teamPlace}</p>
+                                </div>
+                              )}
+                              {race.place != null && (
+                                <div>
+                                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Place</p>
+                                  <p className="font-medium">
+                                    #{race.place}{race.fieldSize ? ` of ${race.fieldSize}` : ''}
+                                    {race.overallPlace != null && (
+                                      <span className="block text-xs font-normal text-muted-foreground">
+                                        Overall #{race.overallPlace}{race.overallFieldSize ? ` of ${race.overallFieldSize}` : ''}
+                                      </span>
+                                    )}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <div className="hidden max-h-[400px] overflow-auto md:block">
                       <table className="w-full text-sm min-w-[500px]">
                         <thead>
                           <tr className="border-b">
                             <th className="text-left p-2">
                               <button 
-                                className="flex items-center gap-1 hover:text-blue-600"
+                                className="flex items-center gap-1 hover:text-primary"
                                 onClick={() => handleSort('meet')}
                               >
                                 Meet
@@ -480,7 +542,7 @@ export const AthleteDetailModal = ({
                             </th>
                             <th className="text-right p-2">
                               <button 
-                                className="flex items-center gap-1 hover:text-blue-600 ml-auto"
+                                className="flex items-center gap-1 hover:text-primary ml-auto"
                                 onClick={() => handleSort('season')}
                               >
                                 Season
@@ -491,7 +553,7 @@ export const AthleteDetailModal = ({
                             </th>
                             <th className="text-right p-2">
                               <button 
-                                className="flex items-center gap-1 hover:text-blue-600 ml-auto"
+                                className="flex items-center gap-1 hover:text-primary ml-auto"
                                 onClick={() => handleSort('distance')}
                               >
                                 Distance
@@ -502,7 +564,7 @@ export const AthleteDetailModal = ({
                             </th>
                             <th className="text-right p-2">
                               <button 
-                                className="flex items-center gap-1 hover:text-blue-600 ml-auto"
+                                className="flex items-center gap-1 hover:text-primary ml-auto"
                                 onClick={() => handleSort('time')}
                               >
                                 Time
@@ -513,7 +575,7 @@ export const AthleteDetailModal = ({
                             </th>
                             <th className="text-right p-2">
                               <button 
-                                className="flex items-center gap-1 hover:text-blue-600 ml-auto"
+                                className="flex items-center gap-1 hover:text-primary ml-auto"
                                 onClick={() => handleSort('pace')}
                               >
                                 Pace
@@ -660,7 +722,13 @@ export const AthleteDetailModal = ({
                   // drift out of sync (a stale cached time next to a race
                   // name that actually ran a different time), and could even
                   // let an 8K "win" a headline explicitly labeled 5K.
-                  const best5kEntry = racesByDistance['5K'];
+                  // F5: only a race that really is a 5K — the "5K" bucket
+                  // above spans 2.75–3.5mi, so a 3-mile race could headline
+                  // as "Season Best 5K".
+                  const best5kRace = bestFiveK(
+                    allSeasonsRaces.filter((r) => r.season === currentSeasonData.season)
+                  );
+                  const best5kEntry = best5kRace ? { time: best5kRace.time, raceName: best5kRace.name } : undefined;
                   const bestRaceName = best5kEntry?.raceName || '';
 
                   // The actual 1-mile PR — a real 1-mile race result, not
@@ -745,7 +813,10 @@ export const AthleteDetailModal = ({
                     // same bucketed "5K" lookup now, instead of pairing a
                     // separately cached prBest5K with a race name derived
                     // from an unbucketed min() that could point at an 8K.
-                    const best5kCareerEntry = careerRacesByDistance['5K'];
+                    const best5kCareerRace = bestFiveK(allSeasonsRaces);
+                    const best5kCareerEntry = best5kCareerRace
+                      ? { time: best5kCareerRace.time, raceName: best5kCareerRace.name }
+                      : undefined;
                     const bestCareerRaceName = best5kCareerEntry?.raceName || '';
 
                     // A real career 1-mile PR, not the best per-mile pace

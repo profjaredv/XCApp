@@ -65,9 +65,9 @@ describe('program numbers', () => {
     expect(overview).toContain('nothing to have returned from');
   });
 
-  it('plots pace and pack spread with faster at the top', () => {
-    // Lower is faster; an un-reversed axis draws improvement as a decline.
-    expect(overview.match(/<YAxis reversed/g) ?? []).toHaveLength(2);
+  it('plots pace and pack spread with lower as faster, never a reversed axis', () => {
+    // A faster (or tighter) team sits lower on the chart, everywhere in the app.
+    expect(overview).not.toMatch(/<YAxis[^>]*\breversed\b/);
   });
 
   it('carries n on every pace point', () => {

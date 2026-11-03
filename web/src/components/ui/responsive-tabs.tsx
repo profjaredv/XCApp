@@ -66,9 +66,15 @@ export function ResponsiveTabsList({
           ))}
         </SelectContent>
       </Select>
-      <TabsList className={cn("hidden md:inline-flex", className)} {...props}>
-        {children}
-      </TabsList>
+      {/* The breakpoint lives on a wrapper, not the TabsList: callers pass
+          layout classes like "grid w-full grid-cols-2", and tailwind-merge
+          let that "grid" override "hidden", so phones showed the dropdown
+          and the tab row together. */}
+      <div className="hidden md:contents">
+        <TabsList className={cn("md:inline-flex", className)} {...props}>
+          {children}
+        </TabsList>
+      </div>
     </>
   )
 }

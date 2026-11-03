@@ -4,6 +4,8 @@ const { customAlphabet } = require('nanoid');
 const prisma = require('../lib/db');
 const { authenticate, requireSuperAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../lib/email');
+const demoTeam = require('../lib/demo');
+const { TEAM: DEMO_TEAM, DEMO_EMAIL_DOMAIN } = require('../lib/demo/catalog');
 
 const generateJoinCode = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 const CLAIM_TTL_DAYS = 30;
@@ -116,6 +118,46 @@ router.post('/teams', authenticate, requireSuperAdmin, async (req, res) => {
 
 
 // ---------------------------------------------------------------------------
+// The demo team: a made-up program with eight seasons of data, for showing the
+// product. Super-admin only. Everything it creates belongs to one team with a
+// fixed ID (lib/demo/catalog.js) and invented users on a reserved .invalid
+// email domain; deleting it can only ever remove that team.
+
+// GET /api/admin/demo-team: does it exist, how big is it, is a build running.
+router.get('/demo-team', authenticate, requireSuperAdmin, async (req, res) => {
+  try {
+    res.json(await demoTeam.demoStatus(prisma));
+  } catch (error) {
+    console.error('Error reading demo team status:', error.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// POST /api/admin/demo-team: build (or rebuild) it. Takes about a minute, so
+// it answers right away and runs in the background; poll the GET above.
+// Rebuilding replaces the previous demo team.
+router.post('/demo-team', authenticate, requireSuperAdmin, (req, res) => {
+  if (demoTeam.jobSnapshot().state === 'running') {
+    return res.status(409).json({ message: 'The demo team is already being built.', job: demoTeam.jobSnapshot() });
+  }
+  demoTeam.createDemoTeam(prisma, { adminUserId: req.user.id }).catch((error) => console.error('Error building demo team:', error.message));
+  res.status(202).json({ message: 'Building the demo team.', job: demoTeam.jobSnapshot() });
+});
+
+// DELETE /api/admin/demo-team: remove it entirely. Refuses to touch any other team.
+router.delete('/demo-team', authenticate, requireSuperAdmin, async (req, res) => {
+  if (demoTeam.jobSnapshot().state === 'running') {
+    return res.status(409).json({ message: 'The demo team is being built. Try again when it finishes.' });
+  }
+  try {
+    res.json(await demoTeam.deleteDemoTeam(prisma));
+  } catch (error) {
+    console.error('Error deleting demo team:', error.message);
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Team requests and the platform dashboard.
 //
 // Before this, a coach asking for a team POSTed a Feedback row with
@@ -139,19 +181,26 @@ router.get('/overview', authenticate, requireSuperAdmin, async (req, res) => {
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+    // The demo team (see lib/demo) is invented data; it never counts toward
+    // the real platform numbers on this dashboard.
+    const demo = await prisma.team.findUnique({ where: { athleticTeamId: DEMO_TEAM.athleticTeamId }, select: { id: true } });
+    const notDemoTeam = { athleticTeamId: { not: DEMO_TEAM.athleticTeamId } };
+    const notDemoId = { not: demo?.id };
+    const notDemoUser = { NOT: { email: { endsWith: `@${DEMO_EMAIL_DOMAIN}` } } };
+
     const [
       teams, users, athletes, results, trainingLogs,
       pendingRequests, newUsersWeek, newTeamsMonth,
       activeTeamsWeek, paidTeams,
     ] = await Promise.all([
-      prisma.team.count(),
-      prisma.user.count(),
-      prisma.athlete.count(),
-      prisma.result.count(),
-      prisma.trainingLog.count(),
-      prisma.teamRequest.count({ where: { status: 'pending' } }),
-      prisma.user.count({ where: { createdAt: { gte: weekAgo } } }),
-      prisma.team.count({ where: { createdAt: { gte: monthAgo } } }),
+      prisma.team.count({ where: notDemoTeam }),
+      prisma.user.count({ where: notDemoUser }),
+      prisma.athlete.count({ where: { teamId: notDemoId } }),
+      prisma.result.count({ where: { teamId: notDemoId } }),
+      prisma.trainingLog.count({ where: { athlete: { teamId: notDemoId } } }),
+      prisma.teamRequest.count({ where: { status: 'pending', NOT: { email: { endsWith: `@${DEMO_EMAIL_DOMAIN}` } } } }),
+      prisma.user.count({ where: { createdAt: { gte: weekAgo }, ...notDemoUser } }),
+      prisma.team.count({ where: { createdAt: { gte: monthAgo }, ...notDemoTeam } }),
       // "Active" means a team DID something — recorded results, added a
       // race, took attendance. Not page opens: PageView deliberately
       // stores no teamId (route, role and timestamp only, see
@@ -161,22 +210,22 @@ router.get('/overview', authenticate, requireSuperAdmin, async (req, res) => {
       // and left is not active.
       Promise.all([
         prisma.result.findMany({
-          where: { createdAt: { gte: weekAgo } },
+          where: { createdAt: { gte: weekAgo }, teamId: notDemoId },
           select: { teamId: true },
           distinct: ['teamId'],
         }),
         prisma.race.findMany({
-          where: { createdAt: { gte: weekAgo } },
+          where: { createdAt: { gte: weekAgo }, teamId: notDemoId },
           select: { teamId: true },
           distinct: ['teamId'],
         }),
         prisma.attendanceSession.findMany({
-          where: { createdAt: { gte: weekAgo } },
+          where: { createdAt: { gte: weekAgo }, teamId: notDemoId },
           select: { teamId: true },
           distinct: ['teamId'],
         }),
       ]).then((groups) => new Set(groups.flat().map((r) => r.teamId)).size),
-      prisma.team.count({ where: { plan: 'active' } }),
+      prisma.team.count({ where: { plan: 'active', ...notDemoTeam } }),
     ]);
 
     res.json({
@@ -263,7 +312,7 @@ router.get('/usage', authenticate, requireSuperAdmin, async (req, res) => {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   try {
-    const [byRoute, byRole, byDay, total] = await Promise.all([
+    const [byRoute, byRole, byDay, total, byUiRole, usersByUi, switchesByDirection, switchReasons] = await Promise.all([
       prisma.pageView.groupBy({
         by: ['route'],
         where: { createdAt: { gte: since } },
@@ -287,6 +336,50 @@ router.get('/usage', authenticate, requireSuperAdmin, async (req, res) => {
         ORDER BY 1 ASC
       `,
       prisma.pageView.count({ where: { createdAt: { gte: since } } }),
+      // The UI trial (docs/leadpack-new-ui-trial.md §1.2): the same views,
+      // split by which shell they were opened in and by role bucket.
+      prisma.pageView.groupBy({
+        by: ['ui', 'role'],
+        where: { createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      // How many accounts are on each shell right now, per role bucket.
+      // Aggregate counts only — the query returns no user, team or email.
+      // The role buckets mirror lib/pageViewLogging.js roleForLogging,
+      // resolved the way lib/loggingRole.js does (team owner first, then
+      // an active TeamMember row, then an approved GuardianLink). Super
+      // admin is an email allowlist, not a column, so those accounts are
+      // counted under their team role here.
+      prisma.$queryRaw`
+        SELECT
+          u.ui_version AS ui,
+          CASE
+            WHEN t.coach_uid = u.id THEN 'head_coach'
+            WHEN tm.role::text = 'HEAD_COACH' THEN 'head_coach'
+            WHEN tm.role::text IN ('COACH', 'VOLUNTEER_COACH') THEN 'coach'
+            WHEN tm.role::text = 'ATHLETE' THEN 'athlete'
+            WHEN EXISTS (
+              SELECT 1 FROM guardian_links g WHERE g.user_id = u.id AND g.status = 'approved'
+            ) THEN 'parent'
+            ELSE 'other'
+          END AS role,
+          COUNT(*)::int AS users
+        FROM users u
+        LEFT JOIN teams t ON t.id = u.team_id
+        LEFT JOIN team_members tm ON tm.team_id = u.team_id AND tm.user_id = u.id AND tm.active
+        GROUP BY 1, 2
+      `,
+      prisma.uiSwitchEvent.groupBy({
+        by: ['fromUi', 'toUi'],
+        where: { createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      prisma.uiSwitchEvent.findMany({
+        where: { createdAt: { gte: since }, reason: { not: null } },
+        select: { reason: true, role: true, fromUi: true, toUi: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
     ]);
 
     res.json({
@@ -297,6 +390,16 @@ router.get('/usage', authenticate, requireSuperAdmin, async (req, res) => {
       daily: byDay.map((d) => ({
         day: d.day instanceof Date ? d.day.toISOString().slice(0, 10) : String(d.day),
         views: Number(d.views),
+      })),
+      uiRoles: byUiRole.map((r) => ({ ui: r.ui, role: r.role, views: r._count._all })),
+      usersByUi: usersByUi.map((r) => ({ ui: r.ui, role: r.role, users: Number(r.users) })),
+      switches: switchesByDirection.map((r) => ({ fromUi: r.fromUi, toUi: r.toUi, count: r._count._all })),
+      switchReasons: switchReasons.map((r) => ({
+        reason: r.reason,
+        role: r.role,
+        fromUi: r.fromUi,
+        toUi: r.toUi,
+        createdAt: r.createdAt,
       })),
     });
   } catch (error) {

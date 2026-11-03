@@ -32,6 +32,7 @@ const SENSITIVE_FIELDS = ['token', 'joinCode', 'stripeCustomerId', 'stripeSubscr
 const EXCLUDED_MODELS = {
   Feedback: 'The maintainer\'s private inbox, and deliberately cross-tenant — not this team\'s data.',
   PageView: 'Usage telemetry about the product, not data the team created.',
+  UiSwitchEvent: 'Usage telemetry about the product (which app layout people switch to and why), not data the team created — and it carries no team or user to scope it by.',
   User: 'Accounts span teams. Staff appear via teamMembers, athletes via athletes.',
   AthleteInvite: 'Exists only to carry a live token; the invitee\'s email is already on the athlete row.',
   StaffInvite: 'Exists only to carry a live token; the invitee\'s email is already on the staff row.',
@@ -43,10 +44,14 @@ const EXCLUDED_MODELS = {
     'A coach\'s request to LeadPack to create their team — correspondence with us, like Feedback, not data the team created.',
   AthleteAliasId:
     'Internal plumbing for matching future imports, not data the team created. The link it remembers is a public Athletic.net URL, and the athlete it points at is exported in full.',
+  AthleteAlias:
+    'Internal plumbing for matching future results pastes, not data the team created. The athlete it points at, and their name, are exported in full.',
   TrainingLogImportBatch:
     'Bookkeeping for the undo button, not training data. What it records — where a log came from — travels on each training log\'s own `source` column, which IS exported.',
   PhotoVolunteerSession:
     'Exists only to carry a live session token (the no-account Photos tagging path) — not data the team created, and the tags made through it are already exported via PhotoAthlete.',
+  PhotoDownloadLink:
+    'Exists only to carry a live download token for one parent — not data the team created, and the photos it unlocks are already exported via Photo/PhotoAthlete.',
 };
 
 /**
@@ -137,12 +142,17 @@ const TEAM_EXPORT = [
   { key: 'photoAthletes', model: 'photoAthlete', where: via('photo'), label: 'Photo tags' },
   { key: 'picks', model: 'pick', where: via('athlete'), label: 'Collage picks' },
   { key: 'collages', model: 'collage', where: via('athlete'), label: 'Generated collages (metadata only — bytes live in R2)' },
+  // Flat and team-wide, not athlete-scoped — same reasoning as photos'
+  // own absence from ATHLETE_EXPORT below (no athlete FK at all; a listed
+  // photo may depict several athletes or none).
+  { key: 'slideshowItems', model: 'slideshowItem', where: direct, label: 'Slideshow collection (metadata only — bytes live in R2)' },
 
   // --- things this app computed ---
   { key: 'teamSeasonMetrics', model: 'teamSeasonMetrics', where: direct, label: 'Team season metrics', derived: true },
   { key: 'athleteSeasonMetrics', model: 'athleteSeasonMetrics', where: direct, label: 'Athlete season metrics', derived: true },
   { key: 'meetPerformanceMetrics', model: 'meetPerformanceMetrics', where: direct, label: 'Meet performance metrics', derived: true },
   { key: 'aiInsightSnapshots', model: 'aiInsightSnapshot', where: direct, label: 'AI insight snapshots', derived: true },
+  { key: 'racePredictions', model: 'racePrediction', where: direct, label: 'Race predictions', derived: true },
 ];
 
 /**
@@ -188,6 +198,7 @@ const ATHLETE_EXPORT = [
   // going through this generic export manifest.
   { key: 'trackResults', model: 'trackResult', where: byAthlete, label: 'Track results (individual events)' },
   { key: 'seasonMetrics', model: 'athleteSeasonMetrics', where: byAthlete, label: 'Season metrics', derived: true },
+  { key: 'racePredictions', model: 'racePrediction', where: byAthlete, label: 'Race predictions', derived: true },
   // No `photos` entry: a Photo can depict several athletes at once, so it
   // is not "this athlete's data" the way a tag or a pick is — it stays a
   // team-level asset, available through the team export instead.

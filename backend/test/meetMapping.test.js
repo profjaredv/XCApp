@@ -80,7 +80,7 @@ test('location uses the most common non-null value across the group', () => {
   assert.equal(meets[0].location, 'Sunfair Park');
 });
 
-// POST /scrape (routes/teams.js) deletes and recreates every non-manual
+// Older season re-imports deleted and recreated every non-manual
 // race for a season on every re-import — this is what carries an
 // already-grouped race's meetId across that cycle, so re-scraping a
 // season a coach already ran Import on doesn't silently un-group it.
@@ -379,4 +379,15 @@ test('groupRacesIntoColumns keeps distances apart', async (t) => {
     ];
     assert.equal(groupRacesIntoColumns(races).length, 1);
   });
+});
+
+test('groupRacesIntoColumns carries the meet day when races have dates', () => {
+  const columns = groupRacesIntoColumns([
+    { id: 'r1', name: 'AR Boys', meetId: 'm1', meetName: 'Apple Ridge', distanceMeters: 5000, date: new Date('2026-09-20T00:00:00Z') },
+    { id: 'r2', name: 'AR Girls', meetId: 'm1', meetName: 'Apple Ridge', distanceMeters: 5000, date: new Date('2026-09-20T00:00:00Z') },
+  ]);
+  assert.equal(columns.length, 1);
+  assert.equal(columns[0].date, '2026-09-20');
+  // Callers that pass no date get no date key, as before.
+  assert.equal('date' in groupRacesIntoColumns([{ id: 'r', name: 'x', meetId: null, distanceMeters: 5000 }])[0], false);
 });

@@ -16,7 +16,7 @@ const { decideCanAcceptAthleteInvite } = require('../lib/athleteInvites');
 const { sendEmail } = require('../lib/email');
 const { requireActivePlan } = require('../lib/entitlements');
 const calculationService = require('../services/performance/calculationService');
-const { parseRosterCsv } = require('../lib/rosterCsv');
+const { parseRosterCsv, rosterTemplateCsv } = require('../lib/rosterCsv');
 const { matchAthlete, normalizeAthleteName } = require('../lib/athleteMatching');
 const { validateImportRequest } = require('../lib/trainingLogImport');
 const { decideCanHaveAccount } = require('../lib/minorPolicy');
@@ -120,8 +120,8 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         onRoster: hasExplicitRoster
           ? Boolean(rosterEntry && rosterEntry.isActive)
           : races.length > 0 || isEnrolled(a.graduationYear, seasonYear),
-        // Set by a roster sync (routes/teams.js POST /scrape-roster) when
-        // this athlete no longer appears on Athletic.net — a review signal
+        // Set by an earlier roster sync (retired) when
+        // this athlete no longer appeared on Athletic.net — a review signal
         // for the coach, never an automatic removal.
         flaggedForRemoval: Boolean(rosterEntry?.flaggedForRemoval),
         // Truthy exactly when this roster row is linked to an account —
@@ -147,6 +147,15 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
     console.error('Error in GET /athletes:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
+});
+
+// GET /api/athletes/roster-template — the blank CSV a coach fills in (from a
+// registration sheet, FinalForms, or by hand) and uploads on the Roster page.
+// Registered before GET /:athleteId so "roster-template" is not read as an id.
+router.get('/roster-template', authenticate, requireTeam, requireRole(FULL_COACH), (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="leadpack-roster-template.csv"');
+  res.send(rosterTemplateCsv());
 });
 
 router.get('/:athleteId', authenticate, requireTeam, async (req, res) => {
@@ -344,8 +353,8 @@ router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req,
 // (from a prior Athletic.net import OR a prior roster-CSV import) using
 // the exact same name/athleticAthleteId matching the scraper uses
 // (lib/athleteMatching.js) — a matched row only ever backfills a field
-// that's currently null, same "never overwrite what the scraper already
-// verified" rule /scrape-roster follows for athleticAthleteId. Never
+// that's currently null, same "never overwrite what an earlier import already
+// verified" rule for athleticAthleteId. Never
 // writes athleticAthleteId itself (this source has no such id) or the
 // deprecated Athlete.grade column — grade is per-season, on SeasonRoster.
 router.post('/import-roster', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
@@ -399,7 +408,7 @@ router.post('/import-roster', authenticate, requireTeam, requireRole(FULL_COACH)
         const genderValue = row.genderRaw ? normalizeGender(row.genderRaw) : null;
         // Whichever the row gave (Grade or Graduation Year), derive the
         // other side of the same relationship — same round-trip
-        // /scrape-roster uses (teams.js).
+        // the roster import used.
         const graduationYear = row.graduationYear ?? (row.grade != null ? deriveGraduationYear(row.grade, seasonYear) : null);
         const seasonGrade = row.grade ?? (row.graduationYear != null ? deriveGrade(row.graduationYear, seasonYear) : null);
 
@@ -753,6 +762,8 @@ router.post('/merge', authenticate, requireTeam, requireRole(DESTRUCTIVE), async
       // hang off the loser by onDelete: Cascade and would otherwise be
       // destroyed with it, reopening every one of those older merges.
       await tx.athleteAliasId.updateMany({ where: { athleteId: loserId }, data: { athleteId: keeperId } });
+      // Name aliases are unique per team, so moving them to the keeper cannot collide.
+      await tx.athleteAlias.updateMany({ where: { athleteId: loserId }, data: { athleteId: keeperId } });
 
       if (loser.athleticAthleteId) {
         if (!keeper.athleticAthleteId) {

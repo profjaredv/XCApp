@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!-- Synthetic copy of Athletic.net's team Results Grid (Angular, Oct 2026),
+     reduced to the structure web/src/lib/seasonGridBookmarklet.ts reads.
+     Class names and nesting match a saved real page; every name and id is
+     made up. The inline script stands in for Angular's Mens/Womens switch. -->
+<html><head><title>Results Grid: Test HS - HS Cross Country 2026</title></head><body>
+<div class="gender-switch mb-2 mt-3 d-print-none"><button type="button" class="btn btn-outline-secondary me-1 active"><img alt=""> Mens </button><button type="button" class="btn btn-outline-secondary"><img alt=""> Womens </button></div>
+<div class="table-responsive"><table class="table table-sm table-hover results-table"><thead><tr><td class="grade">Gr</td><td class="age">Age</td><th class="p-0"></th><th>Athlete</th><th class="text-center"> Sep 8 </th><th class="text-center"> Oct 3 </th></tr></thead>
+<tbody id="rows">
+<tr class="y11"><td class="grade">11</td><td class="age"></td><td class="p-0"></td><td class="athlete-name"><a href="https://www.athletic.net/athlete/1001/cross-country"> Alex Runner </a></td><td class="result-cell sR pR"><span> 6:39.0 </span><span class="subscript">1</span></td><td class="result-cell"><span> 17:15.7 </span><span class="subscript">6</span></td></tr>
+<tr class="y9"><td class="grade">9</td><td class="age"></td><td class="p-0"></td><td class="athlete-name"><a href="https://www.athletic.net/athlete/1002/cross-country"> Blake Stride </a></td><td class="result-cell"> &nbsp; </td><td class="result-cell imp"><span> 19:52.3 </span><span class="subscript">6</span></td></tr>
+</tbody></table></div>
+<div class="distance-legend-horizontal mt-2 mb-3"><strong>Race Distances:</strong><span class="ms-2"><sub>1</sub> 1 Miles </span><span class="text-muted mx-1">|</span><span class="ms-2"><sub>6</sub> 5000 Meters </span></div>
+<div class="meet-list-section d-print-none"><table class="table table-sm meet-list-table"><thead><tr><th colspan="2">Meet List</th></tr></thead><tbody>
+<tr><td><div class="form-check"><input type="checkbox" class="form-check-input" id="meet-1"><label class="form-check-label ms-1" for="meet-1"> Sep 8 </label></div></td><td><a href="https://www.athletic.net/CrossCountry/meet/9001/results"> Test Time Trial </a></td></tr>
+<tr><td><div class="form-check"><input type="checkbox" class="form-check-input" id="meet-2"><label class="form-check-label ms-1" for="meet-2"> Oct 3 </label></div></td><td><a href="https://www.athletic.net/CrossCountry/meet/9002/results"> Test &amp; Friends Invitational </a></td></tr>
+</tbody></table></div>
+<script>
+  (function () {
+    var buttons = document.querySelectorAll('.gender-switch button');
+    var tbody = document.getElementById('rows');
+    var boys = tbody.innerHTML;
+    var girls = '<tr class="y10"><td class="grade">10</td><td class="age"></td><td class="p-0"></td><td class="athlete-name"><a href="https://www.athletic.net/athlete/2001/cross-country"> Casey "CJ" Pace </a></td><td class="result-cell"> &nbsp; </td><td class="result-cell"><span> 21:04.1 </span><span class="subscript">6</span></td></tr>';
+    function show(i) {
+      setTimeout(function () {
+        tbody.innerHTML = i === 0 ? boys : girls;
+        buttons[0].classList.toggle('active', i === 0);
+        buttons[1].classList.toggle('active', i === 1);
+      }, 200);
+    }
+    buttons[0].addEventListener('click', function () { show(0); });
+    buttons[1].addEventListener('click', function () { show(1); });
+  })();
+</script>
+</body></html>

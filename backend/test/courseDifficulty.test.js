@@ -257,3 +257,10 @@ test('adjustedTimeSec', async (t) => {
     assert.equal(adjustedTimeSec(1200, 360, 0), null);
   });
 });
+
+test('averageDelta is exported: the race prediction routes call it (it was missing, so every prediction 500d)', () => {
+  const { averageDelta } = require('../lib/courseDifficulty');
+  assert.equal(typeof averageDelta, 'function');
+  assert.deepEqual(averageDelta([], null), { difficultySecPerMile: null, contributingCount: 0 });
+  assert.deepEqual(averageDelta([{ athleteId: 'a', shrunkDelta: 4 }, { athleteId: 'b', shrunkDelta: 8 }], 'a'), { difficultySecPerMile: 8, contributingCount: 1 });
+});

@@ -10,6 +10,7 @@ const MODULES: { key: Module; label: string }[] = [
   { key: 'load', label: 'Load' },
   { key: 'tag', label: 'Tag' },
   { key: 'build', label: 'Build' },
+  { key: 'slideshow', label: 'Slideshow' },
 ];
 
 export const TopBar: React.FC = () => {

@@ -23,6 +23,7 @@ import { DashboardTab } from '@/components/analytics/DashboardTab';
 import { AthletesTab } from '@/components/analytics/AthletesTab';
 import { MeetsTab } from '@/components/analytics/MeetsTab';
 import { AthleteDetailModal } from '@/components/analytics/AthleteDetailModal';
+import { readCareerMetrics, type SeasonMetricsLike } from '@/lib/athleteSeasonMetrics';
 import { SeasonMode } from '@/components/analytics/types';
 import type { Athlete, Race } from '@/types/analytics';
 import { AuthContext } from '@/contexts/AuthContext';
@@ -88,7 +89,17 @@ interface SeasonBreakdown {
   best5kTime: number;
 }
 
-const AnalyticsPage = () => {
+// Optional props for the "next" shell's Season page (docs/leadpack-new-
+// ui-trial.md §4.5). Omitted — classic — the page is exactly what it was:
+// no tab row (the sidebar navigates), a heading naming the current view.
+export interface AnalyticsPageProps {
+  /** Show these as a visible, scrollable tab row instead of the heading. */
+  visibleTabs?: Array<{ key: string; label: string; /** A tab that is its own page (Post Season). */ to?: string }>;
+  /** Pin the Groups tab to the group scope's groups. */
+  groupScopeIds?: string[];
+}
+
+const AnalyticsPage = ({ visibleTabs, groupScopeIds }: AnalyticsPageProps = {}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
   const [genderFilter, setGenderFilter] = useState<'all' | 'M' | 'F'>('all');
@@ -340,36 +351,13 @@ const AnalyticsPage = () => {
     races: (selectedAthlete as EnhancedAthlete).races || []
   } : null;
 
-  const careerSummary = useMemo<CareerSummary>(() => {
-    const seasons = athleteAllSeasons?.data?.seasons || [];
-    if (!seasons.length) return { totalRaces: 0, totalMiles: 0, avgPace: 0, best5kTime: 0 };
-    const totals = seasons.reduce((acc, season) => {
-      // GET /performance/athlete/:id/all-seasons spreads the raw
-      // AthleteSeasonMetrics row, whose fields are flat camelCase
-      // (totalRaces, totalMiles, averagePace) — never snake_case, never
-      // nested under `.metrics`. Only best5kTime is separately set by the
-      // route handler, which is why PR/SB 5K worked while races/miles/pace
-      // silently zeroed out: those were the only two fallbacks that could
-      // ever actually match.
-      const totalRaces = season.totalRaces ?? season.total_races ?? season.metrics?.totalRaces ?? 0;
-      const totalMiles = season.totalMiles ?? season.total_miles ?? season.metrics?.totalMiles ?? 0;
-      const avgPace = season.averagePace ?? season.average_pace ?? season.metrics?.avgMilePace?.overall ?? 0;
-      const best5k = season.best5kTime ?? season.best_time_5k ?? season.metrics?.best5kTime ?? Infinity;
-      
-      return {
-        totalRaces: acc.totalRaces + totalRaces,
-        totalMiles: acc.totalMiles + totalMiles,
-        totalTime: acc.totalTime + (totalMiles > 0 && avgPace > 0 ? totalMiles * avgPace : 0),
-        best5kTime: Math.min(acc.best5kTime, best5k)
-      };
-    }, { totalRaces: 0, totalMiles: 0, totalTime: 0, best5kTime: Infinity });
-    return {
-      totalRaces: totals.totalRaces,
-      totalMiles: parseFloat(totals.totalMiles.toFixed(2)),
-      avgPace: totals.totalMiles > 0 ? Math.round(totals.totalTime / totals.totalMiles) : 0,
-      best5kTime: Number.isFinite(totals.best5kTime) ? totals.best5kTime : 0
-    };
-  }, [athleteAllSeasons?.data?.seasons]);
+  // GET /performance/athlete/:id/all-seasons spreads the raw flat
+  // AthleteSeasonMetrics row; lib/athleteSeasonMetrics.ts reads it (and the
+  // legacy shapes) so this page and the athlete profile cannot drift apart.
+  const careerSummary = useMemo<CareerSummary>(
+    () => readCareerMetrics(athleteAllSeasons?.data?.seasons as SeasonMetricsLike[] | undefined),
+    [athleteAllSeasons?.data?.seasons]
+  );
 
   const seasonBreakdown = useMemo<SeasonBreakdown[]>(() => {
     // Same field-name fix as careerSummary above: the real response is flat
@@ -469,7 +457,7 @@ const AnalyticsPage = () => {
   }
 
   return (
-    <div className="container mx-auto py-6 px-4">
+    <div className={visibleTabs ? 'w-full' : 'container mx-auto py-6 px-4'}>
       <AnalyticsHeader 
         isLoadingSeasons={isLoadingSeasons}
         availableSeasons={availableSeasons}
@@ -493,7 +481,34 @@ const AnalyticsPage = () => {
             highlight already covers that when it's open, but the drawer is
             closed by default on mobile, so the page itself still needs to
             say which view it's showing. */}
+        {visibleTabs ? (
+          <div role="tablist" aria-label="Season" className="mb-4 flex gap-1 overflow-x-auto rounded-full bg-muted p-1 [scrollbar-width:none]">
+            {visibleTabs.map((t) => t.to ? (
+              <Link
+                key={t.key}
+                to={t.to}
+                className="flex min-h-10 shrink-0 items-center rounded-full px-4 text-sm font-semibold text-muted-foreground hover:text-foreground"
+              >
+                {t.label}
+              </Link>
+            ) : (
+              <button
+                key={t.key}
+                role="tab"
+                type="button"
+                aria-selected={activeTab === t.key}
+                onClick={() => handleTabChange(t.key)}
+                className={`min-h-10 shrink-0 whitespace-nowrap rounded-full px-4 text-sm font-semibold ${
+                  activeTab === t.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        ) : (
         <h2 className="text-xl font-semibold mb-4">{ANALYTICS_TAB_LABELS[activeTab] ?? 'Dashboard'}</h2>
+        )}
         {needsCalculation ? (
           <Card className="mx-auto max-w-xl">
             <CardHeader className="text-center">
@@ -578,7 +593,7 @@ const AnalyticsPage = () => {
             cache table, so it works in preseason before anything has been
             calculated. That's the whole point of it. */}
         <TabsContent value="byGroup">
-          <GroupAnalyticsTab groupSeasonId={activeSeasonMeta?.id ?? null} dataYear={viewedSeason} />
+          <GroupAnalyticsTab groupSeasonId={activeSeasonMeta?.id ?? null} dataYear={viewedSeason} groupIds={groupScopeIds} />
         </TabsContent>
         {/* Workstream B (LeadPack Master Build Handoff): Results Grid and
             Pace Calculator moved in from the sidebar — Season absorbs them

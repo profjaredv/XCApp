@@ -55,10 +55,11 @@ test('recalculation runs after the placements are recomputed, not before', () =>
   assert.ok(deleteOrder < deleteRecalc && deleteOrder !== -1);
 });
 
-test('copying another team\'s shared aggregate stats does not trigger a recalc — it creates no FieldResult rows for this team to score against', () => {
+test('the retired copy-from-meet route answers 410 and neither copies stats nor recalculates', () => {
   const copyRoute = code.slice(
     code.indexOf("router.post('/:raceId/copy-from-meet'"),
     code.indexOf("router.delete('/:raceId'")
   );
-  assert.doesNotMatch(copyRoute, /calculationService/);
+  assert.match(copyRoute, /status\(410\)/);
+  assert.doesNotMatch(copyRoute, /calculationService|prisma\./);
 });

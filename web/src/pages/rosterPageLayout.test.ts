@@ -23,7 +23,7 @@ const layout = code(read('components/Layout.tsx'));
 describe('page header actions on a phone', () => {
   it('lets the actions block shrink and wrap instead of overflowing the screen', () => {
     // shrink-0 plus a fixed-width control inside meant a long action
-    // ("Sync from Athletic.net") ran off the right edge rather than
+    // ("Import from calendar link") ran off the right edge rather than
     // wrapping onto its own line.
     expect(header).not.toContain('flex shrink-0 flex-wrap gap-2');
     expect(header).toContain('w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0');
@@ -52,16 +52,17 @@ describe('roster header on a phone', () => {
   it('keeps only Add athlete visible — the thing a coach came to do', () => {
     const primary = roster.slice(roster.indexOf('actions={'), roster.indexOf('secondaryActions={'));
     expect(primary).toContain('Add athlete');
-    expect(primary).not.toContain('Sync from Athletic.net');
     expect(primary).not.toContain('Import Roster');
     expect(primary).not.toContain('Merge Duplicates');
   });
 
-  it('puts sync, import and merge behind More', () => {
+  it('puts import and merge behind More, and no longer offers an Athletic.net sync', () => {
     const secondary = roster.slice(roster.indexOf('secondaryActions={'));
-    for (const action of ['Sync from Athletic.net', 'Import Roster', 'Merge Duplicates']) {
+    for (const action of ['Import Roster', 'Merge Duplicates']) {
       expect(secondary).toContain(action);
     }
+    expect(roster).not.toContain('Sync from Athletic.net');
+    expect(roster).not.toContain('syncFromAthleticNet');
   });
 });
 

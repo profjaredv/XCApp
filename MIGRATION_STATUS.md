@@ -91,5 +91,5 @@ This is Prisma's standard, documented way to tell it "this migration is already 
 
 - No automated tests, no CI.
 - The scraper is still synchronous/inline in the request (Phase 3 of the original assessment — job queue, retries, rate limiting — wasn't in scope for this DB/auth migration).
-- Three duplicate scraper implementations still exist (`scrape_roster.py`, `scrape_season.py`, `scrape_season_playwright.js`) — only the Playwright one is wired in.
+- Athletic.net scrapers (`scrape_season*`, `scrape_roster*`, `debug_page_source.py`) and their `/teams/scrape` routes were removed from live code; they live on branch `archive/athletic-net-scrapers` (see `ARCHIVE_README.md` there).
 - `cache.js`'s `invalidateTeam(teamId)` (no season arg) will throw if `REDIS_URL` is unset, since it calls `this.redis.scanStream()` on a null client — pre-existing bug, not introduced here, not yet fixed.

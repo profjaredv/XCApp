@@ -21,6 +21,13 @@ interface GroupAnalyticsTabProps {
   groupSeasonId: string | null;
   /** Which year of results to show for that fixed roster. Omit to use the roster season's own year (the live/preseason view, with per-athlete prior-season fallback for anyone who hasn't raced yet). */
   dataYear?: number;
+  /**
+   * Pin the view to these groups and hide the picker — the next shell's
+   * group page (one group) and its Season → Groups tab under a group scope
+   * (docs/leadpack-new-ui-trial.md §4.3, §3.3). Omitted: the picker, as
+   * always.
+   */
+  groupIds?: string[];
 }
 
 // Analytics scoped to a group's roster — filter to one group, or compare
@@ -41,7 +48,7 @@ interface GroupAnalyticsTabProps {
 // — and even then, that fallback data is always excluded from the
 // group's own aggregate, so a strong returner's old numbers can never
 // make a group's current pace look better than it actually is yet.
-export const GroupAnalyticsTab = ({ groupSeasonId, dataYear }: GroupAnalyticsTabProps) => {
+export const GroupAnalyticsTab = ({ groupSeasonId, dataYear, groupIds }: GroupAnalyticsTabProps) => {
   const { data: allGroups = [] } = useGroups(groupSeasonId);
   const trainingGroups = useMemo(() => allGroups.filter((g) => g.type === 'TRAINING' && !g.archived), [allGroups]);
   const otherGroups = useMemo(() => allGroups.filter((g) => g.type !== 'TRAINING' && !g.archived), [allGroups]);
@@ -57,7 +64,8 @@ export const GroupAnalyticsTab = ({ groupSeasonId, dataYear }: GroupAnalyticsTab
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupSeasonId, trainingGroups.length]);
 
-  const { data: groups = [], isLoading } = useGroupAnalytics(groupSeasonId, selectedIds ?? [], dataYear);
+  const effectiveIds = groupIds ?? selectedIds ?? [];
+  const { data: groups = [], isLoading } = useGroupAnalytics(groupSeasonId, effectiveIds, dataYear);
   const [exploreGroup, setExploreGroup] = useState<{ id: string; name: string } | null>(null);
 
   // A season can have real race data with no Season DB row behind it yet
@@ -81,7 +89,7 @@ export const GroupAnalyticsTab = ({ groupSeasonId, dataYear }: GroupAnalyticsTab
 
   return (
     <div className="space-y-4">
-      {allSelectableGroups.length === 0 ? (
+      {groupIds ? null : allSelectableGroups.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4">No groups set up for this season yet — create one from the Groups page.</p>
       ) : (
         <>
@@ -101,7 +109,7 @@ export const GroupAnalyticsTab = ({ groupSeasonId, dataYear }: GroupAnalyticsTab
 
       {isLoading && <p className="text-sm text-muted-foreground py-4">Loading…</p>}
 
-      {!isLoading && (selectedIds ?? []).length > 0 && groups.length === 0 && (
+      {!isLoading && effectiveIds.length > 0 && groups.length === 0 && (
         <p className="text-sm text-muted-foreground py-4">No data for the selected group(s).</p>
       )}
 

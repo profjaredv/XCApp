@@ -63,7 +63,7 @@ export const PageHeader: React.FC<{
           </div>
         </div>
         {/* shrink-0 with a fixed-width control inside was the original
-            bug: a long action ("Sync from Athletic.net") ran off the right
+            bug: a long action label ran off the right
             edge instead of wrapping. Buttons wrap at their natural width —
             NOT forced full width, which just traded an overflow for four
             stacked bars filling half a phone screen. */}

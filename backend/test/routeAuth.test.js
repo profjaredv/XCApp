@@ -55,6 +55,11 @@ const ALLOWED_UNGUARDED = new Set([
   // Self-scoped: writes only req.user.id's own row, never a body-supplied
   // user id — no cross-user or cross-team surface exists to guard.
   'users.js PUT /me',
+  // The UI-trial preference (docs/leadpack-new-ui-trial.md §1.1): writes
+  // only req.user.id's own uiVersion, and the switch event it logs carries
+  // no user/team/athlete id. Open to teamless users too — the ?ui= booth
+  // link can arrive before a team exists.
+  'profile.js PATCH /ui-version',
   // Deliberately open to any signed-in user; every field written is scoped
   // to req.user.id / req.user.teamId, never to a body-supplied id.
   'feedback.js POST /',

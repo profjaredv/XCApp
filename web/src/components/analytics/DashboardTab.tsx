@@ -63,8 +63,9 @@ export function DashboardTab({
 
   return (
     <div className="space-y-6">
-      {/* Top Row: Key Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Top Row: Key Metrics Cards. analytics-kpis carries no styles of
+          its own; the next shell uses it to lay these out two-up on phones. */}
+      <div className="analytics-kpis grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Athletes</CardTitle>

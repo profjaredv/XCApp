@@ -68,4 +68,18 @@ function matchAthlete({ athleticAthleteId, name }, { byAthleticId, byAliasId, by
   return null;
 }
 
-module.exports = { normalizeAthleteName, matchAthlete, athleteNameCandidates };
+/**
+ * The comparable part of a stored Athletic.net athlete link: its numeric id.
+ * The old season page linked athletes as .../Athlete.aspx?AID=<id> and the
+ * new results grid as /athlete/<id>/cross-country; both are stored verbatim
+ * (a full href), so two links to the same athlete only compare equal on
+ * this. Anything without a recognisable id is returned as-is.
+ */
+function athleticIdKey(value) {
+  if (!value) return value;
+  const s = String(value);
+  const m = s.match(/\/athlete\/(\d+)/i) || s.match(/[?&]AID=(\d+)/i);
+  return m ? m[1] : s;
+}
+
+module.exports = { normalizeAthleteName, matchAthlete, athleteNameCandidates, athleticIdKey };

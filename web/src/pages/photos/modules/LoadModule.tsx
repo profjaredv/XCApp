@@ -283,7 +283,7 @@ export const LoadModule: React.FC = () => {
           const parts = [`${summary.imported} added`];
           if (summary.duplicates > 0) parts.push(`${summary.duplicates} already had`);
           if (summary.failed > 0) parts.push(`${summary.failed} failed`);
-          if (summary.truncated > 0) parts.push(`${summary.truncated} skipped (album too large for one import)`);
+          if (summary.truncated > 0) parts.push(`${summary.truncated} not reached yet — import again to pick up the rest`);
           if (summary.failed > 0) {
             toast.warning(`Google Photos import: ${parts.join(', ')}.`, { description: summary.failedDetails[0] });
           } else {

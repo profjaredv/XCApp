@@ -129,7 +129,7 @@ router.get('/attention', authenticate, requireTeam, requireRole(ANY_COACH), asyn
     const team = await prisma.team.findUnique({ where: { id: teamId }, select: { features: true } });
     const features = resolveFeatures(team && team.features);
 
-    const [racesNeedingSplits, tomorrowPlan, overdueEquipment] = await Promise.all([
+    const [racesNeedingSplits, tomorrowPlan, overdueEquipment, meetAwaitingResults] = await Promise.all([
       prisma.race.findMany({
         where: {
           teamId,
@@ -152,9 +152,24 @@ router.get('/attention', authenticate, requireTeam, requireRole(ANY_COACH), asyn
             take: 5,
           })
         : [],
+      // A meet that has been run (its date passed in the last week) but has no
+      // results yet: the nudge to paste the Results Grid (Data Management).
+      prisma.meet.findFirst({
+        where: {
+          teamId,
+          seasonId: season.id,
+          date: { gte: weekAgo, lt: today },
+          races: { none: { results: { some: {} } } },
+        },
+        select: { id: true, name: true, date: true },
+        orderBy: { date: 'desc' },
+      }),
     ]);
 
     const items = [];
+    if (meetAwaitingResults) {
+      items.push({ type: 'update-results', label: `Update results: ${meetAwaitingResults.name}`, date: meetAwaitingResults.date, link: { meetId: meetAwaitingResults.id } });
+    }
     for (const race of racesNeedingSplits) {
       items.push({ type: 'splits', label: `Enter splits for ${race.name}`, date: race.date, link: { raceId: race.id } });
     }

@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate } = require('../middleware/auth');
+const { UI_VERSIONS } = require('../lib/pageViewLogging');
+const { resolveLoggingRole } = require('../lib/loggingRole');
+const { switchReason } = require('../lib/uiSwitch');
 
 // GET /api/profile
 // Fetches the profile of the authenticated user.
@@ -14,6 +17,39 @@ router.get('/', authenticate, async (req, res) => {
     role: user.role,
     team: user.team || null,
   });
+});
+
+// PATCH /api/profile/ui-version — the "Try the new LeadPack" trial
+// (docs/leadpack-new-ui-trial.md §1.1). Body: { uiVersion, reason? }.
+// Saves which UI shell this person uses, so it follows them to every
+// device; GET /users/me returns it as part of the user row. A real change
+// also records one UiSwitchEvent — direction, coarse role, the optional
+// switch-back reason, no user id — so adoption and switch-backs can be
+// counted without identifying anyone.
+router.patch('/ui-version', authenticate, async (req, res) => {
+  const { uiVersion, reason } = req.body || {};
+  if (!UI_VERSIONS.includes(uiVersion)) {
+    return res.status(400).json({ message: `uiVersion must be one of: ${UI_VERSIONS.join(', ')}.` });
+  }
+
+  try {
+    const fromUi = req.user.uiVersion || 'classic';
+    if (fromUi === uiVersion) {
+      return res.status(200).json({ uiVersion });
+    }
+
+    const role = await resolveLoggingRole(prisma, req.user);
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: req.user.id }, data: { uiVersion } }),
+      prisma.uiSwitchEvent.create({
+        data: { fromUi, toUi: uiVersion, role, reason: switchReason(reason) },
+      }),
+    ]);
+    res.status(200).json({ uiVersion });
+  } catch (error) {
+    console.error('Error updating ui version:', error.message);
+    res.status(500).json({ message: 'Could not save your UI preference.' });
+  }
 });
 
 // POST /api/profile/join-team

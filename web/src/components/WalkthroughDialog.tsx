@@ -1,3 +1,4 @@
+import { useUiVersion } from '@/contexts/UiVersionContext';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
@@ -13,11 +14,15 @@ import { WALKTHROUGH_STEPS } from '../lib/walkthroughContent';
 // useWalkthrough().open() to replay it.
 export function WalkthroughDialog() {
   const { isOpen, role, close } = useWalkthrough();
+  // The tour walks classic's sidebar, so it waits while someone is in the
+  // "next" trial shell (docs/leadpack-new-ui-trial.md) — it stays unseen
+  // and opens the next time they're in classic.
+  const { uiVersion } = useUiVersion();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   const [stepIndex, setStepIndex] = useState(0);
 
-  if (!role) return null;
+  if (!role || uiVersion === 'next') return null;
 
   const steps = WALKTHROUGH_STEPS[role];
   const step = steps[stepIndex];

@@ -251,9 +251,9 @@ export function ProgramOverviewSection({ data }: ProgramOverviewSectionProps) {
                 <LineChart data={paceData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="season" />
-                  {/* Faster is lower, so the axis is reversed: up means quicker,
-                      which is the direction a coach reads as better. */}
-                  <YAxis reversed tickFormatter={(v) => formatPace(Number(v))} domain={['dataMin - 15', 'dataMax + 15']} />
+                  {/* Lower is faster, and the axis says so: a faster team sits
+                      lower on the chart. */}
+                  <YAxis tickFormatter={(v) => formatPace(Number(v))} domain={['dataMin - 15', 'dataMax + 15']} />
                   <Tooltip
                     labelFormatter={(l) => `Season: ${l}`}
                     formatter={(value: number | string, name: string, entry: { payload?: Record<string, number> }) => {
@@ -290,7 +290,7 @@ export function ProgramOverviewSection({ data }: ProgramOverviewSectionProps) {
                 <LineChart data={packData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="season" />
-                  <YAxis reversed tickFormatter={(v) => `${Math.round(Number(v))}s`} />
+                  <YAxis tickFormatter={(v) => `${Math.round(Number(v))}s`} />
                   <Tooltip
                     labelFormatter={(l) => `Season: ${l}`}
                     formatter={(value: number | string, name: string) =>

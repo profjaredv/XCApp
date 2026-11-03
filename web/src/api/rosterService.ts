@@ -18,6 +18,7 @@ export interface ExistingAthleteConflict {
 export interface RosterAthlete {
   id: string;
   name: string;
+  athleticAthleteId?: string | null;
   /** What the athlete actually goes by — show this instead of `name` wherever set. `name` stays the legal name (Athletic.net matching, claim verification). */
   preferredName?: string | null;
   gender?: string | null;
@@ -37,24 +38,13 @@ export interface RosterAthlete {
     sentAt?: string;
     acceptedAt?: string;
   };
-  /** Active on the roster, but missing from the last Athletic.net sync — needs a coach's review. */
+  /** Active on the roster but flagged for a coach's review (cleared from the athlete's admin panel). */
   flaggedForRemoval?: boolean;
   /** Captaincy is annual — lives on the per-season roster row, not the athlete. */
   isCaptain?: boolean;
   captainNotes?: string | null;
   /** The season row's id, needed to call setCaptain below. Null if no explicit Season row exists yet. */
   seasonId?: string | null;
-}
-
-export interface RosterSyncResult {
-  success: boolean;
-  season: number;
-  totalScraped: number;
-  added: string[];
-  reactivated: string[];
-  updated: string[];
-  flaggedForRemoval: string[];
-  message: string;
 }
 
 export interface RosterImportResult {
@@ -117,6 +107,12 @@ export const rosterService = {
    * against every athlete already on the team by name before creating
    * anyone new, so re-running this doesn't create duplicates.
    */
+  /** The blank roster import template (CSV), for the coach to fill in and upload. */
+  async downloadTemplate(): Promise<Blob> {
+    const response = await api.get<Blob>('/athletes/roster-template', { responseType: 'blob' });
+    return response.data;
+  },
+
   async importRoster(season: number, csvData: string): Promise<RosterImportResult> {
     const response = await api.post<RosterImportResult>('/athletes/import-roster', { season, csvData });
     return response.data;
@@ -144,16 +140,6 @@ export const rosterService = {
   /** Deactivates the roster entry; the athlete's results are never deleted. */
   async removeFromRoster(season: number, athleteId: string) {
     const response = await api.delete(`/teams/seasons/${season}/roster/${athleteId}`);
-    return response.data;
-  },
-
-  /**
-   * Pulls the current roster from Athletic.net and merges it in: adds new
-   * athletes, reactivates/updates matches, and flags anyone missing for
-   * review — never removes anyone automatically.
-   */
-  async syncFromAthleticNet(season: number): Promise<RosterSyncResult> {
-    const response = await api.post<RosterSyncResult>('/teams/scrape-roster', { year: season });
     return response.data;
   },
 

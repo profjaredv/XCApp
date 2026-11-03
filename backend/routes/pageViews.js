@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate } = require('../middleware/auth');
-const { normalizeRoute, roleForLogging } = require('../lib/pageViewLogging');
+const { normalizeRoute, normalizeUi } = require('../lib/pageViewLogging');
+const { resolveLoggingRole } = require('../lib/loggingRole');
 
 // POST /api/page-views — E2 (LeadPack Master Build Handoff). Fire-and-
 // forget from the frontend on every route change; failures here must never
@@ -10,13 +11,14 @@ const { normalizeRoute, roleForLogging } = require('../lib/pageViewLogging');
 // authenticate only (no requireTeam) — this fires on pages a signed-in
 // user without a team yet can still land on (onboarding, join-team).
 router.post('/', authenticate, async (req, res) => {
-  const { route } = req.body;
+  const { route, ui } = req.body;
 
   try {
     await prisma.pageView.create({
       data: {
         route: normalizeRoute(route),
-        role: roleForLogging({ teamRole: req.user.teamRole, isSuperAdmin: req.user.isSuperAdmin }),
+        role: await resolveLoggingRole(prisma, req.user),
+        ui: normalizeUi(ui),
       },
     });
     res.status(201).json({ ok: true });

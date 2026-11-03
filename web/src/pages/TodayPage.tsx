@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   CalendarDays,
   Flag,
+  ClipboardPaste,
   AlertTriangle,
   Trophy,
   ArrowRight,
@@ -24,7 +25,6 @@ import { athleteService } from '@/api/athleteService';
 import { todayService, type TodayAttentionItem, type TodayActivityItem } from '@/api/todayService';
 import { useMyPracticePlan } from '@/hooks/usePracticePlans';
 import { useMyMeetCard } from '@/hooks/useMeetOps';
-import { entryStatusLabel } from '@/api/meetOpsService';
 import { usePracticePlanRange, useSetPublished, useDuplicateDay } from '@/hooks/usePracticePlans';
 import { formatTime, formatDateShort, localIsoDate } from '@/lib/formatUtils';
 import { useTodayIso } from '@/hooks/useTodayIso';
@@ -202,6 +202,7 @@ const ATTENTION_ICON: Record<TodayAttentionItem['type'], React.ComponentType<{ c
   splits: Flag,
   'unpublished-plan': CalendarDays,
   'overdue-equipment': Package,
+  'update-results': ClipboardPaste,
 };
 
 function attentionLink(item: TodayAttentionItem, teamPath: (p: string) => string): string {
@@ -215,6 +216,8 @@ function attentionLink(item: TodayAttentionItem, teamPath: (p: string) => string
       return teamPath('/schedule');
     case 'overdue-equipment':
       return teamPath('/equipment');
+    case 'update-results':
+      return teamPath('/data-management');
     default:
       return teamPath('/analytics');
   }
@@ -235,7 +238,9 @@ const CoachAttentionBlock: React.FC<{ seasonId: string; teamPath: (p: string) =>
     <BlockShell title="Needs attention" icon={AlertTriangle} isLoading={isLoading} isError={isError} linkTo={teamPath('/analytics')} linkLabel="Analytics">
       <ul className="space-y-2">
         {items.map((item, i) => {
-          const Icon = ATTENTION_ICON[item.type];
+          // An item type this build doesn't know (the server can ship one before the page reloads)
+          // gets a generic icon instead of crashing the whole screen.
+          const Icon = ATTENTION_ICON[item.type] ?? AlertTriangle;
           return (
             <li key={i}>
               <Link to={attentionLink(item, teamPath)} className="flex items-center gap-2 text-sm hover:text-primary">
@@ -478,7 +483,6 @@ const AthleteToday: React.FC<{ teamPath: (p: string) => string; linkedAthleteId:
         ) : (
           <div className="space-y-1">
             <p className="font-medium truncate">{meetCard.meet.name}</p>
-            <p className="text-sm text-muted-foreground">{entryStatusLabel(meetCard.entry?.status)}</p>
             {meetCard.meet.location && <p className="text-sm text-muted-foreground">{meetCard.meet.location}</p>}
           </div>
         )}

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate } = require('../middleware/auth');
+const { resolveTeamRole } = require('../lib/loggingRole');
 
 // GET /api/users/me
 //
@@ -14,20 +15,11 @@ const { authenticate } = require('../middleware/auth');
 // membership on their own team (e.g. the legacy owner fast-path in
 // hasTeamRole, or no team at all).
 router.get('/me', authenticate, async (req, res) => {
-  let teamRole = null;
-  if (req.user.teamId) {
-    // Same owner-fast-path-then-TeamMember-lookup precedence as
-    // hasTeamRole (middleware/auth.js) — the team creator is HEAD_COACH
-    // even before/without a TeamMember row, checked first there too.
-    if (req.user.team?.coachUid === req.user.id) {
-      teamRole = 'HEAD_COACH';
-    } else {
-      const membership = await prisma.teamMember.findUnique({
-        where: { teamId_userId: { teamId: req.user.teamId, userId: req.user.id } },
-      });
-      if (membership?.active) teamRole = membership.role;
-    }
-  }
+  // Same owner-fast-path-then-TeamMember-lookup precedence as
+  // hasTeamRole (middleware/auth.js) — the team creator is HEAD_COACH
+  // even before/without a TeamMember row, checked first there too. Shared
+  // with usage logging (lib/loggingRole.js) so the two can't disagree.
+  const teamRole = await resolveTeamRole(prisma, req.user);
   res.status(200).json({ ...req.user, teamRole });
 });
 

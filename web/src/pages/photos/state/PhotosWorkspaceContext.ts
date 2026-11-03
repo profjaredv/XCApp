@@ -11,6 +11,10 @@ export interface GridOrder {
 export interface PhotosWorkspaceValue {
   state: WorkspaceState;
   actor: Actor;
+  // The real current team's name, from GET /photos/me — the Build
+  // module's collage subtitle default (see BuildModule.tsx). Null while
+  // still loading.
+  teamName: string | null;
   gridOrderRef: MutableRefObject<GridOrder>;
   setGridOrder: (order: GridOrder) => void;
 
@@ -23,6 +27,8 @@ export interface PhotosWorkspaceValue {
   setThumbSize: (size: number) => void;
   setTagFilter: (filter: TagFilter) => void;
   setMeetFilter: (meetId: string | null) => void;
+  setGroupFilter: (groupId: string | null) => void;
+  setAthleteFilter: (athleteId: string | null) => void;
   setSearch: (query: string) => void;
   setTimeWindow: (range: { start: string; end: string } | null) => void;
 
@@ -46,6 +52,7 @@ export interface PhotosWorkspaceValue {
   removePick: (athleteId: string, photoId: string) => void;
   swapPick: (athleteId: string, position: number, photoId: string) => void;
   reorderPick: (athleteId: string, fromIndex: number, toIndex: number) => void;
+  setPhotoFocal: (photoId: string, athleteId: string, focalX: number, focalY: number) => void;
 
   dispatch: Dispatch<Parameters<typeof workspaceReducer>[1]>;
 }

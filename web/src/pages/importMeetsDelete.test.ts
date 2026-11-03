@@ -20,8 +20,9 @@ const code = (src: string) =>
     .filter((l) => !/^\s*(\/\/|\*|\{\/\*)/.test(l))
     .join('\n');
 
-const page = code(read('MeetsPage.tsx'));
-const dialog = page.slice(page.indexOf('const ImportMeetsDialog'), page.indexOf('interface CalendarImportRow'));
+// The import dialogs moved to components/meets so both shells share them.
+const page = code(read('../components/meets/ImportMeetsDialogs.tsx'));
+const dialog = page.slice(page.indexOf('export const ImportMeetsDialog'), page.indexOf('interface CalendarImportRow'));
 
 describe('deleting orphaned races from the import dialog', () => {
   it('offers a delete action on every proposed row, not just import', () => {

@@ -16,6 +16,8 @@ export interface MeetSummary {
   id: string;
   name: string;
   date: string;
+  /** Athletic.net's own id for this meet, when known. */
+  athleticMeetId?: string | null;
   location: string | null;
   isHome: boolean | null;
   // myEntryStatus is only present when the caller has a linkedAthlete — the
@@ -39,6 +41,9 @@ export interface MeetDetail {
   date: string;
   location: string | null;
   isHome: boolean | null;
+  /** Confirmed ahead of the meet's own Race row existing — see routes/meetOps.js's PUT /:meetId. */
+  distance: string | null;
+  distanceMeters: number | null;
   races: MeetRace[];
   /** The season year this meet belongs to — needed to fetch the roster for results entry. */
   seasonYear: number | null;
@@ -287,7 +292,7 @@ export const meetOpsService = {
     return response.data;
   },
 
-  async updateMeet(meetId: string, input: Partial<{ name: string; date: string; location: string; isHome: boolean | null }>): Promise<MeetDetail> {
+  async updateMeet(meetId: string, input: Partial<{ name: string; date: string; location: string; isHome: boolean | null; distance: string }>): Promise<MeetDetail> {
     const response = await api.put<MeetDetail>(`/meet-ops/${meetId}`, input);
     return response.data;
   },
@@ -324,6 +329,18 @@ export const meetOpsService = {
   /** Pulls this season's schedule straight from the team's own Athletic.net calendar feed — works before any races have been scraped. Proposes only, writes nothing. */
   async proposeCalendarImport(seasonId: string): Promise<ProposedCalendarMeet[]> {
     const response = await api.get<ProposedCalendarMeet[]>('/meet-ops/import/propose-calendar', { params: { seasonId } });
+    return response.data;
+  },
+
+  /** The team's saved Athletic.net calendar (iCal) link, if a coach has pasted one. */
+  async getCalendarFeed(): Promise<{ url: string | null }> {
+    const response = await api.get<{ url: string | null }>('/meet-ops/calendar-feed');
+    return response.data;
+  },
+
+  /** Saves the calendar link a coach pasted (an empty value clears it). Rejects a link that is not an Athletic.net calendar. */
+  async saveCalendarFeed(url: string): Promise<{ url: string | null; season: number | null }> {
+    const response = await api.put<{ url: string | null; season: number | null }>('/meet-ops/calendar-feed', { url });
     return response.data;
   },
 

@@ -1,8 +1,9 @@
+import { formatFiveK } from '@/lib/fiveK';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Search } from 'lucide-react';
-import { formatTime, formatPace } from '@/lib/formatUtils';
+import { formatPace } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import type { Athlete } from '@/types/analytics';
 
@@ -66,11 +67,11 @@ export const AthletesTab = ({
             <CardContent className="grid grid-cols-2 gap-2 text-sm">
                 <div>
                     <p className="text-muted-foreground">SB 5K</p>
-                    <p className="font-semibold">{formatTime(athlete.bestTime)}</p>
+                    <p className="font-semibold">{formatFiveK(athlete.bestTime)}</p>
                 </div>
                 <div>
                     <p className="text-muted-foreground">PR 5K</p>
-                    <p className="font-semibold">{formatTime(athlete.prBest5K || athlete.bestTime)}</p>
+                    <p className="font-semibold">{formatFiveK(athlete.prBest5K || athlete.bestTime)}</p>
                 </div>
                 <div>
                     <p className="text-muted-foreground">Avg. Pace</p>

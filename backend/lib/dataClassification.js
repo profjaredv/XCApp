@@ -57,7 +57,7 @@ const CLASSIFICATION = {
   // --- Operational: nothing about a student -------------------------------
   User: {
     class: CLASSES.OPERATIONAL,
-    what: 'Sign-in accounts — name and email.',
+    what: 'Sign-in accounts — name, email, and which version of the app layout they chose.',
     why: 'An account is not a student record; it is how a person logs in. Athletes are linked to accounts, never merged into them.',
   },
   Team: {
@@ -107,8 +107,13 @@ const CLASSIFICATION = {
   },
   PageView: {
     class: CLASSES.OPERATIONAL,
-    what: 'Which screens get opened, for finding what is broken or unused.',
+    what: 'Which screens get opened, in which version of the app, for finding what is broken or unused.',
     why: 'Product telemetry. Never sold, never used for advertising.',
+  },
+  UiSwitchEvent: {
+    class: CLASSES.OPERATIONAL,
+    what: 'A count of switches between the classic and new app layouts, with the optional reason someone typed when switching back.',
+    why: 'Product telemetry with no user attached — only a coarse role and a date. Never sold, never used for advertising.',
   },
   PaceZone: {
     class: CLASSES.OPERATIONAL,
@@ -135,6 +140,11 @@ const CLASSIFICATION = {
     class: CLASSES.DIRECTORY,
     what: "Athletic.net profile links that used to belong to a duplicate roster row, before a merge folded it into this athlete.",
     why: 'A public results-site URL for a student already identified by name on that same site — the same directory-level fact as Athlete.athleticAthleteId, which it exists to remember after a merge.',
+  },
+  AthleteAlias: {
+    class: CLASSES.DIRECTORY,
+    what: 'A spelling of an athlete\'s name that a coach confirmed during a results paste.',
+    why: 'A name variant of a student who is already on the roster by name; the same directory-level fact as Athlete.name, kept only so the next paste matches without asking.',
   },
   Meet: {
     class: CLASSES.DIRECTORY,
@@ -268,6 +278,11 @@ const CLASSIFICATION = {
     what: 'Team-level season summaries.',
     why: 'Aggregate, but computed over a small enough group that it is handled with the roster it came from.',
   },
+  RacePrediction: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'A predicted time for an athlete\'s upcoming race, and how it compared once the real result came in.',
+    why: 'Derived from public results, same as AthleteSeasonMetrics, but it is a specific evaluative forecast about a named student and is treated the same way.',
+  },
   AiInsightSnapshot: {
     class: CLASSES.EDUCATION_RECORD,
     what: 'AI-generated coaching observations about the team and its athletes.',
@@ -317,6 +332,16 @@ const CLASSIFICATION = {
     class: CLASSES.OPERATIONAL,
     what: 'A device that unlocked Photos tagging with the team\'s shared password instead of an account.',
     why: 'An access token, not a record about any student — names no one. The tags a volunteer session makes (PhotoAthlete, above) are the student data; this is only how that device got in.',
+  },
+  PhotoDownloadLink: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'A coach-sent, time-limited link a parent uses to download one athlete\'s tagged photos without logging in.',
+    why: 'Names which student\'s photos the link unlocks and the email address it was sent to. The token is a bearer credential, not a public link — see the LeadPack Photos build spec\'s privacy rules — and it expires rather than being revocable per-use.',
+  },
+  SlideshowItem: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'One photo a coach added to the end-of-season slideshow collection, and when.',
+    why: 'A coach-only curation list, same posture as Pick above — never an athlete\'s own choice to make private from the coach.',
   },
 
   // --- Athlete-authored: hers ---------------------------------------------

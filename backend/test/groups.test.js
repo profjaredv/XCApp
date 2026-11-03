@@ -6,7 +6,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const prisma = require('../lib/db');
-const { getGroupOn, getActiveMembersOf, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn, normalizeDate } = require('../lib/groups');
+const {
+  getGroupOn,
+  getActiveMembersOf,
+  getActiveMembershipsForTeamSeason,
+  moveAthleteToGroup,
+  removeAthleteFromGroup,
+  isMembershipActiveOn,
+  normalizeDate,
+} = require('../lib/groups');
 
 test('normalizeDate collapses to a UTC midnight Date regardless of input time-of-day', () => {
   const a = normalizeDate('2024-09-15T18:30:00Z');
@@ -266,5 +274,38 @@ test('getActiveMembersOf', async (t) => {
     const active = await getActiveMembersOf('gX', '2024-10-15');
     assert.deepEqual(active.map((m) => m.athleteId).sort(), ['open-ended', 'still-in']);
     assert.equal('endDate' in queriedWhere, false, 'must not filter on endDate in the query — that would miss bounded-but-not-yet-expired rows');
+  });
+});
+
+test('getActiveMembershipsForTeamSeason', async (t) => {
+  await t.test('scopes by the group\'s teamId/seasonId (not athleteId or groupId) and filters active-on-date in JS', async (t) => {
+    const trainingGroup = { id: 'gTrain', type: 'TRAINING', teamId: 'team-1', seasonId: 'season-1' };
+    const captainGroup = { id: 'gCapt', type: 'CAPTAIN', teamId: 'team-1', seasonId: 'season-1' };
+    const rows = [
+      // Two concurrent memberships for the same athlete — a TRAINING group
+      // and a CAPTAIN group, exactly the "may run concurrently" case this
+      // helper exists to surface both halves of in one query.
+      { id: 'm1', athleteId: 'ath-1', groupId: 'gTrain', group: trainingGroup, startDate: normalizeDate('2024-09-01'), endDate: null },
+      { id: 'm2', athleteId: 'ath-1', groupId: 'gCapt', group: captainGroup, startDate: normalizeDate('2024-09-01'), endDate: null },
+      // Already moved on — must be excluded as of the query date.
+      { id: 'm3', athleteId: 'ath-2', groupId: 'gTrain', group: trainingGroup, startDate: normalizeDate('2024-08-01'), endDate: normalizeDate('2024-09-05') },
+    ];
+
+    const originalFindMany = prisma.groupMembership.findMany;
+    let queriedWhere = null;
+    prisma.groupMembership.findMany = async ({ where }) => {
+      queriedWhere = where;
+      return rows;
+    };
+    t.after(() => {
+      prisma.groupMembership.findMany = originalFindMany;
+    });
+
+    const active = await getActiveMembershipsForTeamSeason('team-1', 'season-1', '2024-10-15');
+    assert.deepEqual(queriedWhere, { group: { teamId: 'team-1', seasonId: 'season-1' } });
+    assert.deepEqual(
+      active.map((m) => m.athleteId).sort(),
+      ['ath-1', 'ath-1'],
+    );
   });
 });

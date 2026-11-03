@@ -23,6 +23,7 @@ function initialState(): WorkspaceState {
     bootstrapError: null,
 
     athletes: [],
+    groups: [],
     meets: [],
     photos: [],
     tags: {},
@@ -40,12 +41,18 @@ function initialState(): WorkspaceState {
 
     tagFilter: 'all',
     meetFilter: null,
+    groupFilter: null,
+    athleteFilter: null,
     searchQuery: '',
     timeWindow: null,
 
     buildAthleteId: null,
     buildTemplateSize: 3,
-    buildHeader: { name: '', team: 'LeadPack XC', season: '' },
+    // team starts blank, not a hardcoded placeholder — BuildModule.tsx
+    // falls back to the real team's name (GET /photos/me's teamName) once
+    // it loads, the same "blank means use the sensible default" pattern
+    // `name` already uses for the athlete's own name.
+    buildHeader: { name: '', team: '', season: '' },
     batchFilterPhotoIds: null,
 
     past: [],
@@ -112,7 +119,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     let cancelled = false;
     (async () => {
       try {
-        const [meResult, roster, meets, photosResult, picks] = await Promise.all([
+        const [meResult, rosterResult, meets, photosResult, picks] = await Promise.all([
           photosService.me(),
           photosService.roster(),
           photosService.meets(),
@@ -130,7 +137,15 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         ]);
         if (cancelled) return;
         setMe(meResult);
-        dispatch({ type: 'BOOTSTRAPPED', athletes: roster, meets, photos: photosResult.photos, tags: photosResult.tags, picks });
+        dispatch({
+          type: 'BOOTSTRAPPED',
+          athletes: rosterResult.athletes,
+          groups: rosterResult.groups,
+          meets,
+          photos: photosResult.photos,
+          tags: photosResult.tags,
+          picks,
+        });
       } catch (error) {
         if (cancelled) return;
         console.error('Failed to load LeadPack Photos:', error);
@@ -146,13 +161,19 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
 
   const actor: Actor = useMemo(() => {
     if (import.meta.env.DEV && devPreviewRole === 'family') {
-      return { userId: 'dev-family', isCoach: false, role: 'guardian', linkedAthleteIds: devFamilyAthleteIds };
+      return { userId: 'dev-family', isCoach: false, role: 'guardian', linkedAthleteIds: devFamilyAthleteIds, ledGroupIds: [] };
     }
-    if (!me) return { userId: '', isCoach: false, role: 'guardian', linkedAthleteIds: [] };
-    if (me.isVolunteer) return { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [] };
-    if (me.isCoach) return { userId: me.userId, isCoach: true, role: 'coach', linkedAthleteIds: [] };
+    if (!me) return { userId: '', isCoach: false, role: 'guardian', linkedAthleteIds: [], ledGroupIds: [] };
+    if (me.isVolunteer) return { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [], ledGroupIds: [] };
+    if (me.isCoach) return { userId: me.userId, isCoach: true, role: 'coach', linkedAthleteIds: [], ledGroupIds: [] };
     const linkedAthleteIds = [me.selfAthleteId, ...me.guardianAthleteIds].filter((id): id is string => Boolean(id));
-    return { userId: me.userId, isCoach: false, role: me.selfAthleteId ? 'athlete' : 'guardian', linkedAthleteIds };
+    return {
+      userId: me.userId,
+      isCoach: false,
+      role: me.selfAthleteId ? 'athlete' : 'guardian',
+      linkedAthleteIds,
+      ledGroupIds: me.ledGroupIds,
+    };
   }, [me, devPreviewRole, devFamilyAthleteIds]);
 
   const setGridOrder = useCallback((order: GridOrder) => {
@@ -181,6 +202,8 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   const setThumbSize = useCallback((size: number) => dispatch({ type: 'SET_THUMB_SIZE', size }), []);
   const setTagFilter = useCallback((filter: TagFilter) => dispatch({ type: 'SET_TAG_FILTER', filter }), []);
   const setMeetFilter = useCallback((meetId: string | null) => dispatch({ type: 'SET_MEET_FILTER', meetId }), []);
+  const setGroupFilter = useCallback((groupId: string | null) => dispatch({ type: 'SET_GROUP_FILTER', groupId }), []);
+  const setAthleteFilter = useCallback((athleteId: string | null) => dispatch({ type: 'SET_ATHLETE_FILTER', athleteId }), []);
   const setSearch = useCallback((query: string) => dispatch({ type: 'SET_SEARCH', query }), []);
   const setTimeWindow = useCallback(
     (range: { start: string; end: string } | null) => dispatch({ type: 'SET_TIME_WINDOW', range }),
@@ -405,9 +428,31 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     [actor, state.picks, applyEntry],
   );
 
+  // Build module's "move the photo to see faces" drag — a cosmetic
+  // per-tag crop offset, not an editorial change, so it bypasses the
+  // undo/redo history entirely (like setBuildHeader). Rolls back to the
+  // previous offset on a failed save, since unlike the history-tracked
+  // mutations there's no syncHistoryEntry reconciliation path for it.
+  const setPhotoFocal = useCallback(
+    (photoId: string, athleteId: string, focalX: number, focalY: number) => {
+      if (!canManageAthlete(actor, athleteId)) return;
+      const previousTag = state.tags[photoId]?.find((t) => t.athleteId === athleteId);
+      const previousFocalX = previousTag?.focalX ?? 0.5;
+      const previousFocalY = previousTag?.focalY ?? 0.5;
+      dispatch({ type: 'SET_PHOTO_FOCAL', photoId, athleteId, focalX, focalY });
+      photosService.setPhotoFocal(photoId, athleteId, focalX, focalY).catch((error) => {
+        console.error("Failed to save photo's position:", error);
+        toast.error("Couldn't save that photo's position.");
+        dispatch({ type: 'SET_PHOTO_FOCAL', photoId, athleteId, focalX: previousFocalX, focalY: previousFocalY });
+      });
+    },
+    [actor, state.tags],
+  );
+
   const value: PhotosWorkspaceValue = {
     state,
     actor,
+    teamName: me?.teamName ?? null,
     gridOrderRef,
     setGridOrder,
     setModule,
@@ -419,6 +464,8 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     setThumbSize,
     setTagFilter,
     setMeetFilter,
+    setGroupFilter,
+    setAthleteFilter,
     setSearch,
     setTimeWindow,
     tagPhoto,
@@ -440,6 +487,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     removePick,
     swapPick,
     reorderPick,
+    setPhotoFocal,
     dispatch,
   };
 

@@ -327,7 +327,7 @@ const PostSeasonPage: React.FC = () => {
             <CardContent className="p-0">
               {!data || data.meets.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  Nothing on file for this season yet — import it from Athletic.net first.
+                  Nothing on file for this season yet — add your results first (Data Management → Update results).
                 </p>
               ) : (
                 <div className="divide-y border-t">

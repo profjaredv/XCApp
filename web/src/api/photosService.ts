@@ -1,6 +1,6 @@
 import api from './api';
 import { downloadBlobFile } from '../lib/downloadBlob';
-import type { Athlete, AthleteBuildStats, Meet, Photo, PhotoAthlete, TagSource } from '../pages/photos/state/types';
+import type { Athlete, AthleteBuildStats, Meet, Photo, PhotoAthlete, PhotoGroup, TagSource } from '../pages/photos/state/types';
 
 // Backend routes: backend/routes/photos.js. Every call is scoped by the
 // authenticated session's team (or, for a guardian, their approved
@@ -14,6 +14,16 @@ export interface PhotosMe {
   isVolunteer: boolean;
   selfAthleteId: string | null;
   guardianAthleteIds: string[];
+  // Groups (any type — training, captain, custom) this account leads, for
+  // the active season — a captain's read-only group-coverage capability.
+  // Always empty for a coach (isCoach already covers every group) or a
+  // volunteer.
+  ledGroupIds: string[];
+  // The Build module's collage subtitle default — resolved server-side the
+  // same way for a coach, an athlete, or a guardian (unlike GET
+  // /teams/context, the app's usual source for this, which 403s for a
+  // guardian — never a TeamMember).
+  teamName: string | null;
 }
 
 export interface ApiPhoto {
@@ -26,6 +36,23 @@ export interface ApiPhoto {
   thumbUrl: string;
   webUrl: string;
   tags: PhotoAthlete[];
+}
+
+export interface SendDownloadLinkResult {
+  emailSent: boolean;
+  downloadUrl: string;
+  expiresAt: string;
+}
+
+// Shown on the public DownloadLinkPage — note this never includes an
+// athlete id or any photo data, only enough to render a "ready to
+// download" confirmation. See backend/routes/photos.js's GET
+// /download-link/:token for why the actual photos need their own
+// (also-token-gated) route.
+export interface PhotoDownloadLinkInfo {
+  athleteName: string;
+  teamName: string;
+  expiresAt: string;
 }
 
 export interface AuthorizeFile {
@@ -97,8 +124,8 @@ export const photosService = {
     return response.data;
   },
 
-  async roster(): Promise<Athlete[]> {
-    const response = await api.get<Athlete[]>('/photos/roster');
+  async roster(): Promise<{ athletes: Athlete[]; groups: PhotoGroup[] }> {
+    const response = await api.get<{ athletes: Athlete[]; groups: PhotoGroup[] }>('/photos/roster');
     return response.data;
   },
 
@@ -135,6 +162,54 @@ export const photosService = {
 
   async untagPhoto(photoId: string, athleteId: string): Promise<void> {
     await api.delete(`/photos/${photoId}/tags/${athleteId}`);
+  },
+
+  // Build module's "move the photo to see faces" drag — where this
+  // athlete's collage crop should center on this photo. focalX/focalY are
+  // each 0-1.
+  async setPhotoFocal(photoId: string, athleteId: string, focalX: number, focalY: number): Promise<{ focalX: number; focalY: number }> {
+    const response = await api.put<{ athleteId: string; focalX: number; focalY: number }>(
+      `/photos/${photoId}/tags/${athleteId}/focal`,
+      { focalX, focalY },
+    );
+    return { focalX: response.data.focalX, focalY: response.data.focalY };
+  },
+
+  // The one photo shared across every athlete's collage back page and
+  // the Slideshow collection's own template — null until a coach sets
+  // one (Build module). setGroupPhoto is coach-only server-side; pass
+  // null to clear it.
+  async getGroupPhoto(): Promise<string | null> {
+    const response = await api.get<{ photoId: string | null }>('/photos/group-photo');
+    return response.data.photoId;
+  },
+
+  async setGroupPhoto(photoId: string | null): Promise<string | null> {
+    const response = await api.put<{ photoId: string | null }>('/photos/group-photo', { photoId });
+    return response.data.photoId;
+  },
+
+  // The Slideshow module's flat, ordered (add order) photo collection —
+  // coach-only. add/remove return the full updated id list so the module
+  // never needs a second round trip to stay in sync with the server's
+  // own order.
+  async slideshowItems(): Promise<string[]> {
+    const response = await api.get<string[]>('/photos/slideshow');
+    return response.data;
+  },
+
+  async addSlideshowItem(photoId: string): Promise<string[]> {
+    const response = await api.post<string[]>(`/photos/slideshow/${photoId}`);
+    return response.data;
+  },
+
+  async removeSlideshowItem(photoId: string): Promise<string[]> {
+    const response = await api.delete<string[]>(`/photos/slideshow/${photoId}`);
+    return response.data;
+  },
+
+  downloadSlideshowPhotos(): Promise<void> {
+    return downloadBlobFile(api, '/photos/slideshow/download', 'leadpack-slideshow-photos.zip', 'zip');
   },
 
   async picks(): Promise<Record<string, string[]>> {
@@ -212,10 +287,54 @@ export const photosService = {
     return response.data;
   },
 
+  // Fetches a photo's web-size image through our own API (same-origin),
+  // not the presigned R2 URL in Photo.webUrl, and hands back a local
+  // blob: URL. Built for the Build module's export canvas specifically
+  // (see collageRender.ts's crossOrigin note) — a <img crossOrigin=
+  // "anonymous"> pointed straight at R2 depends on R2's CORS response
+  // headers surviving whatever network the browser is on, and a school/
+  // district content filter or TLS-inspecting proxy can strip those
+  // headers while still letting the bytes through, which makes the export
+  // fail with what looks like a CORS error no R2 setting can fix. A blob:
+  // URL loaded from an authenticated same-origin fetch never needs CORS
+  // at all. Caller owns the URL's lifetime — revoke it with
+  // URL.revokeObjectURL once the image has been drawn to canvas.
+  async getPhotoWebBlobUrl(photoId: string): Promise<string> {
+    const response = await api.get(`/photos/${photoId}/web`, { responseType: 'blob' });
+    return URL.createObjectURL(response.data as Blob);
+  },
+
   // "Download my athlete's folder" — a ZIP of every photo this athlete is
   // tagged in, full resolution. See lib/downloadBlob.ts for why this goes
   // through axios as a blob rather than a plain link.
   downloadAthletePhotos(athleteId: string): Promise<void> {
     return downloadBlobFile(api, `/photos/athletes/${athleteId}/download`, `leadpack-photos-${athleteId}.zip`, 'zip');
+  },
+
+  downloadGroupPhotos(groupId: string): Promise<void> {
+    return downloadBlobFile(api, `/photos/groups/${groupId}/download`, `leadpack-photos-group-${groupId}.zip`, 'zip');
+  },
+
+  // Coach-only: emails a parent a time-limited link to DownloadLinkPage
+  // (web/src/pages/photos/DownloadLinkPage.tsx) so they can get their
+  // athlete's photos without ever creating a LeadPack account. See
+  // PhotoDownloadLink's schema comment for why this isn't the "public
+  // share link" the build spec otherwise bars.
+  async sendDownloadLink(athleteId: string, email: string): Promise<SendDownloadLinkResult> {
+    const response = await api.post<SendDownloadLinkResult>(`/photos/athletes/${athleteId}/download-link`, { email });
+    return response.data;
+  },
+
+  // The two halves of the public landing page: info first (so a link
+  // preview/safety-scan never also pulls the full ZIP), then the download
+  // itself only on an explicit click. No auth header is needed or sent —
+  // the token itself is the credential.
+  async getDownloadLinkInfo(token: string): Promise<PhotoDownloadLinkInfo> {
+    const response = await api.get<PhotoDownloadLinkInfo>(`/photos/download-link/${token}`);
+    return response.data;
+  },
+
+  downloadViaLink(token: string): Promise<void> {
+    return downloadBlobFile(api, `/photos/download-link/${token}/zip`, `leadpack-photos-${token}.zip`, 'zip');
   },
 };

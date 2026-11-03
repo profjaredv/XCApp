@@ -51,9 +51,16 @@ function updateJob(id, patch) {
   Object.assign(job, patch);
 }
 
+// Grows the items array on demand rather than requiring it pre-sized —
+// lib/googlePhotosImport.js no longer knows how many photos it will end
+// up attempting before it starts (a duplicate found along the way doesn't
+// count against its import budget, so it may walk past far more urls than
+// it ultimately imports), so there's no longer one fixed count to seed
+// `items` with up front.
 function setItemStatus(id, index, patch) {
   const job = jobs.get(id);
-  if (!job || !job.items[index]) return;
+  if (!job) return;
+  if (!job.items[index]) job.items[index] = { id: `item-${index}`, status: 'queued' };
   Object.assign(job.items[index], patch);
 }
 

@@ -8,6 +8,7 @@ import type {
   Photo,
   PhotoAthlete,
   PhotoAthleteTags,
+  PhotoGroup,
   PreviewRole,
   TemplateSize,
 } from './types';
@@ -28,6 +29,7 @@ export interface WorkspaceState {
   bootstrapError: string | null;
 
   athletes: Athlete[];
+  groups: PhotoGroup[];
   meets: Meet[];
   photos: Photo[];
   tags: PhotoAthleteTags;
@@ -45,6 +47,20 @@ export interface WorkspaceState {
 
   tagFilter: TagFilter;
   meetFilter: string | null;
+  // Narrows the Tag/Build left panels' roster (and what "Generate all"/
+  // "Export by group" act on) to one group — shared across modules so
+  // switching from Tag to Build doesn't lose it. Coach/admin only; a
+  // captain's read-only group-coverage view (lib/tagRules.ts's
+  // ledGroupIds) doesn't use this at all, it's always scoped to their own
+  // led group(s) regardless.
+  groupFilter: string | null;
+  // The Tag left panel's "Filter by athlete" selector — narrows the grid
+  // (lib/selectors.ts's visiblePhotos) to photos tagged with exactly this
+  // athlete. Independent of armedAthleteId: arming decides who the next
+  // tag/untag applies to, this decides what the grid shows, and a coach
+  // routinely wants those to differ (e.g. browsing one athlete's photos
+  // while tagging a teammate who was just added mid-browse).
+  athleteFilter: string | null;
   searchQuery: string;
   timeWindow: { start: string; end: string } | null;
 
@@ -72,6 +88,7 @@ export type Action =
   | {
       type: 'BOOTSTRAPPED';
       athletes: Athlete[];
+      groups: PhotoGroup[];
       meets: Meet[];
       photos: Photo[];
       tags: PhotoAthleteTags;
@@ -92,6 +109,8 @@ export type Action =
   | { type: 'SET_THUMB_SIZE'; size: number }
   | { type: 'SET_TAG_FILTER'; filter: TagFilter }
   | { type: 'SET_MEET_FILTER'; meetId: string | null }
+  | { type: 'SET_GROUP_FILTER'; groupId: string | null }
+  | { type: 'SET_ATHLETE_FILTER'; athleteId: string | null }
   | { type: 'SET_SEARCH'; query: string }
   | { type: 'SET_TIME_WINDOW'; range: { start: string; end: string } | null }
   | { type: 'SET_BATCH_FILTER'; photoIds: string[] | null; meetId: string }
@@ -110,7 +129,11 @@ export type Action =
   | { type: 'SET_BATCH_PAUSED'; batchId: string; paused: boolean }
   | { type: 'SET_BUILD_ATHLETE'; athleteId: string | null }
   | { type: 'SET_BUILD_TEMPLATE'; size: TemplateSize }
-  | { type: 'SET_BUILD_HEADER'; patch: Partial<BuildHeader> };
+  | { type: 'SET_BUILD_HEADER'; patch: Partial<BuildHeader> }
+  // Build module's "move the photo to see faces" drag — a display/config
+  // tweak like SET_BUILD_HEADER, not an editorial tag/pick change, so it
+  // isn't part of the undo/redo history.
+  | { type: 'SET_PHOTO_FOCAL'; photoId: string; athleteId: string; focalX: number; focalY: number };
 
 function applyForward(state: WorkspaceState, entry: HistoryEntry): WorkspaceState {
   const tags = { ...state.tags };
@@ -164,6 +187,7 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
         loading: false,
         bootstrapError: null,
         athletes: action.athletes,
+        groups: action.groups,
         meets: action.meets,
         photos: action.photos,
         tags: action.tags,
@@ -215,6 +239,10 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
       return { ...state, tagFilter: action.filter, batchFilterPhotoIds: null };
     case 'SET_MEET_FILTER':
       return { ...state, meetFilter: action.meetId, timeWindow: null, batchFilterPhotoIds: null };
+    case 'SET_GROUP_FILTER':
+      return { ...state, groupFilter: action.groupId };
+    case 'SET_ATHLETE_FILTER':
+      return { ...state, athleteFilter: action.athleteId };
     case 'SET_SEARCH':
       return { ...state, searchQuery: action.query, batchFilterPhotoIds: null };
     case 'SET_TIME_WINDOW':
@@ -286,6 +314,17 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
       return { ...state, buildTemplateSize: action.size };
     case 'SET_BUILD_HEADER':
       return { ...state, buildHeader: { ...state.buildHeader, ...action.patch } };
+    case 'SET_PHOTO_FOCAL': {
+      const existing = state.tags[action.photoId];
+      if (!existing) return state;
+      const tags = {
+        ...state.tags,
+        [action.photoId]: existing.map((t) =>
+          t.athleteId === action.athleteId ? { ...t, focalX: action.focalX, focalY: action.focalY } : t,
+        ),
+      };
+      return { ...state, tags };
+    }
     default:
       return state;
   }

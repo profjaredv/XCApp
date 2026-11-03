@@ -504,7 +504,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
 // optional variant, since Layout also renders /profile, deliberately
 // outside /t/:athleticTeamId (no SeasonProvider there — see
 // TeamRouteGuard.tsx, where the provider actually lives).
-const TeamSeasonHeader: React.FC = () => {
+export const TeamSeasonHeader: React.FC = () => {
   const { data: context } = useTeamContext();
   const seasonSelection = useOptionalSeasonSelection();
 

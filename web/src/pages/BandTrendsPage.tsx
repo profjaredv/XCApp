@@ -182,8 +182,8 @@ const BandTrendsPage = () => {
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Field normalization not available yet</AlertTitle>
           <AlertDescription>
-            Pace per mile is shown below. Field-relative ratios will appear automatically once the meet scraper has
-            collected enough full-field results for this team's races.
+            Pace per mile is shown below. Field-relative ratios will appear automatically once enough full-field results
+            have been added for this team's races.
           </AlertDescription>
         </Alert>
       )}

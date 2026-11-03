@@ -80,8 +80,10 @@ describe('filters', () => {
   });
 
   it('filters on the normalized key, so no athlete is dropped by spelling', () => {
-    expect(page).toContain('const genderKey = normalizeGender(athlete.gender)');
-    expect(page).toContain('genderMatch = selectedGenders.has(genderKey)');
+    // The match itself is lib/resultsGridFilters.ts matchesGender (F2),
+    // unit-tested there; what matters here is that it's fed the
+    // normalized key, not the raw spelling.
+    expect(page).toContain('matchesGender(normalizeGender(athlete.gender), selectedGenders)');
   });
 
   it('labels them Male and Female through one shared helper', () => {

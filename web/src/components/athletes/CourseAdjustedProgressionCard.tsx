@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Mountain } from 'lucide-react';
 import { formatTime, formatPace, formatDateShort } from '@/lib/formatUtils';
+import { isTimeTrial } from '@/lib/timeTrial';
 import enhancedAnalyticsService from '@/api/enhancedAnalyticsService';
 import {
   buildProgression,
@@ -41,7 +42,12 @@ export const CourseAdjustedProgressionCard = ({ athleteId, season }: CourseAdjus
     return seasons.find((s) => s.season === wanted) ?? seasons[seasons.length - 1];
   }, [seasons, season, seasonOverride]);
 
-  const steps = useMemo(() => (shown ? buildProgression(shown.races) : []), [shown]);
+  // A 1-mile time trial is a fitness test on its own terms, not a race to rate
+  // a course by — leave it out of the course-adjusted comparison.
+  const steps = useMemo(
+    () => (shown ? buildProgression(shown.races.filter((r) => !isTimeTrial(r.raceName, r.distanceMeters))) : []),
+    [shown]
+  );
 
   if (isLoading || !shown || steps.length === 0) return null;
 
@@ -80,15 +86,15 @@ export const CourseAdjustedProgressionCard = ({ athleteId, season }: CourseAdjus
         <div className="space-y-3">
           {steps.map(({ race, rawDeltaSecPerMile, adjustedDeltaSecPerMile, courseMasked }) => (
             <div key={race.raceId} className="rounded-lg border p-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{race.raceName}</p>
+                  <p className="break-words font-medium">{race.raceName}</p>
                   <p className="text-sm text-muted-foreground">
-                    {formatDateShort(race.date)} •{' '}
-                    {formatCourseEffect(race.courseDifficultySecPerMile, race.contributingCount)}
+                    {formatDateShort(race.date)}
+                    <span className="block">{formatCourseEffect(race.courseDifficultySecPerMile, race.contributingCount)}</span>
                   </p>
                 </div>
-                <div className="grid shrink-0 grid-cols-2 gap-x-6 text-right">
+                <div className="grid shrink-0 grid-cols-2 gap-x-6 text-left sm:text-right">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Raw</p>
                     <p className="font-medium">{formatTime(race.timeSec)}</p>
@@ -124,8 +130,8 @@ export const CourseAdjustedProgressionCard = ({ athleteId, season }: CourseAdjus
 
               {race.adjustedPaceSecPerMile != null && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {race.paceSecPerMile != null && `${formatPace(race.paceSecPerMile)} /mi raw • `}
-                  {formatPace(race.adjustedPaceSecPerMile)} /mi adjusted, from{' '}
+                  {race.paceSecPerMile != null && `${formatPace(race.paceSecPerMile)} raw • `}
+                  {formatPace(race.adjustedPaceSecPerMile)} adjusted, from{' '}
                   {race.contributingCount} teammate{race.contributingCount === 1 ? '' : 's'}
                 </p>
               )}

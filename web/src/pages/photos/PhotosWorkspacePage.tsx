@@ -7,6 +7,7 @@ import { ArmPalette } from './components/ArmPalette';
 import { LoadModule } from './modules/LoadModule';
 import { TagModule } from './modules/TagModule';
 import { BuildModule } from './modules/BuildModule';
+import { SlideshowModule } from './modules/SlideshowModule';
 import { useWorkspaceKeyboard } from './hooks/useWorkspaceKeyboard';
 
 // The workspace is forced dark regardless of the rest of the app's theme
@@ -43,6 +44,7 @@ const WorkspaceInner: React.FC = () => {
         {state.module === 'load' && <LoadModule />}
         {state.module === 'tag' && <TagModule />}
         {state.module === 'build' && <BuildModule />}
+        {state.module === 'slideshow' && <SlideshowModule />}
       </div>
       <MobileTabBar />
       {armPaletteOpen && (

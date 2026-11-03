@@ -4,6 +4,7 @@ const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { FULL_COACH } = require('../lib/teamRoles');
 const logger = require('../utils/logger');
+const { buildSeriesHistory } = require('../lib/meetSeriesHistory');
 
 // GET /api/meet-groups
 router.get('/', authenticate, requireTeam, async (req, res) => {
@@ -160,6 +161,53 @@ router.delete('/:groupId/races/:raceId', authenticate, requireTeam, requireRole(
   } catch (error) {
     logger.error(`Error removing race from meet group: ${error.message}`);
     res.status(500).json({ success: false, message: 'Failed to remove race from meet group' });
+  }
+});
+
+// GET /api/meet-groups/:groupId/history — the same meet across years
+// (docs/leadpack-new-ui-trial.md §4.6). Read-only and team-scoped. Returns
+// per-season aggregates only (lib/meetSeriesHistory.js): finishers and
+// averages by gender, compared only at the same distance. No athlete rows,
+// except the requesting athlete's own result. Open to anyone on the team —
+// that's the point of the aggregate shape.
+router.get('/:groupId/history', authenticate, requireTeam, async (req, res) => {
+  try {
+    const group = await prisma.meetGroup.findFirst({
+      where: { id: req.params.groupId, teamId: req.user.teamId },
+      select: { id: true, groupName: true },
+    });
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Meet series not found' });
+    }
+    const links = await prisma.meetGroupRace.findMany({
+      where: { meetGroupId: group.id, race: { teamId: req.user.teamId } },
+      select: {
+        race: {
+          select: {
+            id: true,
+            name: true,
+            season: true,
+            date: true,
+            distance: true,
+            distanceMeters: true,
+            results: {
+              where: { teamId: req.user.teamId },
+              select: { athleteId: true, time: true, status: true, athlete: { select: { gender: true } } },
+            },
+          },
+        },
+      },
+    });
+    const races = links.map(({ race }) => ({
+      ...race,
+      date: race.date instanceof Date ? race.date.toISOString().slice(0, 10) : race.date,
+      results: race.results.map((r) => ({ athleteId: r.athleteId, time: r.time, status: r.status, gender: r.athlete?.gender ?? null })),
+    }));
+    const rows = buildSeriesHistory(races, { viewerAthleteId: req.user.linkedAthlete?.id ?? null });
+    res.json({ success: true, data: { id: group.id, groupName: group.groupName, rows } });
+  } catch (error) {
+    logger.error(`Error fetching meet series history: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to load meet series history' });
   }
 });
 

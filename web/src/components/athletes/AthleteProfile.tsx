@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatFiveK } from '@/lib/fiveK';
 import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs';
 import { ResponsiveTabsList } from '@/components/ui/responsive-tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -140,8 +141,8 @@ const AthleteProfile: React.FC<AthleteProfileProps> = ({
               <CardContent>
                 <p className="text-sm text-muted-foreground">{best5kMeet || '—'}</p>
                 <p className="text-2xl font-bold">
-                  {formatTime(best5kTime)}
-                  {best5kYear && <span className="text-sm text-muted-foreground ml-2">{best5kYear}</span>}
+                  {formatFiveK(best5kTime)}
+                  {best5kTime > 0 && best5kYear && <span className="text-sm text-muted-foreground ml-2">{best5kYear}</span>}
                 </p>
               </CardContent>
             </Card>
@@ -152,7 +153,7 @@ const AthleteProfile: React.FC<AthleteProfileProps> = ({
               <CardContent>
                 <p className="text-sm text-muted-foreground">{seasonBest5kMeet || '—'}</p>
                 <p className="text-2xl font-bold">
-                  {seasonBest5kTime > 0 ? formatTime(seasonBest5kTime) : '—'}
+                  {formatFiveK(seasonBest5kTime)}
                 </p>
               </CardContent>
             </Card>

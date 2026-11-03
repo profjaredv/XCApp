@@ -156,8 +156,21 @@ test('every route of an optional feature carries the gate', () => {
   // goes through requirePhotosFeatureEnabled like anything else a
   // guardian reaches, so turning Photos off for a team still closes the
   // API for an already-logged-in volunteer, same as for anyone else.
+  //
+  // GET /download-link/:token and its /zip companion are unauthenticated
+  // (the token itself is the session, see PhotoDownloadLink's schema
+  // comment) — there's no req.user or req.photosTeamId to gate on by
+  // middleware at all. Both carry an equivalent inline
+  // isFeatureEnabled(link.team.features, 'photos') check instead, right
+  // after resolving the token, so a team that turns Photos off still
+  // closes this path too — just expressed differently than the
+  // middleware pattern this scan looks for.
   const ungatedExceptions = {
-    'photos.js': [`router.post('/volunteer-login'`],
+    'photos.js': [
+      `router.post('/volunteer-login'`,
+      `router.get('/download-link/:token'`,
+      `router.get('/download-link/:token/zip'`,
+    ],
   };
 
   for (const [file, patterns] of Object.entries(gated)) {

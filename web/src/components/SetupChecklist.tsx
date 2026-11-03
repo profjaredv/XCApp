@@ -26,15 +26,15 @@ export const SetupChecklist: React.FC = () => {
 
   const steps: Step[] = [
     {
-      label: 'Connect your Athletic.net team',
-      description: 'Lets the app import your race results automatically.',
+      label: 'Add your Athletic.net team ID',
+      description: 'Gives you a direct link to your results page when you update results.',
       done: context.setup.hasAthleticTeamId,
       href: teamPath('/settings'),
       cta: 'Open settings',
     },
     {
       label: 'Build your roster',
-      description: 'Add athletes by hand, or let an import create them for you.',
+      description: 'Add athletes by hand, upload your roster from the import template, or paste your results.',
       done: context.setup.hasRoster,
       href: teamPath('/roster'),
       cta: 'Manage roster',

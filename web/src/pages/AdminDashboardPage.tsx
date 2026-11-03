@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { adminService, type TeamRequest } from '@/api/adminService';
 import { UsageCard } from '@/components/admin/UsageCard';
+import { DemoTeamCard } from '@/components/admin/DemoTeamCard';
 import { PageHeader } from '@/components/PageHeader';
 import { accentFor, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
@@ -168,7 +169,7 @@ const TeamSetupDialog: React.FC<{
                 placeholder="e.g. 12345"
               />
               <p className="text-xs text-muted-foreground">
-                The number in the team's Athletic.net URL. Used to sync the roster and results.
+                The number in the team's Athletic.net URL. Used to link to the team's Athletic.net pages.
               </p>
             </div>
             <div className="space-y-2">
@@ -263,6 +264,8 @@ const AdminDashboardPage: React.FC = () => {
           </Button>
         }
       />
+
+      <DemoTeamCard />
 
       {/* Requests first: this is the queue that used to be invisible. */}
       <Card>

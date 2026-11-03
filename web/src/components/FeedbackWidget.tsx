@@ -72,7 +72,9 @@ function screenNameFor(pathname: string): string {
   return normalized;
 }
 
-export const FeedbackWidget: React.FC = () => {
+// `variant="row"` is the "next" shell's More sheet (a full-width 48px
+// row); the default is unchanged — classic's header button.
+export const FeedbackWidget: React.FC<{ variant?: 'header' | 'row' }> = ({ variant = 'header' }) => {
   const location = useLocation();
   const { data: context } = useTeamContext();
 
@@ -126,10 +128,14 @@ export const FeedbackWidget: React.FC = () => {
         onClick={() => setOpen(true)}
         title="Log feedback about this screen"
         aria-label="Log feedback about this screen"
-        className="relative flex shrink-0 items-center gap-2 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
+        className={
+          variant === 'row'
+            ? 'relative flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium hover:bg-accent'
+            : 'relative flex shrink-0 items-center gap-2 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring'
+        }
       >
         <MessageSquarePlus className="h-5 w-5" />
-        <span className="hidden text-sm font-medium md:inline">Feedback</span>
+        <span className={variant === 'row' ? '' : 'hidden text-sm font-medium md:inline'}>{variant === 'row' ? 'Send feedback' : 'Feedback'}</span>
         {recentErrors.length > 0 && (
           <span
             className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white"

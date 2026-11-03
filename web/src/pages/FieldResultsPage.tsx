@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, CheckCircle2, AlertCircle, Trash2, Users, Bookmark, Copy, ExternalLink } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, Trash2, Bookmark, Copy, ExternalLink } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDateShort } from '@/lib/formatUtils';
 import { useSeasonSelection } from '@/contexts/SeasonContext';
@@ -23,7 +23,6 @@ import { parseCsv, toCsv } from '@/lib/csvParse';
 import {
   useFieldResultRaces,
   useUploadFieldResults,
-  useCopyFieldResultsFromMeet,
   useClearFieldResults,
 } from '@/hooks/useFieldResults';
 import type { FieldResultRace, UploadFieldResultsResponse } from '@/hooks/useFieldResults';
@@ -103,7 +102,6 @@ const FieldResultsPage = () => {
 
   const { data: races = [], isLoading } = useFieldResultRaces(season);
   const uploadMutation = useUploadFieldResults();
-  const copyMutation = useCopyFieldResultsFromMeet();
   const clearMutation = useClearFieldResults();
 
   const meetGroups = useMemo(() => {
@@ -216,20 +214,6 @@ const FieldResultsPage = () => {
     }
   };
 
-  const handleCopyFromMeet = (race: FieldResultRace) => {
-    copyMutation.mutate(
-      { raceId: race.id },
-      {
-        onSuccess: (data) =>
-          toast({
-            title: 'Field results copied',
-            description: `${race.name}: adopted ${data.fieldFinisherCount} finisher(s) from another team's upload of this meet.`,
-          }),
-        onError: (err) => toast({ variant: 'destructive', title: 'Copy failed', description: err.message }),
-      }
-    );
-  };
-
   const handleCopyBookmarklet = async () => {
     try {
       await navigator.clipboard.writeText(buildBookmarkletHref());
@@ -313,13 +297,7 @@ const FieldResultsPage = () => {
                     <TableCell>{formatDateShort(race.date)}</TableCell>
                     <TableCell>
                       {!race.hasFieldData ? (
-                        race.availableFromOtherTeam ? (
-                          <Badge variant="outline" className="gap-1">
-                            <Users className="h-3 w-3" /> Available from another team ({race.otherTeamFieldFinisherCount})
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline">No field data yet</Badge>
-                        )
+                        <Badge variant="outline">No field data yet</Badge>
                       ) : race.normalizationMet ? (
                         <Badge className="gap-1">
                           <CheckCircle2 className="h-3 w-3" /> {race.fieldFinisherCount} finishers
@@ -370,16 +348,6 @@ const FieldResultsPage = () => {
                       )}
                     </TableCell>
                     <TableCell className="text-right space-x-2">
-                      {!race.hasFieldData && race.availableFromOtherTeam && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => handleCopyFromMeet(race)}
-                          disabled={copyMutation.isPending}
-                        >
-                          <Users className="h-3.5 w-3.5 mr-1" /> Use shared results
-                        </Button>
-                      )}
                       <Button size="sm" variant="outline" onClick={() => openUploadDialog(race)}>
                         <Upload className="h-3.5 w-3.5 mr-1" /> {race.hasFieldData ? 'Re-upload' : 'Upload'}
                       </Button>

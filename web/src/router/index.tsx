@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
-import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage } from '../pages';
+import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage, PhotoDownloadLinkPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
 import { FeatureGate } from '../components/FeatureGate';
 import GroupDayPage from '../pages/GroupDayPage';
@@ -38,6 +38,18 @@ import SuperAdminRouteGuard from './SuperAdminRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
 import Layout from '../components/Layout';
 import TrackDashboardPage from '../pages/track/TrackDashboardPage';
+import ShellSwitch from './ShellSwitch';
+import AthleteProfileNext from '../pages/next/AthleteProfileNext';
+import ByUi from './ByUi';
+import TodayPageNext from '../pages/next/TodayPageNext';
+import TrainPage from '../pages/next/TrainPage';
+import GroupsHubPage from '../pages/next/GroupsHubPage';
+import GroupPageNext from '../pages/next/GroupPageNext';
+import AthletesPage from '../pages/next/AthletesPage';
+import SeasonPage from '../pages/next/SeasonPage';
+import MeetsPageNext from '../pages/next/MeetsPageNext';
+import MeetPageNext from '../pages/next/MeetPageNext';
+import MySeasonPage from '../pages/next/MySeasonPage';
 
 export const router = createBrowserRouter([
   {
@@ -108,6 +120,14 @@ export const router = createBrowserRouter([
         path: '/claim/:token',
         element: <ClaimTeamPage />,
       },
+      // LeadPack Photos: a coach-sent, token-gated link so a parent can
+      // download their athlete's season photos with no sign-in and no
+      // LeadPack account at all — see DownloadLinkPage's own header
+      // comment and BuildRightPanel.tsx's "Notify parent" action.
+      {
+        path: '/photos/download/:token',
+        element: <PhotoDownloadLinkPage />,
+      },
       {
         path: '/join-team',
         element: <JoinTeamPage />,
@@ -136,8 +156,11 @@ export const router = createBrowserRouter([
           // instead of rendering as a bare, nav-less page — useTeamPath's
           // athleticTeamId falls back to the user's own team from
           // AuthContext here since there's no :athleticTeamId URL param.
+          // ShellSwitch rather than Layout (UI trial, §1.4): Profile is
+          // reached from the next shell's avatar menu too, and should keep
+          // the chrome of whichever shell the person is in.
           {
-            element: <Layout />,
+            element: <ShellSwitch />,
             children: [
               {
                 path: '/profile',
@@ -291,9 +314,12 @@ export const router = createBrowserRouter([
                 path: 'race/:raceId/timer',
                 element: <RaceLiveTimerPage />,
               },
-              // All other routes with Layout (sidebar)
+              // All other routes with chrome (sidebar). ShellSwitch picks
+              // classic <Layout /> or the "next" trial <AppShell /> — see
+              // docs/leadpack-new-ui-trial.md §1.4. Both render <Outlet />,
+              // so every route below resolves identically in either.
               {
-                element: <Layout />,
+                element: <ShellSwitch />,
                 children: [
                   // Workstream A (LeadPack Master Build Handoff): Today
                   // replaces the old redirect-to-/analytics as the index
@@ -302,11 +328,11 @@ export const router = createBrowserRouter([
                   // route resolving.
                   {
                     index: true,
-                    element: <TodayPage />,
+                    element: <ByUi classic={<TodayPage />} next={<TodayPageNext />} />,
                   },
                   {
                     path: 'today',
-                    element: <TodayPage />,
+                    element: <ByUi classic={<TodayPage />} next={<TodayPageNext />} />,
                   },
                   {
                     path: 'analytics',
@@ -335,6 +361,29 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'groups',
+                    element: <ByUi classic={<GroupsPage />} next={<GroupsHubPage />} />,
+                  },
+                  // New routes for the "next" shell (UI trial, §1.4).
+                  // Reachable from either shell, linked only from next. Each
+                  // renders its closest classic page until its next page
+                  // exists: Train is the practice side (Schedule), Athletes
+                  // the one roster list, Season the Analytics tabs, and
+                  // groups/manage is — permanently — classic GroupsPage
+                  // with create, assign, sort by pace and dynamic groups.
+                  {
+                    path: 'train',
+                    element: <ByUi classic={<SchedulePage />} next={<TrainPage />} />,
+                  },
+                  {
+                    path: 'athletes',
+                    element: <ByUi classic={<RosterPage />} next={<AthletesPage />} />,
+                  },
+                  {
+                    path: 'season',
+                    element: <ByUi classic={<AnalyticsPage />} next={<SeasonPage />} />,
+                  },
+                  {
+                    path: 'groups/manage',
                     element: <GroupsPage />,
                   },
                   {
@@ -344,7 +393,7 @@ export const router = createBrowserRouter([
                     // the roster and last times are the point even for a
                     // team that doesn't take attendance.
                     path: 'group/:groupId',
-                    element: <GroupDayPage />,
+                    element: <ByUi classic={<GroupDayPage />} next={<GroupPageNext />} />,
                   },
                   // Schedule rework: Practice and Meets merged into one
                   // month calendar. 'practice-plans' redirects old
@@ -362,11 +411,11 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'meets',
-                    element: <MeetsPage />,
+                    element: <ByUi classic={<MeetsPage />} next={<MeetsPageNext />} />,
                   },
                   {
                     path: 'meet/:meetId',
-                    element: <MeetDetailPage />,
+                    element: <ByUi classic={<MeetDetailPage />} next={<MeetPageNext />} />,
                   },
                   {
                     path: 'equipment',
@@ -382,7 +431,7 @@ export const router = createBrowserRouter([
                   },
                   {
                     path: 'me',
-                    element: <MyProgressPage />,
+                    element: <ByUi classic={<MyProgressPage />} next={<MySeasonPage />} />,
                   },
                   {
                     path: 'feedback',
@@ -422,7 +471,7 @@ export const router = createBrowserRouter([
                     // were two different screens for the same thing —
                     // consolidated onto the one that works.
                     path: 'athlete/:athleteId',
-                    element: <TeamAthleteProfilePage />,
+                    element: <ByUi classic={<TeamAthleteProfilePage />} next={<AthleteProfileNext />} />,
                   },
                   {
                     // E1: multi-season rank/band/PR/course spine for one

@@ -33,6 +33,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           isSuperAdmin: userData.isSuperAdmin ?? false,
           isImpersonating: userData.isImpersonating ?? false,
           isPreviewingAthlete: userData.isPreviewingAthlete ?? false,
+          uiVersion: userData.uiVersion === 'next' ? 'next' : 'classic',
         };
       }
       return null;

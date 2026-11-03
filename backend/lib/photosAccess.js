@@ -14,6 +14,7 @@ const { hasTeamRole } = require('../middleware/auth');
 const { ANY_COACH } = require('./teamRoles');
 const { resolveActiveSeason, isAthleteOnSeasonRoster } = require('./season');
 const { authorizeTag, canManageAthlete, canRemoveTag, canHidePhoto } = require('./photoTagRules');
+const { getActiveMembersOf } = require('./groups');
 const r2 = require('./r2');
 
 const MAX_PICKS = 5;
@@ -35,22 +36,45 @@ async function resolveActor(prisma, user, teamId) {
 
   // A coach's authority already covers every athlete (authorizeTag checks
   // isCoach first) — skip the guardian-link lookup entirely rather than
-  // run a query whose result can never change the outcome.
+  // run a query whose result can never change the outcome. ledGroupIds is
+  // the captain-only capability below; a coach's isCoach already covers
+  // every group, so it stays empty rather than duplicating that authority.
   if (isCoach) {
-    return { userId: user.id, isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+    return { userId: user.id, isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [], ledGroupIds: [] };
   }
 
   const selfAthleteId = user.linkedAthlete && user.linkedAthlete.teamId === teamId ? user.linkedAthlete.id : null;
 
-  const guardianLinks = await prisma.guardianLink.findMany({
-    where: { userId: user.id, status: 'approved', athlete: { teamId } },
-    select: { athleteId: true },
-  });
+  const [guardianLinks, ledGroupIds] = await Promise.all([
+    prisma.guardianLink.findMany({
+      where: { userId: user.id, status: 'approved', athlete: { teamId } },
+      select: { athleteId: true },
+    }),
+    ledGroupIdsFor(prisma, user.id, teamId),
+  ]);
   const guardianAthleteIds = guardianLinks.map((l) => l.athleteId);
 
   const linkedAthleteIds = Array.from(new Set([selfAthleteId, ...guardianAthleteIds].filter(Boolean)));
 
-  return { userId: user.id, isCoach, selfAthleteId, guardianAthleteIds, linkedAthleteIds };
+  return { userId: user.id, isCoach, selfAthleteId, guardianAthleteIds, linkedAthleteIds, ledGroupIds };
+}
+
+// A new, deliberately narrow read capability: a non-coach account (an
+// athlete captain, most commonly) who is a GroupLeader for a group gets to
+// SEE that group's roster/coverage in the Photos workspace — never
+// tagging, upload, export, or any authority over an athlete who isn't
+// their own linked one (canTagAthlete/canManageAthlete never consult this
+// field). Scoped to the team's active season so a captaincy from a past
+// season doesn't leak into this one.
+async function ledGroupIdsFor(prisma, userId, teamId) {
+  const seasonYear = await resolveActiveSeason(teamId);
+  const season = await prisma.season.findFirst({ where: { teamId, year: seasonYear }, select: { id: true } });
+  if (!season) return [];
+  const led = await prisma.groupLeader.findMany({
+    where: { userId, group: { teamId, seasonId: season.id } },
+    select: { groupId: true },
+  });
+  return led.map((l) => l.groupId);
 }
 
 // --- Single-photo lookups ----------------------------------------------
@@ -282,6 +306,39 @@ async function untagPhoto(prisma, teamId, photoId, athleteId, actor) {
   return { ok: true, removed: true };
 }
 
+/**
+ * Where this athlete's collage crop should center on this photo — the
+ * Build module's "move the photo to see faces" drag. Lives on the tag
+ * itself (not Pick) so a reposition survives the photo being swapped out
+ * of a slot and back in. Same authorization as setPicks: a coach, or the
+ * athlete's own linked guardian/self account — never a volunteer tagging
+ * session.
+ */
+async function setPhotoFocal(prisma, teamId, photoId, athleteId, focalX, focalY, actor) {
+  if (!canManageAthlete(actor, athleteId)) {
+    const err = new Error('This account cannot reposition that photo.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const photo = await getTeamPhoto(prisma, teamId, photoId);
+  if (!photo) {
+    const err = new Error('Photo not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const tag = await prisma.photoAthlete.findUnique({ where: { photoId_athleteId: { photoId, athleteId } } });
+  if (!tag) {
+    const err = new Error('That athlete is not tagged in this photo.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const clamp = (n) => Math.min(1, Math.max(0, n));
+  return prisma.photoAthlete.update({
+    where: { photoId_athleteId: { photoId, athleteId } },
+    data: { focalX: clamp(focalX), focalY: clamp(focalY) },
+  });
+}
+
 // --- Picks (Phase 5) ------------------------------------------------------
 
 async function resolveActiveSeasonRow(prisma, teamId) {
@@ -377,6 +434,97 @@ async function deleteTeamPhoto(prisma, teamId, photoId, actor) {
   return { ok: true };
 }
 
+// --- Team group photo -------------------------------------------------
+//
+// One photo, shared across every athlete's collage back page (Build
+// module) and the Slideshow collection's own template — e.g. a team photo
+// at the start of the season. Coach-only to set; read is open to anyone
+// who can already view the collage (resolvePhotosTeam), same as the rest
+// of Build.
+
+async function setGroupPhoto(prisma, teamId, photoId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can set the team\'s group photo.');
+    err.statusCode = 403;
+    throw err;
+  }
+  if (photoId != null) {
+    const photo = await getTeamPhoto(prisma, teamId, photoId);
+    if (!photo) {
+      const err = new Error('Photo not found.');
+      err.statusCode = 404;
+      throw err;
+    }
+  }
+  return prisma.team.update({ where: { id: teamId }, data: { groupPhotoId: photoId } });
+}
+
+// --- Slideshow collection ---------------------------------------------
+//
+// A coach's flat, ordered photo collection for an end-of-season slideshow
+// — see SlideshowItem's own schema comment for why this is deliberately
+// not Pick. Coach-only end to end (unlike tags/picks, an athlete's own
+// linked account never touches this — it's purely a coach curation tool
+// with no "this is my own photo" authority to extend to anyone else).
+
+async function listSlideshowItems(prisma, teamId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can view the slideshow collection.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const season = await resolveActiveSeasonRow(prisma, teamId);
+  return prisma.slideshowItem.findMany({ where: { teamId, seasonId: season.id }, orderBy: { createdAt: 'asc' } });
+}
+
+/** Idempotent: adding a photo already in the collection just returns the existing row rather than erroring. */
+async function addSlideshowItem(prisma, teamId, photoId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can add to the slideshow collection.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const photo = await getTeamPhoto(prisma, teamId, photoId);
+  if (!photo) {
+    const err = new Error('Photo not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const season = await resolveActiveSeasonRow(prisma, teamId);
+  return prisma.slideshowItem.upsert({
+    where: { seasonId_photoId: { seasonId: season.id, photoId } },
+    update: {},
+    create: { teamId, seasonId: season.id, photoId, addedBy: actor.userId },
+  });
+}
+
+/** Idempotent: removing a photo that isn't in the collection is a no-op, not an error. */
+async function removeSlideshowItem(prisma, teamId, photoId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can remove from the slideshow collection.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const season = await resolveActiveSeasonRow(prisma, teamId);
+  await prisma.slideshowItem.deleteMany({ where: { teamId, seasonId: season.id, photoId } });
+}
+
+/** Every READY photo in the collection, in add order — the "Download ZIP" feature. */
+async function listSlideshowPhotosForDownload(prisma, teamId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can download the slideshow collection.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const season = await resolveActiveSeasonRow(prisma, teamId);
+  const items = await prisma.slideshowItem.findMany({
+    where: { teamId, seasonId: season.id },
+    orderBy: { createdAt: 'asc' },
+    select: { photo: { select: { id: true, objectKey: true, status: true } } },
+  });
+  return items.map((item) => item.photo).filter((photo) => photo.status === 'READY');
+}
+
 // --- Opt-out (Phase 6) -----------------------------------------------------
 
 async function setAthleteOptOut(prisma, teamId, athleteId, optOut, actor) {
@@ -419,6 +567,106 @@ async function listAthletePhotosForDownload(prisma, teamId, athleteId, actor) {
     err.statusCode = 404;
     throw err;
   }
+  return prisma.photo.findMany({
+    where: { teamId, status: 'READY', tags: { some: { athleteId } } },
+    select: { id: true, objectKey: true, takenAt: true, meet: { select: { name: true } } },
+    orderBy: { takenAt: 'asc' },
+  });
+}
+
+/**
+ * Every READY photo tagged with any athlete CURRENTLY (today) active in
+ * this group — the coach "export by group" feature, same ZIP-of-originals
+ * shape as listAthletePhotosForDownload above, just fanned out to a whole
+ * group instead of one athlete. Coach-only: a group's roster is a
+ * management view, not something a captain's read-only coverage
+ * capability (ledGroupIds) extends to — canViewGroupCoverage never
+ * authorizes a bulk export of originals, only seeing tagged-count numbers.
+ */
+async function listGroupPhotosForDownload(prisma, teamId, groupId, actor) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can download a group\'s photos.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const group = await prisma.group.findFirst({ where: { id: groupId, teamId }, select: { id: true } });
+  if (!group) {
+    const err = new Error('Group not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const memberships = await getActiveMembersOf(groupId);
+  const athleteIds = memberships.map((m) => m.athleteId);
+  if (athleteIds.length === 0) return [];
+  return prisma.photo.findMany({
+    where: { teamId, status: 'READY', tags: { some: { athleteId: { in: athleteIds } } } },
+    select: { id: true, objectKey: true, takenAt: true, meet: { select: { name: true } } },
+    orderBy: { takenAt: 'asc' },
+  });
+}
+
+// --- Photo download links (coach-sent, token-gated, no login needed) ------
+//
+// Build spec, "What the system does not do": "No public gallery, no share
+// links." This is deliberately NOT that — see PhotoDownloadLink's own
+// schema comment — but it's the one place in Photos where the caller on
+// the read side is a bare token, not a session, so it gets its own small
+// section rather than folding into the actor-based functions above.
+
+const DOWNLOAD_LINK_TTL_DAYS = 30;
+
+/**
+ * Coach-only: mints a fresh token-gated link for one athlete's season of
+ * photos and records who it was sent to (the coach's own audit trail —
+ * see sentTo on the model). Only ever touches the DB row; the caller
+ * (routes/photos.js) sends the actual email.
+ */
+async function createPhotoDownloadLink(prisma, teamId, athleteId, actor, sentTo) {
+  if (!actor.isCoach) {
+    const err = new Error('Only a coach can send a photo download link.');
+    err.statusCode = 403;
+    throw err;
+  }
+  const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId }, select: { id: true } });
+  if (!athlete) {
+    const err = new Error('Athlete not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  const expiresAt = new Date(Date.now() + DOWNLOAD_LINK_TTL_DAYS * 24 * 60 * 60 * 1000);
+  return prisma.photoDownloadLink.create({
+    data: { athleteId, teamId, sentBy: actor.userId, sentTo, expiresAt },
+  });
+}
+
+/**
+ * The unauthenticated side: resolves a token to the link it was minted
+ * for, or throws (410, deliberately the same code an expired AthleteInvite
+ * uses) if it doesn't exist or has expired. No "used" flag is ever
+ * checked or set — see the schema's own comment on why this link stays
+ * valid until expiresAt instead of being single-use.
+ */
+async function resolvePhotoDownloadLink(prisma, token) {
+  const link = await prisma.photoDownloadLink.findUnique({
+    where: { token },
+    include: { athlete: { select: { name: true, preferredName: true } }, team: { select: { name: true, features: true } } },
+  });
+  if (!link || link.expiresAt < new Date()) {
+    const err = new Error('This link has expired or is no longer valid. Ask your coach to send a new one.');
+    err.statusCode = 410;
+    throw err;
+  }
+  return link;
+}
+
+/**
+ * Same photo set listAthletePhotosForDownload returns, for the
+ * unauthenticated token-link path specifically — the already-resolved,
+ * already-expiry-checked PhotoDownloadLink IS the authorization, so
+ * there is no actor to check here at all (unlike every other function in
+ * this file).
+ */
+async function listPhotosForDownloadLinkTarget(prisma, teamId, athleteId) {
   return prisma.photo.findMany({
     where: { teamId, status: 'READY', tags: { some: { athleteId } } },
     select: { id: true, objectKey: true, takenAt: true, meet: { select: { name: true } } },
@@ -487,6 +735,7 @@ module.exports = {
   listPicksForTeam,
   tagPhoto,
   untagPhoto,
+  setPhotoFocal,
   resolveActiveSeasonRow,
   setPicks,
   setPhotoHidden,
@@ -494,4 +743,13 @@ module.exports = {
   setAthleteOptOut,
   importReadyPhoto,
   listAthletePhotosForDownload,
+  listGroupPhotosForDownload,
+  createPhotoDownloadLink,
+  resolvePhotoDownloadLink,
+  listPhotosForDownloadLinkTarget,
+  setGroupPhoto,
+  listSlideshowItems,
+  addSlideshowItem,
+  removeSlideshowItem,
+  listSlideshowPhotosForDownload,
 };

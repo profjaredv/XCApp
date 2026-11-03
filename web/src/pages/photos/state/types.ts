@@ -12,6 +12,13 @@ export interface PhotoAthlete {
   // (lib/tagRules.ts's 'volunteer' role) — there's no account to
   // attribute it to.
   taggedBy: string | null;
+  // Where this athlete's collage crop should center on this photo — the
+  // Build module's "move the photo to see faces" drag. Normalized (0-1
+  // each); null/undefined means the default centered crop. Lives on the
+  // tag (not the pick) so repositioning survives a photo being swapped
+  // out of a slot and back in.
+  focalX?: number | null;
+  focalY?: number | null;
 }
 
 export interface Photo {
@@ -49,9 +56,26 @@ export interface Athlete {
   preferredName?: string | null;
   grade?: number;
   photosOptOut: boolean;
+  // Every group this athlete is currently (today) an active member of —
+  // a training group and a captain/custom group can run concurrently
+  // (backend/lib/groups.js), so this is a list, not a single id.
+  groupIds: string[];
 }
 
-export type Module = 'load' | 'tag' | 'build';
+// A team's training/captain/custom group for the active season — the
+// Photos module's own minimal read of backend's Group model (see
+// routes/groups.js for the fuller coach-facing version this doesn't need:
+// leader contacts, member counts, dynamic-group rules). Used to build the
+// "filter by group" dropdown in Tag/Build's left panels and a captain's
+// own read-only group-coverage view.
+export interface PhotoGroup {
+  id: string;
+  name: string;
+  type: 'TRAINING' | 'CAPTAIN' | 'CUSTOM' | 'X_TRAINING';
+  color: string | null;
+}
+
+export type Module = 'load' | 'tag' | 'build' | 'slideshow';
 
 export type PreviewRole = 'coach' | 'family';
 
@@ -94,9 +118,19 @@ export interface AthleteRaceResult {
   timeSec: number;
 }
 
+// Same shape as AthleteRaceResult plus which season it happened in — the
+// pace chart's "career" view (components/BuildPaceChart.tsx) needs this
+// to tell a freshman's single season of data from a returning athlete's
+// multi-season history.
+export interface AthleteCareerRaceResult extends AthleteRaceResult {
+  season: number;
+}
+
 export interface AthleteBuildStats {
   name: string;
   season: number;
+  /** Null when graduationYear itself is unknown — never guessed. */
+  grade: number | null;
   /** Career best 5K, not season-best — null if this athlete has no 5K result yet. */
   careerBest5kSec: number | null;
   totalMiles: number | null;
@@ -104,4 +138,8 @@ export interface AthleteBuildStats {
   totalRaces: number;
   bestByDistance: AthleteBestByDistance[];
   races: AthleteRaceResult[];
+  /** Every FINISHED result this athlete has, any season — see AthleteCareerRaceResult. */
+  careerRaces: AthleteCareerRaceResult[];
+  /** Display names, owner + active TeamMember coaches merged — the back page's small-print credit line. */
+  coaches: string[];
 }

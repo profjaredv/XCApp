@@ -72,7 +72,9 @@ describe('the meet page', () => {
   });
 
   it('warns against re-importing, which would fork a duplicate race', () => {
-    expect(page).toContain('a re-import would add a second copy of this race');
+    // The distance dialog moved to its own file, shared by both shells.
+    expect(code(read('components/meets/RaceDistanceDialog.tsx'))).toContain('a re-import would add a second copy of this race');
+    expect(page).toContain('<RaceDistanceDialog');
   });
 
   it('invalidates far more than the meet, because every pace depends on it', () => {

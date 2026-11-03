@@ -11,7 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTeamPath } from '../hooks/useTeamRoute';
 import { useSeasonSelection } from '../contexts/SeasonContext';
 import { currentCalendarSeason } from '../lib/seasonUtils';
-import { ImportDataPanel } from '../components/data-management/ImportDataPanel';
+import { UpdateResultsPanel } from '../components/data-management/UpdateResultsPanel';
 import { EnhancedCalculateMetricsPanel } from '../components/data-management/EnhancedCalculateMetricsPanel';
 
 // Define the steps in the data management process
@@ -150,8 +150,11 @@ export function DataManagementPage() {
       </div>
 
       <Tabs value={activeStep} onValueChange={(value) => setActiveStep(value as DataManagementStep)}>
+        {/* md: prefixes on purpose (F3): a bare `grid` here overrode
+            ResponsiveTabsList's own `hidden` below md, so phones got the
+            dropdown AND this tab row for the same choice. */}
         <ResponsiveTabsList
-          className="grid w-full grid-cols-2"
+          className="md:grid w-full md:grid-cols-2"
           value={activeStep}
           onValueChange={(value) => setActiveStep(value as DataManagementStep)}
         >
@@ -165,15 +168,10 @@ export function DataManagementPage() {
           </TabsTrigger>
         </ResponsiveTabsList>
         
-        <TabsContent value={DataManagementStep.IMPORT}>
-          <ImportDataPanel 
-            teamId={teamId} 
+        <TabsContent value={DataManagementStep.IMPORT} className="space-y-6">
+          <UpdateResultsPanel
             season={selectedSeason}
-            onComplete={() => {
-              markStepCompleted(DataManagementStep.IMPORT);
-              goToNextStep();
-            }}
-            setIsProcessing={setIsProcessing}
+            onComplete={() => markStepCompleted(DataManagementStep.IMPORT)}
           />
         </TabsContent>
         

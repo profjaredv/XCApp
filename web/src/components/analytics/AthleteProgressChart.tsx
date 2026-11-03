@@ -143,7 +143,7 @@ const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({
                 <Line 
                   type="monotone" 
                   dataKey="athlete5K" 
-                  stroke="#2563eb" 
+                  stroke="var(--chart-1)" 
                   strokeWidth={3}
                   name={athleteName || FALLBACK_SERIES_NAME}
                   connectNulls={false}
@@ -205,7 +205,7 @@ const AthleteProgressChart: React.FC<AthleteProgressChartProps> = ({
                 <Line 
                   type="monotone" 
                   dataKey="athletePace" 
-                  stroke="#2563eb" 
+                  stroke="var(--chart-1)" 
                   strokeWidth={3}
                   name={athleteName || FALLBACK_SERIES_NAME}
                   connectNulls={false}

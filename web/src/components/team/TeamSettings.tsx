@@ -165,7 +165,7 @@ export function TeamSettings({ onSaved }: TeamSettingsProps) {
                 placeholder="Enter Athletic.net Team ID"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                This ID is used for importing data from Athletic.net
+                This ID is used to link to your team's pages on Athletic.net
               </p>
             </div>
             
@@ -221,7 +221,7 @@ export function TeamSettings({ onSaved }: TeamSettingsProps) {
           )}
           {!isEditing && (
             <p className="text-xs text-muted-foreground mt-1">
-              This ID is used for importing data from Athletic.net
+              This ID is used to link to your team's pages on Athletic.net
             </p>
           )}
         </div>
