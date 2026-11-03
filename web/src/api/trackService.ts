@@ -24,6 +24,15 @@ export interface TrackStatus {
   eventCatalogSize: number;
 }
 
+export interface TrackImportSummary {
+  success: boolean;
+  message: string;
+  recordsProcessed: number;
+  skippedMissing: number;
+  skippedDate: number;
+  unmatchedEvents: string[];
+}
+
 export const trackService = {
   async getEvents(): Promise<TrackEvent[]> {
     const response = await api.get<TrackEvent[]>('/track/events');
@@ -32,6 +41,11 @@ export const trackService = {
 
   async getStatus(): Promise<TrackStatus> {
     const response = await api.get<TrackStatus>('/track/status');
+    return response.data;
+  },
+
+  async importEventProgressCsv(year: number, csv: string): Promise<TrackImportSummary> {
+    const response = await api.post<TrackImportSummary>(`/track/seasons/${year}/import-event-progress-csv`, { csv });
     return response.data;
   },
 };

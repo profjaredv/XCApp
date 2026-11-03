@@ -4475,3 +4475,156 @@ this is a pre-existing sandbox/npm issue, not something introduced by
 this change. `tsc -b`'s zero-new-errors result is the real signal here;
 a full `vite build` still needs confirming from a machine where `npm
 install` doesn't hit this.
+
+## Root cause of the npm/[npm/cli#4828] issue above: `NODE_ENV=production` in this sandbox, not actually npm's bug
+
+Found while starting PR2 below. This sandbox's shell has `NODE_ENV=production`
+set, which makes a plain `npm install`/`npm ci` **silently omit every
+devDependency** (`npm config get omit` → `dev`) — `vite`, `vitest`,
+`happy-dom`, and `@rolldown/binding-linux-x64-gnu` (vite 5's optional
+native binding) never get installed at all, which is exactly what PR1's
+"Cannot find native binding" and missing-`happy-dom` errors look like from
+the outside. It isn't the npm#4828 optional-dependency race PR1's note
+blamed — that bug is real in general, but the actual, reproducible cause
+here is simpler and was mis-diagnosed under time pressure. Fix: `rm -rf
+web/node_modules && NODE_ENV=development npm ci` in `web/` installs the
+full tree; every `web/` command below that needed it ran as `NODE_ENV=
+development npx ...`. Worth remembering for any future web/ work in this
+sandbox — don't re-diagnose this from scratch again.
+
+## PR2: browser-based Event Progress import (Section 4's scraper fallback)
+
+Section 4's scraper is still blocked exactly as above — this sandbox's
+proxy still can't reach `*.challenges.cloudflare.com`, re-confirmed, not
+re-attempted. But the user pasted the real HTML of Ellensburg's own 2026
+Outdoor **Event Progress** page (`.../track-and-field-outdoor/2026/event-
+progress`, reached from their own already-authenticated browser — the
+proxy's Cloudflare block never entered into it) mid-conversation. That
+page turns out to be exactly Section 4's missing piece: a sibling of
+`event-records`, one block per athlete with a season's meet-by-meet marks
+(Place/Result/Wind/Round/Date/Meet per event) plus a redundant per-season-
+best "Season Records" table. Per rule 1/3 ("dump one real page... inspect
+before writing selectors"), this real page is what every selector below
+was built against — not fabricated, not guessed at. It was **not**
+committed anywhere in this repo (it's one real coach's real students'
+names and results — FERPA territory per this file's own Phase 0 flag);
+only a synthetic fixture with made-up names but the identical DOM shape
+was committed, same privacy discipline `resultsGridPaste.test.ts`'s
+fixture already follows for the XC side.
+
+Confirmed from the real page, not assumed: field-event marks are
+`N' M"`/`N' M.DD"` (never the dash form the handoff doc speculated — kept
+as a defensive, explicitly-unconfirmed fallback, not deleted); sprint
+times sometimes carry a hand-timed `c` suffix (`12.80c`) that `parseFloat`
+already drops for free; the Result column's non-mark tokens are
+`NT`/`ND`/`NH`/`DNS`/`DQ`/`SCR` — not `DNF`/`FOUL` as the handoff
+guessed; and the page's event names genuinely diverge from the seeded
+catalog's (`100m Hurdles` vs. the seed's `100 Meter Hurdles`) and include a
+long tail of indoor-only events (`60 Meter`, `1 Mile`, `1000/1200/1500/
+2000 Meters`, `2000m Steeplechase`, flat `300`/`600 Meters`, `200m/400m/
+60m Hurdles`, `Standing Long Jump`) the outdoor seed never claimed to
+cover — all real findings from real data, matching this file's running
+theme of "don't trust a spec's guess about page shape over an actual
+page."
+
+**`backend/lib/trackMarks.js`** — `parseMark(raw, unit)`, the Section 2
+hazard's actual conversion, test table (`test/trackMarks.test.js`) built
+from real strings off the page (`17' 8.5"` → 212.5 total inches, etc.),
+plus the real status tokens above mapped to `TrackResult.status`
+(`NT`/`ND`/`NH`→`NM`, `SCR`→`DNS`, nothing ever produces a markValue for a
+non-FINISHED status — no fabricated zeros).
+
+**`backend/lib/trackEventCatalog.js`** — `buildEventMatcher(events)`
+against the live DB catalog (so a future seed-list correction doesn't need
+a second copy of names kept in sync here), plus the three confirmed real
+aliases. Indoor/unseeded names come back `matched: false` and are
+collected, never silently dropped — the import route reports them by name
+in its response message. Whether to seed indoor events at all is a policy
+call for whoever confirms the WIAA list (see the seed script's own
+provisional-list note above); this file doesn't decide that, it just
+refuses to pretend an unmatched name imported cleanly.
+
+**`backend/lib/trackRound.js`** — the Round column is actually two things
+in one cell (`"V F"`, `"Jv F"`, `"2A P"`, ...): a meet-specific level/
+division prefix with no two meets agreeing on its vocabulary, and a
+trailing F/P round letter. `TrackResult.round` only models PRELIM/SEMI/
+FINAL — there's no schema field for the level prefix, and adding one
+wasn't asked for, so `parseRound` keeps the trailing letter and drops the
+rest. Flagging the data loss here rather than silently eating it.
+
+**Migration** (`backend/prisma/migrations/20261103000000_track_unique_
+constraints/`): additive unique indexes, `TrackMeet(teamId, name, date)`
+and `TrackResult(teamId, trackMeetId, eventId, athleteId, round)` — both
+tables are empty in production (the feature isn't live), so a re-paste of
+the same season can upsert in place instead of duplicating every row.
+Postgres treats each `NULL` as distinct in a unique index, so a future
+relay import (athleteId null) won't collide with itself under this
+constraint. The second index's Prisma-default name ran over Postgres's
+63-byte identifier cap, so it's named explicitly (`track_results_dedupe_
+key`) on both the SQL and the schema's `map`. Same DB-access constraint as
+every prior migration in this file — still needs `prisma migrate resolve
+--applied` from a live-access session.
+
+**`backend/lib/trackEventProgressImport.js`** + **`backend/lib/
+trackEventProgressCsv.js`** — mirrors `routes/teams.js`'s
+`importSeasonCsv` in shape (pre-fetch-then-match athletes via the existing
+`lib/athleteMatching.js`, upsert by natural key, never delete what a paste
+doesn't mention) but is its own function — track's natural keys, units,
+and event catalog are genuinely different, not a copy of the same logic.
+Wired at `POST /api/track/seasons/:year/import-event-progress-csv` in
+`routes/track.js`, gated `requireSuperAdmin` same as every other route in
+that file (still scaffolding, see PR1's note above — swap for real
+sport-scoped `TeamMember` authorization before this reaches an actual
+coach). 5 new unit tests (`test/trackEventProgressImport.test.js`,
+stubbing Prisma model methods by direct property assignment, same reason
+`test/requireRole.test.js` does — Prisma's delegates are Proxy-based and
+reject `t.mock.method`) cover: a new athlete/meet/feet-inches result, a
+DNS row never getting a fabricated markValue, an unmatched event name
+being reported rather than dropped, a missing-field row being skipped and
+counted, and a re-import matching the existing athlete/meet instead of
+duplicating them.
+
+**`web/src/lib/trackEventProgressPaste.ts`** — the browser-side half,
+exactly mirroring `resultsGridPaste.ts`'s DOMParser-based approach for the
+XC Results Grid. Reads season year + outdoor flag from the page's `<h2>`,
+gender from the active `.nav-link` tab, and only the "Competition Results"
+column per athlete (DOM-scoped via that section's own `<h5>`, not a global
+selector) — "Season Records" is deliberately never parsed; it's fully
+derivable from Competition Results once imported, so reading it too would
+just be a second, redundant source of the same numbers to keep consistent.
+One paste is one gender tab, same UX as the XC panel. The **Relays** tab
+is explicitly unsupported — there is no real relay-tab markup to build a
+parser from yet (same "don't guess" rule that's blocked the scraper
+itself), so relay results stay out of scope until that markup exists, not
+silently half-handled.
+
+**`web/src/components/track/BrowserEventProgressImportPanel.tsx`** +
+`trackService.importEventProgressCsv` — same shape as
+`BrowserSeasonImportPanel.tsx`, wired into `TrackDashboardPage.tsx` behind
+the existing `/tf/` super-admin gate with a plain season-year input (no
+sport-aware season picker exists yet — that's Section 1a, not built this
+pass).
+
+**Verified, actually this time** (see the npm/`NODE_ENV` fix above — this
+unblocked exactly what PR1's note said it couldn't confirm): `backend`
+`npm test` — 1151 tests, 1150 passing, the same one pre-existing failure
+(`Results Grid bookmarklet`, a missing Playwright Chromium binary in this
+sandbox, confirmed via `git stash` to fail identically on `neon-migration`)
+as baseline, zero new failures. `web`, with `NODE_ENV=development`: `npx
+tsc -b` clean, `npx vitest run` — 876 tests, 875 passing, the same one
+pre-existing failure (`uiTrialWiring.test.ts`, confirmed via `git stash`)
+as baseline, zero new failures, and **`npx vite build` completes clean**
+— the thing PR1's note said still needed confirming from a machine without
+the npm issue; turns out this machine didn't have the issue PR1 thought it
+had.
+
+**Not done, flagged rather than guessed at**: no Season (`sport: 'TRACK'`)
+row is created by this import — `TrackMeet.season` is a plain Int, so the
+import works without one, but `TrackDashboardPage`'s season list stays
+empty until Section 1a's real season-picker work lands; not attempting
+that lifecycle here. The event catalog seed script still hasn't been run
+against production (task still pending — needs a live-DB session, and the
+WIAA list is still provisional) and the migration above still needs `prisma
+migrate resolve --applied` from one too. Relay import, the Round column's
+dropped level/division text, and the scraper itself all stay blocked/
+deferred exactly as stated above.

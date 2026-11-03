@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Activity } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
 import { trackService } from '@/api/trackService';
+import { BrowserEventProgressImportPanel } from '@/components/track/BrowserEventProgressImportPanel';
 
 // LeadPack Track & Field handoff (docs/leadpack-track-field-handoff.md) —
 // Section 6, step 6/work order step 4: the first real screen Jared can
@@ -17,7 +19,8 @@ import { trackService } from '@/api/trackService';
 // see routes/track.js's own header for the gate this all sits behind, and
 // NOTES.md for why it's temporary.
 const TrackDashboardPage: React.FC = () => {
-  const { data: status, isLoading: statusLoading } = useQuery({
+  const [season, setSeason] = useState(String(new Date().getFullYear()));
+  const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useQuery({
     queryKey: ['trackStatus'],
     queryFn: () => trackService.getStatus(),
   });
@@ -88,6 +91,24 @@ const TrackDashboardPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Import season</CardTitle>
+          <CardDescription>Which season's Event Progress page are you pasting?</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Input
+            type="number"
+            value={season}
+            onChange={(e) => setSeason(e.target.value)}
+            className="w-32"
+            aria-label="Season year"
+          />
+        </CardContent>
+      </Card>
+
+      <BrowserEventProgressImportPanel season={season} onComplete={() => refetchStatus()} />
     </div>
   );
 };
