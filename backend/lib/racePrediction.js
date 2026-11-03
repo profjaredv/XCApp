@@ -70,6 +70,14 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 // extrapolates to targetDate — "normal fitness improvement" showing up as
 // a negative slope (getting faster), though a positive slope (a real
 // decline) is reported just as honestly.
+//
+// The extrapolated pace is floored at the single fastest pace already in
+// `history` — a straight-line projection has no sense of a human limit, so
+// a short or noisy season (a sparse early history, or a target date well
+// past the last race) can otherwise extrapolate clean past anything the
+// athlete has actually run. "Normal fitness improvement" is bounded by
+// what's already been demonstrated; a bigger jump than that needs the
+// next real race to confirm it, not a trend line's say-so.
 function projectSeasonFitness(history, targetDate) {
   const sorted = [...history].sort((a, b) => a.date - b.date);
   if (sorted.length === 0) return null;
@@ -82,6 +90,7 @@ function projectSeasonFitness(history, targetDate) {
     };
   }
 
+  const bestSecPerMile = Math.min(...sorted.map((h) => h.adjustedPaceSecPerMile));
   const originDate = sorted[0].date;
   const points = sorted.map((h) => ({
     x: (h.date - originDate) / MS_PER_DAY,
@@ -98,7 +107,7 @@ function projectSeasonFitness(history, targetDate) {
   }
 
   const targetX = (targetDate - originDate) / MS_PER_DAY;
-  const trendPaceSecPerMile = fit.intercept + fit.slope * targetX;
+  const trendPaceSecPerMile = Math.max(fit.intercept + fit.slope * targetX, bestSecPerMile);
   return { trendPaceSecPerMile, slopeSecPerMilePerDay: fit.slope, basedOnRaceCount: sorted.length };
 }
 
