@@ -536,6 +536,75 @@ function drawHighlightCards(ctx: CanvasRenderingContext2D, rect: TemplateRect, p
 }
 
 /**
+ * Strokes a smooth curve through `points` using monotone cubic Hermite
+ * interpolation (Fritsch–Carlson tangent limiting) — the same curve
+ * shape recharts' `type="monotone"` draws everywhere else a pace trend
+ * appears in the app (the athlete profile page, BuildPaceChart.tsx).
+ * Canvas has no built-in equivalent of that curve, so this computes the
+ * tangents by hand and converts each segment to a cubic bezier. Unlike a
+ * plain Catmull-Rom spline, "monotone" guarantees the curve never
+ * overshoots past either endpoint's own y-value between two points —
+ * which is what keeps a sharp up-then-down in the data from producing a
+ * curve that balloons above/below the actual points.
+ */
+function strokeMonotoneLine(ctx: CanvasRenderingContext2D, points: { x: number; y: number }[]) {
+  const n = points.length;
+  if (n < 2) return;
+  if (n === 2) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    ctx.lineTo(points[1].x, points[1].y);
+    ctx.stroke();
+    return;
+  }
+
+  const dx: number[] = [];
+  const secant: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = points[i + 1].x - points[i].x;
+    secant[i] = dx[i] === 0 ? 0 : (points[i + 1].y - points[i].y) / dx[i];
+  }
+
+  const tangent: number[] = new Array(n);
+  tangent[0] = secant[0];
+  tangent[n - 1] = secant[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    tangent[i] = secant[i - 1] * secant[i] <= 0 ? 0 : (secant[i - 1] + secant[i]) / 2;
+  }
+
+  // Fritsch-Carlson limiter — keeps each segment's curve inside the
+  // bounds of its two endpoints.
+  for (let i = 0; i < n - 1; i++) {
+    if (secant[i] === 0) {
+      tangent[i] = 0;
+      tangent[i + 1] = 0;
+      continue;
+    }
+    const alpha = tangent[i] / secant[i];
+    const beta = tangent[i + 1] / secant[i];
+    const sumSq = alpha * alpha + beta * beta;
+    if (sumSq > 9) {
+      const tau = 3 / Math.sqrt(sumSq);
+      tangent[i] = tau * alpha * secant[i];
+      tangent[i + 1] = tau * beta * secant[i];
+    }
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    const cp1x = p0.x + dx[i] / 3;
+    const cp1y = p0.y + (tangent[i] * dx[i]) / 3;
+    const cp2x = p1.x - dx[i] / 3;
+    const cp2y = p1.y - (tangent[i + 1] * dx[i]) / 3;
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p1.x, p1.y);
+  }
+  ctx.stroke();
+}
+
+/**
  * The pace-over-time line chart, drawn directly on this canvas (not the
  * on-screen BuildPaceChart.tsx, which uses recharts/SVG and only ever
  * renders in the DOM) — same data pipeline (lib/paceChart.ts's
@@ -590,17 +659,16 @@ function drawPaceChartCanvas(ctx: CanvasRenderingContext2D, rect: TemplateRect, 
     ctx.fillText(formatPace(pace), left - pageW * 0.008, y);
   }
 
-  // The trend line itself, plus a dot per race.
+  // The trend line itself, plus a dot per race — a smooth monotone curve
+  // (strokeMonotoneLine above) rather than straight segments, matching
+  // the same curve shape every other pace chart in the app already uses.
   ctx.strokeStyle = accent;
   ctx.lineWidth = Math.max(2, pageH * 0.0018);
-  ctx.beginPath();
-  data.forEach((d, i) => {
-    const x = plotX(i);
-    const y = plotY(d.pace);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
+  ctx.lineJoin = 'round';
+  strokeMonotoneLine(
+    ctx,
+    data.map((d, i) => ({ x: plotX(i), y: plotY(d.pace) })),
+  );
 
   ctx.fillStyle = accent;
   data.forEach((d, i) => {
@@ -619,7 +687,14 @@ function drawPaceChartCanvas(ctx: CanvasRenderingContext2D, rect: TemplateRect, 
   ctx.fillText(data[data.length - 1].label, left + width, chartTop + chartHeight + pageH * 0.006);
 }
 
-/** The season's races as a vertical timeline — a connecting rule with one dot and row per race, in place of the front page's plain table. */
+/**
+ * The season's races as a vertical timeline — a connecting rule with one
+ * dot and row per race, in place of the front page's plain table. Always
+ * shows every race (no "+N more" cutoff): as many columns as it takes to
+ * fit them all within the fixed rect height, the same "add a column
+ * rather than truncate" idea as the front page's own drawResultsBlock,
+ * generalized to as many columns as the actual race count needs.
+ */
 function drawSeasonTimeline(ctx: CanvasRenderingContext2D, rect: TemplateRect, pageW: number, pageH: number, stats: AthleteBuildStats | null, accent: string) {
   if (!stats || stats.races.length === 0) return;
 
@@ -635,57 +710,60 @@ function drawSeasonTimeline(ctx: CanvasRenderingContext2D, rect: TemplateRect, p
   ctx.textBaseline = 'top';
   ctx.fillText('SEASON TIMELINE', left, top);
 
+  const races = stats.races;
   const listTop = top + labelSize * 1.9;
   const rowSize = Math.round(pageH * 0.0135);
   const rowHeight = rowSize * 1.9;
-  const maxRows = Math.max(1, Math.floor((height - labelSize * 1.9) / rowHeight));
-  const shown = stats.races.slice(0, maxRows);
-  const overflow = stats.races.length - shown.length;
+  const maxRowsPerColumn = Math.max(1, Math.floor((height - labelSize * 1.9) / rowHeight));
+  const columnCount = Math.max(1, Math.ceil(races.length / maxRowsPerColumn));
+  const rowsPerColumn = Math.ceil(races.length / columnCount);
+  const colGap = pageW * 0.018;
+  const columnWidth = (width - colGap * (columnCount - 1)) / columnCount;
+  const indent = columnWidth * 0.045;
+  const dateColW = columnWidth * 0.18;
+  const timeColW = columnWidth * 0.22;
+  const nameColX0 = indent + dateColW;
+  const nameColW = columnWidth - nameColX0 - timeColW;
 
-  const dotX = left + pageW * 0.006;
-  // The connecting rule behind every dot, drawn first so the dots and text sit on top of it.
-  if (shown.length > 1) {
-    ctx.strokeStyle = RULE;
-    ctx.lineWidth = Math.max(1, pageH * 0.0012);
-    ctx.beginPath();
-    ctx.moveTo(dotX, listTop + rowHeight * 0.5);
-    ctx.lineTo(dotX, listTop + (shown.length - 1) * rowHeight + rowHeight * 0.5);
-    ctx.stroke();
-  }
+  ctx.font = `${rowSize}px system-ui, sans-serif`;
+  ctx.textBaseline = 'middle';
 
-  const dateColX = dotX + pageW * 0.022;
-  const dateColW = width * 0.1;
-  const timeColW = width * 0.14;
-  const nameColX = dateColX + dateColW;
-  const nameColW = width - (nameColX - left) - timeColW;
+  for (let col = 0; col < columnCount; col++) {
+    const colLeft = left + col * (columnWidth + colGap);
+    const colRaces = races.slice(col * rowsPerColumn, col * rowsPerColumn + rowsPerColumn);
+    if (colRaces.length === 0) continue;
+    const dotX = colLeft + columnWidth * 0.012;
 
-  shown.forEach((race, i) => {
-    const rowCenterY = listTop + i * rowHeight + rowHeight * 0.5;
+    // The connecting rule behind every dot in this column, drawn first
+    // so the dots and text sit on top of it.
+    if (colRaces.length > 1) {
+      ctx.strokeStyle = RULE;
+      ctx.lineWidth = Math.max(1, pageH * 0.0012);
+      ctx.beginPath();
+      ctx.moveTo(dotX, listTop + rowHeight * 0.5);
+      ctx.lineTo(dotX, listTop + (colRaces.length - 1) * rowHeight + rowHeight * 0.5);
+      ctx.stroke();
+    }
 
-    ctx.fillStyle = accent;
-    ctx.beginPath();
-    ctx.arc(dotX, rowCenterY, Math.max(3, pageH * 0.0026), 0, Math.PI * 2);
-    ctx.fill();
+    colRaces.forEach((race, i) => {
+      const rowCenterY = listTop + i * rowHeight + rowHeight * 0.5;
 
-    ctx.textBaseline = 'middle';
-    ctx.font = `${rowSize}px system-ui, sans-serif`;
-    ctx.fillStyle = MUTED;
-    ctx.textAlign = 'left';
-    ctx.fillText(formatRaceDate(race.date), dateColX, rowCenterY);
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.arc(dotX, rowCenterY, Math.max(3, pageH * 0.0026), 0, Math.PI * 2);
+      ctx.fill();
 
-    ctx.fillStyle = INK;
-    ctx.fillText(truncateToWidth(ctx, race.raceName, nameColW - pageW * 0.01), nameColX, rowCenterY);
+      ctx.fillStyle = MUTED;
+      ctx.textAlign = 'left';
+      ctx.fillText(formatRaceDate(race.date), colLeft + indent, rowCenterY);
 
-    ctx.fillStyle = MUTED;
-    ctx.textAlign = 'right';
-    ctx.fillText(formatRaceTime(race.timeSec), left + width, rowCenterY);
-  });
+      ctx.fillStyle = INK;
+      ctx.fillText(truncateToWidth(ctx, race.raceName, nameColW - pageW * 0.01), colLeft + nameColX0, rowCenterY);
 
-  if (overflow > 0) {
-    ctx.fillStyle = MUTED;
-    ctx.textAlign = 'left';
-    ctx.font = `italic ${rowSize}px system-ui, sans-serif`;
-    ctx.fillText(`+${overflow} more this season`, dateColX, listTop + shown.length * rowHeight + rowHeight * 0.1);
+      ctx.fillStyle = MUTED;
+      ctx.textAlign = 'right';
+      ctx.fillText(formatRaceTime(race.timeSec), colLeft + columnWidth, rowCenterY);
+    });
   }
 }
 

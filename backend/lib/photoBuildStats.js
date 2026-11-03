@@ -19,6 +19,14 @@ const { computePRs } = require('./athleteJourney');
 const { canManageAthlete } = require('./photoTagRules');
 const { mergeStaffRoster } = require('./teamStaff');
 
+// Head coach first, then paid assistants, then volunteers — mergeStaffRoster
+// itself returns insertion order (owner, then whatever order the
+// TeamMember query came back in), which doesn't promise this. Sorted
+// locally here, not inside mergeStaffRoster, since that function is also
+// used by routes/teams.js and routes/today.js for an unrelated staff
+// count/list display that has no reason to share this ordering.
+const COACH_ROLE_ORDER = { HEAD_COACH: 0, COACH: 1, VOLUNTEER_COACH: 2 };
+
 /**
  * Coach or the athlete's own linked account only — same authority as
  * picks/opt-out, and (like lib/photosAccess.js's listAthletePhotosForDownload)
@@ -85,7 +93,9 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
   const coaches = mergeStaffRoster(
     teamOwner?.coach ?? null,
     coachTeamMembers.map((m) => ({ userId: m.userId, role: m.role, name: m.user.name, email: m.user.email })),
-  ).map((c) => c.name || c.email);
+  )
+    .sort((a, b) => (COACH_ROLE_ORDER[a.role] ?? 99) - (COACH_ROLE_ORDER[b.role] ?? 99))
+    .map((c) => c.name || c.email);
 
   const seasonResultsFlat = seasonResults.map((r) => ({
     raceId: r.race.id,

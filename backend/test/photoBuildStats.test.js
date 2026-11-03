@@ -182,11 +182,14 @@ test('a family account reaches its own linked athlete\'s stats', async (t) => {
   assert.equal(stats.name, 'Alex');
 });
 
-test('getAthleteBuildStats includes the team\'s coach list (owner + assistants) for the back page\'s small-print credit', async (t) => {
+test('getAthleteBuildStats orders the coach list head coach, then coach, then volunteer coach', async (t) => {
   // Overrides withActiveSeason's own team.findUnique/teamMember.findMany
   // stubs with ones that actually carry coach data, same "stub the thing
   // this one test cares about" pattern as the metrics/aggregate overrides
-  // in the 'assembles' test above.
+  // in the 'assembles' test above. The TeamMember rows are deliberately
+  // NOT in role order (volunteer before assistant) — mergeStaffRoster
+  // itself only promises insertion order, so this proves the role sort
+  // is actually doing something, not just happening to already match.
   const restoreTeam = stub('team', 'findUnique', () => ({
     currentSeason: 2026,
     coach: { id: 'coach-1', name: 'Pat Owner', email: 'pat@x.com' },
@@ -194,6 +197,7 @@ test('getAthleteBuildStats includes the team\'s coach list (owner + assistants) 
   const restoreSeasonRow = stub('season', 'findFirst', () => ({ id: 'season-1', year: 2026 }));
   const restoreRace = stub('race', 'findMany', () => []);
   const restoreTeamMember = stub('teamMember', 'findMany', () => [
+    { userId: 'coach-3', role: 'VOLUNTEER_COACH', user: { name: 'Volunteer Val', email: 'val@x.com' } },
     { userId: 'coach-2', role: 'COACH', user: { name: 'Jamie Assistant', email: 'jamie@x.com' } },
   ]);
   const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null }));
@@ -212,5 +216,5 @@ test('getAthleteBuildStats includes the team\'s coach list (owner + assistants) 
   });
 
   const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
-  assert.deepEqual(stats.coaches, ['Pat Owner', 'Jamie Assistant']);
+  assert.deepEqual(stats.coaches, ['Pat Owner', 'Jamie Assistant', 'Volunteer Val']);
 });

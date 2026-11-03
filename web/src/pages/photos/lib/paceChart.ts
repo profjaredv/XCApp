@@ -8,10 +8,18 @@ export interface PaceDatum {
   raceName: string;
 }
 
-/** Pure — no usable pace without a real distance, same "degrade, don't break" choice as the printed collage's own stat blocks. */
+const MILE_IN_METERS = 1609.34;
+
+/**
+ * Pure — no usable pace without a real distance, same "degrade, don't
+ * break" choice as the printed collage's own stat blocks. Also excludes
+ * anything at or under a mile (time trials chief among them): a short
+ * time trial runs at a very different effort/pace than a real race, so
+ * mixing it into the trend reads as noise rather than progress.
+ */
 export function toPaceDatum(race: AthleteRaceResult | AthleteCareerRaceResult): PaceDatum | null {
-  if (!race.distanceMeters || race.distanceMeters <= 0) return null;
-  const miles = race.distanceMeters / 1609.34;
+  if (!race.distanceMeters || race.distanceMeters <= MILE_IN_METERS) return null;
+  const miles = race.distanceMeters / MILE_IN_METERS;
   return { date: race.date, label: formatRaceDate(race.date), pace: race.timeSec / miles, raceName: race.raceName };
 }
 
