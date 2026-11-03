@@ -173,6 +173,7 @@ const main = async () => {
     const billingRoutes = require('./routes/billing');
     const photosRoutes = require('./routes/photos');
     const racePredictionRoutes = require('./routes/racePredictions');
+    const trackRoutes = require('./routes/track');
 
     app.get('/api', (req, res) => {
         res.send('XC Analytics Backend API is running!');
@@ -235,6 +236,10 @@ const main = async () => {
     app.use('/api/billing', billingRoutes);
     app.use('/api/photos', photosRoutes);
     app.use('/api/race-predictions', racePredictionRoutes);
+    // LeadPack Track & Field — every route in here is super-admin-gated
+    // (see routes/track.js's own header). Temporary demo gate, flagged to
+    // come off before January — see NOTES.md.
+    app.use('/api/track', trackRoutes);
 
     // Enhanced performance routes
     const enhancedPerformanceRoutes = require('./routes/enhancedPerformanceRoutes');

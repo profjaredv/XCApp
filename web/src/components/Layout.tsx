@@ -4,7 +4,7 @@ import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-do
 // these are the ones this file draws itself.
 import { accentFor, sectionForNavKey, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, X, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, X, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon, Activity } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamContext } from '../hooks/useTeamContext';
@@ -400,6 +400,18 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
               to={teamPath('/admin')}
               icon={ShieldCheck}
               label="Platform"
+              isCollapsed={isCollapsed}
+              onClick={handleLinkClick}
+            />
+            {/* LeadPack Track & Field handoff: temporary, super-admin-only
+                while this ships (SuperAdminRouteGuard is the real nav
+                equivalent of TeamRouteGuard here — see that guard's own
+                comment). Absolute path, not teamPath(...): /tf isn't
+                nested under /t/:athleticTeamId. */}
+            <NavItem
+              to="/tf/dashboard"
+              icon={Activity}
+              label="Track & Field"
               isCollapsed={isCollapsed}
               onClick={handleLinkClick}
             />

@@ -4253,3 +4253,225 @@ revisiting, since it defeats the point of a seven-step tour.
 rendering (a collapsible group of Analytics tabs, and a disclosure); only
 their *entries* come from the data. Fully data-driving them was more risk
 than value.
+
+---
+
+# LeadPack: Track & Field (`docs/leadpack-track-field-handoff.md`)
+
+A third handoff document, same rules of engagement restated in its own
+intro (don't invent data, don't add unspecified features, don't fix a
+problem by adding a second implementation, write the test before the fix
+for anything arithmetic, stop and ask when ambiguous). The two companion
+documents it references (`LeadPack-master-handoff.md`,
+`XCApp-red-team-audit.md`) don't exist in this repo and were never
+provided — proceeding on the doc's own restated rules instead, same as
+every other section of this file falls back to when a referenced doc is
+missing.
+
+## Section 1 — real page confirmed, then blocked by Cloudflare
+
+The doc's own sequencing is explicit: Section 1 (confirm the real
+track results page on Athletic.net, in a real browser) has to resolve
+before any scraper selector gets written, because `event-records` is
+"very likely the wrong page" and the site is a client-rendered Angular
+app (`ng-version="22.2.0"`), not server-rendered HTML like the XC
+scraper's `Season.aspx` grid.
+
+**What's confirmed, from one real successful Playwright capture against
+`https://www.athletic.net/team/460/track-and-field-outdoor/2026/`** (screenshot
+and saved HTML, not fabricated): the team hub's actual top-level tabs for
+a sport are **Home · Posts · Records · Rankings · Custom Lists · Reports ·
+Training Log · Photos**. Two things this already tells us, beyond what the
+doc assumed:
+
+- There is no tab literally called "Schedule" or "Results" — the doc's
+  phrasing ("find the actual results/schedule page") assumed one would
+  exist as a sibling of `event-records`. The real candidates for a
+  meet-by-meet season log are **Reports** or **Custom Lists**, or it's
+  folded into **Home** itself (XC's own team page shows a season summary
+  on its landing view before you ever reach `Season.aspx`). Not guessing
+  which — see below.
+- The tab is literally labeled **Records**, not "event records" — matches
+  the doc's suspicion that it's an all-time/season-best leaderboard, not
+  a meet log, but this is still inference, not confirmed by opening it.
+
+**What's blocked, reproducibly**: every attempt after that first capture
+(six-plus retries, with and without a 30-60s cooldown between attempts,
+fresh browser context each time) hit the same wall. `curl
+"$HTTPS_PROXY/__agentproxy/status"` shows why —
+`recentRelayFailures` records repeated `connect_rejected` /
+`gateway answered 502 to CONNECT` against
+`brunhild.challenges.cloudflare.com:443`. That's Cloudflare's own
+challenge-verification host; this environment's egress proxy can't reach
+it. Without it, the Angular app's own XHR calls never pass Cloudflare's
+check and come back 403 from athletic.net itself — confirmed directly by
+listening to the page's network responses:
+
+```
+403 https://www.athletic.net/api/v1/TeamHome/GetTeamCore?teamId=460&sport=tfo&year=2026
+403 https://www.athletic.net/api/v1/public/GetStatesCountries2
+```
+
+(`GetTeamCore?...&sport=tfo&...` is itself a confirmed, real finding: `tfo`
+is Athletic.net's own internal sport-slug for track-and-field-outdoor —
+useful if a future API-based approach is ever considered, though the
+existing XC scraper already tried and rejected that path for unrelated
+reasons — see Phase 2 step 1's "Explicitly did not pursue... internal
+`GetAllResultsData` JSON API" entry above.) This 403 is what produces the
+"Server Communication Error" modal that blocks every subsequent
+Playwright run — the team-card widget and its sub-nav simply never
+render, because the data call behind them never completes.
+
+This is the same class of blocker Phase 2 step 3 hit on the XC meet-page
+scraper (`cf-mitigated: challenge` from curl, `ERR_CONNECTION_RESET` from
+an earlier sandbox's Playwright) — a Cloudflare JS challenge that only a
+real browser with real network access to Cloudflare's own challenge
+infrastructure can pass, which this environment's proxy doesn't allow
+through. Per that section's own precedent and this doc's rule 1/3 ("do
+not write selectors from assumption"), not fabricating what Records/
+Reports/Custom Lists/Home actually contain. Needs one of: a live-access
+session whose Playwright can actually reach
+`*.challenges.cloudflare.com`, or a human saving the real rendered page
+(view-source after letting Cloudflare's challenge clear in a real
+browser) as a fixture for inspection.
+
+**Downstream effect**: Section 4 (the scraper) and the Section 2 hazard
+(field-event unit parser, which rule 5 requires be tested against real
+scraped strings before trusting it, same discipline as `lib/distance.js`)
+are both blocked on this same thing. Not fabricating sample field-event
+strings to unblock the parser test table early — that's exactly the kind
+of invented-data shortcut the rules of engagement rule out, and it's also
+exactly the kind of bug class (an innocent-looking string meaning
+something other than what it appears to) the doc calls out `lib/
+distance.js`'s real-data discipline as the fix for.
+
+## What shipped anyway — schema, permissions, and the super-admin demo gate
+
+Everything in Section 1b (staff sport-scoping), Section 2 (event catalog
+schema) and Section 3 (TrackMeet/TrackResult schema) is specified
+verbatim in the doc itself and needs no live data to build — only the
+WIAA event *list* needs outside confirmation (see its own note below).
+Built this now rather than waiting on the scraper, since nothing
+downstream of it is blocked by Cloudflare. See the next entries for what
+landed.
+
+## PR1: schema, sport-scoped staff permissions, and the `/tf/` demo gate
+
+Per the task's own instructions, every new Track & Field surface — every
+`/tf/*` frontend route and every `/api/track/*` backend route — is gated
+behind the platform super-admin allowlist from day one, not added later:
+this ships incrementally straight into `neon-migration` for Jared to
+click through as phases land, rather than into a separate preview
+environment. Flagging again, loudly, per the task's own instruction: **this
+gate must come off (or be replaced by Section 1b's real sport-scoped
+TeamMember permissions) before Track & Field goes live to actual coaches
+in January.** It is not a permissions system, it's scaffolding.
+
+**Schema** (`backend/prisma/migrations/20261006000000_track_and_field_schema/`):
+`TeamMember.sport` / `StaffInvite.sport` (Section 1b, nullable, every
+existing row migrated to `null` = unrestricted, exactly as specced) plus
+`EventCategory`/`MarkUnit`/`ScoringDirection` enums and `Event`/
+`TrackMeet`/`TrackResult` (Sections 2–3), built parallel to Race/Result
+per the doc's own instruction, not merged into them. One deliberate
+addition beyond the doc's literal schema text: `TrackResult.athleteId`
+now has a real `Athlete` relation (`onDelete: SetNull`) — the doc's own
+spec left it as a bare indexed UUID with no FK, which every other
+foreign-id column in this schema has one of; added for referential
+integrity, not a product decision, so not something I stopped to ask
+about. Hand-written migration SQL, same as every other migration in this
+repo — this sandbox still can't reach Postgres directly (see
+MIGRATION_STATUS.md) — `npx prisma migrate resolve --applied
+20261006000000_track_and_field_schema` still needs running from
+somewhere with real DB access, same runbook as every prior migration.
+
+Both self-enforcing registries this app already has caught the new models
+immediately, exactly as designed: `lib/dataClassification.js` (Event ->
+OPERATIONAL, same as Course; TrackMeet/TrackResult -> DIRECTORY, same as
+Meet/Result) and `lib/exportManifest.js` (Event excluded, same as Course;
+`trackMeets`/`trackResults` added to the team export; `trackResults`
+added to the athlete export scoped to individual results only — a relay
+result has no `athleteId` to scope by, and this file's own test
+deliberately only accepts a direct-column or single-relation `where`
+shape, not an `OR` across two conditions, so relay appearances stay out
+of a personal export for now, same acceptable-narrowing precedent as
+`FieldResult` being entirely absent from it. Relay PR attribution still
+has to exist somewhere for Section 7's verify gate — that's the athlete
+PR-progression view in Section 5, a different, purpose-built query, not
+this generic manifest.)
+
+**Permissions**: `lib/groupPermissions.js` gets
+`decideCanAccessSportScopedResource({ isOwner, membership, resourceSport })`,
+reusing the exact shape `decideCanManageGroup` already established
+(DB-free, directly unit-tested, owner fast-path) rather than inventing a
+second pattern. Deliberately a separate, narrower function composed with
+whatever role/group check a route already has, not merged into
+`decideCanManageGroup` — role (can this TeamRole touch this kind of
+resource) and sport (can this membership touch this season's sport) are
+orthogonal questions. Not yet wired into any route, since there are no
+season-scoped Track routes to protect yet (that starts with Phase 3's
+import and beyond) — the function and its tests exist now so nothing
+later skips rule 5's "test before the fix" on arrival.
+
+**The gate itself**: `backend/routes/track.js` (`GET /events`, `GET
+/status`, mounted at `/api/track`) — every route carries `authenticate,
+requireSuperAdmin` **inline**, not via `router.use()`. That's deliberate:
+`test/routeAuth.test.js`'s guard check only inspects middleware attached
+directly to a route (an Express limitation — it can't see
+`router.use()`-level layers), so a router-level-only gate would pass that
+test today and silently stop being checked the moment a `POST` route gets
+added later without its own inline guard. Added
+`test/trackRouteAuth.test.js` on top, stricter than the generic check on
+purpose: it covers GET routes too (the generic one skips them entirely),
+so a future GET route here that forgets the gate fails loudly instead of
+quietly becoming reachable.
+
+Frontend: `web/src/router/SuperAdminRouteGuard.tsx`, mounted at `/tf`,
+sibling to `/t/:athleticTeamId` rather than nested under it — this
+surface predates the sport-aware season-picker merge Section 1a describes
+for launch, so it's deliberately a separate tree for now. Redirects (to
+`/`), not a hidden-nav or inline "not available" message — the task's own
+instruction is explicit that this has to be a real rejection, matching
+`TeamRouteGuard`'s relationship to its own server-side checks: this guard
+is UX, `requireSuperAdmin` on every request is the actual boundary.
+`web/src/pages/track/TrackDashboardPage.tsx` (`/tf/dashboard`) is the
+first real page behind it — live counts from `GET /api/track/status`
+and the event catalog from `GET /api/track/events`, no placeholder
+numbers. A "Track & Field" link was added to the sidebar's super-admin
+section (next to "Platform"), same `currentUser?.isSuperAdmin` gate the
+existing Platform link uses.
+
+**Event catalog seed** (`backend/scripts/seedTrackEvents.js`): the WIAA-
+typical outdoor list from Section 2, typed in verbatim — nothing added or
+guessed beyond what the doc names. Marked **PROVISIONAL** in the script's
+own header and loudly in the dashboard page, per the doc's explicit
+instruction not to hardcode confidence not yet checked against WIAA's
+current rules or a real Ellensburg meet result. Not run against the real
+database from this sandbox (same DB-access constraint as every migration
+above) — running it is a `node scripts/seedTrackEvents.js` away once
+someone with real DB access reviews the list.
+
+**Verified**: `npm test` in `backend/` — 931 passing, the same one
+pre-existing, unrelated failure (`extractResults against fixture HTML`,
+confirmed via `git stash` to fail identically on `neon-migration` before
+any of this work) as baseline, zero new failures. `npx prisma generate`
+and `node_modules/.bin/prisma validate` both clean against the edited
+schema. `cd web && npx tsc -b` — same 162 pre-existing errors as a clean
+checkout (missing `@types/node` for this sandbox's own test files and a
+`virtual:pwa-register` module; confirmed via `git stash` too), zero new
+errors from anything added here.
+
+**Not verified**: `vite build` / `vitest run` / `eslint` in `web/` —
+this sandbox's npm install reproducibly hits
+[npm/cli#4828](https://github.com/npm/cli/issues/4828) (the documented
+"Cannot find native binding" optional-dependencies bug): the top-level
+pinned `vite@5.4.20` never actually lands in `node_modules/vite` despite
+`npm install` reporting success, `eslint` fails outright on a missing
+`@eslint/js`, and even forcing `vite`/`@rolldown/binding-linux-x64-gnu`
+in by hand gets a working binary but a config-loader crash in `vitest`'s
+own bundled `vite@8` (a different, rolldown-based engine from the
+project's pinned one — not representative of what the real pinned
+version would do). Reproduced on a clean `git stash` checkout too, so
+this is a pre-existing sandbox/npm issue, not something introduced by
+this change. `tsc -b`'s zero-new-errors result is the real signal here;
+a full `vite build` still needs confirming from a machine where `npm
+install` doesn't hit this.
