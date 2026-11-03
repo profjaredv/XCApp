@@ -29,13 +29,19 @@ function stats(overrides: Partial<AthleteBuildStats> = {}): AthleteBuildStats {
 
 describe('toPaceDatum', () => {
   it('converts time + distance into seconds-per-mile', () => {
-    const d = toPaceDatum(seasonRace({ timeSec: 1609.34, distanceMeters: 1609.34 }));
-    expect(d?.pace).toBeCloseTo(1609.34, 1); // one mile in exactly timeSec seconds -> that many sec/mile
+    const d = toPaceDatum(seasonRace({ timeSec: 3218.68, distanceMeters: 3218.68 })); // 2 miles
+    expect(d?.pace).toBeCloseTo(1609.34, 1); // same per-mile pace as running 1609.34s for one mile
   });
 
   it('returns null for a race with no usable distance, rather than dividing by zero', () => {
     expect(toPaceDatum(seasonRace({ distanceMeters: null }))).toBeNull();
     expect(toPaceDatum(seasonRace({ distanceMeters: 0 }))).toBeNull();
+  });
+
+  it('excludes a mile or shorter — time trials chief among them — so they never taint the trend', () => {
+    expect(toPaceDatum(seasonRace({ distanceMeters: 1609.34 }))).toBeNull(); // exactly a mile
+    expect(toPaceDatum(seasonRace({ distanceMeters: 1600 }))).toBeNull(); // under a mile
+    expect(toPaceDatum(seasonRace({ distanceMeters: 1610 }))).not.toBeNull(); // just over a mile still counts
   });
 });
 
