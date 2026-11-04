@@ -83,27 +83,37 @@ export function minPicksFor(size: TemplateSize): number {
 
 const HEADER: TemplateRect = { x: 0.06, y: 0.03, w: 0.88, h: 0.08 };
 const STAT_STRIP: TemplateRect = { x: 0.06, y: 0.115, w: 0.88, h: 0.04 };
-const BEST_BY_DISTANCE: TemplateRect = { x: 0.06, y: 0.165, w: 0.88, h: 0.025 };
+// Narrow now — a left column, not the full page width. The hero (below)
+// floats up beside this text instead of below it, so this can no longer
+// run edge to edge without running under the photo. Pure layout budget,
+// not an enforced clip: drawBestByDistance wraps its content onto as
+// many lines as this width needs, and this height is a generous (not
+// exact) estimate of how tall that ever gets — see that function's own
+// comment.
+const BEST_BY_DISTANCE: TemplateRect = { x: 0.06, y: 0.165, w: 0.4, h: 0.275 };
 // Floated toward the top-right rather than centered — see HeroRect's own
 // comment on the radius/aspect tradeoff. cy sits high enough that the
 // photo's own top edge (not just its decorative rings) crosses above
-// BEST_BY_DISTANCE's bottom edge (0.19) by a small amount; renderCollage
+// STAT_STRIP's bottom edge (0.155) by a small amount; renderCollage
 // clips everything hero-related flat at that same line, so the hero
 // reads as peeking up from behind the ribbon there rather than floating
-// in its own fully-enclosed space. The rings extend out to 1.245x the
-// photo radius (see drawHeroRings) — even with that, the whole motif
-// (hero + rings) stays inside the page's own margin stripes and bottoms
-// out around y 0.51, well clear of GRID_BAND_TOP below.
-const HERO: HeroRect = { cx: 0.66, cy: 0.32, radius: 0.2 };
+// in its own fully-enclosed space. cx sits just past BEST_BY_DISTANCE's
+// own right edge (0.46) so the two never overlap — the hero lives
+// beside that text column, not below it. The rings extend out to
+// 1.245x the photo radius (see drawHeroRings); even with that, the
+// whole motif stays inside the page's own margin stripes and bottoms
+// out around y 0.48, comfortably clear of GRID_BAND_TOP below.
+const HERO: HeroRect = { cx: 0.72, cy: 0.285, radius: 0.2 };
 
 // Where the grid band starts, for every template size — a little below
-// the hero+rings' own lowest point (~0.51), leaving a deliberate gap
-// rather than crowding them together. Full-bleed (x:0, w:1) like every
-// slot below, right to the page's left/right edges and down to the
-// page's own bottom edge (a deliberate bleed, not a margin) — unlike
-// HEADER/STAT_STRIP/BEST_BY_DISTANCE above, which keep their 0.06 margin
-// since running text edge-to-edge reads poorly.
-const GRID_BAND_TOP = 0.55;
+// the lower of BEST_BY_DISTANCE's own bottom and the hero+rings' lowest
+// point (~0.48), leaving a deliberate gap rather than crowding them
+// together. Full-bleed (x:0, w:1) like every slot below, right to the
+// page's left/right edges and down to the page's own bottom edge (a
+// deliberate bleed, not a margin) — unlike HEADER/STAT_STRIP/
+// BEST_BY_DISTANCE above, which keep their 0.06 margin since running
+// text edge-to-edge reads poorly.
+const GRID_BAND_TOP = 0.5;
 const GRID_BAND_HEIGHT = 1 - GRID_BAND_TOP;
 const ROW_GAP = 0.01;
 

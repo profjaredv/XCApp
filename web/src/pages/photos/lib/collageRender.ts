@@ -137,6 +137,30 @@ function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
   return `${truncated}…`;
 }
 
+/**
+ * Greedily packs whole `segments` onto as few lines as fit within
+ * maxWidth, joined by `separator` — never splits a segment itself
+ * mid-word. Used for content that reads naturally as a joined list (e.g.
+ * "1 Mile 5:46  ·  3 Miles 20:28") but, unlike a single long line, needs
+ * to wrap onto several when the column it's drawn in is narrow (see
+ * drawBestByDistance below).
+ */
+function wrapSegments(ctx: CanvasRenderingContext2D, segments: string[], separator: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let current = '';
+  for (const segment of segments) {
+    const candidate = current ? `${current}${separator}${segment}` : segment;
+    if (current && ctx.measureText(candidate).width > maxWidth) {
+      lines.push(current);
+      current = segment;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 const INK = '#1f2a22';
 const MUTED = '#4b5a4f';
 const RULE = '#cfcabd';
@@ -182,14 +206,17 @@ function drawStatStrip(ctx: CanvasRenderingContext2D, rect: { x: number; y: numb
 }
 
 /**
- * "Season best by distance" — one line, e.g. "5K 17:32  ·  2 Mile 11:05"
- * — directly under the headline stat strip and above the hero photo. The
- * season's full race list used to run here too, as a table; it's been
- * dropped from the front page now that the back page's own season
- * timeline lists every race in full (drawSeasonTimeline below) — no
- * reason to print it twice. Never throws: a missing or empty stats
- * object just draws nothing, the same "degrade, don't break" choice as a
- * missing photo drawing a gray circle/box instead of failing the render.
+ * "Season best by distance" — e.g. "5K 17:32  ·  2 Mile 11:05" — in a
+ * narrow left column beside the hero photo (not below it, and not full
+ * page width — see BEST_BY_DISTANCE's own comment in lib/templates.ts
+ * for why), wrapping onto as many lines as that width needs rather than
+ * truncating one. The season's full race list used to run here too, as
+ * a table; it's been dropped from the front page now that the back
+ * page's own season timeline lists every race in full (drawSeasonTimeline
+ * below) — no reason to print it twice. Never throws: a missing or empty
+ * stats object just draws nothing, the same "degrade, don't break"
+ * choice as a missing photo drawing a gray circle/box instead of failing
+ * the render.
  */
 function drawBestByDistance(ctx: CanvasRenderingContext2D, rect: TemplateRect, pageW: number, pageH: number, stats: AthleteBuildStats | null, accent: string) {
   if (!stats || stats.bestByDistance.length === 0) return;
@@ -207,10 +234,12 @@ function drawBestByDistance(ctx: CanvasRenderingContext2D, rect: TemplateRect, p
 
   ctx.fillStyle = INK;
   ctx.font = `${rowSize}px system-ui, sans-serif`;
-  const line = stats.bestByDistance
-    .map((d) => `${formatDistance(d.distanceLabel, d.distanceMeters)} ${formatRaceTime(d.timeSec)}`)
-    .join('   ·   ');
-  ctx.fillText(truncateToWidth(ctx, line, width), left, top + labelSize * 1.6);
+  const segments = stats.bestByDistance.map((d) => `${formatDistance(d.distanceLabel, d.distanceMeters)} ${formatRaceTime(d.timeSec)}`);
+  const lines = wrapSegments(ctx, segments, '   ·   ', width);
+  const lineHeight = rowSize * 1.5;
+  lines.forEach((line, i) => {
+    ctx.fillText(line, left, top + labelSize * 1.6 + i * lineHeight);
+  });
 }
 
 export async function renderCollage(
@@ -276,12 +305,13 @@ export async function renderCollage(
   const heroImg = images[0];
   const gridImages = images.slice(1);
 
-  // Where the text block above ends — the hero floats up into this
-  // line on purpose (see HERO's own comment in templates.ts), so
-  // everything hero-related (photo + rings) is clipped flat right here:
-  // it reads as the hero peeking up from behind that boundary rather
-  // than a photo that just happens to overlap text.
-  const heroCutoffY = (template.bestByDistance.y + template.bestByDistance.h) * pageHeight;
+  // Where the stat strip ends — the hero floats up into this line on
+  // purpose (see HERO's own comment in templates.ts), so everything
+  // hero-related (photo + rings) is clipped flat right here: it reads as
+  // the hero peeking up from behind that boundary rather than a photo
+  // that just happens to overlap text. BEST_BY_DISTANCE sits beside the
+  // hero below this line, not above it, so it's never the cutoff source.
+  const heroCutoffY = (template.statStrip.y + template.statStrip.h) * pageHeight;
   const hero = heroPixelRect(template.hero, pageWidth, pageHeight);
   const heroCx = template.hero.cx * pageWidth;
   const heroCy = template.hero.cy * pageHeight;
