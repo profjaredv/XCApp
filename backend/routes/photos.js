@@ -801,8 +801,14 @@ router.post('/athletes/:athleteId/opt-out', authenticate, resolvePhotosTeam, req
 // below).
 router.get('/athletes/:athleteId/build-stats', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   try {
-    const stats = await photoBuildStats.getAthleteBuildStats(prisma, req.photosTeamId, req.params.athleteId, req.photoActor);
-    res.json(stats);
+    const { inviteToken, ...stats } = await photoBuildStats.getAthleteBuildStats(prisma, req.photosTeamId, req.params.athleteId, req.photoActor);
+    // The collage's QR code target — a live invite link when the athlete
+    // doesn't have an account yet, or the plain site otherwise (already
+    // registered, or below the minimum account grade). Built here, not in
+    // lib/photoBuildStats.js, so URL assembly stays with this route's own
+    // FRONTEND_URL, same as every other invite/download link in this file.
+    const qrUrl = inviteToken ? `${FRONTEND_URL}/invite/${inviteToken}` : FRONTEND_URL;
+    res.json({ ...stats, qrUrl });
   } catch (error) {
     sendAccessError(res, error, 'Error in GET /photos/athletes/:athleteId/build-stats:');
   }

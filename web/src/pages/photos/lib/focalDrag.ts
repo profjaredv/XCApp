@@ -4,7 +4,7 @@
 // without a DOM.
 
 import { coverFitOffset, type FocalPoint } from './collageRender';
-import { heroPixelRect, type CollageTemplate } from './templates';
+import { heroPixelRect, HERO, PANELS } from './templates';
 
 export interface SlotHit {
   index: number;
@@ -19,19 +19,20 @@ export interface SlotHit {
  * dimensions) to drag.
  *
  * Index 0 is always the hero circle (hit-tested as a circle, not its
- * bounding square); every index after it is one of template.slots'
- * grid slots, shifted by one — matching how lib/collageRender.ts's
- * renderCollage splits photoUrls/focalPoints into [hero, ...grid].
+ * bounding square); every index after it is one of PANELS' grid panels,
+ * shifted by one — matching how lib/collageRender.ts's renderCollage
+ * splits photoUrls/focalPoints into [hero, ...grid]. Panels are hit-tested
+ * against their full bounding box, not their actual (slanted) visible
+ * edge — a deliberate, harmless over-inclusion at the clipped corner.
  */
 export function hitTestSlot(
-  template: CollageTemplate,
   pageWidth: number,
   pageHeight: number,
   canvasX: number,
   canvasY: number,
   photoSizes: ({ width: number; height: number } | undefined)[],
 ): SlotHit | null {
-  const hero = heroPixelRect(template.hero, pageWidth, pageHeight);
+  const hero = heroPixelRect(HERO, pageWidth, pageHeight);
   const heroCx = hero.x + hero.w / 2;
   const heroCy = hero.y + hero.h / 2;
   const dx = canvasX - heroCx;
@@ -43,17 +44,17 @@ export function hitTestSlot(
     return { index: 0, overflowX, overflowY };
   }
 
-  const gridIndex = template.slots.findIndex((rect) => {
+  const panelIndex = PANELS.findIndex(({ rect }) => {
     const x = rect.x * pageWidth;
     const y = rect.y * pageHeight;
     return canvasX >= x && canvasX <= x + rect.w * pageWidth && canvasY >= y && canvasY <= y + rect.h * pageHeight;
   });
-  if (gridIndex === -1) return null;
-  // Shifted by one — template.slots is the grid alone; index 0 belongs to the hero above.
-  const index = gridIndex + 1;
+  if (panelIndex === -1) return null;
+  // Shifted by one — PANELS is the grid alone; index 0 belongs to the hero above.
+  const index = panelIndex + 1;
   const size = photoSizes[index];
   if (!size || size.width <= 0 || size.height <= 0) return null;
-  const rect = template.slots[gridIndex];
+  const { rect } = PANELS[panelIndex];
   const { overflowX, overflowY } = coverFitOffset(rect.w * pageWidth, rect.h * pageHeight, size.width, size.height);
   return { index, overflowX, overflowY };
 }

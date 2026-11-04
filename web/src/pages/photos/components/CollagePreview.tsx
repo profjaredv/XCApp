@@ -1,12 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useExportPalette } from '../../../hooks/useTeamColors';
 import { renderCollage, renderCollageBack, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
-import { templateFor } from '../lib/templates';
 import { hitTestSlot, nextFocalPoint } from '../lib/focalDrag';
-import type { AthleteBuildStats, Photo, TemplateSize } from '../state/types';
+import type { AthleteBuildStats, Photo } from '../state/types';
 
 interface CollagePreviewProps {
-  templateSize: TemplateSize;
   photos: (Photo | undefined)[];
   header: CollageHeaderText;
   // null while stats are still loading, or for an athlete with no race
@@ -51,7 +49,7 @@ interface DragState {
 }
 
 export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreviewProps>(
-  ({ templateSize, photos, header, stats = null, focalPoints = [], onFocalChange, side = 'front', groupPhotoUrl = null }, ref) => {
+  ({ photos, header, stats = null, focalPoints = [], onFocalChange, side = 'front', groupPhotoUrl = null }, ref) => {
     const palette = useExportPalette();
     const innerRef = useRef<HTMLCanvasElement>(null);
     const canvasRef = (ref as React.RefObject<HTMLCanvasElement>) ?? innerRef;
@@ -82,14 +80,14 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       // must not request) crossOrigin-loaded images; see collageRender.ts's
       // own comment on why that matters. Logged, not thrown: a blank slot
       // here is already visible as the gray placeholder box.
-      renderCollage(canvas, PAGE_W, PAGE_H, templateSize, urls, header, false, stats, effectiveFocalPoints, palette?.paperAccent).catch(
-        (error) => console.error('Collage preview failed to render:', error),
+      renderCollage(canvas, PAGE_W, PAGE_H, urls, header, false, stats, effectiveFocalPoints, palette?.paperAccent).catch((error) =>
+        console.error('Collage preview failed to render:', error),
       );
       // effectiveFocalPoints is a fresh array each render by design (it
       // folds in the live drag override), so it's compared by its actual
       // entries here rather than by reference.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canvasRef, side, templateSize, photos, header, stats, groupPhotoUrl, palette?.paperAccent, JSON.stringify(effectiveFocalPoints)]);
+    }, [canvasRef, side, photos, header, stats, groupPhotoUrl, palette?.paperAccent, JSON.stringify(effectiveFocalPoints)]);
 
     function canvasPoint(e: React.PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
       const rect = e.currentTarget.getBoundingClientRect();
@@ -104,7 +102,6 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       if (side === 'back') return;
       const point = canvasPoint(e);
       const hit = hitTestSlot(
-        templateFor(templateSize),
         PAGE_W,
         PAGE_H,
         point.x,

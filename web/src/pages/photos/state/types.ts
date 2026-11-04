@@ -79,8 +79,6 @@ export type Module = 'load' | 'tag' | 'build' | 'slideshow';
 
 export type PreviewRole = 'coach' | 'family';
 
-export type TemplateSize = 3 | 4 | 5;
-
 export interface LoadBatchFile {
   id: string;
   name: string;
@@ -140,6 +138,12 @@ export interface AthleteBuildStats {
   races: AthleteRaceResult[];
   /** Every FINISHED result this athlete has, any season — see AthleteCareerRaceResult. */
   careerRaces: AthleteCareerRaceResult[];
-  /** Display names, owner + active TeamMember coaches merged — the back page's small-print credit line. */
-  coaches: string[];
+  /** Display names, owner + active TeamMember coaches merged, grouped by role — the back page's three-way COACHES split. */
+  coaches: {
+    headCoach: string | null;
+    coaches: string[];
+    volunteers: string[];
+  };
+  /** The collage QR code's target — an athlete self-registration invite link, or a generic fallback once the athlete already has an account (backend/lib/photoBuildStats.js). Never contains a name or other PII. */
+  qrUrl: string;
 }

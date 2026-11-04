@@ -1,6 +1,6 @@
 import { createContext, useContext, type Dispatch, type MutableRefObject } from 'react';
 import type { WorkspaceState, TagFilter, BuildHeader, workspaceReducer } from './reducer';
-import type { Module, PreviewRole, TemplateSize } from './types';
+import type { Module, PreviewRole } from './types';
 import type { Actor } from '../lib/tagRules';
 
 export interface GridOrder {
@@ -45,7 +45,6 @@ export interface PhotosWorkspaceValue {
   addMeet: (name: string, date: string) => Promise<string>;
   refreshPhotos: () => Promise<void>;
   setBuildAthlete: (athleteId: string | null) => void;
-  setBuildTemplate: (size: TemplateSize) => void;
   setBuildHeader: (patch: Partial<BuildHeader>) => void;
   setBatchFilter: (photoIds: string[], meetId: string) => void;
   addPick: (athleteId: string, photoId: string) => void;

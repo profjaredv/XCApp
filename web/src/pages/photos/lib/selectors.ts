@@ -1,7 +1,7 @@
-import type { Athlete, AthletePicks, Photo, PhotoAthleteTags, TemplateSize } from '../state/types';
+import type { Athlete, AthletePicks, Photo, PhotoAthleteTags } from '../state/types';
 import type { TagFilter } from '../state/reducer';
 import { isPhotoVisible, type Actor } from './tagRules';
-import { minPicksFor } from './templates';
+import { REQUIRED_PICKS } from './templates';
 
 export function athletesById(athletes: Athlete[]): Map<string, Athlete> {
   return new Map(athletes.map((a) => [a.id, a]));
@@ -118,18 +118,15 @@ export function filterByGroup(athletes: Athlete[], groupId: string | null): Athl
 }
 
 /**
- * Build spec, "Collage generation": "generate all" renders a collage "for
- * every athlete with enough picks" — now template-dependent (lib/templates.ts's
- * minPicksFor: 4 for the pair+banner template, 5 for either 5-pick
- * template) rather than the original spec's flat "three", since the
- * front page's hero+grid redesign means fewer picks leave an empty slot
- * instead of a usable collage. An opted-out athlete is still "skipped by
- * collage generation" outright. Used by BuildModule.tsx's handleGenerateAll;
- * the single-athlete Export button has no pick-count floor of its own (a
+ * Build spec, "Collage generation": "generate all" renders a collage for
+ * every athlete with enough picks — now a fixed REQUIRED_PICKS (hero +
+ * four grid panels; the template-size picker is gone, every athlete needs
+ * the same five). An opted-out athlete is still "skipped by collage
+ * generation" outright. Used by BuildModule.tsx's handleGenerateAll; the
+ * single-athlete Export button has no pick-count floor of its own (a
  * coach there already chose that one athlete deliberately) but still
  * skips an opted-out athlete the same way.
  */
-export function eligibleForCollage(athletes: Athlete[], picks: AthletePicks, templateSize: TemplateSize): Athlete[] {
-  const required = minPicksFor(templateSize);
-  return athletes.filter((a) => !a.photosOptOut && (picks[a.id]?.length ?? 0) >= required);
+export function eligibleForCollage(athletes: Athlete[], picks: AthletePicks): Athlete[] {
+  return athletes.filter((a) => !a.photosOptOut && (picks[a.id]?.length ?? 0) >= REQUIRED_PICKS);
 }

@@ -14,10 +14,12 @@
 // so a number on a printed collage never disagrees with the same number
 // shown anywhere else in the app.
 
+const { randomUUID } = require('crypto');
 const { resolveActiveSeason, deriveGrade } = require('./season');
 const { computePRs } = require('./athleteJourney');
 const { canManageAthlete } = require('./photoTagRules');
 const { mergeStaffRoster } = require('./teamStaff');
+const { decideCanHaveAccount } = require('./minorPolicy');
 
 // Head coach first, then paid assistants, then volunteers — mergeStaffRoster
 // itself returns insertion order (owner, then whatever order the
@@ -26,6 +28,43 @@ const { mergeStaffRoster } = require('./teamStaff');
 // used by routes/teams.js and routes/today.js for an unrelated staff
 // count/list display that has no reason to share this ordering.
 const COACH_ROLE_ORDER = { HEAD_COACH: 0, COACH: 1, VOLUNTEER_COACH: 2 };
+
+// The collage's QR code target: the same /invite/:token an athlete-invite
+// (routes/athletes.js's POST /:athleteId/invite) already accepts via POST
+// /accept-invite. Reused rather than duplicated — accepting either kind of
+// row works identically, since acceptance never looks at the invite's
+// email. Gets-or-creates a token with no email prompt (there's no coach UI
+// moment here to ask for one, and the printed QR must work with none),
+// and never rotates a token that's already live — a coach may have already
+// printed and handed out a collage carrying it.
+const INVITE_TTL_DAYS = 30; // matches routes/athletes.js's own constant
+
+async function getOrCreateCollageInviteToken(prisma, { teamId, athleteId, graduationYear, userId, season }) {
+  if (userId) return null; // already has an account — nothing to invite
+  const eligibility = decideCanHaveAccount({ graduationYear, season });
+  if (!eligibility.allowed) return null; // below the minimum account grade
+
+  const existing = await prisma.athleteInvite.findUnique({ where: { athleteId } });
+  if (existing && existing.status === 'pending' && existing.expiresAt > new Date()) {
+    return existing.token;
+  }
+
+  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const invite = existing
+    ? await prisma.athleteInvite.update({
+        where: { athleteId },
+        data: { status: 'pending', expiresAt, acceptedAt: null, token: randomUUID() },
+      })
+    : await prisma.athleteInvite.create({
+        // No real email known at collage-build time, and this never sends
+        // one (no sendEmail call here) — the placeholder only satisfies
+        // the column's NOT NULL constraint. A coach who later sends a real
+        // invite via POST /:athleteId/invite overwrites this row with the
+        // real address, same as it would overwrite any other pending one.
+        data: { athleteId, teamId, email: `no-reply+${athleteId}@invite.leadpack.cc`, expiresAt },
+      });
+  return invite.token;
+}
 
 /**
  * Coach or the athlete's own linked account only — same authority as
@@ -40,7 +79,7 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
   }
   const athlete = await prisma.athlete.findFirst({
     where: { id: athleteId, teamId },
-    select: { id: true, name: true, preferredName: true, graduationYear: true },
+    select: { id: true, name: true, preferredName: true, graduationYear: true, userId: true },
   });
   if (!athlete) {
     const err = new Error('Athlete not found.');
@@ -50,7 +89,7 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
 
   const season = await resolveActiveSeason(teamId);
 
-  const [metrics, seasonResults, careerResults, careerBest, teamOwner, coachTeamMembers] = await Promise.all([
+  const [metrics, seasonResults, careerResults, careerBest, teamOwner, coachTeamMembers, inviteToken] = await Promise.all([
     prisma.athleteSeasonMetrics.findUnique({
       where: { athleteId_teamId_season: { athleteId, teamId, season } },
     }),
@@ -88,14 +127,27 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
       where: { teamId, active: true, role: { in: ['HEAD_COACH', 'COACH', 'VOLUNTEER_COACH'] } },
       select: { userId: true, role: true, user: { select: { name: true, email: true } } },
     }),
+    getOrCreateCollageInviteToken(prisma, {
+      teamId,
+      athleteId,
+      graduationYear: athlete.graduationYear,
+      userId: athlete.userId,
+      season,
+    }),
   ]);
 
-  const coaches = mergeStaffRoster(
+  const rankedCoaches = mergeStaffRoster(
     teamOwner?.coach ?? null,
     coachTeamMembers.map((m) => ({ userId: m.userId, role: m.role, name: m.user.name, email: m.user.email })),
-  )
-    .sort((a, b) => (COACH_ROLE_ORDER[a.role] ?? 99) - (COACH_ROLE_ORDER[b.role] ?? 99))
-    .map((c) => c.name || c.email);
+  ).sort((a, b) => (COACH_ROLE_ORDER[a.role] ?? 99) - (COACH_ROLE_ORDER[b.role] ?? 99));
+
+  // Grouped by role, not flattened — the back page's "HEAD COACH /
+  // COACHES / VOLUNTEER COACHES" three-way split (lib/collageRender.ts).
+  const coaches = {
+    headCoach: rankedCoaches.find((c) => c.role === 'HEAD_COACH')?.name || rankedCoaches.find((c) => c.role === 'HEAD_COACH')?.email || null,
+    coaches: rankedCoaches.filter((c) => c.role === 'COACH').map((c) => c.name || c.email),
+    volunteers: rankedCoaches.filter((c) => c.role === 'VOLUNTEER_COACH').map((c) => c.name || c.email),
+  };
 
   const seasonResultsFlat = seasonResults.map((r) => ({
     raceId: r.race.id,
@@ -141,6 +193,7 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
       season: r.race.season,
     })),
     coaches,
+    inviteToken,
   };
 }
 
