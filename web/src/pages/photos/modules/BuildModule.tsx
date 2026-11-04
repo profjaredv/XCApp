@@ -10,7 +10,7 @@ import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { renderCollage, renderCollageBack, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
 import { buildTwoPagePdf } from '../lib/pdfExport';
 import { athletesById as buildAthletesById, eligibleForCollage } from '../lib/selectors';
-import { minPicksFor } from '../lib/templates';
+import { REQUIRED_PICKS } from '../lib/templates';
 import { isPhotoVisible } from '../lib/tagRules';
 import { useExportPalette } from '../../../hooks/useTeamColors';
 import { photosService } from '../../../api/photosService';
@@ -154,10 +154,9 @@ export const BuildModule: React.FC = () => {
   async function handleGenerateAll(candidates: Athlete[]) {
     const canvas = exportCanvasRef.current;
     if (!canvas) return;
-    const eligible = eligibleForCollage(candidates, state.picks, state.buildTemplateSize);
+    const eligible = eligibleForCollage(candidates, state.picks);
     if (eligible.length === 0) {
-      const required = minPicksFor(state.buildTemplateSize);
-      toast.error(`No athletes with at least ${required} picks (and not opted out) in this selection.`);
+      toast.error(`No athletes with at least ${REQUIRED_PICKS} picks (and not opted out) in this selection.`);
       return;
     }
 
@@ -189,7 +188,6 @@ export const BuildModule: React.FC = () => {
             canvas,
             EXPORT_W,
             EXPORT_H,
-            state.buildTemplateSize,
             exportable.urls,
             candidateHeader,
             true,
@@ -223,7 +221,7 @@ export const BuildModule: React.FC = () => {
       const url = URL.createObjectURL(zipBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `leadpack-photos-collages-${state.buildTemplateSize}up.zip`;
+      link.download = 'leadpack-photos-collages.zip';
       link.click();
       URL.revokeObjectURL(url);
 
@@ -259,7 +257,6 @@ export const BuildModule: React.FC = () => {
         canvas,
         EXPORT_W,
         EXPORT_H,
-        state.buildTemplateSize,
         exportable.urls,
         header,
         true, // requireExportableCanvas — this is the canvas toDataURL() reads below
@@ -330,7 +327,6 @@ export const BuildModule: React.FC = () => {
               ))}
             </div>
             <CollagePreview
-              templateSize={state.buildTemplateSize}
               photos={pickedPhotos}
               header={{
                 name: state.buildHeader.name || athlete.preferredName || athlete.name,

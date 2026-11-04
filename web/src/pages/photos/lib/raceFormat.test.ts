@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatRaceTime, formatPace, formatRaceDate, formatDistance, formatMiles } from './raceFormat';
+import { formatRaceTime, formatPace, formatRaceDate, formatRaceDistance, formatMiles } from './raceFormat';
 
 describe('formatRaceTime', () => {
   it('formats under an hour as M:SS', () => {
@@ -32,17 +32,30 @@ describe('formatRaceDate', () => {
   });
 });
 
-describe('formatDistance', () => {
-  it('prefers the race\'s own label over a derived figure', () => {
-    expect(formatDistance('5K', 5000)).toBe('5K');
+describe('formatRaceDistance', () => {
+  it('formats exactly 5000m as "5K"', () => {
+    expect(formatRaceDistance('5K', 5000)).toBe('5K');
   });
 
-  it('derives miles when there is no label', () => {
-    expect(formatDistance(null, 3200)).toBe('2.0mi');
+  it('formats a whole-mile distance as "n mi"', () => {
+    expect(formatRaceDistance(null, 1609.344)).toBe('1 mi');
+    expect(formatRaceDistance(null, 3 * 1609.344)).toBe('3 mi');
   });
 
-  it('returns an empty string with neither a label nor a distance', () => {
-    expect(formatDistance(null, null)).toBe('');
+  it('formats a half-mile distance as "n.5 mi"', () => {
+    expect(formatRaceDistance(null, 1.5 * 1609.344)).toBe('1.5 mi');
+  });
+
+  it('formats a distance that is not a round (half-)mile or 5K in meters', () => {
+    expect(formatRaceDistance(null, 4200)).toBe('4200m');
+  });
+
+  it('falls back to the label when meters is missing', () => {
+    expect(formatRaceDistance('5K', null)).toBe('5K');
+  });
+
+  it('returns an empty string with neither a label nor meters', () => {
+    expect(formatRaceDistance(null, null)).toBe('');
   });
 });
 

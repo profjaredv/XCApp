@@ -92,29 +92,22 @@ describe('visiblePhotos: athleteFilter', () => {
 });
 
 describe('eligibleForCollage', () => {
-  // Template 3 needs 4 total picks (hero + pair + full-width banner) —
-  // see lib/templates.ts's minPicksFor.
-  it('requires at least minPicksFor(templateSize) picks', () => {
-    const picks: AthletePicks = { a: ['p1', 'p2', 'p3'], b: ['p1', 'p2', 'p3', 'p4'] };
+  // Every athlete needs the same fixed REQUIRED_PICKS (hero + four grid
+  // panels) — see lib/templates.ts. There's no more per-template variance.
+  it('requires at least REQUIRED_PICKS (5) picks', () => {
+    const picks: AthletePicks = { a: ['p1', 'p2', 'p3', 'p4'], b: ['p1', 'p2', 'p3', 'p4', 'p5'] };
     const athletes = [athlete('a', []), athlete('b', [])];
-    expect(eligibleForCollage(athletes, picks, 3).map((a) => a.id)).toEqual(['b']);
-  });
-
-  it('a stricter template (needing 5) excludes an athlete who qualifies for a looser one (needing 4)', () => {
-    const picks: AthletePicks = { a: ['p1', 'p2', 'p3', 'p4'] };
-    const athletes = [athlete('a', [])];
-    expect(eligibleForCollage(athletes, picks, 3).map((a) => a.id)).toEqual(['a']);
-    expect(eligibleForCollage(athletes, picks, 4)).toEqual([]);
+    expect(eligibleForCollage(athletes, picks).map((a) => a.id)).toEqual(['b']);
   });
 
   it('skips an opted-out athlete even with enough picks', () => {
-    const picks: AthletePicks = { a: ['p1', 'p2', 'p3', 'p4'] };
+    const picks: AthletePicks = { a: ['p1', 'p2', 'p3', 'p4', 'p5'] };
     const athletes = [athlete('a', [], true)];
-    expect(eligibleForCollage(athletes, picks, 3)).toEqual([]);
+    expect(eligibleForCollage(athletes, picks)).toEqual([]);
   });
 
   it('treats a missing picks entry as zero picks, not a crash', () => {
     const athletes = [athlete('a', [])];
-    expect(eligibleForCollage(athletes, {}, 3)).toEqual([]);
+    expect(eligibleForCollage(athletes, {})).toEqual([]);
   });
 });

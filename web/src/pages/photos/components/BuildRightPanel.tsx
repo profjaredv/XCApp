@@ -8,8 +8,8 @@ import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { photosService } from '../../../api/photosService';
 import { getApiErrorMessage } from '../../../lib/apiError';
-import { minPicksFor } from '../lib/templates';
-import type { Athlete, Photo, PhotoAthleteTags, TemplateSize } from '../state/types';
+import { REQUIRED_PICKS } from '../lib/templates';
+import type { Athlete, Photo, PhotoAthleteTags } from '../state/types';
 
 interface BuildRightPanelProps {
   athlete: Athlete | undefined;
@@ -27,18 +27,6 @@ interface BuildRightPanelProps {
   onGroupPhotoChange: (photoId: string | null) => void;
 }
 
-const TEMPLATE_SIZES: TemplateSize[] = [3, 4, 5];
-// Labels show the real total pick count (hero included) — no longer the
-// same as the `size` id, since the grid layouts were restructured to
-// each end in a full-width photo at the bottom. "4" and "5" land on the
-// same 5-pick total (the backend's MAX_PICKS ceiling), so they're
-// labeled as two different STYLES at that count rather than two counts.
-const TEMPLATE_LABELS: Record<TemplateSize, string> = {
-  3: '4 photos',
-  4: '5 photos (banner)',
-  5: '5 photos (grid)',
-};
-
 export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   athlete,
   photosById,
@@ -51,7 +39,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   groupPhotoId,
   onGroupPhotoChange,
 }) => {
-  const { state, actor, teamName, setBuildTemplate, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
+  const { state, actor, teamName, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
   const dragIndexRef = React.useRef<number | null>(null);
   const [parentEmail, setParentEmail] = useState('');
   const [sendingLink, setSendingLink] = useState(false);
@@ -115,7 +103,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
     .filter((id) => photosById.has(id));
 
   const notPicked = taggedPhotoIds.filter((id) => !picks.includes(id));
-  const requiredPicks = minPicksFor(state.buildTemplateSize);
+  const requiredPicks = REQUIRED_PICKS;
 
   function cycleSlot(index: number) {
     if (notPicked.length === 0) return;
@@ -226,25 +214,6 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
           </div>
         </div>
       )}
-
-      <div>
-        <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">Template</div>
-        <div className="flex gap-1.5">
-          {TEMPLATE_SIZES.map((size) => (
-            <button
-              key={size}
-              type="button"
-              onClick={() => setBuildTemplate(size)}
-              className={cn(
-                'rounded-md px-3 py-1 text-xs',
-                state.buildTemplateSize === size ? 'bg-accent text-accent-foreground' : 'bg-ink-border/40 hover:bg-ink-border/60',
-              )}
-            >
-              {TEMPLATE_LABELS[size]}
-            </button>
-          ))}
-        </div>
-      </div>
 
       {actor.isCoach && (
         <div>

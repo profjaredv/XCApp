@@ -4,7 +4,7 @@ import { isAuthError } from '@/lib/apiError';
 import { photosService } from '../../../api/photosService';
 import type { PhotosMe } from '../../../api/photosService';
 import { workspaceReducer, type WorkspaceState, type BuildHeader, type HistoryEntry } from './reducer';
-import type { Module, Photo, PhotoAthlete, PreviewRole, TemplateSize } from './types';
+import type { Module, Photo, PhotoAthlete, PreviewRole } from './types';
 import {
   canHidePhoto,
   canManageAthlete,
@@ -47,7 +47,6 @@ function initialState(): WorkspaceState {
     timeWindow: null,
 
     buildAthleteId: null,
-    buildTemplateSize: 3,
     // team starts blank, not a hardcoded placeholder — BuildModule.tsx
     // falls back to the real team's name (GET /photos/me's teamName) once
     // it loads, the same "blank means use the sensible default" pattern
@@ -369,7 +368,6 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   }, []);
 
   const setBuildAthlete = useCallback((athleteId: string | null) => dispatch({ type: 'SET_BUILD_ATHLETE', athleteId }), []);
-  const setBuildTemplate = useCallback((size: TemplateSize) => dispatch({ type: 'SET_BUILD_TEMPLATE', size }), []);
   const setBuildHeader = useCallback((patch: Partial<BuildHeader>) => dispatch({ type: 'SET_BUILD_HEADER', patch }), []);
   const setBatchFilter = useCallback(
     (photoIds: string[], meetId: string) => dispatch({ type: 'SET_BATCH_FILTER', photoIds, meetId }),
@@ -480,7 +478,6 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     addMeet,
     refreshPhotos,
     setBuildAthlete,
-    setBuildTemplate,
     setBuildHeader,
     setBatchFilter,
     addPick,

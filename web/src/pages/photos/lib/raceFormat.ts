@@ -28,12 +28,25 @@ export function formatRaceDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
-/** Prefers the race's own label ("5K") over a bare meters figure. */
-export function formatDistance(distanceLabel: string | null, distanceMeters: number | null): string {
-  if (distanceLabel) return distanceLabel;
-  if (distanceMeters == null) return '';
-  const miles = distanceMeters / 1609.34;
-  return `${miles.toFixed(1)}mi`;
+const MILE_IN_METERS = 1609.344;
+
+/**
+ * The back page's race-table distance column (build spec section 4): "1
+ * mi", "1.5 mi", "3 mi", "4200m", or "5K" for 5000 m exactly — derived
+ * purely from the meter figure, not the race's own free-text label (which
+ * varies too much row to row — "2 Mile" vs "2mi" vs "2.0mi" — to print
+ * consistently in a fixed-width column). Falls back to the label only when
+ * meters itself is missing.
+ */
+export function formatRaceDistance(distanceLabel: string | null, distanceMeters: number | null): string {
+  if (distanceMeters == null) return distanceLabel ?? '';
+  if (distanceMeters === 5000) return '5K';
+  const miles = distanceMeters / MILE_IN_METERS;
+  const roundedHalfMiles = Math.round(miles * 2) / 2;
+  if (roundedHalfMiles > 0 && Math.abs(miles - roundedHalfMiles) < 0.015) {
+    return `${Number.isInteger(roundedHalfMiles) ? roundedHalfMiles : roundedHalfMiles.toFixed(1)} mi`;
+  }
+  return `${Math.round(distanceMeters)}m`;
 }
 
 /** 142.3 -> "142.3 mi". Whole numbers skip the decimal ("12 mi", not "12.0 mi"). */

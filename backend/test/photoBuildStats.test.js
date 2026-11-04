@@ -61,6 +61,7 @@ test('getAthleteBuildStats assembles name, grade, career PR, season totals, best
     name: 'Alexandra Smith',
     preferredName: 'Alex',
     graduationYear: 2028,
+    userId: 'already-linked', // short-circuits the invite-token lookup — not what this test covers
   }));
   const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', (args) => {
     assert.deepEqual(args.where.athleteId_teamId_season, { athleteId: 'athlete-1', teamId: 'team-1', season: 2026 });
@@ -125,6 +126,7 @@ test('getAthleteBuildStats grade is null when graduationYear is unknown, not a g
     name: 'Alex',
     preferredName: null,
     graduationYear: null,
+    userId: 'already-linked', // short-circuits the invite-token lookup — not what this test covers
   }));
   const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
   const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
@@ -143,7 +145,7 @@ test('getAthleteBuildStats grade is null when graduationYear is unknown, not a g
 
 test('getAthleteBuildStats falls back to counting this season\'s results when there is no AthleteSeasonMetrics row yet', async (t) => {
   const restoreSeason = withActiveSeason(2026);
-  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null }));
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null, userId: 'already-linked' }));
   const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
   const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
   const restoreResults = stub('result', 'findMany', () => [
@@ -166,7 +168,7 @@ test('getAthleteBuildStats falls back to counting this season\'s results when th
 
 test('a family account reaches its own linked athlete\'s stats', async (t) => {
   const restoreSeason = withActiveSeason(2026);
-  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null }));
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null, userId: 'already-linked' }));
   const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
   const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
   const restoreResults = stub('result', 'findMany', () => []);
@@ -200,7 +202,7 @@ test('getAthleteBuildStats orders the coach list head coach, then coach, then vo
     { userId: 'coach-3', role: 'VOLUNTEER_COACH', user: { name: 'Volunteer Val', email: 'val@x.com' } },
     { userId: 'coach-2', role: 'COACH', user: { name: 'Jamie Assistant', email: 'jamie@x.com' } },
   ]);
-  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null }));
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null, userId: 'already-linked' }));
   const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
   const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
   const restoreResults = stub('result', 'findMany', () => []);
@@ -216,5 +218,96 @@ test('getAthleteBuildStats orders the coach list head coach, then coach, then vo
   });
 
   const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
-  assert.deepEqual(stats.coaches, ['Pat Owner', 'Jamie Assistant', 'Volunteer Val']);
+  assert.deepEqual(stats.coaches, { headCoach: 'Pat Owner', coaches: ['Jamie Assistant'], volunteers: ['Volunteer Val'] });
+});
+
+test('getAthleteBuildStats issues a fresh collage invite token for an eligible, unlinked athlete', async (t) => {
+  const restoreSeason = withActiveSeason(2026);
+  // graduationYear 2028 in season 2026 is grade 11 — well above the 9th-grade floor.
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({
+    id: 'athlete-1',
+    name: 'Alex',
+    preferredName: null,
+    graduationYear: 2028,
+    userId: null,
+  }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', () => []);
+  const restoreInviteFind = stub('athleteInvite', 'findUnique', () => null);
+  const restoreInviteCreate = stub('athleteInvite', 'create', (args) => ({ token: 'brand-new-token', ...args.data }));
+  t.after(() => {
+    restoreSeason();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+    restoreInviteFind();
+    restoreInviteCreate();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+  assert.equal(stats.inviteToken, 'brand-new-token');
+});
+
+test('getAthleteBuildStats has no invite token for an athlete who already has an account', async (t) => {
+  const restoreSeason = withActiveSeason(2026);
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({
+    id: 'athlete-1',
+    name: 'Alex',
+    preferredName: null,
+    graduationYear: 2028,
+    userId: 'user-1',
+  }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', () => []);
+  const restoreInviteFind = stub('athleteInvite', 'findUnique', () => {
+    throw new Error('must not look up an invite for an already-linked athlete');
+  });
+  t.after(() => {
+    restoreSeason();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+    restoreInviteFind();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+  assert.equal(stats.inviteToken, null);
+});
+
+test('getAthleteBuildStats reuses an existing pending, unexpired invite token rather than rotating it', async (t) => {
+  const restoreSeason = withActiveSeason(2026);
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({
+    id: 'athlete-1',
+    name: 'Alex',
+    preferredName: null,
+    graduationYear: 2028,
+    userId: null,
+  }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', () => []);
+  const restoreInviteFind = stub('athleteInvite', 'findUnique', () => ({
+    token: 'already-printed-token',
+    status: 'pending',
+    expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+  }));
+  const restoreInviteUpdate = stub('athleteInvite', 'update', () => {
+    throw new Error('must not rotate a token that is already live');
+  });
+  t.after(() => {
+    restoreSeason();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+    restoreInviteFind();
+    restoreInviteUpdate();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+  assert.equal(stats.inviteToken, 'already-printed-token');
 });
