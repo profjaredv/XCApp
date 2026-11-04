@@ -165,10 +165,16 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
       {picks.length < requiredPicks && (
         <div>
           <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-            Tagged photos — add at least {requiredPicks - picks.length} more
+            Tagged photos ({notPicked.length}) — add at least {requiredPicks - picks.length} more
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {notPicked.slice(0, 12).map((photoId) => {
+          {/* Every tagged-but-unpicked photo, not just a handful — an
+              athlete easily ends up with dozens tagged across a season, and
+              a coach needs to actually browse all of them to pick the best
+              five, not just whichever happened to load first. Scrolls
+              within its own bounded area instead of growing the whole
+              right panel unbounded. */}
+          <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
+            {notPicked.map((photoId) => {
               const photo = photosById.get(photoId)!;
               return (
                 <button
