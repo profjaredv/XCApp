@@ -19,9 +19,9 @@ export interface SlotHit {
  * dimensions) to drag.
  *
  * Index 0 is always the hero circle (hit-tested as a circle, not its
- * bounding square); indices 1..size-1 are the grid slots below it —
- * matching how lib/collageRender.ts's renderCollage splits
- * photoUrls/focalPoints into [hero, ...grid].
+ * bounding square); every index after it is one of template.slots'
+ * grid slots, shifted by one — matching how lib/collageRender.ts's
+ * renderCollage splits photoUrls/focalPoints into [hero, ...grid].
  */
 export function hitTestSlot(
   template: CollageTemplate,

@@ -3,7 +3,9 @@ import { hitTestSlot, nextFocalPoint } from './focalDrag';
 import type { CollageTemplate } from './templates';
 
 // Index 0 is always the hero circle; template.slots (the grid) fills
-// indices 1..size-1 — see hitTestSlot's own header comment.
+// every index after it, shifted by one — see hitTestSlot's own header
+// comment. This fixture's `size` is just a type-required label, not a
+// pick-count promise (see lib/templates.ts's minPicksFor for the real one).
 const TEMPLATE: CollageTemplate = {
   size: 3,
   header: { x: 0, y: 0, w: 1, h: 0.1 },

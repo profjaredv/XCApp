@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { photosService } from '../../../api/photosService';
 import { getApiErrorMessage } from '../../../lib/apiError';
+import { minPicksFor } from '../lib/templates';
 import type { Athlete, Photo, PhotoAthleteTags, TemplateSize } from '../state/types';
 
 interface BuildRightPanelProps {
@@ -27,6 +28,16 @@ interface BuildRightPanelProps {
 }
 
 const TEMPLATE_SIZES: TemplateSize[] = [3, 4, 5];
+// Labels show the real total pick count (hero included) — no longer the
+// same as the `size` id, since the grid layouts were restructured to
+// each end in a full-width photo at the bottom. "4" and "5" land on the
+// same 5-pick total (the backend's MAX_PICKS ceiling), so they're
+// labeled as two different STYLES at that count rather than two counts.
+const TEMPLATE_LABELS: Record<TemplateSize, string> = {
+  3: '4 photos',
+  4: '5 photos (banner)',
+  5: '5 photos (grid)',
+};
 
 export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   athlete,
@@ -104,6 +115,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
     .filter((id) => photosById.has(id));
 
   const notPicked = taggedPhotoIds.filter((id) => !picks.includes(id));
+  const requiredPicks = minPicksFor(state.buildTemplateSize);
 
   function cycleSlot(index: number) {
     if (notPicked.length === 0) return;
@@ -115,8 +127,8 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-3">
       <div>
         <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-          Picks ({picks.length}/5) — the first pick is the big circled hero photo. Click a photo to swap it, drag or
-          use the arrows to reorder.
+          Picks ({picks.length}/{requiredPicks}) — the first pick is the big circled hero photo. Click a photo to
+          swap it, drag or use the arrows to reorder.
         </div>
         <div className="flex flex-wrap gap-1.5">
           {picks.map((photoId, index) => {
@@ -189,10 +201,10 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
         </div>
       </div>
 
-      {picks.length < 3 && (
+      {picks.length < requiredPicks && (
         <div>
           <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-            Tagged photos — add at least {3 - picks.length} more
+            Tagged photos — add at least {requiredPicks - picks.length} more
           </div>
           <div className="flex flex-wrap gap-1.5">
             {notPicked.slice(0, 12).map((photoId) => {
@@ -228,7 +240,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
                 state.buildTemplateSize === size ? 'bg-accent text-accent-foreground' : 'bg-ink-border/40 hover:bg-ink-border/60',
               )}
             >
-              {size} photos
+              {TEMPLATE_LABELS[size]}
             </button>
           ))}
         </div>
@@ -319,7 +331,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
         <Button
           size="sm"
           className="gap-1.5 bg-accent text-accent-foreground hover:bg-accent/90"
-          disabled={picks.length < 3 || exportBlocked}
+          disabled={picks.length < requiredPicks || exportBlocked}
           onClick={onExport}
         >
           <Download className="h-3.5 w-3.5" /> Export PDF
