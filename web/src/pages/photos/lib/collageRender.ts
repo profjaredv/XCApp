@@ -305,13 +305,17 @@ export async function renderCollage(
   const heroImg = images[0];
   const gridImages = images.slice(1);
 
-  // Where the stat strip ends — the hero floats up into this line on
-  // purpose (see HERO's own comment in templates.ts), so everything
-  // hero-related (photo + rings) is clipped flat right here: it reads as
-  // the hero peeking up from behind that boundary rather than a photo
-  // that just happens to overlap text. BEST_BY_DISTANCE sits beside the
-  // hero below this line, not above it, so it's never the cutoff source.
-  const heroCutoffY = (template.statStrip.y + template.statStrip.h) * pageHeight;
+  // Where the header (the athlete's name) ends — the hero floats up
+  // into this line on purpose (see HERO's own comment in templates.ts),
+  // so everything hero-related (photo + rings) is clipped flat right
+  // here: it reads as the hero peeking up from behind that boundary
+  // rather than a photo that just happens to overlap text. statStrip
+  // and bestByDistance both sit at or below this line, not above it, so
+  // neither is ever the cutoff source — and both are drawn AFTER the
+  // hero (see the header/stat-strip/bestByDistance block below), so
+  // either one staying legible over the hero where they do overlap
+  // doesn't depend on this cutoff at all.
+  const heroCutoffY = (template.header.y + template.header.h) * pageHeight;
   const hero = heroPixelRect(template.hero, pageWidth, pageHeight);
   const heroCx = template.hero.cx * pageWidth;
   const heroCy = template.hero.cy * pageHeight;
@@ -350,11 +354,17 @@ export async function renderCollage(
   // stripe rather than a straight rule.
   const ribbonThickness = Math.max(3, pageHeight * 0.003);
   const ribbonSkew = ribbonThickness * 3;
-  const gridBandTop = template.slots[0].y * pageHeight;
+  // The grid's first row has an asymmetric top edge (its leftmost slot
+  // starts higher than the rest — see templates.ts's TEXT_BOTTOM/GRID_TOP),
+  // so there's no single clean "top of the grid" line to draw a ribbon
+  // across anymore. The row's shared BOTTOM edge (the last slot's own y,
+  // always the second row for every template size) is the one boundary
+  // every slot actually agrees on, so that's what this marks instead.
+  const row2Top = template.slots[template.slots.length - 1].y * pageHeight;
   // Sits right at heroCutoffY — the same line the hero is clipped
   // against above — so the ribbon reads as the thing doing the cutting.
   drawAngledRibbon(ctx, heroCutoffY - ribbonThickness, ribbonThickness, pageWidth, ribbonSkew, accent);
-  drawAngledRibbon(ctx, gridBandTop - ribbonThickness, ribbonThickness, pageWidth, ribbonSkew, accent);
+  drawAngledRibbon(ctx, row2Top - ribbonThickness, ribbonThickness, pageWidth, ribbonSkew, accent);
 
   const h = template.header;
   const headerX = h.x * pageWidth;

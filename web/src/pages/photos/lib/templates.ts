@@ -83,51 +83,59 @@ export function minPicksFor(size: TemplateSize): number {
 
 const HEADER: TemplateRect = { x: 0.06, y: 0.03, w: 0.88, h: 0.08 };
 const STAT_STRIP: TemplateRect = { x: 0.06, y: 0.115, w: 0.88, h: 0.04 };
-// Narrow now — a left column, not the full page width. The hero (below)
-// floats up beside this text instead of below it, so this can no longer
-// run edge to edge without running under the photo. Pure layout budget,
-// not an enforced clip: drawBestByDistance wraps its content onto as
-// many lines as this width needs, and this height is a generous (not
-// exact) estimate of how tall that ever gets — see that function's own
-// comment.
+// A left column, not the full page width — the hero (below) floats up
+// beside this text instead of below it, so this can no longer run edge
+// to edge without running under the photo. Pure layout budget, not an
+// enforced clip: drawBestByDistance wraps its content onto as many
+// lines as this width needs, and this height is a generous (not exact)
+// estimate of how tall that ever gets — see that function's own comment.
 const BEST_BY_DISTANCE: TemplateRect = { x: 0.06, y: 0.165, w: 0.4, h: 0.275 };
-// Floated toward the top-right rather than centered — see HeroRect's own
-// comment on the radius/aspect tradeoff. cy sits high enough that the
-// photo's own top edge (not just its decorative rings) crosses above
-// STAT_STRIP's bottom edge (0.155) by a small amount; renderCollage
-// clips everything hero-related flat at that same line, so the hero
-// reads as peeking up from behind the ribbon there rather than floating
-// in its own fully-enclosed space. cx sits just past BEST_BY_DISTANCE's
-// own right edge (0.46) so the two never overlap — the hero lives
-// beside that text column, not below it. The rings extend out to
-// 1.245x the photo radius (see drawHeroRings); even with that, the
-// whole motif stays inside the page's own margin stripes and bottoms
-// out around y 0.48, comfortably clear of GRID_BAND_TOP below.
-const HERO: HeroRect = { cx: 0.72, cy: 0.285, radius: 0.2 };
+// Floated toward the top-right, clipped flat against HEADER's own
+// bottom edge (0.11) — as high and as early as the hero can start
+// without the athlete's name itself ever being at risk of looking
+// covered (STAT_STRIP, which does sit in the hero's path below that
+// line, is drawn AFTER the hero, so it always stays legible on top of
+// it regardless of the overlap). cy sits just enough above 0.11 for a
+// small, deliberate sliver of the circle to be clipped off — see
+// HeroRect's own comment on the radius/aspect tradeoff for why the
+// radius is a fraction of pageWidth specifically. cx sits just past
+// BEST_BY_DISTANCE's own right edge (0.46) so the two never overlap.
+// The rings extend out to 1.245x the photo radius (see drawHeroRings);
+// even with that, the whole motif stays inside the page's own margin
+// stripes and bottoms out around y 0.43.
+const HERO: HeroRect = { cx: 0.72, cy: 0.24, radius: 0.2 };
 
-// Where the grid band starts, for every template size — a little below
-// the lower of BEST_BY_DISTANCE's own bottom and the hero+rings' lowest
-// point (~0.48), leaving a deliberate gap rather than crowding them
-// together. Full-bleed (x:0, w:1) like every slot below, right to the
-// page's left/right edges and down to the page's own bottom edge (a
-// deliberate bleed, not a margin) — unlike HEADER/STAT_STRIP/
+// Where BEST_BY_DISTANCE's own column ends — also where the grid's
+// LEFTMOST slot in its first row starts, a bit taller than the slot(s)
+// beside it, so that slot grows up to fill the gap between the end of
+// the text column and the top of the "normal" grid start (GRID_TOP
+// below) instead of leaving it empty. Every OTHER slot in that first
+// row waits for the hero instead (it's what's actually above them).
+const TEXT_BOTTOM = 0.44;
+const GRID_TOP = 0.45;
+// The shared bottom edge of the grid's first row — every slot in it
+// reaches exactly this far down regardless of where it started, so the
+// row (and whatever comes directly below it) still lines up cleanly.
+const ROW1_BOTTOM = 0.73;
+const ROW_GAP = 0.01;
+const ROW2_TOP = ROW1_BOTTOM + ROW_GAP;
+// The second row — always full-bleed to the page's own bottom edge (a
+// deliberate bleed, not a margin), unlike HEADER/STAT_STRIP/
 // BEST_BY_DISTANCE above, which keep their 0.06 margin since running
 // text edge-to-edge reads poorly.
-const GRID_BAND_TOP = 0.5;
-const GRID_BAND_HEIGHT = 1 - GRID_BAND_TOP;
-const ROW_GAP = 0.01;
+const ROW2_HEIGHT = 1 - ROW2_TOP;
+const LEFT_SLOT_HEIGHT = ROW1_BOTTOM - TEXT_BOTTOM;
+const OTHER_SLOT_HEIGHT = ROW1_BOTTOM - GRID_TOP;
 
-// Each size's grid band now ends in one full-width photo at the very
-// bottom, with whatever's above it split into an equal row of columns —
-// a pair for "3", a triple for "4". "5" keeps its original even 2x2
-// grid unchanged (no full-width row) as an alternate style at the same
-// total pick count as "4", since 5 total is the hard ceiling
+// Each size's grid now ends in one full-width photo at the bottom, with
+// whatever's above it split into an equal row of columns — a pair for
+// "3", a triple for "4". "5" keeps its original even 2x2 grid unchanged
+// (no full-width row) as an alternate style at the same total pick
+// count as "4", since 5 total is the hard ceiling
 // (backend/lib/photosAccess.js's MAX_PICKS) and there's no room for a
-// fourth, strictly-larger option.
-const ROW_HEIGHT = (GRID_BAND_HEIGHT - ROW_GAP) / 2;
-const TOP_ROW_Y = GRID_BAND_TOP;
-const BOTTOM_ROW_Y = GRID_BAND_TOP + ROW_HEIGHT + ROW_GAP;
-
+// fourth, strictly-larger option. In every size, the first row's
+// LEFTMOST slot alone uses TEXT_BOTTOM/LEFT_SLOT_HEIGHT (see above);
+// every other slot in that row uses GRID_TOP/OTHER_SLOT_HEIGHT.
 export const TEMPLATES: Record<TemplateSize, CollageTemplate> = {
   // Hero + pair row + full-width row at the bottom = 4 total picks.
   3: {
@@ -137,9 +145,9 @@ export const TEMPLATES: Record<TemplateSize, CollageTemplate> = {
     bestByDistance: BEST_BY_DISTANCE,
     hero: HERO,
     slots: [
-      { x: 0, y: TOP_ROW_Y, w: 0.495, h: ROW_HEIGHT },
-      { x: 0.505, y: TOP_ROW_Y, w: 0.495, h: ROW_HEIGHT },
-      { x: 0, y: BOTTOM_ROW_Y, w: 1, h: ROW_HEIGHT },
+      { x: 0, y: TEXT_BOTTOM, w: 0.495, h: LEFT_SLOT_HEIGHT },
+      { x: 0.505, y: GRID_TOP, w: 0.495, h: OTHER_SLOT_HEIGHT },
+      { x: 0, y: ROW2_TOP, w: 1, h: ROW2_HEIGHT },
     ],
   },
   // Hero + triple row + full-width row at the bottom = 5 total picks
@@ -151,15 +159,17 @@ export const TEMPLATES: Record<TemplateSize, CollageTemplate> = {
     bestByDistance: BEST_BY_DISTANCE,
     hero: HERO,
     slots: [
-      { x: 0, y: TOP_ROW_Y, w: 0.3267, h: ROW_HEIGHT },
-      { x: 0.3367, y: TOP_ROW_Y, w: 0.3267, h: ROW_HEIGHT },
-      { x: 0.6734, y: TOP_ROW_Y, w: 0.3266, h: ROW_HEIGHT },
-      { x: 0, y: BOTTOM_ROW_Y, w: 1, h: ROW_HEIGHT },
+      { x: 0, y: TEXT_BOTTOM, w: 0.3267, h: LEFT_SLOT_HEIGHT },
+      { x: 0.3367, y: GRID_TOP, w: 0.3267, h: OTHER_SLOT_HEIGHT },
+      { x: 0.6734, y: GRID_TOP, w: 0.3266, h: OTHER_SLOT_HEIGHT },
+      { x: 0, y: ROW2_TOP, w: 1, h: ROW2_HEIGHT },
     ],
   },
-  // Hero + even 2x2 grid, unchanged from before this redesign — also 5
-  // total picks, kept as a second "grid" style alongside "4"'s "banner"
-  // style at the same pick count.
+  // Hero + even 2x2 grid, otherwise unchanged from before this
+  // redesign — also 5 total picks, kept as a second "grid" style
+  // alongside "4"'s "banner" style at the same pick count. Only the
+  // top-left slot gets the taller treatment; the bottom row is fully
+  // clear of both the hero and the text column, so it stays symmetric.
   5: {
     size: 5,
     header: HEADER,
@@ -167,10 +177,10 @@ export const TEMPLATES: Record<TemplateSize, CollageTemplate> = {
     bestByDistance: BEST_BY_DISTANCE,
     hero: HERO,
     slots: [
-      { x: 0, y: TOP_ROW_Y, w: 0.495, h: ROW_HEIGHT },
-      { x: 0.505, y: TOP_ROW_Y, w: 0.495, h: ROW_HEIGHT },
-      { x: 0, y: BOTTOM_ROW_Y, w: 0.495, h: ROW_HEIGHT },
-      { x: 0.505, y: BOTTOM_ROW_Y, w: 0.495, h: ROW_HEIGHT },
+      { x: 0, y: TEXT_BOTTOM, w: 0.495, h: LEFT_SLOT_HEIGHT },
+      { x: 0.505, y: GRID_TOP, w: 0.495, h: OTHER_SLOT_HEIGHT },
+      { x: 0, y: ROW2_TOP, w: 0.495, h: ROW2_HEIGHT },
+      { x: 0.505, y: ROW2_TOP, w: 0.495, h: ROW2_HEIGHT },
     ],
   },
 };
