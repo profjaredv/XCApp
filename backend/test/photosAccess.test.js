@@ -37,6 +37,11 @@ const {
   resolvePhotoDownloadLink,
   listPhotosForDownloadLinkTarget,
   setGroupPhoto,
+  getCollageSettings,
+  setCollageAccentColor,
+  presignCollageLogoUpload,
+  finalizeCollageLogo,
+  clearCollageLogo,
   listSlideshowItems,
   addSlideshowItem,
   removeSlideshowItem,
@@ -1171,6 +1176,167 @@ test('setGroupPhoto clears the group photo when photoId is null, without looking
     assert.equal(team.groupPhotoId, null);
   } finally {
     restorePhoto();
+    restoreUpdate();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Collage branding: getCollageSettings / setCollageAccentColor /
+// presignCollageLogoUpload / finalizeCollageLogo / clearCollageLogo
+// ---------------------------------------------------------------------------
+
+const collageCoach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+const collageGuardian = { userId: 'parent-1', isCoach: false, selfAthleteId: 'athlete-1', guardianAthleteIds: ['athlete-1'], linkedAthleteIds: ['athlete-1'] };
+
+test('getCollageSettings resolves a presigned URL for a stored logo key, and passes through accent/group photo', async () => {
+  const restoreTeam = stub('team', 'findUnique', () => ({ groupPhotoId: 'photo-1', collageAccentColor: '#ff8800', collageLogoKey: 'teams/team-1/collage-logo' }));
+  const restoreGet = stubR2('presignGetUrl', (key) => `https://r2.example/${key}?sig=abc`);
+  try {
+    const settings = await getCollageSettings(prisma, 'team-1');
+    assert.deepEqual(settings, {
+      groupPhotoId: 'photo-1',
+      accentColor: '#ff8800',
+      logoUrl: 'https://r2.example/teams/team-1/collage-logo?sig=abc',
+    });
+  } finally {
+    restoreTeam();
+    restoreGet();
+  }
+});
+
+test('getCollageSettings returns nulls for a team that never set any of these, without touching R2', async () => {
+  const restoreTeam = stub('team', 'findUnique', () => ({ groupPhotoId: null, collageAccentColor: null, collageLogoKey: null }));
+  const restoreGet = stubR2('presignGetUrl', () => {
+    throw new Error('should not be called when there is no logo key');
+  });
+  try {
+    const settings = await getCollageSettings(prisma, 'team-1');
+    assert.deepEqual(settings, { groupPhotoId: null, accentColor: null, logoUrl: null });
+  } finally {
+    restoreTeam();
+    restoreGet();
+  }
+});
+
+test('setCollageAccentColor refuses a non-coach', async () => {
+  await assert.rejects(() => setCollageAccentColor(prisma, 'team-1', '#2b6cb0', collageGuardian), /Only a coach/);
+});
+
+test('setCollageAccentColor refuses a value that is not #rrggbb hex', async () => {
+  await assert.rejects(() => setCollageAccentColor(prisma, 'team-1', 'blue', collageCoach), /hex/);
+  await assert.rejects(() => setCollageAccentColor(prisma, 'team-1', '#fff', collageCoach), /hex/);
+});
+
+test('setCollageAccentColor stores a valid hex color', async () => {
+  const restoreUpdate = stub('team', 'update', (args) => ({ id: 'team-1', collageAccentColor: args.data.collageAccentColor }));
+  try {
+    const result = await setCollageAccentColor(prisma, 'team-1', '#2B6CB0', collageCoach);
+    assert.equal(result.accentColor, '#2B6CB0');
+  } finally {
+    restoreUpdate();
+  }
+});
+
+test('setCollageAccentColor clears the color when given null', async () => {
+  const restoreUpdate = stub('team', 'update', (args) => ({ id: 'team-1', collageAccentColor: args.data.collageAccentColor }));
+  try {
+    const result = await setCollageAccentColor(prisma, 'team-1', null, collageCoach);
+    assert.equal(result.accentColor, null);
+  } finally {
+    restoreUpdate();
+  }
+});
+
+test('presignCollageLogoUpload refuses a non-coach', async () => {
+  await assert.rejects(() => presignCollageLogoUpload(prisma, 'team-1', 'image/png', collageGuardian), /Only a coach/);
+});
+
+test('presignCollageLogoUpload refuses an unsupported content type', async () => {
+  await assert.rejects(() => presignCollageLogoUpload(prisma, 'team-1', 'application/pdf', collageCoach), /Unsupported image type/);
+});
+
+test('presignCollageLogoUpload returns a presigned PUT for the team\'s fixed logo key', async () => {
+  const restorePut = stubR2('presignPutUrl', (key, contentType) => `https://r2.example/put/${key}?type=${contentType}`);
+  try {
+    const result = await presignCollageLogoUpload(prisma, 'team-1', 'image/png', collageCoach);
+    assert.equal(result.key, 'teams/team-1/collage-logo');
+    assert.equal(result.uploadUrl, 'https://r2.example/put/teams/team-1/collage-logo?type=image/png');
+  } finally {
+    restorePut();
+  }
+});
+
+test('finalizeCollageLogo refuses a non-coach', async () => {
+  await assert.rejects(() => finalizeCollageLogo(prisma, 'team-1', collageGuardian), /Only a coach/);
+});
+
+test('finalizeCollageLogo refuses when the object never actually landed in R2', async () => {
+  const restoreExists = stubR2('objectExists', () => false);
+  try {
+    await assert.rejects(() => finalizeCollageLogo(prisma, 'team-1', collageCoach), /did not complete/);
+  } finally {
+    restoreExists();
+  }
+});
+
+test('finalizeCollageLogo stores the key and returns a fresh presigned URL once the object exists', async () => {
+  const restoreExists = stubR2('objectExists', () => true);
+  const restoreGet = stubR2('presignGetUrl', (key) => `https://r2.example/${key}`);
+  let seenData;
+  const restoreUpdate = stub('team', 'update', (args) => {
+    seenData = args.data;
+    return { id: 'team-1', collageLogoKey: args.data.collageLogoKey };
+  });
+  try {
+    const result = await finalizeCollageLogo(prisma, 'team-1', collageCoach);
+    assert.equal(seenData.collageLogoKey, 'teams/team-1/collage-logo');
+    assert.equal(result.logoUrl, 'https://r2.example/teams/team-1/collage-logo');
+  } finally {
+    restoreExists();
+    restoreGet();
+    restoreUpdate();
+  }
+});
+
+test('clearCollageLogo refuses a non-coach', async () => {
+  await assert.rejects(() => clearCollageLogo(prisma, 'team-1', collageGuardian), /Only a coach/);
+});
+
+test('clearCollageLogo deletes the R2 object and nulls the team\'s key', async () => {
+  const restoreTeam = stub('team', 'findUnique', () => ({ collageLogoKey: 'teams/team-1/collage-logo' }));
+  let deletedKey;
+  const restoreDelete = stubR2('deleteObject', (key) => {
+    deletedKey = key;
+  });
+  let seenData;
+  const restoreUpdate = stub('team', 'update', (args) => {
+    seenData = args.data;
+    return { id: 'team-1', collageLogoKey: args.data.collageLogoKey };
+  });
+  try {
+    const result = await clearCollageLogo(prisma, 'team-1', collageCoach);
+    assert.equal(deletedKey, 'teams/team-1/collage-logo');
+    assert.equal(seenData.collageLogoKey, null);
+    assert.equal(result.logoUrl, null);
+  } finally {
+    restoreTeam();
+    restoreDelete();
+    restoreUpdate();
+  }
+});
+
+test('clearCollageLogo is a no-op on R2 when there was never a logo set', async () => {
+  const restoreTeam = stub('team', 'findUnique', () => ({ collageLogoKey: null }));
+  const restoreDelete = stubR2('deleteObject', () => {
+    throw new Error('should not be called when there is no logo to delete');
+  });
+  const restoreUpdate = stub('team', 'update', (args) => ({ id: 'team-1', collageLogoKey: args.data.collageLogoKey }));
+  try {
+    const result = await clearCollageLogo(prisma, 'team-1', collageCoach);
+    assert.equal(result.logoUrl, null);
+  } finally {
+    restoreTeam();
+    restoreDelete();
     restoreUpdate();
   }
 });

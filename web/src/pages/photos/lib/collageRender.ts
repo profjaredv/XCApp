@@ -122,6 +122,15 @@ function loadImage(src: string, anonymous: boolean): Promise<HTMLImageElement> {
   });
 }
 
+/** Like loadImage, but never rejects — a missing/broken custom logo just means "fall back to the drawn roundel", never a failed render (not even for the export canvas; branding is cosmetic, not content a coach is missing). */
+function loadOptionalImage(url: string | null | undefined, anonymous: boolean): Promise<HTMLImageElement | null> {
+  if (!url) return Promise.resolve(null);
+  return loadImage(url, anonymous).catch((error) => {
+    console.error(`Collage logo failed to load, falling back to the drawn logo: ${error.message}`);
+    return null;
+  });
+}
+
 /**
  * Cover-fit math shared with components/CollagePreview.tsx's drag handler,
  * so the two never disagree about where a given focal point puts the
@@ -257,14 +266,29 @@ function wrapToLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: numb
   return lines;
 }
 
+/** Draws `img` contain-fit (not cropped, unlike every photo elsewhere on the page — a logo's own proportions matter) centered in the (x,y,size,size) box. */
+function drawImageContainFit(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, size: number) {
+  const scale = Math.min(size / img.width, size / img.height);
+  const drawW = img.width * scale;
+  const drawH = img.height * scale;
+  ctx.drawImage(img, x + (size - drawW) / 2, y + (size - drawH) / 2, drawW, drawH);
+}
+
 /**
- * The shared XC logo (build spec section 3, item 6) — drawn once as a
- * function rather than per-athlete, used at 96x96 on the front and 60x60
- * on the back. Everything below is in the mockup's own 100-unit box;
+ * The logo — a team's own uploaded image if they set one (Build settings;
+ * replaces the drawn logo everywhere it appears, at the same size and
+ * position, contain-fit rather than cropped), otherwise the shared XC
+ * roundel (build spec section 3, item 6), drawn once as a function rather
+ * than per-athlete, used at 96x96 on the front and 60x60 on the back.
+ * Everything in the roundel below is in the mockup's own 100-unit box;
  * ctx.scale(unit, unit) turns that into whatever pixel size `size` asks
  * for without needing a second, hand-converted copy of every coordinate.
  */
-function drawXcLogo(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, accent: string, accentLight: string) {
+function drawLogo(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, accent: string, accentLight: string, customLogoImg: HTMLImageElement | null) {
+  if (customLogoImg) {
+    drawImageContainFit(ctx, customLogoImg, x, y, size);
+    return;
+  }
   const unit = size / 100;
   ctx.save();
   ctx.translate(x, y);
@@ -418,7 +442,9 @@ function drawFrontTextBlock(ctx: CanvasRenderingContext2D, scale: number, header
   fillTrackedText(ctx, 'CAREER-BEST 5K', d(776) - timeWidth - d(10), baselineY, 0.12 * d(14), 'right');
 
   ctx.textAlign = 'left';
-  const gradeText = stats?.grade != null ? `GRADE ${stats.grade}` : 'GRADE -';
+  // "GRADE 10 · 2026" — season sits right next to grade rather than only
+  // appearing in the small team line above, per the coach's own request.
+  const gradeText = [stats?.grade != null ? `GRADE ${stats.grade}` : 'GRADE -', header.season || null].filter(Boolean).join(' · ');
   ctx.font = `600 ${d(16)}px ${BODY_FONT}`;
   ctx.fillStyle = MUTED;
   fillTrackedText(ctx, gradeText, d(40), baselineY, 0.12 * d(16), 'left');
@@ -448,9 +474,15 @@ export async function renderCollage(
   // entries default to each panel's own focus (see lib/templates.ts's
   // PhotoPanel.focusY), not always dead-center.
   focalPoints: (FocalPoint | undefined)[] = [],
-  // The team's own accent (a color readable on this light page); the
-  // design's default otherwise.
+  // The team's own Build-settings accent (a color readable on this light
+  // page), independent of the app's own live theme; the design's default
+  // otherwise.
   accent: string = DEFAULT_ACCENT,
+  // A team's own uploaded logo (Build settings) — null uses the drawn XC
+  // roundel instead. Same crossOrigin/URL-shape split as every photo:
+  // pass the presigned URL for the preview, the same-origin blob URL
+  // (photosService.getCollageLogoBlobUrl) for the export.
+  logoUrl: string | null = null,
 ): Promise<void> {
   canvas.width = pageWidth;
   canvas.height = pageHeight;
@@ -469,16 +501,19 @@ export async function renderCollage(
 
   // Per-photo, not Promise.all: one broken/expired URL must not blank the
   // other four slots along with it.
-  const images = await Promise.all(
-    photoUrls.map((url, i) =>
-      url
-        ? loadImage(url, requireExportableCanvas).catch((error) => {
-            console.error(`Collage slot ${i}: ${error.message}`);
-            return null;
-          })
-        : Promise.resolve(null),
+  const [images, logoImg] = await Promise.all([
+    Promise.all(
+      photoUrls.map((url, i) =>
+        url
+          ? loadImage(url, requireExportableCanvas).catch((error) => {
+              console.error(`Collage slot ${i}: ${error.message}`);
+              return null;
+            })
+          : Promise.resolve(null),
+      ),
     ),
-  );
+    loadOptionalImage(logoUrl, requireExportableCanvas),
+  ]);
   const failedCount = images.filter((img, i) => !img && photoUrls[i]).length;
   const heroImg = images[0] ?? null;
   const panelImages = images.slice(1);
@@ -497,7 +532,7 @@ export async function renderCollage(
   // and the stripe cut above.
   drawHeroCircle(ctx, pageWidth, pageHeight, heroImg, heroFocal);
 
-  drawXcLogo(ctx, 40 * scale, 836 * scale, 96 * scale, accent, accentLight);
+  drawLogo(ctx, 40 * scale, 836 * scale, 96 * scale, accent, accentLight, logoImg);
   drawFrontTextBlock(ctx, scale, header, stats, accent);
 
   // The export canvas (requireExportableCanvas) is the one place a failed
@@ -520,9 +555,9 @@ export async function renderCollage(
 // beyond the numbers/text/photo plugged into it.
 // ---------------------------------------------------------------------------
 
-function drawBackHeader(ctx: CanvasRenderingContext2D, scale: number, header: CollageHeaderText, stats: AthleteBuildStats | null, accent: string, accentLight: string) {
+function drawBackHeader(ctx: CanvasRenderingContext2D, scale: number, header: CollageHeaderText, stats: AthleteBuildStats | null, accent: string, accentLight: string, logoImg: HTMLImageElement | null) {
   const d = (n: number) => n * scale;
-  drawXcLogo(ctx, d(40), d(36), d(60), accent, accentLight);
+  drawLogo(ctx, d(40), d(36), d(60), accent, accentLight, logoImg);
 
   const nameX = d(116);
   const maxNameWidth = d(776) - nameX;
@@ -1033,7 +1068,10 @@ export async function renderCollageBack(
   // setGroupPhoto.
   groupPhotoUrl: string | null = null,
   requireExportableCanvas = false,
+  // Same Build-settings accent/logo as the front page — see renderCollage's
+  // own comments.
   accent: string = DEFAULT_ACCENT,
+  logoUrl: string | null = null,
 ): Promise<void> {
   canvas.width = pageWidth;
   canvas.height = pageHeight;
@@ -1047,7 +1085,8 @@ export async function renderCollageBack(
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, pageWidth, pageHeight);
 
-  drawBackHeader(ctx, scale, header, stats, accent, accentLight);
+  const logoImg = await loadOptionalImage(logoUrl, requireExportableCanvas);
+  drawBackHeader(ctx, scale, header, stats, accent, accentLight, logoImg);
   drawStatTiles(ctx, scale, stats, accent);
   drawRaceTable(ctx, scale, stats, accent);
   drawRightColumn(ctx, scale, 504 * scale, stats, accent, accentDark);
