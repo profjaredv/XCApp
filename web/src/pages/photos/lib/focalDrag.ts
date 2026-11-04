@@ -4,7 +4,7 @@
 // without a DOM.
 
 import { coverFitOffset, type FocalPoint } from './collageRender';
-import type { CollageTemplate } from './templates';
+import { heroPixelRect, type CollageTemplate } from './templates';
 
 export interface SlotHit {
   index: number;
@@ -17,6 +17,11 @@ export interface SlotHit {
  * slot's image can be panned on each axis. Null when the point isn't over
  * a slot, or that slot has no photo (or the photo has no known
  * dimensions) to drag.
+ *
+ * Index 0 is always the hero circle (hit-tested as a circle, not its
+ * bounding square); indices 1..size-1 are the grid slots below it —
+ * matching how lib/collageRender.ts's renderCollage splits
+ * photoUrls/focalPoints into [hero, ...grid].
  */
 export function hitTestSlot(
   template: CollageTemplate,
@@ -26,15 +31,29 @@ export function hitTestSlot(
   canvasY: number,
   photoSizes: ({ width: number; height: number } | undefined)[],
 ): SlotHit | null {
-  const index = template.slots.findIndex((rect) => {
+  const hero = heroPixelRect(template.hero, pageWidth, pageHeight);
+  const heroCx = hero.x + hero.w / 2;
+  const heroCy = hero.y + hero.h / 2;
+  const dx = canvasX - heroCx;
+  const dy = canvasY - heroCy;
+  if (dx * dx + dy * dy <= hero.radius * hero.radius) {
+    const size = photoSizes[0];
+    if (!size || size.width <= 0 || size.height <= 0) return null;
+    const { overflowX, overflowY } = coverFitOffset(hero.w, hero.h, size.width, size.height);
+    return { index: 0, overflowX, overflowY };
+  }
+
+  const gridIndex = template.slots.findIndex((rect) => {
     const x = rect.x * pageWidth;
     const y = rect.y * pageHeight;
     return canvasX >= x && canvasX <= x + rect.w * pageWidth && canvasY >= y && canvasY <= y + rect.h * pageHeight;
   });
-  if (index === -1) return null;
+  if (gridIndex === -1) return null;
+  // Shifted by one — template.slots is the grid alone; index 0 belongs to the hero above.
+  const index = gridIndex + 1;
   const size = photoSizes[index];
   if (!size || size.width <= 0 || size.height <= 0) return null;
-  const rect = template.slots[index];
+  const rect = template.slots[gridIndex];
   const { overflowX, overflowY } = coverFitOffset(rect.w * pageWidth, rect.h * pageHeight, size.width, size.height);
   return { index, overflowX, overflowY };
 }

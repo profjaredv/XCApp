@@ -1,4 +1,4 @@
-import { templateFor, BACK_TEMPLATE, type TemplateRect } from './templates';
+import { templateFor, heroPixelRect, BACK_TEMPLATE, type TemplateRect } from './templates';
 import { formatRaceTime, formatPace, formatRaceDate, formatDistance, formatMiles } from './raceFormat';
 import { paceChartData, type PaceDatum } from './paceChart';
 import type { AthleteBuildStats, TemplateSize } from '../state/types';
@@ -82,6 +82,52 @@ function drawCover(
   ctx.restore();
 }
 
+/**
+ * Cover-fit cropped into a circle instead of a rectangle — the front
+ * page's big hero photo. Reuses coverFitOffset with a square frame
+ * (diameter x diameter), so lib/focalDrag.ts's drag math for the hero
+ * slot is identical to a rectangular one; only the clip path and this
+ * function differ.
+ */
+function drawCircularCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, cx: number, cy: number, radius: number, focalX = 0.5, focalY = 0.5) {
+  const size = radius * 2;
+  const { drawW, drawH, dx, dy } = coverFitOffset(size, size, img.width, img.height, focalX, focalY);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.drawImage(img, cx - radius + dx, cy - radius + dy, drawW, drawH);
+  ctx.restore();
+}
+
+/**
+ * Three concentric accent rings framing the hero photo — a medal/ripple
+ * motif, fading outward so the outermost ring reads as a soft edge
+ * rather than a hard fourth circle. Each ring's gap and width are
+ * fractions of the photo's own radius, so the whole motif scales
+ * cleanly with it; the outer edge lands at 1.35x the photo radius (see
+ * lib/templates.ts's HERO comment, which budgets layout space for
+ * exactly that multiple).
+ */
+function drawHeroRings(ctx: CanvasRenderingContext2D, cx: number, cy: number, photoRadius: number, accent: string) {
+  const ringGap = photoRadius * 0.08;
+  const ringWidths = [photoRadius * 0.05, photoRadius * 0.035, photoRadius * 0.025];
+  const alphas = [1, 0.7, 0.45];
+  ctx.save();
+  let r = photoRadius;
+  for (let i = 0; i < ringWidths.length; i++) {
+    r += ringGap + ringWidths[i] / 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = accent;
+    ctx.globalAlpha = alphas[i];
+    ctx.lineWidth = ringWidths[i];
+    ctx.stroke();
+    r += ringWidths[i] / 2;
+  }
+  ctx.restore();
+}
+
 /** Truncates text with an ellipsis so it fits maxWidth, rather than overflowing into the next column. */
 function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
   if (ctx.measureText(text).width <= maxWidth) return text;
@@ -137,105 +183,35 @@ function drawStatStrip(ctx: CanvasRenderingContext2D, rect: { x: number; y: numb
 }
 
 /**
- * "Best by distance" (one line) + the season's full race list (a table,
- * split into two columns once there are more rows than one column can
- * hold cleanly) — the bottom third of the page. Never throws: a missing
- * or short stats object just draws less, the same "degrade, don't break"
- * choice as a missing photo drawing a gray box instead of failing the
- * whole render.
+ * "Season best by distance" — one line, e.g. "5K 17:32  ·  2 Mile 11:05"
+ * — directly under the headline stat strip and above the hero photo. The
+ * season's full race list used to run here too, as a table; it's been
+ * dropped from the front page now that the back page's own season
+ * timeline lists every race in full (drawSeasonTimeline below) — no
+ * reason to print it twice. Never throws: a missing or empty stats
+ * object just draws nothing, the same "degrade, don't break" choice as a
+ * missing photo drawing a gray circle/box instead of failing the render.
  */
-function drawResultsBlock(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, pageW: number, pageH: number, stats: AthleteBuildStats | null, accent: string) {
-  if (!stats || (stats.bestByDistance.length === 0 && stats.races.length === 0)) return;
+function drawBestByDistance(ctx: CanvasRenderingContext2D, rect: TemplateRect, pageW: number, pageH: number, stats: AthleteBuildStats | null, accent: string) {
+  if (!stats || stats.bestByDistance.length === 0) return;
 
   const left = rect.x * pageW;
   const top = rect.y * pageH;
   const width = rect.w * pageW;
   const labelSize = Math.round(pageH * 0.0125);
   const rowSize = Math.round(pageH * 0.0125);
-  // The photo band above runs full-bleed right up to this rect's own top
-  // edge (templates.ts's own comment: "no gap on either side") — without
-  // this, "SEASON BEST BY DISTANCE" started drawing exactly on that same
-  // line, reading as text crammed against the bottom photo's edge instead
-  // of its own block.
-  let cursorY = top + rowSize * 1.2;
 
   ctx.textBaseline = 'top';
-
-  // --- Best by distance: one line, e.g. "5K 17:32  ·  2 Mile 11:05" ---
-  if (stats.bestByDistance.length > 0) {
-    ctx.fillStyle = accent;
-    ctx.font = `700 ${labelSize}px system-ui, sans-serif`;
-    ctx.fillText('SEASON BEST BY DISTANCE', left, cursorY);
-    cursorY += labelSize * 1.6;
-
-    ctx.fillStyle = INK;
-    ctx.font = `${rowSize}px system-ui, sans-serif`;
-    const line = stats.bestByDistance
-      .map((d) => `${formatDistance(d.distanceLabel, d.distanceMeters)} ${formatRaceTime(d.timeSec)}`)
-      .join('   ·   ');
-    ctx.fillText(truncateToWidth(ctx, line, width), left, cursorY);
-    cursorY += rowSize * 1.9;
-  }
-
-  if (stats.races.length === 0) return;
-
-  ctx.strokeStyle = RULE;
-  ctx.lineWidth = Math.max(1, pageH * 0.0006);
-  ctx.beginPath();
-  ctx.moveTo(left, cursorY);
-  ctx.lineTo(left + width, cursorY);
-  ctx.stroke();
-  cursorY += rowSize * 0.9;
-
   ctx.fillStyle = accent;
   ctx.font = `700 ${labelSize}px system-ui, sans-serif`;
-  ctx.fillText('RACES THIS SEASON', left, cursorY);
-  cursorY += labelSize * 1.6;
+  ctx.fillText('SEASON BEST BY DISTANCE', left, top);
 
-  // Two columns once there are enough rows that one column would run out
-  // of room — keeps a short season (a handful of meets) as one easy-to-
-  // scan list instead of an oddly sparse second column.
-  const tableTop = cursorY;
-  const tableHeight = top + rect.h * pageH - tableTop;
-  const rowHeight = rowSize * 1.45;
-  const maxRowsPerColumn = Math.max(1, Math.floor(tableHeight / rowHeight));
-  const twoColumns = stats.races.length > maxRowsPerColumn;
-  const columnCount = twoColumns ? 2 : 1;
-  const rowsPerColumn = Math.ceil(stats.races.length / columnCount);
-  const shown = stats.races.slice(0, rowsPerColumn * columnCount);
-  const overflow = stats.races.length - shown.length;
-  const columnWidth = width / columnCount - (twoColumns ? pageW * 0.015 : 0);
-  const dateColW = columnWidth * 0.16;
-  const timeColW = columnWidth * 0.2;
-  const nameColW = columnWidth - dateColW - timeColW;
-
+  ctx.fillStyle = INK;
   ctx.font = `${rowSize}px system-ui, sans-serif`;
-  shown.forEach((race, i) => {
-    const col = Math.floor(i / rowsPerColumn);
-    const rowInCol = i % rowsPerColumn;
-    const x = left + col * (columnWidth + pageW * 0.015);
-    const y = tableTop + rowInCol * rowHeight;
-
-    ctx.fillStyle = MUTED;
-    ctx.fillText(formatRaceDate(race.date), x, y);
-
-    ctx.fillStyle = INK;
-    ctx.fillText(truncateToWidth(ctx, race.raceName, nameColW - pageW * 0.01), x + dateColW, y);
-
-    ctx.fillStyle = MUTED;
-    ctx.textAlign = 'right';
-    ctx.fillText(formatRaceTime(race.timeSec), x + dateColW + nameColW + timeColW, y);
-    ctx.textAlign = 'left';
-  });
-
-  if (overflow > 0) {
-    const noteY = tableTop + Math.min(rowsPerColumn, maxRowsPerColumn) * rowHeight;
-    if (noteY < top + rect.h * pageH) {
-      ctx.fillStyle = MUTED;
-      ctx.font = `italic ${rowSize}px system-ui, sans-serif`;
-      ctx.fillText(`+${overflow} more this season`, left, noteY);
-    }
-  }
+  const line = stats.bestByDistance
+    .map((d) => `${formatDistance(d.distanceLabel, d.distanceMeters)} ${formatRaceTime(d.timeSec)}`)
+    .join('   ·   ');
+  ctx.fillText(truncateToWidth(ctx, line, width), left, top + labelSize * 1.6);
 }
 
 export async function renderCollage(
@@ -267,6 +243,13 @@ export async function renderCollage(
   if (!ctx) return;
 
   const template = templateFor(templateSize);
+  // photoUrls/focalPoints stay one entry per pick (aligned with
+  // picks/pickedPhotos in modules/BuildModule.tsx) — index 0 is always
+  // the hero, the rest fill the grid band below it in order. Reordering
+  // picks in BuildRightPanel (previously just "slot order") is now also
+  // how a coach picks which photo gets the hero treatment.
+  const heroFocal = focalPoints[0];
+  const gridFocalPoints = focalPoints.slice(1);
 
   ctx.fillStyle = '#f7f6f2';
   ctx.fillRect(0, 0, pageWidth, pageHeight);
@@ -291,31 +274,46 @@ export async function renderCollage(
     ),
   );
   const failedCount = images.filter((img, i) => !img && photoUrls[i]).length;
+  const heroImg = images[0];
+  const gridImages = images.slice(1);
+
+  const hero = heroPixelRect(template.hero, pageWidth, pageHeight);
+  const heroCx = template.hero.cx * pageWidth;
+  const heroCy = template.hero.cy * pageHeight;
+  if (heroImg) {
+    drawCircularCover(ctx, heroImg, heroCx, heroCy, hero.radius, heroFocal?.x, heroFocal?.y);
+  } else {
+    ctx.fillStyle = '#e5e2da';
+    ctx.beginPath();
+    ctx.arc(heroCx, heroCy, hero.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  drawHeroRings(ctx, heroCx, heroCy, hero.radius, accent);
 
   template.slots.forEach((rect, i) => {
-    const img = images[i];
+    const img = gridImages[i];
     if (!img) {
       ctx.fillStyle = '#e5e2da';
       ctx.fillRect(rect.x * pageWidth, rect.y * pageHeight, rect.w * pageWidth, rect.h * pageHeight);
       return;
     }
-    const focal = focalPoints[i];
+    const focal = gridFocalPoints[i];
     drawCover(ctx, img, rect.x * pageWidth, rect.y * pageHeight, rect.w * pageWidth, rect.h * pageHeight, focal?.x, focal?.y);
   });
 
-  // A thin angled "racing stripe" accent rule along the full-bleed photo
-  // band's top and bottom edges — derived from statStrip/resultsBlock
+  // A thin angled "racing stripe" accent rule framing the hero — one
+  // above it (where the text block ends) and one at the hero/grid
+  // boundary — derived from bestByDistance/the grid's own top edge
   // rather than a hardcoded fraction, so it stays correct if either ever
   // moves. The slant is deliberately modest (a few multiples of the
   // ribbon's own thickness) — enough to read as a dynamic sports-poster
-  // stripe rather than a straight rule, not so much that it visibly
-  // crosses into the straight-edged photos it frames.
+  // stripe rather than a straight rule.
   const ribbonThickness = Math.max(3, pageHeight * 0.003);
   const ribbonSkew = ribbonThickness * 3;
-  const photoBandTop = (template.statStrip.y + template.statStrip.h) * pageHeight;
-  const photoBandBottom = template.resultsBlock.y * pageHeight;
-  drawAngledRibbon(ctx, photoBandTop - ribbonThickness, ribbonThickness, pageWidth, ribbonSkew, accent);
-  drawAngledRibbon(ctx, photoBandBottom, ribbonThickness, pageWidth, ribbonSkew, accent);
+  const heroBandTop = (template.bestByDistance.y + template.bestByDistance.h) * pageHeight;
+  const gridBandTop = template.slots[0].y * pageHeight;
+  drawAngledRibbon(ctx, heroBandTop - ribbonThickness, ribbonThickness, pageWidth, ribbonSkew, accent);
+  drawAngledRibbon(ctx, gridBandTop - ribbonThickness, ribbonThickness, pageWidth, ribbonSkew, accent);
 
   const h = template.header;
   const headerX = h.x * pageWidth;
@@ -354,7 +352,7 @@ export async function renderCollage(
   }
 
   drawStatStrip(ctx, template.statStrip, pageWidth, pageHeight, stats, accent);
-  drawResultsBlock(ctx, template.resultsBlock, pageWidth, pageHeight, stats, accent);
+  drawBestByDistance(ctx, template.bestByDistance, pageWidth, pageHeight, stats, accent);
 
   // The export canvas (requireExportableCanvas) is the one place a failed
   // load is worth refusing over, rather than just drawing a gray box and
@@ -689,11 +687,11 @@ function drawPaceChartCanvas(ctx: CanvasRenderingContext2D, rect: TemplateRect, 
 
 /**
  * The season's races as a vertical timeline — a connecting rule with one
- * dot and row per race, in place of the front page's plain table. Always
- * shows every race (no "+N more" cutoff): as many columns as it takes to
- * fit them all within the fixed rect height, the same "add a column
- * rather than truncate" idea as the front page's own drawResultsBlock,
- * generalized to as many columns as the actual race count needs.
+ * dot and row per race. The front page no longer has a race list at all
+ * (dropped in favor of this page having the full, untruncated one — see
+ * drawBestByDistance's own comment); this always shows every race (no
+ * "+N more" cutoff), adding as many columns as it takes to fit them all
+ * within the fixed rect height.
  */
 function drawSeasonTimeline(ctx: CanvasRenderingContext2D, rect: TemplateRect, pageW: number, pageH: number, stats: AthleteBuildStats | null, accent: string) {
   if (!stats || stats.races.length === 0) return;
