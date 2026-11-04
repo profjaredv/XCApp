@@ -10,6 +10,7 @@ import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { renderCollage, renderCollageBack, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
 import { buildTwoPagePdf } from '../lib/pdfExport';
 import { athletesById as buildAthletesById, eligibleForCollage } from '../lib/selectors';
+import { minPicksFor } from '../lib/templates';
 import { isPhotoVisible } from '../lib/tagRules';
 import { useExportPalette } from '../../../hooks/useTeamColors';
 import { photosService } from '../../../api/photosService';
@@ -153,9 +154,10 @@ export const BuildModule: React.FC = () => {
   async function handleGenerateAll(candidates: Athlete[]) {
     const canvas = exportCanvasRef.current;
     if (!canvas) return;
-    const eligible = eligibleForCollage(candidates, state.picks);
+    const eligible = eligibleForCollage(candidates, state.picks, state.buildTemplateSize);
     if (eligible.length === 0) {
-      toast.error('No athletes with at least 3 picks (and not opted out) in this selection.');
+      const required = minPicksFor(state.buildTemplateSize);
+      toast.error(`No athletes with at least ${required} picks (and not opted out) in this selection.`);
       return;
     }
 

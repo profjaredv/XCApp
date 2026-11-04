@@ -101,18 +101,17 @@ function drawCircularCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement,
 }
 
 /**
- * Three concentric accent rings framing the hero photo — a medal/ripple
- * motif, fading outward so the outermost ring reads as a soft edge
- * rather than a hard fourth circle. Each ring's gap and width are
- * fractions of the photo's own radius, so the whole motif scales
- * cleanly with it; the outer edge lands at 1.35x the photo radius (see
- * lib/templates.ts's HERO comment, which budgets layout space for
- * exactly that multiple).
+ * Two concentric accent rings framing the hero photo — a medal/ripple
+ * motif, fading outward so the outer ring reads as a soft edge rather
+ * than a hard third circle. Each ring's gap and width are fractions of
+ * the photo's own radius, so the whole motif scales cleanly with it;
+ * the outer edge lands at 1.245x the photo radius (see lib/templates.ts's
+ * HERO comment, which budgets layout space for exactly that multiple).
  */
 function drawHeroRings(ctx: CanvasRenderingContext2D, cx: number, cy: number, photoRadius: number, accent: string) {
   const ringGap = photoRadius * 0.08;
-  const ringWidths = [photoRadius * 0.05, photoRadius * 0.035, photoRadius * 0.025];
-  const alphas = [1, 0.7, 0.45];
+  const ringWidths = [photoRadius * 0.05, photoRadius * 0.035];
+  const alphas = [1, 0.7];
   ctx.save();
   let r = photoRadius;
   for (let i = 0; i < ringWidths.length; i++) {
@@ -277,9 +276,19 @@ export async function renderCollage(
   const heroImg = images[0];
   const gridImages = images.slice(1);
 
+  // Where the text block above ends — the hero floats up into this
+  // line on purpose (see HERO's own comment in templates.ts), so
+  // everything hero-related (photo + rings) is clipped flat right here:
+  // it reads as the hero peeking up from behind that boundary rather
+  // than a photo that just happens to overlap text.
+  const heroCutoffY = (template.bestByDistance.y + template.bestByDistance.h) * pageHeight;
   const hero = heroPixelRect(template.hero, pageWidth, pageHeight);
   const heroCx = template.hero.cx * pageWidth;
   const heroCy = template.hero.cy * pageHeight;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, heroCutoffY, pageWidth, pageHeight - heroCutoffY);
+  ctx.clip();
   if (heroImg) {
     drawCircularCover(ctx, heroImg, heroCx, heroCy, hero.radius, heroFocal?.x, heroFocal?.y);
   } else {
@@ -289,6 +298,7 @@ export async function renderCollage(
     ctx.fill();
   }
   drawHeroRings(ctx, heroCx, heroCy, hero.radius, accent);
+  ctx.restore();
 
   template.slots.forEach((rect, i) => {
     const img = gridImages[i];
@@ -310,9 +320,10 @@ export async function renderCollage(
   // stripe rather than a straight rule.
   const ribbonThickness = Math.max(3, pageHeight * 0.003);
   const ribbonSkew = ribbonThickness * 3;
-  const heroBandTop = (template.bestByDistance.y + template.bestByDistance.h) * pageHeight;
   const gridBandTop = template.slots[0].y * pageHeight;
-  drawAngledRibbon(ctx, heroBandTop - ribbonThickness, ribbonThickness, pageWidth, ribbonSkew, accent);
+  // Sits right at heroCutoffY — the same line the hero is clipped
+  // against above — so the ribbon reads as the thing doing the cutting.
+  drawAngledRibbon(ctx, heroCutoffY - ribbonThickness, ribbonThickness, pageWidth, ribbonSkew, accent);
   drawAngledRibbon(ctx, gridBandTop - ribbonThickness, ribbonThickness, pageWidth, ribbonSkew, accent);
 
   const h = template.header;
