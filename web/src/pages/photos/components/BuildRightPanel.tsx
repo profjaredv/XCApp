@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Image as ImageIcon, Mail, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Image as ImageIcon, Mail, Plus, Target, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -115,7 +115,8 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-3">
       <div>
         <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-          Picks ({picks.length}/5) — click a photo to swap it, drag or use the arrows to reorder
+          Picks ({picks.length}/5) — the first pick is the big circled hero photo. Click a photo to swap it, drag or
+          use the arrows to reorder.
         </div>
         <div className="flex flex-wrap gap-1.5">
           {picks.map((photoId, index) => {
@@ -144,6 +145,14 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
                 >
                   <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
                 </button>
+                {index === 0 && (
+                  <span
+                    className="absolute left-0 top-0 flex h-4 w-4 items-center justify-center bg-accent text-accent-foreground"
+                    title="Hero photo — the big circled photo on the printed collage"
+                  >
+                    <Target className="h-2.5 w-2.5" />
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => removePick(athlete.id, photoId)}
