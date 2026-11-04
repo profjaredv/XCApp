@@ -4,7 +4,7 @@ import type { LabelProps } from 'recharts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ChevronDown } from 'lucide-react';
 import { formatPace, formatTime } from '@/lib/formatUtils';
 import { useBandAnalytics, useBandAnalyticsCourses } from '@/hooks/useBandAnalytics';
 import type { BandStats } from '@/hooks/useBandAnalytics';
@@ -12,6 +12,7 @@ import { useQueryParam } from '@/hooks/useQueryState';
 import { useProgramAnalytics } from '@/hooks/useProgramAnalytics';
 import { ProgramOverviewSection } from '@/components/analytics/ProgramOverviewSection';
 import { ProgramStory } from '@/components/analytics/ProgramStory';
+import { ProgramJourney } from '@/components/analytics/ProgramJourney';
 import { PostseasonSection } from '@/components/analytics/PostseasonSection';
 
 // Band Analytics (XCApp Pre-Season Fixes + Phase 3 doc, Part B). "One
@@ -132,16 +133,28 @@ const BandTrendsPage = () => {
       <div>
         <h1 className="text-2xl font-bold">Program</h1>
         <CardDescription>
-          The story behind the numbers: participation, mileage, field standing, and retention, across every season loaded.
+          Turnout, retention, speed, depth, results. One chain.
         </CardDescription>
       </div>
 
       {isLoadingProgram && <p className="text-sm text-muted-foreground">Loading program overview...</p>}
-      {/* The reading first, the evidence under it. A coach who wants the
-          charts scrolls past; one who wants the answer doesn't have to. */}
-      {programData?.story && <ProgramStory story={programData.story} />}
-      {programData && <ProgramOverviewSection data={programData} />}
-      {programData?.postseason && <PostseasonSection postseason={programData.postseason} />}
+      {/* The chain first: five linked figures, each with its one-line
+          reading. Every chart behind them is one tap further down. */}
+      {programData && <ProgramJourney data={programData} />}
+
+      {programData && (
+        <details className="group rounded-lg border bg-card">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium">
+            All the charts and the full reading
+            <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="space-y-4 border-t p-4">
+            {programData.story && <ProgramStory story={programData.story} />}
+            <ProgramOverviewSection data={programData} />
+            {programData.postseason && <PostseasonSection postseason={programData.postseason} />}
+          </div>
+        </details>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <div>

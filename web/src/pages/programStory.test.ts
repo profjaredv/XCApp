@@ -20,6 +20,7 @@ const code = (src: string) =>
 const story = code(read('components/analytics/ProgramStory.tsx'));
 const overview = code(read('components/analytics/ProgramOverviewSection.tsx'));
 const page = code(read('pages/BandTrendsPage.tsx'));
+const journey = code(read('components/analytics/ProgramJourney.tsx'));
 
 describe('story mode', () => {
   it('renders the server’s sentences rather than composing its own', () => {
@@ -45,6 +46,22 @@ describe('story mode', () => {
     const chartsAt = page.indexOf('<ProgramOverviewSection');
     expect(storyAt).toBeGreaterThan(-1);
     expect(storyAt).toBeLessThan(chartsAt);
+  });
+});
+
+describe('program journey', () => {
+  it('leads the page, ahead of the full charts', () => {
+    expect(page.indexOf('<ProgramJourney')).toBeGreaterThan(-1);
+    expect(page.indexOf('<ProgramJourney')).toBeLessThan(page.indexOf('<ProgramOverviewSection'));
+  });
+
+  it('takes its sentences from the server beats, never composing its own', () => {
+    expect(journey).toContain('beat.headline');
+    expect(journey).toContain("beatOf('pace-men'");
+  });
+
+  it('draws pace and spread unreversed so faster sits lower', () => {
+    expect(journey).not.toMatch(/<YAxis[^>]*\breversed\b/);
   });
 });
 
