@@ -1,5 +1,6 @@
 import api from './api';
 import { downloadBlobFile } from '../lib/downloadBlob';
+import { putWithProgress } from '../pages/photos/lib/uploadPipeline';
 import type { Athlete, AthleteBuildStats, Meet, Photo, PhotoAthlete, PhotoGroup, TagSource } from '../pages/photos/state/types';
 
 // Backend routes: backend/routes/photos.js. Every call is scoped by the
@@ -24,6 +25,15 @@ export interface PhotosMe {
   // /teams/context, the app's usual source for this, which 403s for a
   // guardian — never a TeamMember).
   teamName: string | null;
+}
+
+// Build-settings team branding — set once, applies to every athlete's
+// collage. accentColor/logoUrl null means "use the collage's own built-in
+// default" (backend/lib/photosAccess.js's getCollageSettings).
+export interface CollageSettings {
+  groupPhotoId: string | null;
+  accentColor: string | null;
+  logoUrl: string | null;
 }
 
 export interface ApiPhoto {
@@ -177,16 +187,48 @@ export const photosService = {
 
   // The one photo shared across every athlete's collage back page and
   // the Slideshow collection's own template — null until a coach sets
-  // one (Build module). setGroupPhoto is coach-only server-side; pass
-  // null to clear it.
-  async getGroupPhoto(): Promise<string | null> {
-    const response = await api.get<{ photoId: string | null }>('/photos/group-photo');
-    return response.data.photoId;
-  },
-
+  // one (Build settings panel). Coach-only server-side; pass null to
+  // clear it. Reading it is folded into getCollageSettings below now
+  // (one fetch for the whole settings panel) — this is the setter only.
   async setGroupPhoto(photoId: string | null): Promise<string | null> {
     const response = await api.put<{ photoId: string | null }>('/photos/group-photo', { photoId });
     return response.data.photoId;
+  },
+
+  // Build settings (components/CollageSettingsPanel.tsx) — set once, team-
+  // wide, so a coach never re-sets these per athlete. getCollageSettings
+  // bundles the group photo's own id into this same read (one fetch for
+  // the whole settings panel); it's still set through setGroupPhoto above.
+  async getCollageSettings(): Promise<CollageSettings> {
+    const response = await api.get<CollageSettings>('/photos/collage-settings');
+    return response.data;
+  },
+
+  async setCollageAccentColor(accentColor: string | null): Promise<string | null> {
+    const response = await api.put<{ accentColor: string | null }>('/photos/collage-settings', { accentColor });
+    return response.data.accentColor;
+  },
+
+  // Two-step upload — presign, then PUT the bytes straight to R2 (never
+  // through this server), then confirm — same shape as the Load module's
+  // own photo upload (lib/uploadPipeline.ts's putWithProgress).
+  async uploadCollageLogo(file: File): Promise<string | null> {
+    const presign = await api.post<{ uploadUrl: string; key: string }>('/photos/collage-logo/presign', { contentType: file.type });
+    await putWithProgress(presign.data.uploadUrl, file, file.type, () => {});
+    const finalize = await api.put<{ logoUrl: string | null }>('/photos/collage-logo');
+    return finalize.data.logoUrl;
+  },
+
+  async clearCollageLogo(): Promise<void> {
+    await api.delete('/photos/collage-logo');
+  },
+
+  // Same same-origin-blob reasoning as getPhotoWebBlobUrl below — the
+  // export canvas's logo load must not depend on R2's own CORS response
+  // surviving whatever network it's on.
+  async getCollageLogoBlobUrl(): Promise<string> {
+    const response = await api.get('/photos/collage-logo/raw', { responseType: 'blob' });
+    return URL.createObjectURL(response.data as Blob);
   },
 
   // The Slideshow module's flat, ordered (add order) photo collection —

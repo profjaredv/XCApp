@@ -220,20 +220,12 @@ router.get('/me', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosF
   });
 });
 
-// GET/PUT /api/photos/group-photo — the one photo shared across every
+// PUT /api/photos/group-photo — the one photo shared across every
 // athlete's collage back page and the Slideshow collection's template
-// (lib/photosAccess.js's setGroupPhoto). Read is open to anyone
-// resolvePhotosTeam lets through, same as the rest of Build; only a
-// coach can set it. Body/response shape: { photoId: string | null }.
-router.get('/group-photo', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
-  try {
-    const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { groupPhotoId: true } });
-    res.json({ photoId: team?.groupPhotoId ?? null });
-  } catch (error) {
-    sendAccessError(res, error, 'Error in GET /photos/group-photo:');
-  }
-});
-
+// (lib/photosAccess.js's setGroupPhoto). Coach-only. Body/response shape:
+// { photoId: string | null }. Reading it is folded into GET
+// /photos/collage-settings below (one fetch for the whole Build settings
+// panel) — this route is the setter only.
 router.put('/group-photo', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { photoId } = req.body || {};
   if (photoId !== null && typeof photoId !== 'string') {
@@ -244,6 +236,99 @@ router.put('/group-photo', authenticate, resolvePhotosTeam, requirePhotosFeature
     res.json({ photoId: team.groupPhotoId });
   } catch (error) {
     sendAccessError(res, error, 'Error in PUT /photos/group-photo:');
+  }
+});
+
+// GET/PUT /api/photos/collage-settings — the Build module's "collage
+// settings" panel: a collage-only accent color, separate from the app's
+// own theme (web/src/pages/photos/components/CollageSettingsPanel.tsx).
+// Bundles the group photo's own id into the read too, so that panel is one
+// fetch; the group photo is still SET through PUT /photos/group-photo
+// above (unchanged) since plenty of other code already calls that.
+router.get('/collage-settings', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
+  try {
+    const settings = await photosAccess.getCollageSettings(prisma, req.photosTeamId);
+    res.json(settings);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/collage-settings:');
+  }
+});
+
+router.put('/collage-settings', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  const { accentColor } = req.body || {};
+  if (accentColor !== null && accentColor !== undefined && typeof accentColor !== 'string') {
+    return res.status(400).json({ msg: 'accentColor (a #rrggbb hex string, or null to clear it) is required.' });
+  }
+  try {
+    const result = await photosAccess.setCollageAccentColor(prisma, req.photosTeamId, accentColor ?? null, req.photoActor);
+    res.json(result);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in PUT /photos/collage-settings:');
+  }
+});
+
+// The logo upload is two steps, same shape as the Load module's own photo
+// upload: presign a direct-to-R2 PUT, then confirm it landed. There's no
+// Photo row for a logo (no meet, no tags — the Photo model requires both),
+// so this is its own small pair of routes rather than reusing POST
+// /authorize + /finalize.
+router.post('/collage-logo/presign', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  const { contentType } = req.body || {};
+  if (!contentType || typeof contentType !== 'string') {
+    return res.status(400).json({ msg: 'contentType is required.' });
+  }
+  try {
+    const result = await photosAccess.presignCollageLogoUpload(prisma, req.photosTeamId, contentType, req.photoActor);
+    res.json(result);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in POST /photos/collage-logo/presign:');
+  }
+});
+
+router.put('/collage-logo', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    const result = await photosAccess.finalizeCollageLogo(prisma, req.photosTeamId, req.photoActor);
+    res.json(result);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in PUT /photos/collage-logo:');
+  }
+});
+
+router.delete('/collage-logo', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    const result = await photosAccess.clearCollageLogo(prisma, req.photosTeamId, req.photoActor);
+    res.json(result);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in DELETE /photos/collage-logo:');
+  }
+});
+
+// GET /api/photos/collage-logo/raw — same-origin stream proxy for the
+// export canvas, same reasoning as GET /:id/web above: the export loads
+// images with crossOrigin="anonymous" so canvas.toDataURL() doesn't throw,
+// which requires either R2's own CORS response to survive the network or
+// (this route) a same-origin fetch that never needs CORS at all. The
+// preview uses collage-settings' own presigned logoUrl directly instead —
+// same split as every other photo in this app.
+router.get('/collage-logo/raw', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { collageLogoKey: true } });
+    if (!team?.collageLogoKey) {
+      return res.status(404).json({ msg: 'No custom collage logo is set.' });
+    }
+    const [contentType, stream] = await Promise.all([
+      r2.getObjectContentType(team.collageLogoKey),
+      r2.getObjectStream(team.collageLogoKey),
+    ]);
+    res.setHeader('Content-Type', contentType || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    stream.on('error', (err) => {
+      console.error('Collage logo stream-proxy failed:', err.message);
+      res.destroy();
+    });
+    stream.pipe(res);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/collage-logo/raw:');
   }
 });
 

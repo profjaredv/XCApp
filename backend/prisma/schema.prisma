@@ -138,6 +138,19 @@ model Team {
   // same as photosTagPassword above.
   groupPhotoId String? @map("group_photo_id") @db.Uuid
 
+  // Collage-only branding (lib/photosAccess.js's collage settings
+  // functions) — deliberately separate from `colors` above, which themes
+  // the whole live app: a team's printed collage can carry its own accent
+  // without recoloring every button and chart on screen. Null accent
+  // falls back to the collage's own built-in default (#2b6cb0, see
+  // web/src/pages/photos/lib/collageRender.ts); null logo falls back to
+  // the drawn XC roundel. The logo isn't a Photo row — it has no meet, no
+  // tags, nothing else that model requires — just an R2 object key
+  // (r2.js's collageLogoKey), written once an upload is confirmed to
+  // exist (see finalizeCollageLogo).
+  collageAccentColor String? @map("collage_accent_color")
+  collageLogoKey     String? @map("collage_logo_key")
+
   coach                   User?                    @relation("TeamCoach", fields: [coachUid], references: [id])
   groupPhoto              Photo?                   @relation("TeamGroupPhoto", fields: [groupPhotoId], references: [id], onDelete: SetNull)
   members                 User[]                   @relation("TeamUsers")

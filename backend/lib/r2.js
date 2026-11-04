@@ -67,6 +67,13 @@ function photoWebKey(teamId, photoId) {
 function collageKey(teamId, athleteId, seasonId, version) {
   return `teams/${teamId}/collages/${athleteId}/${seasonId}-v${version}.png`;
 }
+// One object per team, no extension — R2 serves back whatever
+// Content-Type was set on upload (presignPutUrl's ContentType), so a
+// browser <img>/canvas load interprets the bytes correctly regardless of
+// the actual image format a coach uploaded.
+function collageLogoKey(teamId) {
+  return `teams/${teamId}/collage-logo`;
+}
 
 async function presignPutUrl(key, contentType) {
   const command = new PutObjectCommand({ Bucket: getBucketName(), Key: key, ContentType: contentType });
@@ -89,6 +96,16 @@ async function objectExists(key) {
     if (err?.$metadata?.httpStatusCode === 404 || err?.name === 'NotFound') return false;
     throw err;
   }
+}
+
+// The logo's stored Content-Type — unlike every other object in this
+// bucket (photos are always normalized to a fixed format per key), a
+// coach can upload a logo as PNG, JPEG, WebP, or SVG, so the stream-proxy
+// route (GET /photos/collage-logo/raw) needs to ask what it actually is
+// rather than guessing, before it can set the right response header.
+async function getObjectContentType(key) {
+  const response = await getClient().send(new HeadObjectCommand({ Bucket: getBucketName(), Key: key }));
+  return response.ContentType || null;
 }
 
 // A coach's explicit delete (spec: "A coach can hide a single photo... or
@@ -125,9 +142,11 @@ module.exports = {
   photoThumbKey,
   photoWebKey,
   collageKey,
+  collageLogoKey,
   presignPutUrl,
   presignGetUrl,
   objectExists,
+  getObjectContentType,
   deleteObject,
   putObject,
   getObjectStream,

@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useExportPalette } from '../../../hooks/useTeamColors';
 import { renderCollage, renderCollageBack, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
 import { hitTestSlot, nextFocalPoint } from '../lib/focalDrag';
 import type { AthleteBuildStats, Photo } from '../state/types';
@@ -30,6 +29,11 @@ interface CollagePreviewProps {
   // drawn full-bleed at the bottom of the back page — null until a coach
   // sets one. Unused when side is 'front'.
   groupPhotoUrl?: string | null;
+  // Build settings (components/CollageSettingsPanel.tsx) — a team's own
+  // accent color/logo, independent of the app's own theme. Undefined/null
+  // uses the collage's own built-in defaults.
+  accent?: string;
+  logoUrl?: string | null;
 }
 
 // US letter at 300dpi is 2550x3300 — the preview renders at 1/3 that
@@ -49,8 +53,7 @@ interface DragState {
 }
 
 export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreviewProps>(
-  ({ photos, header, stats = null, focalPoints = [], onFocalChange, side = 'front', groupPhotoUrl = null }, ref) => {
-    const palette = useExportPalette();
+  ({ photos, header, stats = null, focalPoints = [], onFocalChange, side = 'front', groupPhotoUrl = null, accent, logoUrl = null }, ref) => {
     const innerRef = useRef<HTMLCanvasElement>(null);
     const canvasRef = (ref as React.RefObject<HTMLCanvasElement>) ?? innerRef;
     const dragRef = useRef<DragState | null>(null);
@@ -70,7 +73,7 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
         // Preview only, same as the front page's own photo loading below
         // — a plain (non-crossOrigin) URL, so this never needs the
         // export's same-origin blob fetch.
-        renderCollageBack(canvas, PAGE_W, PAGE_H, header, stats, groupPhotoUrl, false, palette?.paperAccent).catch((error) =>
+        renderCollageBack(canvas, PAGE_W, PAGE_H, header, stats, groupPhotoUrl, false, accent, logoUrl).catch((error) =>
           console.error('Collage back page failed to render:', error),
         );
         return;
@@ -80,14 +83,14 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       // must not request) crossOrigin-loaded images; see collageRender.ts's
       // own comment on why that matters. Logged, not thrown: a blank slot
       // here is already visible as the gray placeholder box.
-      renderCollage(canvas, PAGE_W, PAGE_H, urls, header, false, stats, effectiveFocalPoints, palette?.paperAccent).catch((error) =>
+      renderCollage(canvas, PAGE_W, PAGE_H, urls, header, false, stats, effectiveFocalPoints, accent, logoUrl).catch((error) =>
         console.error('Collage preview failed to render:', error),
       );
       // effectiveFocalPoints is a fresh array each render by design (it
       // folds in the live drag override), so it's compared by its actual
       // entries here rather than by reference.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canvasRef, side, photos, header, stats, groupPhotoUrl, palette?.paperAccent, JSON.stringify(effectiveFocalPoints)]);
+    }, [canvasRef, side, photos, header, stats, groupPhotoUrl, accent, logoUrl, JSON.stringify(effectiveFocalPoints)]);
 
     function canvasPoint(e: React.PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
       const rect = e.currentTarget.getBoundingClientRect();

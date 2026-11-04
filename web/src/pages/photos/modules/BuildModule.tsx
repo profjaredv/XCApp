@@ -12,8 +12,7 @@ import { buildTwoPagePdf } from '../lib/pdfExport';
 import { athletesById as buildAthletesById, eligibleForCollage } from '../lib/selectors';
 import { REQUIRED_PICKS } from '../lib/templates';
 import { isPhotoVisible } from '../lib/tagRules';
-import { useExportPalette } from '../../../hooks/useTeamColors';
-import { photosService } from '../../../api/photosService';
+import { photosService, type CollageSettings } from '../../../api/photosService';
 import { cn } from '@/lib/utils';
 import type { Athlete, AthleteBuildStats } from '../state/types';
 
@@ -21,7 +20,6 @@ const EXPORT_W = 2550;
 const EXPORT_H = 3300;
 
 export const BuildModule: React.FC = () => {
-  const palette = useExportPalette();
   const { state, actor, teamName, setPhotoFocal } = usePhotosWorkspace();
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
   const [stats, setStats] = useState<AthleteBuildStats | null>(null);
@@ -30,16 +28,21 @@ export const BuildModule: React.FC = () => {
   // Which page of the two-sided PDF the preview canvas currently shows —
   // the export itself always produces both pages regardless of this.
   const [previewSide, setPreviewSide] = useState<'front' | 'back'>('front');
-  // The team's shared group photo for the back page — team-wide, not
-  // athlete-specific, so this is fetched once here rather than as part
-  // of per-athlete stats. null until a coach sets one (BuildRightPanel).
-  const [groupPhotoId, setGroupPhotoId] = useState<string | null>(null);
+  // Build settings — accent color, logo, and the shared group photo for
+  // the back page. All team-wide, not athlete-specific, so this is
+  // fetched once here (components/CollageSettingsPanel.tsx) rather than
+  // as part of per-athlete stats. Null fields mean "use the collage's own
+  // built-in default" (lib/collageRender.ts).
+  const [collageSettings, setCollageSettings] = useState<CollageSettings | null>(null);
 
   useEffect(() => {
-    photosService.getGroupPhoto().then(setGroupPhotoId).catch((error) => {
-      console.error('Failed to load the team group photo:', error);
+    photosService.getCollageSettings().then(setCollageSettings).catch((error) => {
+      console.error('Failed to load collage settings:', error);
     });
   }, []);
+
+  const groupPhotoId = collageSettings?.groupPhotoId ?? null;
+  const accentColor = collageSettings?.accentColor ?? undefined;
 
   // The real team's name once a coach hasn't typed a custom one in —
   // same "blank means use the sensible default" pattern as the athlete
@@ -142,6 +145,22 @@ export const BuildModule: React.FC = () => {
     return { url, revoke: () => URL.revokeObjectURL(url) };
   }
 
+  // Same reasoning again, for a team's own custom logo — one fetch shared
+  // across the whole export (or "Generate all" batch), not one per
+  // athlete, since it's the same image on every collage. A missing/failed
+  // logo degrades to the drawn roundel rather than failing the export
+  // (lib/collageRender.ts's loadOptionalImage), so this never throws.
+  async function loadLogoExportUrl(): Promise<{ url: string | null; revoke: () => void }> {
+    if (!collageSettings?.logoUrl) return { url: null, revoke: () => {} };
+    try {
+      const url = await photosService.getCollageLogoBlobUrl();
+      return { url, revoke: () => URL.revokeObjectURL(url) };
+    } catch (error) {
+      console.error('Failed to load the collage logo for export, falling back to the drawn logo:', error);
+      return { url: null, revoke: () => {} };
+    }
+  }
+
   // "Generate all" (build spec, Collage generation: "renders a collage for
   // every athlete with at least three picks, one at a time in a queue").
   // Reuses the exact same renderCollage() the single "Export PNG" button
@@ -164,8 +183,9 @@ export const BuildModule: React.FC = () => {
     const zip = new JSZip();
     let failed = 0;
     let groupPhotoExport: { url: string | null; revoke: () => void } | null = null;
+    let logoExport: { url: string | null; revoke: () => void } | null = null;
     try {
-      groupPhotoExport = await loadGroupPhotoExportUrl();
+      [groupPhotoExport, logoExport] = await Promise.all([loadGroupPhotoExportUrl(), loadLogoExportUrl()]);
       for (const candidate of eligible) {
         let exportable: { urls: string[]; revoke: () => void } | null = null;
         try {
@@ -193,7 +213,8 @@ export const BuildModule: React.FC = () => {
             true,
             candidateStats,
             candidateFocalPoints,
-            palette?.paperAccent,
+            accentColor,
+            logoExport.url,
           );
           const frontDataUrl = canvas.toDataURL('image/png');
           await renderCollageBack(
@@ -204,7 +225,8 @@ export const BuildModule: React.FC = () => {
             candidateStats,
             groupPhotoExport.url,
             true,
-            palette?.paperAccent,
+            accentColor,
+            logoExport.url,
           );
           const backDataUrl = canvas.toDataURL('image/png');
           const pdfBlob = buildTwoPagePdf(frontDataUrl, backDataUrl).output('blob');
@@ -235,6 +257,7 @@ export const BuildModule: React.FC = () => {
     } finally {
       setGeneratingAll(false);
       groupPhotoExport?.revoke();
+      logoExport?.revoke();
     }
   }
 
@@ -246,8 +269,13 @@ export const BuildModule: React.FC = () => {
     if (!canvas) return;
     let exportable: { urls: string[]; revoke: () => void } | null = null;
     let groupPhotoExport: { url: string | null; revoke: () => void } | null = null;
+    let logoExport: { url: string | null; revoke: () => void } | null = null;
     try {
-      [exportable, groupPhotoExport] = await Promise.all([loadExportableUrls(picks), loadGroupPhotoExportUrl()]);
+      [exportable, groupPhotoExport, logoExport] = await Promise.all([
+        loadExportableUrls(picks),
+        loadGroupPhotoExportUrl(),
+        loadLogoExportUrl(),
+      ]);
       const header: CollageHeaderText = {
         name: state.buildHeader.name || athlete.preferredName || athlete.name,
         team: teamLabel,
@@ -262,10 +290,11 @@ export const BuildModule: React.FC = () => {
         true, // requireExportableCanvas — this is the canvas toDataURL() reads below
         stats,
         focalPoints,
-        palette?.paperAccent,
+        accentColor,
+        logoExport.url,
       );
       const frontDataUrl = canvas.toDataURL('image/png');
-      await renderCollageBack(canvas, EXPORT_W, EXPORT_H, header, stats, groupPhotoExport.url, true, palette?.paperAccent);
+      await renderCollageBack(canvas, EXPORT_W, EXPORT_H, header, stats, groupPhotoExport.url, true, accentColor, logoExport.url);
       const backDataUrl = canvas.toDataURL('image/png');
       // Opaque id only — the spec's privacy rule bars an athlete's name
       // from ever appearing in a key, URL, or download filename.
@@ -279,6 +308,7 @@ export const BuildModule: React.FC = () => {
     } finally {
       exportable?.revoke();
       groupPhotoExport?.revoke();
+      logoExport?.revoke();
     }
   }
 
@@ -292,6 +322,9 @@ export const BuildModule: React.FC = () => {
           picks={state.picks}
           onGenerateAll={handleGenerateAll}
           generatingAll={generatingAll}
+          photosById={visiblePhotosById}
+          collageSettings={collageSettings}
+          onCollageSettingsChange={setCollageSettings}
         />
       }
       rightPanel={
@@ -304,8 +337,6 @@ export const BuildModule: React.FC = () => {
           onExport={handleExport}
           onDownload={handleDownload}
           downloading={downloading}
-          groupPhotoId={groupPhotoId}
-          onGroupPhotoChange={setGroupPhotoId}
         />
       }
       center={
@@ -338,6 +369,8 @@ export const BuildModule: React.FC = () => {
               onFocalChange={handleFocalChange}
               side={previewSide}
               groupPhotoUrl={groupPhotoPreviewUrl}
+              accent={accentColor}
+              logoUrl={collageSettings?.logoUrl ?? null}
             />
             {previewSide === 'front' && picks.length > 0 && (
               <p className="text-xs text-ink-muted">Drag a photo to reposition it within its frame.</p>

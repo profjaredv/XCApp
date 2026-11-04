@@ -459,6 +459,85 @@ async function setGroupPhoto(prisma, teamId, photoId, actor) {
   return prisma.team.update({ where: { id: teamId }, data: { groupPhotoId: photoId } });
 }
 
+// --- Collage branding (accent color + logo) ----------------------------
+//
+// Build module settings, same authority split as the group photo above:
+// read is open to anyone who can already view the collage, set is
+// coach-only. Deliberately separate from the group photo's own
+// GET/PUT /photos/group-photo (which predates this and plenty of other
+// code already calls it) — bundled together only in the read, so the new
+// settings panel is one fetch.
+
+const ALLOWED_LOGO_CONTENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']);
+
+function requireCoach(actor, message) {
+  if (actor.isCoach) return;
+  const err = new Error(message);
+  err.statusCode = 403;
+  throw err;
+}
+
+async function getCollageSettings(prisma, teamId) {
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { groupPhotoId: true, collageAccentColor: true, collageLogoKey: true },
+  });
+  return {
+    groupPhotoId: team?.groupPhotoId ?? null,
+    accentColor: team?.collageAccentColor ?? null,
+    logoUrl: team?.collageLogoKey ? await r2.presignGetUrl(team.collageLogoKey) : null,
+  };
+}
+
+async function setCollageAccentColor(prisma, teamId, accentColor, actor) {
+  requireCoach(actor, 'Only a coach can set the collage\'s accent color.');
+  if (accentColor != null && !/^#[0-9a-f]{6}$/i.test(accentColor)) {
+    const err = new Error('accentColor must be a #rrggbb hex string, or null to clear it.');
+    err.statusCode = 400;
+    throw err;
+  }
+  const team = await prisma.team.update({ where: { id: teamId }, data: { collageAccentColor: accentColor } });
+  return { accentColor: team.collageAccentColor };
+}
+
+/** Step 1 of the logo upload — bytes go straight from the browser to R2, never through this server (same as every photo upload). */
+async function presignCollageLogoUpload(prisma, teamId, contentType, actor) {
+  requireCoach(actor, 'Only a coach can set the collage logo.');
+  if (!ALLOWED_LOGO_CONTENT_TYPES.has(contentType)) {
+    const err = new Error(`Unsupported image type. Use one of: ${[...ALLOWED_LOGO_CONTENT_TYPES].join(', ')}.`);
+    err.statusCode = 400;
+    throw err;
+  }
+  const key = r2.collageLogoKey(teamId);
+  return { uploadUrl: await r2.presignPutUrl(key, contentType), key };
+}
+
+/** Step 2 — called once the browser's PUT to that presigned URL succeeds. Never trusts that alone; confirms the object actually landed first. */
+async function finalizeCollageLogo(prisma, teamId, actor) {
+  requireCoach(actor, 'Only a coach can set the collage logo.');
+  const key = r2.collageLogoKey(teamId);
+  if (!(await r2.objectExists(key))) {
+    const err = new Error('The logo upload did not complete — try again.');
+    err.statusCode = 400;
+    throw err;
+  }
+  await prisma.team.update({ where: { id: teamId }, data: { collageLogoKey: key } });
+  return { logoUrl: await r2.presignGetUrl(key) };
+}
+
+/** Reverts to the collage's own drawn default logo. */
+async function clearCollageLogo(prisma, teamId, actor) {
+  requireCoach(actor, 'Only a coach can set the collage logo.');
+  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { collageLogoKey: true } });
+  if (team?.collageLogoKey) {
+    await r2.deleteObject(team.collageLogoKey).catch((error) => {
+      console.error('Error deleting the old collage logo object (continuing — the team row is still cleared):', error.message);
+    });
+  }
+  await prisma.team.update({ where: { id: teamId }, data: { collageLogoKey: null } });
+  return { logoUrl: null };
+}
+
 // --- Slideshow collection ---------------------------------------------
 //
 // A coach's flat, ordered photo collection for an end-of-season slideshow
@@ -748,6 +827,11 @@ module.exports = {
   resolvePhotoDownloadLink,
   listPhotosForDownloadLinkTarget,
   setGroupPhoto,
+  getCollageSettings,
+  setCollageAccentColor,
+  presignCollageLogoUpload,
+  finalizeCollageLogo,
+  clearCollageLogo,
   listSlideshowItems,
   addSlideshowItem,
   removeSlideshowItem,
