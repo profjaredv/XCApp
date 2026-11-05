@@ -952,9 +952,27 @@ interface CareerPacePoint extends PacePoint {
   season: number;
 }
 
-function buildCareerPacePoints(careerRaces: AthleteCareerRaceResult[]): CareerPacePoint[] {
-  return careerRaces
-    .filter((r): r is AthleteCareerRaceResult & { distanceMeters: number } => r.distanceMeters != null && r.distanceMeters > 1609.344)
+/**
+ * One point per season — that season's own fastest 5K (within 50m
+ * tolerance, same as the race table's PR matching) — not one point per
+ * race. An earlier version plotted every career race >1 mile on one
+ * continuous pace line, mixing a 1.5-mile relay leg's inherently faster
+ * pace in with 5K efforts; switching between distances mid-line produced
+ * sharp, meaningless zigzags that looked like wild fitness swings but
+ * were really just an artifact of comparing a mile pace to a 5K pace. A
+ * season with no 5K at all contributes no point (skipped, not
+ * interpolated) rather than plotting some other distance in its place.
+ */
+function buildCareerSeasonBest5kPoints(careerRaces: AthleteCareerRaceResult[]): CareerPacePoint[] {
+  const fiveKs = careerRaces.filter(
+    (r): r is AthleteCareerRaceResult & { distanceMeters: number } => r.distanceMeters != null && Math.abs(r.distanceMeters - 5000) < 50,
+  );
+  const bestBySeason = new Map<number, (typeof fiveKs)[number]>();
+  for (const r of fiveKs) {
+    const current = bestBySeason.get(r.season);
+    if (!current || r.timeSec < current.timeSec) bestBySeason.set(r.season, r);
+  }
+  return [...bestBySeason.values()]
     .map((r) => ({
       raceName: r.raceName,
       dateMs: new Date(r.date).getTime(),
@@ -968,23 +986,21 @@ function buildCareerPacePoints(careerRaces: AthleteCareerRaceResult[]): CareerPa
 }
 
 /**
- * A full-width, whole-career pace trend — out of scope for the original
+ * A full-width, whole-career 5K trend — out of scope for the original
  * design mockup ("I did not mock this... the main question is how to
  * label seasons on the x axis"), added once a coach actually asked for
- * it for upperclassmen. Shown only when there are 2+ distinct seasons of
- * history to compare (so an underclassman's back page is unchanged) and
- * at least 2 plottable (>1 mile) career races. Unlike the single-season
- * chart's one highlighted PR dot, this highlights EACH season's own best
- * 5K, so a coach reads the year-over-year 5K trend at a glance rather
- * than a single race. `top` is pixels (already scaled). Returns the
- * total height this band consumed (0 when not drawn), so the caller
- * shifts the race table / right column down by exactly that much.
+ * it for upperclassmen. Shown only when there are 2+ seasons with a
+ * plotted 5K (so an underclassman's back page is unchanged, and a
+ * career with only one 5K-having season has nothing to trend). Every
+ * point IS that season's best 5K — see buildCareerSeasonBest5kPoints —
+ * so every point gets the same accent highlight and time label, not a
+ * plain-dot/highlighted-dot split. `top` is pixels (already scaled).
+ * Returns the total height this band consumed (0 when not drawn), so the
+ * caller shifts the race table / right column down by exactly that much.
  */
 function drawCareerChart(ctx: CanvasRenderingContext2D, scale: number, top: number, stats: AthleteBuildStats | null, accent: string, accentDark: string): number {
   if (!stats) return 0;
-  const seasons = new Set(stats.careerRaces.map((r) => r.season));
-  if (seasons.size < 2) return 0;
-  const points = buildCareerPacePoints(stats.careerRaces);
+  const points = buildCareerSeasonBest5kPoints(stats.careerRaces);
   if (points.length < 2) return 0;
 
   const d = (n: number) => n * scale;
@@ -1060,16 +1076,6 @@ function drawCareerChart(ctx: CanvasRenderingContext2D, scale: number, top: numb
   ctx.lineTo(plotRight, baselineY);
   ctx.stroke();
 
-  // Each season's own fastest 5K (not necessarily careerBest5kSec, which
-  // is a single number with no season attached) gets the highlight.
-  const bestFiveKBySeasonIndex = new Map<number, number>();
-  points.forEach((p, i) => {
-    if (Math.abs(p.distanceMeters - 5000) >= 50) return;
-    const current = bestFiveKBySeasonIndex.get(p.season);
-    if (current == null || p.timeSec < points[current].timeSec) bestFiveKBySeasonIndex.set(p.season, i);
-  });
-  const highlighted = new Set(bestFiveKBySeasonIndex.values());
-
   ctx.strokeStyle = INK;
   ctx.lineWidth = d(2.5);
   ctx.lineJoin = 'round';
@@ -1078,18 +1084,13 @@ function drawCareerChart(ctx: CanvasRenderingContext2D, scale: number, top: numb
   traceMonotoneCurve(ctx, points.map((p) => ({ x: plotX(p.dateMs), y: plotY(p.pace) })));
   ctx.stroke();
 
-  ctx.fillStyle = INK;
-  points.forEach((p, i) => {
-    if (highlighted.has(i)) return;
-    ctx.beginPath();
-    ctx.arc(plotX(p.dateMs), plotY(p.pace), d(3), 0, Math.PI * 2);
-    ctx.fill();
-  });
+  // Every point is that season's best 5K — so every point gets the same
+  // accent dot and time label, unlike the single-season chart's one PR
+  // highlight among several plain dots.
   ctx.font = `700 ${d(12)}px ${BODY_FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  for (const i of highlighted) {
-    const p = points[i];
+  for (const p of points) {
     const x = plotX(p.dateMs);
     const y = plotY(p.pace);
     ctx.fillStyle = accent;
@@ -1100,15 +1101,11 @@ function drawCareerChart(ctx: CanvasRenderingContext2D, scale: number, top: numb
     ctx.fillText(formatRaceTime(p.timeSec), x, y - d(8));
   }
 
-  // One label per season boundary (the year, not a month — a career spans
-  // years) at that season's first plotted point.
+  // One label per point — one point per season now, so no dedup needed.
   ctx.font = `${d(12)}px ${BODY_FONT}`;
   ctx.fillStyle = MUTED;
   ctx.textBaseline = 'alphabetic';
-  let lastSeason: number | null = null;
   for (const p of points) {
-    if (p.season === lastSeason) continue;
-    lastSeason = p.season;
     const x = plotX(p.dateMs);
     ctx.strokeStyle = MUTED;
     ctx.lineWidth = d(1);
@@ -1125,7 +1122,7 @@ function drawCareerChart(ctx: CanvasRenderingContext2D, scale: number, top: numb
   ctx.fillStyle = MUTED;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText('Pace per mile across every season. Higher is faster.', left, captionTop);
+  ctx.fillText("Pace of each season's best 5K. Higher is faster.", left, captionTop);
   let bottom = captionTop + d(16);
 
   // Career bests — best time at each distance across every season, not
