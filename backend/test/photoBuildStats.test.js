@@ -26,6 +26,7 @@ function withActiveSeason(year) {
     stub('season', 'findFirst', () => ({ id: 'season-1', year })),
     stub('race', 'findMany', () => []),
     stub('teamMember', 'findMany', () => []),
+    stub('seasonRoster', 'findFirst', () => null),
   ];
   return () => restores.forEach((r) => r());
 }
@@ -104,6 +105,7 @@ test('getAthleteBuildStats assembles name, grade, career PR, season totals, best
   assert.equal(stats.name, 'Alex');
   assert.equal(stats.season, 2026);
   assert.equal(stats.grade, 11);
+  assert.equal(stats.isCaptain, false);
   assert.equal(stats.careerBest5kSec, 1030);
   assert.equal(stats.totalMiles, 142.3);
   assert.equal(stats.averagePaceSecPerMile, 444);
@@ -194,6 +196,50 @@ test('getAthleteBuildStats falls back to parsing the text distance when distance
   assert.equal(stats.bestByDistance.length, 1, 'the only race at its distance is trivially a PR, so it must still be flagged even with distanceMeters originally null');
   assert.equal(stats.bestByDistance[0].raceName, 'Reed Park Time Trial');
   assert.equal(stats.careerRaces[0].distanceMeters, 1.5 * 1609.34);
+});
+
+// isCaptain lives on SeasonRoster, scoped to this one active season — a
+// collage printed mid-season must show this season's own captaincy, not
+// whatever it was (or wasn't) a different year.
+test('getAthleteBuildStats carries this season\'s own captaincy from SeasonRoster', async (t) => {
+  const restoreSeason = withActiveSeason(2026);
+  const restoreRoster = stub('seasonRoster', 'findFirst', (args) => {
+    assert.deepEqual(args.where, { athleteId: 'athlete-1', season: { teamId: 'team-1', year: 2026 } });
+    return { isCaptain: true };
+  });
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null, userId: 'already-linked' }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', () => []);
+  t.after(() => {
+    restoreSeason();
+    restoreRoster();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+  assert.equal(stats.isCaptain, true);
+});
+
+test('getAthleteBuildStats defaults isCaptain to false when there is no SeasonRoster row at all', async (t) => {
+  const restoreSeason = withActiveSeason(2026);
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null, userId: 'already-linked' }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', () => []);
+  t.after(() => {
+    restoreSeason();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+  assert.equal(stats.isCaptain, false);
 });
 
 test('getAthleteBuildStats grade is null when graduationYear is unknown, not a guess', async (t) => {

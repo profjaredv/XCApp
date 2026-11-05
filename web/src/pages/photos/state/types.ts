@@ -134,6 +134,8 @@ export interface AthleteBuildStats {
   season: number;
   /** Null when graduationYear itself is unknown — never guessed. */
   grade: number | null;
+  /** This season's captaincy only — captaincy is annual (backend/prisma/schema.prisma's SeasonRoster.isCaptain). */
+  isCaptain: boolean;
   /** Career best 5K, not season-best — null if this athlete has no 5K result yet. */
   careerBest5kSec: number | null;
   totalMiles: number | null;

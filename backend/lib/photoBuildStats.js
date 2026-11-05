@@ -90,7 +90,7 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
 
   const season = await resolveActiveSeason(teamId);
 
-  const [metrics, seasonResults, careerResults, careerBest, teamOwner, coachTeamMembers, inviteToken] = await Promise.all([
+  const [metrics, seasonResults, careerResults, careerBest, teamOwner, coachTeamMembers, inviteToken, seasonRoster] = await Promise.all([
     prisma.athleteSeasonMetrics.findUnique({
       where: { athleteId_teamId_season: { athleteId, teamId, season } },
     }),
@@ -134,6 +134,14 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
       graduationYear: athlete.graduationYear,
       userId: athlete.userId,
       season,
+    }),
+    // This season's captaincy only — isCaptain lives on SeasonRoster, not
+    // Athlete, since captaincy is annual (see that model's own comment).
+    // Same query shape routes/analytics.js's overview endpoint already
+    // uses, just narrowed to the one active season this collage is for.
+    prisma.seasonRoster.findFirst({
+      where: { athleteId, season: { teamId, year: season } },
+      select: { isCaptain: true },
     }),
   ]);
 
@@ -194,6 +202,7 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
     // "render nothing rather than something confidently wrong" choice
     // deriveGrade's own callers elsewhere in the app already make).
     grade: deriveGrade(athlete.graduationYear, season),
+    isCaptain: seasonRoster?.isCaptain ?? false,
     careerBest5kSec: careerBest._min.bestTime5k ?? null,
     totalMiles: metrics?.totalMiles ?? null,
     averagePaceSecPerMile: metrics?.averagePace ?? null,
