@@ -111,3 +111,29 @@ test('a volunteer may remove another volunteer-made tag (both taggedBy: null), b
   assert.equal(canRemoveTag(volunteer, tagMadeByAnotherVolunteer), true);
   assert.equal(canRemoveTag(volunteer, tagMadeByAGuardian), false);
 });
+
+// A Photos Admin (lib/photosAccess.js's PhotosAdmin — an invited,
+// non-coach account) gets the same Add/Tag/Build authority as a coach,
+// EXCEPT hiding/deleting a photo, which stays coach-only (settings-tier,
+// never granted by this). Has a real account (userId set, unlike
+// isVolunteer), so a removed-tag attribution still works normally.
+const photosAdmin = { userId: 'parent-9', isCoach: false, isPhotosAdmin: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+
+test('a Photos Admin may tag any athlete, and it records distinctly from a coach or volunteer tag', () => {
+  assert.deepEqual(authorizeTag(photosAdmin, 'athlete-1'), { allowed: true, source: 'PHOTOS_ADMIN' });
+  assert.deepEqual(authorizeTag(photosAdmin, 'athlete-99'), { allowed: true, source: 'PHOTOS_ADMIN' });
+});
+
+test('a Photos Admin may manage picks/opt-out for any athlete, unlike a volunteer', () => {
+  assert.equal(canManageAthlete(photosAdmin, 'athlete-1'), true);
+  assert.equal(canManageAthlete(photosAdmin, 'athlete-99'), true);
+});
+
+test('a Photos Admin may remove any tag, same as a coach', () => {
+  const tagMadeByAGuardian = { athleteId: 'athlete-2', taggedBy: 'parent-1', source: 'PARENT' };
+  assert.equal(canRemoveTag(photosAdmin, tagMadeByAGuardian), true);
+});
+
+test('a Photos Admin may not hide a photo — that stays coach-only', () => {
+  assert.equal(canHidePhoto(photosAdmin), false);
+});

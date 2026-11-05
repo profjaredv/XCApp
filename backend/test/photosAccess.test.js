@@ -276,18 +276,22 @@ test('finalizeTeamPhoto is idempotent on an already-ready photo', async () => {
 // resolveActor
 // ---------------------------------------------------------------------------
 
-test('resolveActor: the team owner is a coach via the fast path, no guardian links or led-groups fetched', async () => {
+test('resolveActor: the team owner is a coach via the fast path, no guardian links, led-groups, or Photos Admin grant fetched', async () => {
   const restoreGuardian = stub('guardianLink', 'findMany', () => {
     throw new Error('should not be called for a coach');
   });
   const restoreLeader = stub('groupLeader', 'findMany', () => {
     throw new Error('should not be called for a coach — isCoach already covers every group');
   });
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => {
+    throw new Error('should not be called for a coach — isCoach already covers everything a Photos Admin grant would');
+  });
   try {
     const actor = await resolveActor(prisma, COACH, 'team-1');
     assert.deepEqual(actor, {
       userId: 'coach-1',
       isCoach: true,
+      isPhotosAdmin: false,
       selfAthleteId: null,
       guardianAthleteIds: [],
       linkedAthleteIds: [],
@@ -296,6 +300,7 @@ test('resolveActor: the team owner is a coach via the fast path, no guardian lin
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
   }
 });
 
@@ -303,16 +308,19 @@ test('resolveActor: a linked athlete on this team is "self"', async () => {
   const user = { id: 'user-2', teamId: null, team: null, linkedAthlete: { id: 'athlete-9', teamId: 'team-1' } };
   const restoreGuardian = stub('guardianLink', 'findMany', () => []);
   const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
   try {
     const actor = await resolveActor(prisma, user, 'team-1');
     assert.strictEqual(actor.isCoach, false);
+    assert.strictEqual(actor.isPhotosAdmin, false);
     assert.strictEqual(actor.selfAthleteId, 'athlete-9');
     assert.deepEqual(actor.linkedAthleteIds, ['athlete-9']);
     assert.deepEqual(actor.ledGroupIds, []);
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restoreSeason();
   }
 });
@@ -321,6 +329,7 @@ test('resolveActor: a linked athlete on a DIFFERENT team is not treated as self 
   const user = { id: 'user-2', teamId: null, team: null, linkedAthlete: { id: 'athlete-9', teamId: 'team-2' } };
   const restoreGuardian = stub('guardianLink', 'findMany', () => []);
   const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
   try {
     const actor = await resolveActor(prisma, user, 'team-1');
@@ -328,6 +337,7 @@ test('resolveActor: a linked athlete on a DIFFERENT team is not treated as self 
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restoreSeason();
   }
 });
@@ -340,6 +350,7 @@ test('resolveActor: approved guardian links scoped to this team become guardianA
     return [{ athleteId: 'athlete-2' }, { athleteId: 'athlete-3' }];
   });
   const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
   try {
     const actor = await resolveActor(prisma, user, 'team-1');
@@ -349,6 +360,7 @@ test('resolveActor: approved guardian links scoped to this team become guardianA
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restoreSeason();
   }
 });
@@ -361,6 +373,7 @@ test('resolveActor: a non-coach GroupLeader for the active season gets that grou
     seenWhere = args.where;
     return [{ groupId: 'group-blue' }];
   });
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
   try {
     const actor = await resolveActor(prisma, user, 'team-1');
@@ -369,6 +382,7 @@ test('resolveActor: a non-coach GroupLeader for the active season gets that grou
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restoreSeason();
   }
 });
@@ -379,6 +393,7 @@ test('resolveActor: no Season row for the active year means ledGroupIds is empty
   const restoreLeader = stub('groupLeader', 'findMany', () => {
     throw new Error('should not be called when there is no Season row to scope it to');
   });
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restores = [
     stub('team', 'findUnique', () => ({ currentSeason: 2026 })),
     stub('season', 'findFirst', () => null),
@@ -390,7 +405,47 @@ test('resolveActor: no Season row for the active year means ledGroupIds is empty
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restores.forEach((r) => r());
+  }
+});
+
+test('resolveActor: an active Photos Admin grant sets isPhotosAdmin true', async () => {
+  const user = { id: 'parent-1', teamId: null, team: null, linkedAthlete: null };
+  let seenWhere;
+  const restoreGuardian = stub('guardianLink', 'findMany', () => []);
+  const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', (args) => {
+    seenWhere = args.where;
+    return { id: 'grant-1', teamId: 'team-1', userId: 'parent-1', active: true };
+  });
+  const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
+  try {
+    const actor = await resolveActor(prisma, user, 'team-1');
+    assert.deepEqual(seenWhere, { teamId_userId: { teamId: 'team-1', userId: 'parent-1' } });
+    assert.strictEqual(actor.isPhotosAdmin, true);
+  } finally {
+    restoreGuardian();
+    restoreLeader();
+    restoreGrant();
+    restoreSeason();
+  }
+});
+
+test('resolveActor: a revoked (inactive) Photos Admin grant does not set isPhotosAdmin', async () => {
+  const user = { id: 'parent-1', teamId: null, team: null, linkedAthlete: null };
+  const restoreGuardian = stub('guardianLink', 'findMany', () => []);
+  const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => ({ id: 'grant-1', teamId: 'team-1', userId: 'parent-1', active: false }));
+  const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
+  try {
+    const actor = await resolveActor(prisma, user, 'team-1');
+    assert.strictEqual(actor.isPhotosAdmin, false);
+  } finally {
+    restoreGuardian();
+    restoreLeader();
+    restoreGrant();
+    restoreSeason();
   }
 });
 
@@ -432,6 +487,25 @@ test('listTeamPhotos shows the coach everything, including photos with an opted-
 test('listTeamPhotos refuses includeHidden for a non-coach', async () => {
   const actor = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
   await assert.rejects(() => listTeamPhotos(prisma, 'team-1', actor, { includeHidden: true }), /Only a coach/);
+});
+
+test('listTeamPhotos refuses includeHidden for a Photos Admin too — hidden review stays coach-only', async () => {
+  const actor = { userId: 'parent-9', isCoach: false, isPhotosAdmin: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  await assert.rejects(() => listTeamPhotos(prisma, 'team-1', actor, { includeHidden: true }), /Only a coach/);
+});
+
+test('listTeamPhotos shows a Photos Admin everything, including photos with an opted-out athlete', async () => {
+  const actor = { userId: 'parent-9', isCoach: false, isPhotosAdmin: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restore = stub('photo', 'findMany', () => [
+    { id: 'photo-a', tags: [] },
+    { id: 'photo-opted-out', tags: [{ athleteId: 'athlete-optout' }] },
+  ]);
+  try {
+    const photos = await listTeamPhotos(prisma, 'team-1', actor);
+    assert.deepEqual(photos.map((p) => p.id), ['photo-a', 'photo-opted-out']);
+  } finally {
+    restore();
+  }
 });
 
 // ---------------------------------------------------------------------------

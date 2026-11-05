@@ -23,40 +23,48 @@ const MAX_PICKS = 5;
 
 /**
  * Builds the PhotoActor for this request: coach-ness via the same
- * TeamMember role check every other route uses, plus this account's own
- * linked athlete and any athletes it holds an APPROVED GuardianLink for —
- * both scoped to `teamId`, never to `user.teamId` directly. The two differ
- * for a guardian account: a parent is never a TeamMember (routes/guardian.js),
- * so `user.teamId` is null for them and the caller (routes/photos.js's
- * resolvePhotosTeam) has already worked out which team their approved link
- * actually belongs to.
+ * TeamMember role check every other route uses, an active PhotosAdmin
+ * grant (full Load/Tag/Build authority without being a coach), plus this
+ * account's own linked athlete and any athletes it holds an APPROVED
+ * GuardianLink for — all scoped to `teamId`, never to `user.teamId`
+ * directly. These differ for a guardian or Photos Admin account: neither
+ * is ever a TeamMember (routes/guardian.js; PhotosAdmin's own schema
+ * comment), so `user.teamId` is null for them and the caller
+ * (routes/photos.js's resolvePhotosTeam) has already worked out which
+ * team they actually belong to.
  */
 async function resolveActor(prisma, user, teamId) {
   const isCoach = Boolean((user.isSuperAdmin && user.isImpersonating) || (await hasTeamRole(user, ANY_COACH)));
 
   // A coach's authority already covers every athlete (authorizeTag checks
-  // isCoach first) — skip the guardian-link lookup entirely rather than
-  // run a query whose result can never change the outcome. ledGroupIds is
-  // the captain-only capability below; a coach's isCoach already covers
-  // every group, so it stays empty rather than duplicating that authority.
+  // isCoach first) — skip the guardian-link and Photos Admin lookups
+  // entirely rather than run queries whose result can never change the
+  // outcome. ledGroupIds is the captain-only capability below; a coach's
+  // isCoach already covers every group, so it stays empty rather than
+  // duplicating that authority.
   if (isCoach) {
-    return { userId: user.id, isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [], ledGroupIds: [] };
+    return { userId: user.id, isCoach: true, isPhotosAdmin: false, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [], ledGroupIds: [] };
   }
 
   const selfAthleteId = user.linkedAthlete && user.linkedAthlete.teamId === teamId ? user.linkedAthlete.id : null;
 
-  const [guardianLinks, ledGroupIds] = await Promise.all([
+  const [guardianLinks, ledGroupIds, photosAdminGrant] = await Promise.all([
     prisma.guardianLink.findMany({
       where: { userId: user.id, status: 'approved', athlete: { teamId } },
       select: { athleteId: true },
     }),
     ledGroupIdsFor(prisma, user.id, teamId),
+    // Full Load/Tag/Build authority for a non-coach account — see
+    // PhotosAdmin's own schema comment. Never widens canHidePhoto: that
+    // stays coach-only regardless of this grant.
+    prisma.photosAdmin.findUnique({ where: { teamId_userId: { teamId, userId: user.id } } }),
   ]);
   const guardianAthleteIds = guardianLinks.map((l) => l.athleteId);
+  const isPhotosAdmin = Boolean(photosAdminGrant && photosAdminGrant.active);
 
   const linkedAthleteIds = Array.from(new Set([selfAthleteId, ...guardianAthleteIds].filter(Boolean)));
 
-  return { userId: user.id, isCoach, selfAthleteId, guardianAthleteIds, linkedAthleteIds, ledGroupIds };
+  return { userId: user.id, isCoach, isPhotosAdmin, selfAthleteId, guardianAthleteIds, linkedAthleteIds, ledGroupIds };
 }
 
 // A new, deliberately narrow read capability: a non-coach account (an
@@ -210,7 +218,10 @@ async function finalizeTeamPhoto(prisma, teamId, photoId) {
 /**
  * Every READY (or, for a coach only, HIDDEN) photo for this team, with its
  * tags, filtered by the spec's rule 4: a photo tagged with an opted-out
- * athlete disappears from every grid except the coach's.
+ * athlete disappears from every grid except a coach's or Photos Admin's.
+ * The HIDDEN review list itself stays coach-only — part of the same
+ * hide/unhide moderation workflow canHidePhoto gates, which a Photos
+ * Admin invite never grants.
  */
 async function listTeamPhotos(prisma, teamId, actor, { meetId, includeHidden } = {}) {
   const status = includeHidden ? 'HIDDEN' : 'READY';
@@ -226,7 +237,7 @@ async function listTeamPhotos(prisma, teamId, actor, { meetId, includeHidden } =
     orderBy: { takenAt: 'asc' },
   });
 
-  if (actor.isCoach) return photos;
+  if (actor.isCoach || actor.isPhotosAdmin) return photos;
 
   const optedOut = await prisma.athlete.findMany({ where: { teamId, photosOptOut: true }, select: { id: true } });
   const optedOutIds = new Set(optedOut.map((a) => a.id));

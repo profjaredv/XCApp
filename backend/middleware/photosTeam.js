@@ -7,9 +7,13 @@ const { isFeatureEnabled } = require('../lib/teamFeatures');
 // requireFeature are.
 //
 // A parent is never a TeamMember (see routes/guardian.js), so req.user.teamId
-// is null for every guardian account. Routes everyone (coach, athlete, AND
-// guardian) can reach use resolvePhotosTeam instead of requireTeam, which
-// falls back to an approved GuardianLink's athlete's team.
+// is null for every guardian account. The same is true of an invited
+// Photos Admin (lib/photosAccess.js's PhotosAdmin) — deliberately not a
+// TeamMember either, since it grants nothing outside this module. Routes
+// everyone (coach, athlete, guardian, AND Photos Admin) can reach use
+// resolvePhotosTeam instead of requireTeam, which falls back first to an
+// approved GuardianLink's athlete's team, then to an active PhotosAdmin
+// grant.
 
 // Grants no access by itself — it only establishes which team's photos
 // this account may touch, the same "boundary, not authorization" shape as
@@ -30,10 +34,18 @@ async function resolvePhotosTeam(req, res, next) {
       where: { userId: req.user.id, status: 'approved' },
       select: { athlete: { select: { teamId: true } } },
     });
-    if (!link) {
-      return res.status(403).json({ msg: 'No team membership or approved guardian link found for this account.' });
+    if (link) {
+      req.photosTeamId = link.athlete.teamId;
+      return next();
     }
-    req.photosTeamId = link.athlete.teamId;
+    const grant = await prisma.photosAdmin.findFirst({
+      where: { userId: req.user.id, active: true },
+      select: { teamId: true },
+    });
+    if (!grant) {
+      return res.status(403).json({ msg: 'No team membership, approved guardian link, or Photos Admin invite found for this account.' });
+    }
+    req.photosTeamId = grant.teamId;
     next();
   } catch (error) {
     next(error);

@@ -10,6 +10,11 @@ import type { Athlete, AthleteBuildStats, Meet, Photo, PhotoAthlete, PhotoGroup,
 export interface PhotosMe {
   userId: string | null;
   isCoach: boolean;
+  // An invited, non-coach account with full Load/Tag/Build authority in
+  // this module only (backend/lib/photosAccess.js's PhotosAdmin) —
+  // everywhere this never widens to hide/delete, collage branding, or the
+  // tag-password itself; those stay coach-only.
+  isPhotosAdmin: boolean;
   // Unlocked tagging with the team's shared password instead of signing
   // in — see lib/photosVolunteer.ts and middleware/photosVolunteer.js.
   isVolunteer: boolean;
@@ -52,6 +57,35 @@ export interface SendDownloadLinkResult {
   emailSent: boolean;
   downloadUrl: string;
   expiresAt: string;
+}
+
+// Photos Admin: an invited, non-coach account with full Load/Tag/Build
+// authority in this module only (backend's PhotosAdmin). Mirrors
+// routes/team.js's staff-invite shape, scoped to Photos.
+export interface SendPhotosAdminInviteResult {
+  msg: string;
+  token: string;
+  emailSent: boolean;
+  invite: { token: string; email: string; expiresAt: string };
+}
+
+export interface PhotosAdminGrant {
+  userId: string;
+  name: string | null;
+  email: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface PhotosAdminPendingInvite {
+  email: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface PhotosAdminsList {
+  admins: PhotosAdminGrant[];
+  pendingInvites: PhotosAdminPendingInvite[];
 }
 
 // Shown on the public DownloadLinkPage — note this never includes an
@@ -379,5 +413,31 @@ export const photosService = {
 
   downloadViaLink(token: string): Promise<void> {
     return downloadBlobFile(api, `/photos/download-link/${token}/zip`, `leadpack-photos-${token}.zip`, 'zip');
+  },
+
+  // Photos Admin management — FULL_COACH-only (a coach, not a volunteer
+  // coach), matching routes/team.js's own staff-invite tier. Grants
+  // Load/Tag/Build authority in this module only, never coaching access.
+  async sendPhotosAdminInvite(email: string): Promise<SendPhotosAdminInviteResult> {
+    const response = await api.post<SendPhotosAdminInviteResult>('/photos/admin-invite', { email });
+    return response.data;
+  },
+
+  async listPhotosAdmins(): Promise<PhotosAdminsList> {
+    const response = await api.get<PhotosAdminsList>('/photos/admins');
+    return response.data;
+  },
+
+  async setPhotosAdminActive(userId: string, active: boolean): Promise<{ userId: string; active: boolean }> {
+    const response = await api.patch<{ userId: string; active: boolean }>(`/photos/admins/${userId}`, { active });
+    return response.data;
+  },
+
+  // Authenticated: the token identifies the invite; the signed-in session
+  // is who's accepting it. Never makes the account a TeamMember — see
+  // backend's PhotosAdmin schema comment.
+  async acceptPhotosAdminInvite(token: string): Promise<{ msg: string; teamId: string; athleticTeamId: string }> {
+    const response = await api.post<{ msg: string; teamId: string; athleticTeamId: string }>('/photos/accept-admin-invite', { token });
+    return response.data;
   },
 };

@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { photosService, type CollageSettings } from '../../../api/photosService';
 import { getApiErrorMessage } from '../../../lib/apiError';
 import { isHex } from '@/lib/teamColors';
+import { PhotosAdminSection } from './PhotosAdminSection';
 import type { Photo } from '../state/types';
 
 interface CollageSettingsPanelProps {
@@ -213,6 +214,8 @@ export const CollageSettingsPanel: React.FC<CollageSettingsPanelProps> = ({ open
               {photosById.size === 0 && <p className="col-span-6 text-sm text-ink-muted">No photos uploaded yet.</p>}
             </div>
           </div>
+
+          <PhotosAdminSection active={open} />
         </div>
       </DialogContent>
     </Dialog>

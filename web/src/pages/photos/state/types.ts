@@ -3,7 +3,7 @@
 // needs no reshaping to fit. `source` matches the spec's tagging
 // provenance column exactly.
 
-export type TagSource = 'self' | 'parent' | 'coach' | 'volunteer';
+export type TagSource = 'self' | 'parent' | 'coach' | 'volunteer' | 'photos_admin';
 
 export interface PhotoAthlete {
   athleteId: string;

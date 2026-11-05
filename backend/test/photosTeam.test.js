@@ -68,9 +68,30 @@ test('resolvePhotosTeam falls back to an approved GuardianLink for a guardian ac
   assert.equal(req.photosTeamId, 'team-2');
 });
 
-test('resolvePhotosTeam 403s an account with no team and no approved guardian link', async () => {
+test('resolvePhotosTeam falls back to an active PhotosAdmin grant when there is no team and no guardian link', async () => {
+  const req = { user: { id: 'parent-2', teamId: null } };
+  const restoreGuardian = stub('guardianLink', 'findFirst', () => null);
+  const restoreGrant = stub('photosAdmin', 'findFirst', (args) => {
+    assert.deepEqual(args.where, { userId: 'parent-2', active: true });
+    return { teamId: 'team-4' };
+  });
+  let nexted = false;
+  try {
+    await resolvePhotosTeam(req, mockRes(), () => {
+      nexted = true;
+    });
+  } finally {
+    restoreGuardian();
+    restoreGrant();
+  }
+  assert.equal(nexted, true);
+  assert.equal(req.photosTeamId, 'team-4');
+});
+
+test('resolvePhotosTeam 403s an account with no team, no approved guardian link, and no Photos Admin grant', async () => {
   const req = { user: { id: 'stranger-1', teamId: null } };
-  const restore = stub('guardianLink', 'findFirst', () => null);
+  const restoreGuardian = stub('guardianLink', 'findFirst', () => null);
+  const restoreGrant = stub('photosAdmin', 'findFirst', () => null);
   const res = mockRes();
   let nexted = false;
   try {
@@ -78,7 +99,8 @@ test('resolvePhotosTeam 403s an account with no team and no approved guardian li
       nexted = true;
     });
   } finally {
-    restore();
+    restoreGuardian();
+    restoreGrant();
   }
   assert.equal(nexted, false);
   assert.equal(res.statusCode, 403);

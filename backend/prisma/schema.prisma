@@ -61,6 +61,8 @@ model User {
   linkedAthlete             Athlete?                 @relation("AthleteAccount")
   athleteClaims             AthleteClaim[]
   sentStaffInvites          StaffInvite[]            @relation("StaffInviteSender")
+  photosAdminGrants         PhotosAdmin[]
+  sentPhotosAdminInvites    PhotosAdminInvite[]      @relation("PhotosAdminInviteSender")
   guardianLinks             GuardianLink[]           @relation("GuardianAccount")
   resolvedGuardianLinks     GuardianLink[]           @relation("GuardianLinkResolver")
   ledGroups                 GroupLeader[]
@@ -172,6 +174,8 @@ model Team {
   athleteInvites          AthleteInvite[]
   athleteClaims           AthleteClaim[]
   staffInvites            StaffInvite[]
+  photosAdmins            PhotosAdmin[]
+  photosAdminInvites      PhotosAdminInvite[]
   groups                  Group[]
   practicePlans           PracticePlan[]
   practiceLocations       PracticeLocation[]
@@ -2057,6 +2061,7 @@ enum PhotoTagSource {
   PARENT
   COACH
   VOLUNTEER
+  PHOTOS_ADMIN
 }
 
 model Photo {
@@ -2241,6 +2246,58 @@ model PhotoDownloadLink {
   @@index([athleteId])
   @@index([expiresAt])
   @@map("photo_download_links")
+}
+
+// Grants a real account (not the tagging-passcode volunteer session —
+// middleware/photosVolunteer.js stays the lightweight no-login path)
+// full Load/Tag/Build authority within the Photos module only, for
+// someone who isn't a coach: a parent, or any other volunteer a coach
+// wants to hand the whole photo workflow to. Deliberately not a TeamRole
+// — it grants nothing outside Photos, so a grantee's User.teamId stays
+// null exactly like a guardian's (see middleware/photosTeam.js's
+// resolvePhotosTeam, which this is a third source for). Settings-tier
+// actions (hide/delete, collage branding, the tag-password itself,
+// emailing a parent a download link) stay coach-only regardless —
+// lib/photoTagRules.js's canHidePhoto never consults this.
+model PhotosAdmin {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  // Revoked rather than deleted, same reasoning as TeamMember.active —
+  // past tags/uploads attributed to this account (photo_athletes.tagged_by,
+  // photos.uploaded_by) must keep pointing at a real row.
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@map("photos_admins")
+}
+
+// Structurally parallel to StaffInvite (token, pending/accepted/revoked,
+// one row per invitee that re-inviting overwrites) but coach-issued
+// rather than head-coach-only — any coach handing off the photo workflow
+// to a parent doesn't need to go through the head coach to do it.
+model PhotosAdminInvite {
+  id          String    @id @default(uuid()) @db.Uuid
+  teamId      String    @map("team_id") @db.Uuid
+  email       String
+  token       String    @unique @default(uuid())
+  status      String    @default("pending") // pending | accepted | revoked
+  invitedById String    @map("invited_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  expiresAt   DateTime  @map("expires_at")
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy User @relation("PhotosAdminInviteSender", fields: [invitedById], references: [id])
+
+  @@unique([teamId, email])
+  @@index([teamId])
+  @@map("photos_admin_invites")
 }
 
 // ---------------------------------------------------------------------------

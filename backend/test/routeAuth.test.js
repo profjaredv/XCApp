@@ -73,6 +73,11 @@ const ALLOWED_UNGUARDED = new Set([
   // this exact athlete/invitee when creating it) — not team/role membership.
   'athletes.js POST /accept-invite',
   'team.js POST /accept-staff-invite',
+  // Same shape as accept-staff-invite just above: the token is the
+  // authorization, and the account it's accepted into (PhotosAdmin) is
+  // deliberately never a TeamMember, so requireTeam/requireRole can't
+  // apply here either (lib/photosAccess.js's PhotosAdmin).
+  'photos.js POST /accept-admin-invite',
   // A guardian isn't a team member, so requireTeam/requireRole don't apply —
   // this only creates a *pending* GuardianLink tied to req.user.id; it
   // grants no access by itself (see requireApprovedGuardianLink, and

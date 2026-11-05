@@ -343,6 +343,16 @@ const CLASSIFICATION = {
     what: 'One photo a coach added to the end-of-season slideshow collection, and when.',
     why: 'A coach-only curation list, same posture as Pick above — never an athlete\'s own choice to make private from the coach.',
   },
+  PhotosAdmin: {
+    class: CLASSES.OPERATIONAL,
+    what: 'An account a coach granted full Load/Tag/Build access to the Photos module, without making them a coach.',
+    why: 'Same posture as StaffInvite/TeamMember above — onboarding and access for an adult, naming no student.',
+  },
+  PhotosAdminInvite: {
+    class: CLASSES.OPERATIONAL,
+    what: 'A pending invitation to become a Photos Admin.',
+    why: 'Onboarding for an adult, same as StaffInvite. Names no student.',
+  },
 
   // --- Athlete-authored: hers ---------------------------------------------
   TrainingLog: {
