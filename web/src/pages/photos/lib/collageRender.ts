@@ -1136,8 +1136,31 @@ function drawCareerChart(ctx: CanvasRenderingContext2D, scale: number, top: numb
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.fillText('Pace per mile across every season. Higher is faster.', left, captionTop);
+  let bottom = captionTop + d(16);
 
-  return captionTop + d(16) - top;
+  // Career bests — best time at each distance across every season, not
+  // just this one (the printed collage's answer to the Athlete Journey
+  // page's "Personal records" card). Distinct from the "Best at that
+  // distance" dots in the race table below, which are this season only.
+  const careerBests = [...(stats.careerBestByDistance ?? [])].sort((a, b) => a.distanceMeters - b.distanceMeters);
+  if (careerBests.length > 0) {
+    const bestsTop = bottom + d(2);
+    const label = 'CAREER BESTS  ';
+    ctx.font = `600 ${d(12)}px ${BODY_FONT}`;
+    ctx.fillStyle = INK;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(label, left, bestsTop);
+    const labelWidth = ctx.measureText(label).width;
+
+    ctx.font = `${d(12)}px ${BODY_FONT}`;
+    ctx.fillStyle = MUTED;
+    const bestsLine = careerBests.map((b) => `${formatRaceDistance(b.distanceLabel, b.distanceMeters)} ${formatRaceTime(b.timeSec)}`).join('   ·   ');
+    ctx.fillText(truncateToWidth(ctx, bestsLine, width - labelWidth), left + labelWidth, bestsTop);
+    bottom = bestsTop + d(16);
+  }
+
+  return bottom - top;
 }
 
 /**
