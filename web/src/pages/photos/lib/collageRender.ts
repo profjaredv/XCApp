@@ -17,7 +17,7 @@ import { HERO, PANELS, PANEL_LEAN, heroPixelRect, type PhotoPanel } from './temp
 import { formatRaceTime, formatRaceDate, formatRaceDistance } from './raceFormat';
 import { ensureCollageFontsLoaded, DISPLAY_FONT, BODY_FONT } from './collageFonts';
 import { drawQrCode } from './qrCode';
-import type { AthleteBuildStats, AthleteRaceResult } from '../state/types';
+import type { AthleteBuildStats, AthleteCareerRaceResult, AthleteRaceResult } from '../state/types';
 
 export interface CollageHeaderText {
   name: string;
@@ -25,10 +25,11 @@ export interface CollageHeaderText {
   season: string;
 }
 
-/** A photo's chosen crop position within its slot — see coverFitOffset below. */
+/** A photo's chosen crop position within its slot — see coverFitOffset below. `zoom` (1 or undefined = the default cover-fit, never below 1) lets a crop be tightened past the slot's own natural cover-fit scale. */
 export interface FocalPoint {
   x: number;
   y: number;
+  zoom?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,14 +133,18 @@ function loadOptionalImage(url: string | null | undefined, anonymous: boolean): 
 }
 
 /**
- * Cover-fit math shared with components/CollagePreview.tsx's drag handler,
- * so the two never disagree about where a given focal point puts the
- * image. focalX/focalY (each 0-1, default 0.5 = centered) say where, along
- * whichever axis the cover crop overflows, the crop sits — 0 pins it to
- * the top/left of the overflow, 1 to the bottom/right.
+ * Cover-fit math shared with components/CollagePreview.tsx's drag/zoom
+ * handler, so the two never disagree about where a given focal point puts
+ * the image. focalX/focalY (each 0-1, default 0.5 = centered) say where,
+ * along whichever axis the cover crop overflows, the crop sits — 0 pins
+ * it to the top/left of the overflow, 1 to the bottom/right. `zoom` (>= 1,
+ * default 1) scales the image beyond the frame's own natural cover-fit
+ * scale, tightening the crop — the overflow on each axis grows with it,
+ * which is what lets the same focalX/focalY still mean "how far into that
+ * (now larger) overflow" at any zoom level.
  */
-export function coverFitOffset(frameW: number, frameH: number, imgW: number, imgH: number, focalX = 0.5, focalY = 0.5) {
-  const scale = Math.max(frameW / imgW, frameH / imgH);
+export function coverFitOffset(frameW: number, frameH: number, imgW: number, imgH: number, focalX = 0.5, focalY = 0.5, zoom = 1) {
+  const scale = Math.max(frameW / imgW, frameH / imgH) * Math.max(1, zoom);
   const drawW = imgW * scale;
   const drawH = imgH * scale;
   const overflowX = drawW - frameW;
@@ -155,8 +160,8 @@ export function coverFitOffset(frameW: number, frameH: number, imgW: number, img
 }
 
 /** Draws `img` cover-fit into the (x,y,w,h) frame. No clip of its own — the caller sets up whatever clip path (rect/circle/polygon) applies first. */
-function drawImageCoverFit(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number, focalX = 0.5, focalY = 0.5) {
-  const { drawW, drawH, dx, dy } = coverFitOffset(w, h, img.width, img.height, focalX, focalY);
+function drawImageCoverFit(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number, focalX = 0.5, focalY = 0.5, zoom = 1) {
+  const { drawW, drawH, dx, dy } = coverFitOffset(w, h, img.width, img.height, focalX, focalY, zoom);
   ctx.drawImage(img, x + dx, y + dy, drawW, drawH);
 }
 
@@ -356,7 +361,7 @@ function drawPanelPhoto(ctx: CanvasRenderingContext2D, panel: PhotoPanel, img: H
   ctx.clip();
   if (img) {
     const f = focal ?? { x: 0.5, y: panel.focusY };
-    drawImageCoverFit(ctx, img, bbox.x, bbox.y, bbox.w, bbox.h, f.x, f.y);
+    drawImageCoverFit(ctx, img, bbox.x, bbox.y, bbox.w, bbox.h, f.x, f.y, f.zoom ?? 1);
   } else {
     // Fewer than 5 photos is out of scope (the template-size picker is
     // gone), but build spec section 6 still asks for a graceful fallback
@@ -383,7 +388,7 @@ function drawHeroCircle(ctx: CanvasRenderingContext2D, pageWidth: number, pageHe
   ctx.clip();
   if (img) {
     const f = focal ?? { x: 0.5, y: 0.5 };
-    drawImageCoverFit(ctx, img, hero.x, hero.y, hero.w, hero.h, f.x, f.y);
+    drawImageCoverFit(ctx, img, hero.x, hero.y, hero.w, hero.h, f.x, f.y, f.zoom ?? 1);
   } else {
     ctx.fillStyle = RULE;
     ctx.fillRect(hero.x, hero.y, hero.w, hero.h);
@@ -620,13 +625,17 @@ function drawStatTiles(ctx: CanvasRenderingContext2D, scale: number, stats: Athl
 }
 
 /**
- * Which races the table prints (build spec section 6): every race up to
- * 15; past that, every "best" race plus the latest, capped at 14 overall
- * (trimming the oldest non-latest best rows first if even that overflows),
- * always kept in date order.
+ * Which races the table prints (build spec section 6, generalized): every
+ * race, as long as they all fit at the row-height floor; past that, every
+ * "best" race plus the latest, trimmed down to `maxRows` (dropping the
+ * oldest non-latest best rows first if even that overflows), always kept
+ * in date order. `maxRows` is computed by the caller from the space
+ * actually available (drawRaceTable) rather than the spec's original flat
+ * 15/14 — the career chart above this section is conditional, so that
+ * space isn't a fixed constant any more.
  */
-function selectRacesForTable(races: AthleteRaceResult[], bestByDistance: AthleteBuildStats['bestByDistance']): AthleteRaceResult[] {
-  if (races.length <= 15) return races;
+function selectRacesForTable(races: AthleteRaceResult[], bestByDistance: AthleteBuildStats['bestByDistance'], maxRows: number): AthleteRaceResult[] {
+  if (races.length <= maxRows) return races;
   const key = (r: { raceName: string; date: string }) => `${r.raceName}|${r.date}`;
   const isBest = (r: AthleteRaceResult) => bestByDistance.some((b) => b.raceName === r.raceName && b.date === r.date);
   const latestKey = key(races[races.length - 1]);
@@ -634,20 +643,24 @@ function selectRacesForTable(races: AthleteRaceResult[], bestByDistance: Athlete
   keep.add(latestKey);
 
   let kept = races.filter((r) => keep.has(key(r)));
-  if (kept.length > 14) {
+  if (kept.length > maxRows) {
     const trimmable = kept.filter((r) => key(r) !== latestKey);
-    const dropCount = kept.length - 14;
+    const dropCount = kept.length - maxRows;
     const dropKeys = new Set(trimmable.slice(0, dropCount).map(key));
     kept = kept.filter((r) => !dropKeys.has(key(r)));
   }
   return kept;
 }
 
-function drawRaceTable(ctx: CanvasRenderingContext2D, scale: number, stats: AthleteBuildStats | null, accent: string) {
+/**
+ * `top` is in pixels (already scaled), not a design unit — the career
+ * chart above this (drawCareerChart) is conditional, so this section's
+ * actual start shifts down when it draws and stays put when it doesn't.
+ */
+function drawRaceTable(ctx: CanvasRenderingContext2D, scale: number, top: number, stats: AthleteBuildStats | null, accent: string) {
   if (!stats || stats.races.length === 0) return;
   const d = (n: number) => n * scale;
   const left = d(40);
-  const top = d(232);
   const width = d(440);
 
   ctx.strokeStyle = INK;
@@ -677,8 +690,16 @@ function drawRaceTable(ctx: CanvasRenderingContext2D, scale: number, stats: Athl
   ctx.fillStyle = MUTED;
   ctx.fillText(legendText, legendDotX + dotRadius + legendGap, top + d(14));
 
-  const selected = selectRacesForTable(stats.races, stats.bestByDistance);
-  const rowHeight = d(Math.min(30, Math.max(24, 372 / selected.length)));
+  // Row height and row count both budgeted off the space actually left
+  // before the team photo (y 692), not a fixed constant — the career
+  // chart above this section is conditional, so that space shrinks
+  // whenever it draws. maxRowsThatFit guarantees `selected.length` rows
+  // at the 24px floor never overflow past y 692, however little room is
+  // left; row height itself is still clamped to the spec's own [24, 30].
+  const availableForRows = d(692) - (top + d(28)) - d(20);
+  const maxRowsThatFit = Math.max(1, Math.floor(availableForRows / d(24)));
+  const selected = selectRacesForTable(stats.races, stats.bestByDistance, maxRowsThatFit);
+  const rowHeight = Math.min(d(30), Math.max(d(24), availableForRows / selected.length));
   const dotColW = d(12);
   const dateColW = d(46);
   const distColW = d(50);
@@ -758,8 +779,17 @@ function buildPacePoints(races: AthleteRaceResult[]): PacePoint[] {
     .sort((a, b) => a.dateMs - b.dateMs);
 }
 
-/** Draws the pace chart into a `chartLeft`,`chartTop`-anchored 272x176 (design-unit) box. Returns false (drawing nothing) when there isn't enough data to chart a trend. */
-function drawPaceChart(ctx: CanvasRenderingContext2D, scale: number, chartLeft: number, chartTop: number, stats: AthleteBuildStats | null, accent: string, accentDark: string): boolean {
+/**
+ * Draws the pace chart into a `chartLeft`,`chartTop`-anchored 272-wide box.
+ * `plotHeightDesign` (design units, default 118 — the original fixed
+ * size) sets how tall the plot itself is; the baseline/x-axis-label rows
+ * below it, and the box's total height, scale off it proportionally, so
+ * drawRightColumn can shrink this chart when the career chart above it
+ * leaves less room, the same "degrade, don't overflow" reasoning as the
+ * race table's own dynamic row height. Returns false (drawing nothing)
+ * when there isn't enough data to chart a trend.
+ */
+function drawPaceChart(ctx: CanvasRenderingContext2D, scale: number, chartLeft: number, chartTop: number, stats: AthleteBuildStats | null, accent: string, accentDark: string, plotHeightDesign = 118): boolean {
   if (!stats) return false;
   const d = (n: number) => n * scale;
   const points = buildPacePoints(stats.races);
@@ -774,8 +804,11 @@ function drawPaceChart(ctx: CanvasRenderingContext2D, scale: number, chartLeft: 
   const paces = points.map((p) => p.pace);
   const lo = Math.floor(Math.min(...paces) / 10) * 10;
   const hi = Math.ceil(Math.max(...paces) / 10) * 10;
-  const plotY = (pace: number) => chartTop + d(14) + (hi > lo ? (pace - lo) / (hi - lo) : 0.5) * d(118);
-  const baselineY = chartTop + d(140);
+  const plotHeight = d(plotHeightDesign);
+  const plotY = (pace: number) => chartTop + d(14) + (hi > lo ? (pace - lo) / (hi - lo) : 0.5) * plotHeight;
+  // 8 design units of gap between the plot's own bottom and the baseline
+  // in the original 118-tall layout — kept proportional at any height.
+  const baselineY = chartTop + d(14) + plotHeight + d(8);
 
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
@@ -847,7 +880,8 @@ function drawPaceChart(ctx: CanvasRenderingContext2D, scale: number, chartLeft: 
   ctx.fillStyle = MUTED;
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
-  ctx.fillText(monthName(firstMs), chartLeft + d(26), chartTop + d(160));
+  const labelsY = baselineY + d(20); // 160-140 in the original fixed layout
+  ctx.fillText(monthName(firstMs), chartLeft + d(26), labelsY);
 
   const first = new Date(firstMs);
   let cursor = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 1));
@@ -860,14 +894,205 @@ function drawPaceChart(ctx: CanvasRenderingContext2D, scale: number, chartLeft: 
     ctx.lineTo(x, baselineY + d(6));
     ctx.stroke();
     ctx.textAlign = 'center';
-    ctx.fillText(monthName(cursor.getTime()), x, chartTop + d(160));
+    ctx.fillText(monthName(cursor.getTime()), x, labelsY);
     cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
   }
 
   return true;
 }
 
-function drawCoachesSection(ctx: CanvasRenderingContext2D, scale: number, originX: number, top: number, coaches: AthleteBuildStats['coaches'], accentDark: string) {
+interface CareerPacePoint extends PacePoint {
+  season: number;
+}
+
+function buildCareerPacePoints(careerRaces: AthleteCareerRaceResult[]): CareerPacePoint[] {
+  return careerRaces
+    .filter((r): r is AthleteCareerRaceResult & { distanceMeters: number } => r.distanceMeters != null && r.distanceMeters > 1609.344)
+    .map((r) => ({
+      raceName: r.raceName,
+      dateMs: new Date(r.date).getTime(),
+      timeSec: r.timeSec,
+      distanceMeters: r.distanceMeters,
+      pace: r.timeSec / (r.distanceMeters / 1609.344),
+      season: r.season,
+    }))
+    .filter((r) => !Number.isNaN(r.dateMs))
+    .sort((a, b) => a.dateMs - b.dateMs);
+}
+
+/**
+ * A full-width, whole-career pace trend — out of scope for the original
+ * design mockup ("I did not mock this... the main question is how to
+ * label seasons on the x axis"), added once a coach actually asked for
+ * it for upperclassmen. Shown only when there are 2+ distinct seasons of
+ * history to compare (so an underclassman's back page is unchanged) and
+ * at least 2 plottable (>1 mile) career races. Unlike the single-season
+ * chart's one highlighted PR dot, this highlights EACH season's own best
+ * 5K, so a coach reads the year-over-year 5K trend at a glance rather
+ * than a single race. `top` is pixels (already scaled). Returns the
+ * total height this band consumed (0 when not drawn), so the caller
+ * shifts the race table / right column down by exactly that much.
+ */
+function drawCareerChart(ctx: CanvasRenderingContext2D, scale: number, top: number, stats: AthleteBuildStats | null, accent: string, accentDark: string): number {
+  if (!stats) return 0;
+  const seasons = new Set(stats.careerRaces.map((r) => r.season));
+  if (seasons.size < 2) return 0;
+  const points = buildCareerPacePoints(stats.careerRaces);
+  if (points.length < 2) return 0;
+
+  const d = (n: number) => n * scale;
+  const left = d(40);
+  const width = d(736);
+  const headerBottom = top + d(28);
+
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = d(2);
+  ctx.beginPath();
+  ctx.moveTo(left, headerBottom);
+  ctx.lineTo(left + width, headerBottom);
+  ctx.stroke();
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `600 ${d(14)}px ${BODY_FONT}`;
+  ctx.fillStyle = INK;
+  fillTrackedText(ctx, 'CAREER', left, top + d(14), 0.12 * d(14), 'left');
+
+  ctx.font = `500 ${d(13)}px ${BODY_FONT}`;
+  const legendText = "Season's best 5K";
+  const legendTextWidth = ctx.measureText(legendText).width;
+  const dotRadius = d(4.5);
+  const legendGap = d(6);
+  const legendDotX = left + width - (dotRadius * 2 + legendGap + legendTextWidth) + dotRadius;
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.arc(legendDotX, top + d(14), dotRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = MUTED;
+  ctx.fillText(legendText, legendDotX + dotRadius + legendGap, top + d(14));
+
+  const chartTop = headerBottom + d(6);
+  const plotLeft = left + d(30);
+  const plotRight = left + width - d(6);
+  const plotHeight = d(70);
+  const baselineY = chartTop + d(14) + plotHeight;
+
+  const firstMs = points[0].dateMs;
+  const lastMs = points[points.length - 1].dateMs;
+  const dayIndex = (ms: number) => (ms - firstMs) / 86400000;
+  const dayMax = dayIndex(lastMs);
+  const plotX = (ms: number) => plotLeft + (dayMax > 0 ? dayIndex(ms) / dayMax : 0.5) * (plotRight - plotLeft);
+
+  const paces = points.map((p) => p.pace);
+  const lo = Math.floor(Math.min(...paces) / 10) * 10;
+  const hi = Math.ceil(Math.max(...paces) / 10) * 10;
+  const plotY = (pace: number) => chartTop + d(14) + (hi > lo ? (pace - lo) / (hi - lo) : 0.5) * plotHeight;
+
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${d(12)}px ${BODY_FONT}`;
+  ctx.fillStyle = MUTED;
+  ctx.strokeStyle = RULE;
+  ctx.lineWidth = d(1);
+  for (let v = Math.ceil((lo + 1) / 30) * 30; v < hi; v += 30) {
+    const y = plotY(v);
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, y);
+    ctx.lineTo(plotRight, y);
+    ctx.stroke();
+    ctx.fillText(formatRaceTime(v), plotLeft - d(6), y);
+  }
+
+  ctx.strokeStyle = MUTED;
+  ctx.lineWidth = d(1);
+  ctx.beginPath();
+  ctx.moveTo(plotLeft, baselineY);
+  ctx.lineTo(plotRight, baselineY);
+  ctx.stroke();
+
+  // Each season's own fastest 5K (not necessarily careerBest5kSec, which
+  // is a single number with no season attached) gets the highlight.
+  const bestFiveKBySeasonIndex = new Map<number, number>();
+  points.forEach((p, i) => {
+    if (Math.abs(p.distanceMeters - 5000) >= 50) return;
+    const current = bestFiveKBySeasonIndex.get(p.season);
+    if (current == null || p.timeSec < points[current].timeSec) bestFiveKBySeasonIndex.set(p.season, i);
+  });
+  const highlighted = new Set(bestFiveKBySeasonIndex.values());
+
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = d(2.5);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = plotX(p.dateMs);
+    const y = plotY(p.pace);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = INK;
+  points.forEach((p, i) => {
+    if (highlighted.has(i)) return;
+    ctx.beginPath();
+    ctx.arc(plotX(p.dateMs), plotY(p.pace), d(3), 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.font = `700 ${d(12)}px ${BODY_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  for (const i of highlighted) {
+    const p = points[i];
+    const x = plotX(p.dateMs);
+    const y = plotY(p.pace);
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.arc(x, y, d(6), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = accentDark;
+    ctx.fillText(formatRaceTime(p.timeSec), x, y - d(8));
+  }
+
+  // One label per season boundary (the year, not a month — a career spans
+  // years) at that season's first plotted point.
+  ctx.font = `${d(12)}px ${BODY_FONT}`;
+  ctx.fillStyle = MUTED;
+  ctx.textBaseline = 'alphabetic';
+  let lastSeason: number | null = null;
+  for (const p of points) {
+    if (p.season === lastSeason) continue;
+    lastSeason = p.season;
+    const x = plotX(p.dateMs);
+    ctx.strokeStyle = MUTED;
+    ctx.lineWidth = d(1);
+    ctx.beginPath();
+    ctx.moveTo(x, baselineY);
+    ctx.lineTo(x, baselineY + d(5));
+    ctx.stroke();
+    ctx.textAlign = x <= plotLeft + d(20) ? 'left' : 'center';
+    ctx.fillText(String(p.season), x, baselineY + d(18));
+  }
+
+  const captionTop = baselineY + d(24);
+  ctx.font = `${d(12)}px ${BODY_FONT}`;
+  ctx.fillStyle = MUTED;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('Pace per mile across every season. Higher is faster.', left, captionTop);
+
+  return captionTop + d(16) - top;
+}
+
+/**
+ * A flat list of every coach — head, then regular coaches, then
+ * volunteers, in that order — with no HEAD COACH/COACHES/VOLUNTEER
+ * COACHES role labels, split across two columns (first half left, second
+ * half right, in the same head-to-volunteer order read top-to-bottom then
+ * column-to-column). Draws nothing if there are no coaches at all.
+ */
+function drawCoachesSection(ctx: CanvasRenderingContext2D, scale: number, originX: number, top: number, coaches: AthleteBuildStats['coaches']) {
   const d = (n: number) => n * scale;
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
@@ -882,60 +1107,33 @@ function drawCoachesSection(ctx: CanvasRenderingContext2D, scale: number, origin
   ctx.fillStyle = INK;
   fillTrackedText(ctx, 'COACHES', originX, top + d(7), 0.12 * d(14), 'left');
 
+  const names = [coaches.headCoach, ...coaches.coaches, ...coaches.volunteers].filter((n): n is string => Boolean(n));
+  if (names.length === 0) return;
+
   const bodyTop = top + d(28) + d(8);
   const colGap = d(12);
   const colWidth = (d(272) - colGap) / 2;
   const rightX = originX + colWidth + colGap;
-  const labelLineHeight = d(16);
   const nameLineHeight = d(22);
+  const leftCount = Math.ceil(names.length / 2);
 
-  // Each group (head coach, coaches, volunteers) draws only if it has
-  // content — an empty group's label+list is hidden outright, and the
-  // other column keeps its own position regardless (build spec section
-  // 6), since rightX/bodyTop never depend on the left column's content.
-  let leftY = bodyTop;
-  if (coaches.headCoach) {
-    ctx.font = `600 ${d(12)}px ${BODY_FONT}`;
-    ctx.fillStyle = accentDark;
-    fillTrackedText(ctx, 'HEAD COACH', originX, leftY, 0.1 * d(12), 'left');
-    leftY += labelLineHeight;
-    ctx.font = `${d(14)}px ${BODY_FONT}`;
-    ctx.fillStyle = INK;
-    ctx.fillText(coaches.headCoach, originX, leftY);
-    leftY += nameLineHeight + d(10);
-  }
-  if (coaches.coaches.length > 0) {
-    ctx.font = `600 ${d(12)}px ${BODY_FONT}`;
-    ctx.fillStyle = accentDark;
-    fillTrackedText(ctx, 'COACHES', originX, leftY, 0.1 * d(12), 'left');
-    leftY += labelLineHeight;
-    ctx.font = `${d(14)}px ${BODY_FONT}`;
-    ctx.fillStyle = INK;
-    for (const name of coaches.coaches) {
-      ctx.fillText(name, originX, leftY);
-      leftY += nameLineHeight;
-    }
-  }
-
-  if (coaches.volunteers.length > 0) {
-    let rightY = bodyTop;
-    ctx.font = `600 ${d(12)}px ${BODY_FONT}`;
-    ctx.fillStyle = accentDark;
-    fillTrackedText(ctx, 'VOLUNTEER COACHES', rightX, rightY, 0.1 * d(12), 'left');
-    rightY += labelLineHeight;
-    ctx.font = `${d(14)}px ${BODY_FONT}`;
-    ctx.fillStyle = INK;
-    for (const name of coaches.volunteers) {
-      ctx.fillText(name, rightX, rightY);
-      rightY += nameLineHeight;
-    }
-  }
+  ctx.font = `${d(14)}px ${BODY_FONT}`;
+  ctx.fillStyle = INK;
+  names.slice(0, leftCount).forEach((name, i) => ctx.fillText(name, originX, bodyTop + i * nameLineHeight));
+  names.slice(leftCount).forEach((name, i) => ctx.fillText(name, rightX, bodyTop + i * nameLineHeight));
 }
 
-/** The back page's right column: the pace chart section, then coaches — one function because the coaches section's top depends on whether the chart drew anything (build spec section 5: "if fewer than 2 plottable races, hide the chart and let the coaches section move up"). */
-function drawRightColumn(ctx: CanvasRenderingContext2D, scale: number, originX: number, stats: AthleteBuildStats | null, accent: string, accentDark: string) {
+/**
+ * The back page's right column: the pace chart section, then coaches —
+ * one function because the coaches section's top depends on whether the
+ * chart drew anything (build spec section 5: "if fewer than 2 plottable
+ * races, hide the chart and let the coaches section move up"). `top` is
+ * in pixels (already scaled) — see drawRaceTable's own comment on why
+ * this isn't a fixed constant.
+ */
+function drawRightColumn(ctx: CanvasRenderingContext2D, scale: number, originX: number, top: number, stats: AthleteBuildStats | null, accent: string, accentDark: string) {
   const d = (n: number) => n * scale;
-  const sectionTop = d(232);
+  const sectionTop = top;
 
   ctx.strokeStyle = INK;
   ctx.lineWidth = d(2);
@@ -950,11 +1148,28 @@ function drawRightColumn(ctx: CanvasRenderingContext2D, scale: number, originX: 
   fillTrackedText(ctx, 'PACE PER MILE', originX, sectionTop + d(14), 0.12 * d(14), 'left');
 
   const chartTop = sectionTop + d(28) + d(6);
-  const hadChart = drawPaceChart(ctx, scale, originX, chartTop, stats, accent, accentDark);
+
+  // Budgets the chart's own plot height off the space actually available
+  // before the team photo (y 692) — the career chart above this section
+  // is conditional, so the original fixed 118 can overflow once it draws.
+  // Reserves room below the chart for its caption, the COACHES header,
+  // and however many coach-name rows there are (whichever column needs
+  // more), so the coaches list itself is never what has to shrink — same
+  // "degrade, don't overflow" reasoning as the race table's row height.
+  const coaches = stats?.coaches ?? { headCoach: null, coaches: [], volunteers: [] };
+  const coachNameCount = [coaches.headCoach, ...coaches.coaches, ...coaches.volunteers].filter(Boolean).length;
+  const coachRows = Math.ceil(coachNameCount / 2);
+  const belowChartReserve = d(2 + 16 + 18 + 28 + 8) + coachRows * d(22); // caption gap+caption+gap+coaches-header+gap+name rows
+  const chartOverhead = d(14 + 8 + 20); // top pad + plot-to-baseline gap + baseline-to-labels gap (see drawPaceChart)
+  const availableForChart = d(692) - chartTop - belowChartReserve - d(20);
+  const plotHeightDesign = Math.min(118, Math.max(60, (availableForChart - chartOverhead) / scale));
+
+  const hadChart = drawPaceChart(ctx, scale, originX, chartTop, stats, accent, accentDark, plotHeightDesign);
 
   let coachesTop: number;
   if (hadChart) {
-    const captionTop = chartTop + d(176) + d(2);
+    const chartVisualHeight = chartOverhead + d(plotHeightDesign);
+    const captionTop = chartTop + chartVisualHeight + d(2);
     ctx.font = `${d(13)}px ${BODY_FONT}`;
     ctx.fillStyle = MUTED;
     ctx.textAlign = 'left';
@@ -965,7 +1180,7 @@ function drawRightColumn(ctx: CanvasRenderingContext2D, scale: number, originX: 
     coachesTop = chartTop + d(18);
   }
 
-  drawCoachesSection(ctx, scale, originX, coachesTop, stats?.coaches ?? { headCoach: null, coaches: [], volunteers: [] }, accentDark);
+  drawCoachesSection(ctx, scale, originX, coachesTop, coaches);
 }
 
 function drawBackTeamPhoto(ctx: CanvasRenderingContext2D, scale: number, img: HTMLImageElement | null, accent: string) {
@@ -1088,8 +1303,18 @@ export async function renderCollageBack(
   const logoImg = await loadOptionalImage(logoUrl, requireExportableCanvas);
   drawBackHeader(ctx, scale, header, stats, accent, accentLight, logoImg);
   drawStatTiles(ctx, scale, stats, accent);
-  drawRaceTable(ctx, scale, stats, accent);
-  drawRightColumn(ctx, scale, 504 * scale, stats, accent, accentDark);
+
+  // The career chart (multi-season pace + each season's best 5K) sits
+  // between the season stat tiles and the race table/pace-chart row, but
+  // only when there's actually more than one season to compare — an
+  // underclassman's layout is unchanged (sectionTop stays the original
+  // 232).
+  const careerChartTop = 212 * scale;
+  const careerChartHeight = drawCareerChart(ctx, scale, careerChartTop, stats, accent, accentDark);
+  const sectionTop = careerChartHeight > 0 ? careerChartTop + careerChartHeight + 20 * scale : 232 * scale;
+
+  drawRaceTable(ctx, scale, sectionTop, stats, accent);
+  drawRightColumn(ctx, scale, 504 * scale, sectionTop, stats, accent, accentDark);
 
   let groupImg: HTMLImageElement | null = null;
   if (groupPhotoUrl) {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Mail, Plus, Target, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Mail, Pencil, Plus, Target, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,8 @@ import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { photosService } from '../../../api/photosService';
 import { getApiErrorMessage } from '../../../lib/apiError';
 import { REQUIRED_PICKS } from '../lib/templates';
-import type { Athlete, Photo, PhotoAthleteTags } from '../state/types';
+import { EditStatsPanel } from './EditStatsPanel';
+import type { Athlete, AthleteBuildStats, Photo, PhotoAthleteTags } from '../state/types';
 
 interface BuildRightPanelProps {
   athlete: Athlete | undefined;
@@ -18,6 +19,19 @@ interface BuildRightPanelProps {
   onExport: () => void;
   onDownload: () => void;
   downloading: boolean;
+  // The backend's own resolved active season (e.g. "2026") — shown in the
+  // Season field whenever the coach hasn't typed a custom one in, same
+  // "blank means use the sensible default" pattern as the team field just
+  // below it.
+  seasonFallback: string;
+  // "Edit data for print" (components/EditStatsPanel.tsx) — a coach's
+  // local-only correction, never saved back. null while stats are still
+  // loading, in which case the Edit button stays disabled (nothing to
+  // seed the form from yet).
+  editableStats: AthleteBuildStats | null;
+  hasStatsOverride: boolean;
+  onApplyStatsOverride: (edited: AthleteBuildStats) => void;
+  onResetStatsOverride: () => void;
 }
 
 export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
@@ -29,9 +43,15 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   onExport,
   onDownload,
   downloading,
+  seasonFallback,
+  editableStats,
+  hasStatsOverride,
+  onApplyStatsOverride,
+  onResetStatsOverride,
 }) => {
   const { state, actor, teamName, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
   const dragIndexRef = React.useRef<number | null>(null);
+  const [editStatsOpen, setEditStatsOpen] = useState(false);
   const [parentEmail, setParentEmail] = useState('');
   const [sendingLink, setSendingLink] = useState(false);
 
@@ -165,10 +185,16 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
       {picks.length < requiredPicks && (
         <div>
           <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-            Tagged photos — add at least {requiredPicks - picks.length} more
+            Tagged photos ({notPicked.length}) — add at least {requiredPicks - picks.length} more
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {notPicked.slice(0, 12).map((photoId) => {
+          {/* Every tagged-but-unpicked photo, not just a handful — an
+              athlete easily ends up with dozens tagged across a season, and
+              a coach needs to actually browse all of them to pick the best
+              five, not just whichever happened to load first. Scrolls
+              within its own bounded area instead of growing the whole
+              right panel unbounded. */}
+          <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
+            {notPicked.map((photoId) => {
               const photo = photosById.get(photoId)!;
               return (
                 <button
@@ -201,10 +227,32 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
           className="h-8 border-ink-border bg-transparent text-sm text-ink-foreground"
         />
         <Input
-          value={state.buildHeader.season}
+          value={state.buildHeader.season || seasonFallback}
           onChange={(e) => setBuildHeader({ season: e.target.value })}
           className="h-8 border-ink-border bg-transparent text-sm text-ink-foreground"
         />
+      </div>
+
+      <div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full gap-1.5"
+          disabled={!editableStats}
+          onClick={() => setEditStatsOpen(true)}
+        >
+          <Pencil className="h-3.5 w-3.5" /> {hasStatsOverride ? 'Edit data (adjusted)' : 'Edit data for print'}
+        </Button>
+        {editableStats && (
+          <EditStatsPanel
+            open={editStatsOpen}
+            onOpenChange={setEditStatsOpen}
+            stats={editableStats}
+            hasOverride={hasStatsOverride}
+            onApply={onApplyStatsOverride}
+            onResetToOriginal={onResetStatsOverride}
+          />
+        )}
       </div>
 
       {exportBlocked && (

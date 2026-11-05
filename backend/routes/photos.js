@@ -607,6 +607,7 @@ router.get('/', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFea
             taggedBy: t.taggedBy,
             focalX: t.focalX,
             focalY: t.focalY,
+            focalZoom: t.focalZoom,
           })),
         };
       }),
@@ -693,17 +694,22 @@ router.delete('/:id/tags/:athleteId', authenticateUserOrVolunteer, resolvePhotos
 });
 
 // PUT /api/photos/:id/tags/:athleteId/focal — Build module's "move the
-// photo to see faces" drag. Body: { focalX, focalY }, each 0-1. Plain
-// authenticate (not the volunteer-session middleware): a no-account
-// tagging session can tag a photo but never touches collage layout.
+// photo to see faces" drag, plus how zoomed in it is. Body: { focalX,
+// focalY, focalZoom? }, focalX/focalY each 0-1, focalZoom >= 1 (omit or 1
+// for no zoom). Plain authenticate (not the volunteer-session middleware):
+// a no-account tagging session can tag a photo but never touches collage
+// layout.
 router.put('/:id/tags/:athleteId/focal', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
-  const { focalX, focalY } = req.body || {};
+  const { focalX, focalY, focalZoom } = req.body || {};
   if (typeof focalX !== 'number' || typeof focalY !== 'number') {
     return res.status(400).json({ msg: 'focalX and focalY (numbers) are required.' });
   }
+  if (focalZoom !== undefined && typeof focalZoom !== 'number') {
+    return res.status(400).json({ msg: 'focalZoom, if given, must be a number.' });
+  }
   try {
-    const tag = await photosAccess.setPhotoFocal(prisma, req.photosTeamId, req.params.id, req.params.athleteId, focalX, focalY, req.photoActor);
-    res.json({ athleteId: tag.athleteId, focalX: tag.focalX, focalY: tag.focalY });
+    const tag = await photosAccess.setPhotoFocal(prisma, req.photosTeamId, req.params.id, req.params.athleteId, focalX, focalY, focalZoom, req.photoActor);
+    res.json({ athleteId: tag.athleteId, focalX: tag.focalX, focalY: tag.focalY, focalZoom: tag.focalZoom });
   } catch (error) {
     sendAccessError(res, error, 'Error in PUT /photos/:id/tags/:athleteId/focal:');
   }

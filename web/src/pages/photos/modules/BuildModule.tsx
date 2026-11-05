@@ -10,19 +10,48 @@ import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { renderCollage, renderCollageBack, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
 import { buildTwoPagePdf } from '../lib/pdfExport';
 import { athletesById as buildAthletesById, eligibleForCollage } from '../lib/selectors';
-import { REQUIRED_PICKS } from '../lib/templates';
+import { REQUIRED_PICKS, PANELS } from '../lib/templates';
 import { isPhotoVisible } from '../lib/tagRules';
 import { photosService, type CollageSettings } from '../../../api/photosService';
 import { cn } from '@/lib/utils';
-import type { Athlete, AthleteBuildStats } from '../state/types';
+import type { Athlete, AthleteBuildStats, PhotoAthleteTags } from '../state/types';
 
 const EXPORT_W = 2550;
 const EXPORT_H = 3300;
+
+/**
+ * Each pick's crop position/zoom for one athlete — lives on the tag, not
+ * the pick, so it survives a swap-out/swap-back. Aligned 1:1 with
+ * `picks`. Returns undefined for a pick nobody has ever adjusted (so the
+ * renderer falls back to that slot's own default — panels B/D default to
+ * a lower focus, not dead-center; see lib/templates.ts's PhotoPanel), and
+ * fills in the correct per-slot default position when only zoom was set
+ * without ever panning, so zooming alone doesn't quietly reset a panel's
+ * own default crop to dead-center.
+ */
+function buildFocalPoints(picks: string[], tags: PhotoAthleteTags, athleteId: string | undefined): (FocalPoint | undefined)[] {
+  return picks.map((photoId, i) => {
+    const tag = tags[photoId]?.find((t) => t.athleteId === athleteId);
+    const hasPosition = tag?.focalX != null && tag?.focalY != null;
+    const hasZoom = tag?.focalZoom != null && tag.focalZoom > 1;
+    if (!hasPosition && !hasZoom) return undefined;
+    const defaultY = i === 0 ? 0.5 : (PANELS[i - 1]?.focusY ?? 0.5);
+    return {
+      x: tag?.focalX ?? 0.5,
+      y: tag?.focalY ?? defaultY,
+      zoom: tag?.focalZoom ?? undefined,
+    };
+  });
+}
 
 export const BuildModule: React.FC = () => {
   const { state, actor, teamName, setPhotoFocal } = usePhotosWorkspace();
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
   const [stats, setStats] = useState<AthleteBuildStats | null>(null);
+  // A coach's local-only "edit data for print" correction — see
+  // displayStats below. Null means "no override, use the real fetched
+  // stats."
+  const [statsOverride, setStatsOverride] = useState<AthleteBuildStats | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [generatingAll, setGeneratingAll] = useState(false);
   // Which page of the two-sided PDF the preview canvas currently shows —
@@ -59,10 +88,12 @@ export const BuildModule: React.FC = () => {
   useEffect(() => {
     if (!athleteId) {
       setStats(null);
+      setStatsOverride(null);
       return;
     }
     let cancelled = false;
     setStats(null);
+    setStatsOverride(null); // a fresh fetch (new athlete, or a reload) always wins over a stale local edit
     photosService
       .getAthleteBuildStats(athleteId)
       .then((result) => {
@@ -75,6 +106,22 @@ export const BuildModule: React.FC = () => {
       cancelled = true;
     };
   }, [athleteId]);
+
+  // "Edit data for print" (components/EditStatsPanel.tsx) — a coach's
+  // local-only correction, never sent to the backend. displayStats is
+  // what the preview and the single-athlete export actually use;
+  // "Generate all" deliberately does NOT use this (see handleGenerateAll)
+  // — an override is scoped to the one athlete currently open here, not
+  // silently applied across a whole batch of other athletes' real data.
+  const displayStats = statsOverride ?? stats;
+
+  // Same "blank means use the sensible default" pattern as teamLabel above
+  // — a coach who never typed a season into the Header field used to get
+  // no season printed anywhere on the front page at all, since unlike
+  // `team` this field had no fallback. Defaults to the backend's own
+  // resolved active season (the same number every other stat on this page
+  // is already computed against).
+  const seasonLabel = state.buildHeader.season || (displayStats?.season != null ? String(displayStats.season) : '');
 
   async function handleDownload() {
     if (!athleteId) return;
@@ -111,18 +158,12 @@ export const BuildModule: React.FC = () => {
   // thumbnail (never the same-origin blob the export needs).
   const groupPhotoPreviewUrl = (groupPhotoId && state.photos.find((p) => p.id === groupPhotoId)?.webUrl) || null;
 
-  // Each pick's crop position for this athlete — lives on the tag, not
-  // the pick, so it survives a swap-out/swap-back. Aligned 1:1 with
-  // `picks`/`pickedPhotos`.
-  const focalPoints: (FocalPoint | undefined)[] = picks.map((photoId) => {
-    const tag = state.tags[photoId]?.find((t) => t.athleteId === athlete?.id);
-    return tag?.focalX != null && tag?.focalY != null ? { x: tag.focalX, y: tag.focalY } : undefined;
-  });
+  const focalPoints = buildFocalPoints(picks, state.tags, athlete?.id);
 
   function handleFocalChange(index: number, focal: FocalPoint) {
     const photoId = picks[index];
     if (!athlete || !photoId) return;
-    setPhotoFocal(photoId, athlete.id, focal.x, focal.y);
+    setPhotoFocal(photoId, athlete.id, focal.x, focal.y, focal.zoom);
   }
 
   // The export canvas loads photos same-origin (photosService.getPhotoWebBlobUrl)
@@ -190,10 +231,7 @@ export const BuildModule: React.FC = () => {
         let exportable: { urls: string[]; revoke: () => void } | null = null;
         try {
           const candidatePicks = (state.picks[candidate.id] ?? []).filter((id) => visiblePhotosById.has(id));
-          const candidateFocalPoints: (FocalPoint | undefined)[] = candidatePicks.map((photoId) => {
-            const tag = state.tags[photoId]?.find((t) => t.athleteId === candidate.id);
-            return tag?.focalX != null && tag?.focalY != null ? { x: tag.focalX, y: tag.focalY } : undefined;
-          });
+          const candidateFocalPoints = buildFocalPoints(candidatePicks, state.tags, candidate.id);
           const [candidateStats, candidateExportable] = await Promise.all([
             photosService.getAthleteBuildStats(candidate.id),
             loadExportableUrls(candidatePicks),
@@ -202,7 +240,7 @@ export const BuildModule: React.FC = () => {
           const candidateHeader: CollageHeaderText = {
             name: candidate.preferredName || candidate.name,
             team: teamLabel,
-            season: state.buildHeader.season,
+            season: state.buildHeader.season || String(candidateStats.season),
           };
           await renderCollage(
             canvas,
@@ -279,7 +317,7 @@ export const BuildModule: React.FC = () => {
       const header: CollageHeaderText = {
         name: state.buildHeader.name || athlete.preferredName || athlete.name,
         team: teamLabel,
-        season: state.buildHeader.season,
+        season: seasonLabel,
       };
       await renderCollage(
         canvas,
@@ -288,13 +326,13 @@ export const BuildModule: React.FC = () => {
         exportable.urls,
         header,
         true, // requireExportableCanvas — this is the canvas toDataURL() reads below
-        stats,
+        displayStats,
         focalPoints,
         accentColor,
         logoExport.url,
       );
       const frontDataUrl = canvas.toDataURL('image/png');
-      await renderCollageBack(canvas, EXPORT_W, EXPORT_H, header, stats, groupPhotoExport.url, true, accentColor, logoExport.url);
+      await renderCollageBack(canvas, EXPORT_W, EXPORT_H, header, displayStats, groupPhotoExport.url, true, accentColor, logoExport.url);
       const backDataUrl = canvas.toDataURL('image/png');
       // Opaque id only — the spec's privacy rule bars an athlete's name
       // from ever appearing in a key, URL, or download filename.
@@ -337,6 +375,11 @@ export const BuildModule: React.FC = () => {
           onExport={handleExport}
           onDownload={handleDownload}
           downloading={downloading}
+          seasonFallback={displayStats?.season != null ? String(displayStats.season) : ''}
+          editableStats={displayStats}
+          hasStatsOverride={statsOverride != null}
+          onApplyStatsOverride={setStatsOverride}
+          onResetStatsOverride={() => setStatsOverride(null)}
         />
       }
       center={
@@ -362,9 +405,9 @@ export const BuildModule: React.FC = () => {
               header={{
                 name: state.buildHeader.name || athlete.preferredName || athlete.name,
                 team: teamLabel,
-                season: state.buildHeader.season,
+                season: seasonLabel,
               }}
-              stats={stats}
+              stats={displayStats}
               focalPoints={focalPoints}
               onFocalChange={handleFocalChange}
               side={previewSide}
@@ -373,9 +416,11 @@ export const BuildModule: React.FC = () => {
               logoUrl={collageSettings?.logoUrl ?? null}
             />
             {previewSide === 'front' && picks.length > 0 && (
-              <p className="text-xs text-ink-muted">Drag a photo to reposition it within its frame.</p>
+              <p className="text-xs text-ink-muted">
+                Drag a photo to reposition it, scroll to zoom in tighter, double-click to reset zoom.
+              </p>
             )}
-            <BuildPaceChart stats={stats} />
+            <BuildPaceChart stats={displayStats} />
           </div>
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-ink-muted">

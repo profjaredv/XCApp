@@ -31,6 +31,11 @@ export function hitTestSlot(
   canvasX: number,
   canvasY: number,
   photoSizes: ({ width: number; height: number } | undefined)[],
+  // Aligned 1:1 with photoSizes — each slot's current zoom (1 or
+  // undefined = no zoom). The pannable overflow grows with zoom, so a
+  // drag started while zoomed in needs the overflow computed at that
+  // zoom level, not the slot's unzoomed cover-fit.
+  zooms: (number | undefined)[] = [],
 ): SlotHit | null {
   const hero = heroPixelRect(HERO, pageWidth, pageHeight);
   const heroCx = hero.x + hero.w / 2;
@@ -40,7 +45,7 @@ export function hitTestSlot(
   if (dx * dx + dy * dy <= hero.radius * hero.radius) {
     const size = photoSizes[0];
     if (!size || size.width <= 0 || size.height <= 0) return null;
-    const { overflowX, overflowY } = coverFitOffset(hero.w, hero.h, size.width, size.height);
+    const { overflowX, overflowY } = coverFitOffset(hero.w, hero.h, size.width, size.height, 0.5, 0.5, zooms[0] ?? 1);
     return { index: 0, overflowX, overflowY };
   }
 
@@ -55,8 +60,24 @@ export function hitTestSlot(
   const size = photoSizes[index];
   if (!size || size.width <= 0 || size.height <= 0) return null;
   const { rect } = PANELS[panelIndex];
-  const { overflowX, overflowY } = coverFitOffset(rect.w * pageWidth, rect.h * pageHeight, size.width, size.height);
+  const { overflowX, overflowY } = coverFitOffset(rect.w * pageWidth, rect.h * pageHeight, size.width, size.height, 0.5, 0.5, zooms[index] ?? 1);
   return { index, overflowX, overflowY };
+}
+
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 3;
+// Tuned so a typical mouse-wheel "click" (~100 deltaY) or a brisk trackpad
+// scroll moves zoom a noticeable but not jumpy amount within the 1-3 range.
+const ZOOM_SENSITIVITY = 0.0025;
+
+/**
+ * The zoom after scrolling `wheelDeltaY` from `current` — negative deltaY
+ * (scrolling up/away from you, the usual "zoom in" gesture) increases
+ * zoom. Always clamped to [1, 3], same ceiling the backend enforces
+ * (lib/photosAccess.js's setPhotoFocal).
+ */
+export function nextZoom(current: number, wheelDeltaY: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current - wheelDeltaY * ZOOM_SENSITIVITY));
 }
 
 /**

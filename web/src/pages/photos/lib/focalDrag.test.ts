@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hitTestSlot, nextFocalPoint } from './focalDrag';
+import { hitTestSlot, nextFocalPoint, nextZoom } from './focalDrag';
 import { HERO, PANELS } from './templates';
 
 // hitTestSlot reads geometry straight off lib/templates.ts's HERO/PANELS
@@ -103,5 +103,32 @@ describe('nextFocalPoint', () => {
   it('never moves an axis with no overflow', () => {
     const next = nextFocalPoint({ x: 0.5, y: 0.5 }, 999, 999, 0, 0);
     expect(next).toEqual({ x: 0.5, y: 0.5 });
+  });
+});
+
+describe('nextZoom', () => {
+  it('zooms in (increases) on a negative deltaY — scrolling up/away, the usual zoom-in gesture', () => {
+    expect(nextZoom(1, -100)).toBeGreaterThan(1);
+  });
+
+  it('zooms out (decreases) on a positive deltaY', () => {
+    expect(nextZoom(2, 100)).toBeLessThan(2);
+  });
+
+  it('never goes below 1 (never loosens the crop past the slot\'s own cover-fit)', () => {
+    expect(nextZoom(1, 100)).toBe(1);
+    expect(nextZoom(1.05, 1000)).toBe(1);
+  });
+
+  it('never exceeds 3', () => {
+    expect(nextZoom(2.98, -1000)).toBe(3);
+  });
+});
+
+describe('hitTestSlot with zoom', () => {
+  it("reports a larger pannable overflow when the slot is already zoomed in", () => {
+    const unzoomed = hitTestSlot(PAGE_W, PAGE_H, hero.cx, hero.cy, [{ width: 600, height: 300 }]);
+    const zoomed = hitTestSlot(PAGE_W, PAGE_H, hero.cx, hero.cy, [{ width: 600, height: 300 }], [2]);
+    expect(zoomed?.overflowX).toBeGreaterThan(unzoomed?.overflowX ?? 0);
   });
 });

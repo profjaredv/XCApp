@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { renderCollage, renderCollageBack, type CollageHeaderText, type FocalPoint } from '../lib/collageRender';
-import { hitTestSlot, nextFocalPoint } from '../lib/focalDrag';
+import { hitTestSlot, nextFocalPoint, nextZoom } from '../lib/focalDrag';
 import type { AthleteBuildStats, Photo } from '../state/types';
 
 interface CollagePreviewProps {
@@ -12,11 +12,13 @@ interface CollagePreviewProps {
   stats?: AthleteBuildStats | null;
   // Aligned 1:1 with `photos` — undefined means the default centered crop.
   focalPoints?: (FocalPoint | undefined)[];
-  // Fires once, on drag release, with the slot's index into
-  // `photos`/`focalPoints` — modules/BuildModule.tsx maps that back to the
-  // actual photo + athlete to persist. Dragging itself is handled entirely
-  // locally (see dragRef below) so every pointermove doesn't round-trip
-  // through the parent's state.
+  // Fires with the slot's index into `photos`/`focalPoints` and its new
+  // focal point (position and/or zoom) — modules/BuildModule.tsx maps
+  // that back to the actual photo + athlete to persist. Dragging and
+  // wheel-zooming are both handled entirely locally (see dragRef/
+  // liveOverride below) so every pointermove/wheel tick doesn't round-trip
+  // through the parent's state; this only fires on drag release, and on a
+  // short pause after the last wheel-zoom tick.
   onFocalChange?: (index: number, focal: FocalPoint) => void;
   scale?: number;
   // Which side of the printed sheet this canvas currently shows — see
@@ -42,6 +44,12 @@ interface CollagePreviewProps {
 const PAGE_W = 850;
 const PAGE_H = 1100;
 
+// How long to wait after the last wheel-zoom tick before actually saving —
+// a coach scrolling to zoom fires many wheel events in quick succession,
+// and persisting on every one of them would hammer the server for no
+// benefit (only the final zoom level matters).
+const ZOOM_COMMIT_DEBOUNCE_MS = 400;
+
 interface DragState {
   pointerId: number;
   index: number;
@@ -58,13 +66,15 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
     const canvasRef = (ref as React.RefObject<HTMLCanvasElement>) ?? innerRef;
     const dragRef = useRef<DragState | null>(null);
     const rafRef = useRef<number | null>(null);
-    // Overrides one slot's committed focal point while a drag is live, so
-    // every pointermove redraws without waiting on the parent's state
-    // (and without persisting anything until the drag actually ends).
-    const [liveFocal, setLiveFocal] = useState<{ index: number; focal: FocalPoint } | null>(null);
+    const zoomCommitTimerRef = useRef<number | null>(null);
+    // Overrides one slot's committed focal point (position and/or zoom)
+    // while a drag or a wheel-zoom gesture is live, so every pointermove/
+    // wheel tick redraws without waiting on the parent's state (and
+    // without persisting anything until the gesture actually settles).
+    const [liveOverride, setLiveOverride] = useState<{ index: number; focal: FocalPoint } | null>(null);
 
     const effectiveFocalPoints =
-      liveFocal != null ? focalPoints.map((f, i) => (i === liveFocal.index ? liveFocal.focal : f)) : focalPoints;
+      liveOverride != null ? focalPoints.map((f, i) => (i === liveOverride.index ? liveOverride.focal : f)) : focalPoints;
 
     useEffect(() => {
       const canvas = canvasRef.current;
@@ -87,29 +97,30 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
         console.error('Collage preview failed to render:', error),
       );
       // effectiveFocalPoints is a fresh array each render by design (it
-      // folds in the live drag override), so it's compared by its actual
-      // entries here rather than by reference.
+      // folds in the live drag/zoom override), so it's compared by its
+      // actual entries here rather than by reference.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canvasRef, side, photos, header, stats, groupPhotoUrl, accent, logoUrl, JSON.stringify(effectiveFocalPoints)]);
 
-    function canvasPoint(e: React.PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
-      const rect = e.currentTarget.getBoundingClientRect();
+    function canvasPoint(clientX: number, clientY: number): { x: number; y: number } {
+      const rect = canvasRef.current!.getBoundingClientRect();
       return {
-        x: ((e.clientX - rect.left) / rect.width) * PAGE_W,
-        y: ((e.clientY - rect.top) / rect.height) * PAGE_H,
+        x: ((clientX - rect.left) / rect.width) * PAGE_W,
+        y: ((clientY - rect.top) / rect.height) * PAGE_H,
       };
     }
 
     function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
       // The back page has no photo slots to drag — nothing to hit-test.
       if (side === 'back') return;
-      const point = canvasPoint(e);
+      const point = canvasPoint(e.clientX, e.clientY);
       const hit = hitTestSlot(
         PAGE_W,
         PAGE_H,
         point.x,
         point.y,
         photos.map((p) => p && { width: p.width, height: p.height }),
+        focalPoints.map((f) => f?.zoom),
       );
       if (!hit) return;
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -132,11 +143,15 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
       const scaleY = PAGE_H / rect.height;
       const dxPx = (e.clientX - drag.startClientX) * scaleX;
       const dyPx = (e.clientY - drag.startClientY) * scaleY;
-      const focal = nextFocalPoint(drag.startFocal, dxPx, dyPx, drag.overflowX, drag.overflowY);
+      // Panning never touches zoom — carry the slot's own zoom through
+      // unchanged, rather than letting the pan override implicitly reset
+      // it to the default.
+      const panned = nextFocalPoint(drag.startFocal, dxPx, dyPx, drag.overflowX, drag.overflowY);
+      const focal: FocalPoint = { ...panned, zoom: drag.startFocal.zoom };
       if (rafRef.current != null) return; // coalesce to at most one redraw per frame
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
-        setLiveFocal({ index: drag.index, focal });
+        setLiveOverride({ index: drag.index, focal });
       });
     }
 
@@ -148,9 +163,78 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
-      const finalFocal = liveFocal?.index === drag.index ? liveFocal.focal : drag.startFocal;
-      setLiveFocal(null);
+      const finalFocal = liveOverride?.index === drag.index ? liveOverride.focal : drag.startFocal;
+      setLiveOverride(null);
       onFocalChange?.(drag.index, finalFocal);
+    }
+
+    // Scroll/pinch to zoom a photo tighter within its slot — "in case it
+    // needs to be a little tighter" than the default cover-fit. Kept as a
+    // plain DOM listener (not JSX onWheel) so preventDefault actually
+    // stops the page from scrolling while zooming a photo; React 17+
+    // attaches its own onWheel delegate as passive, which can't call
+    // preventDefault at all. handleWheelRef always points at the latest
+    // closure so this effect never needs to re-attach the listener.
+    const handleWheelRef = useRef<(e: WheelEvent) => void>(() => {});
+    handleWheelRef.current = (e: WheelEvent) => {
+      if (side === 'back' || !canvasRef.current) return;
+      const point = canvasPoint(e.clientX, e.clientY);
+      const hit = hitTestSlot(
+        PAGE_W,
+        PAGE_H,
+        point.x,
+        point.y,
+        photos.map((p) => p && { width: p.width, height: p.height }),
+        focalPoints.map((f) => f?.zoom),
+      );
+      if (!hit) return;
+      e.preventDefault();
+      const current = (liveOverride?.index === hit.index ? liveOverride.focal : focalPoints[hit.index]) ?? { x: 0.5, y: 0.5 };
+      const focal: FocalPoint = { ...current, zoom: nextZoom(current.zoom ?? 1, e.deltaY) };
+      setLiveOverride({ index: hit.index, focal });
+
+      if (zoomCommitTimerRef.current != null) window.clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = window.setTimeout(() => {
+        zoomCommitTimerRef.current = null;
+        onFocalChange?.(hit.index, focal);
+      }, ZOOM_COMMIT_DEBOUNCE_MS);
+    };
+
+    useEffect(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const handler = (e: WheelEvent) => handleWheelRef.current(e);
+      canvas.addEventListener('wheel', handler, { passive: false });
+      return () => canvas.removeEventListener('wheel', handler);
+    }, [canvasRef]);
+
+    useEffect(
+      () => () => {
+        if (zoomCommitTimerRef.current != null) window.clearTimeout(zoomCommitTimerRef.current);
+      },
+      [],
+    );
+
+    // Double-click a photo to reset it back to the default (unzoomed)
+    // crop — the one discoverable way to undo a zoom without scrolling
+    // precisely back to 1.
+    function handleDoubleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+      if (side === 'back') return;
+      const point = canvasPoint(e.clientX, e.clientY);
+      const hit = hitTestSlot(
+        PAGE_W,
+        PAGE_H,
+        point.x,
+        point.y,
+        photos.map((p) => p && { width: p.width, height: p.height }),
+        focalPoints.map((f) => f?.zoom),
+      );
+      if (!hit) return;
+      const current = focalPoints[hit.index];
+      if (!current?.zoom || current.zoom === 1) return;
+      const focal: FocalPoint = { x: current.x, y: current.y, zoom: 1 };
+      setLiveOverride(null);
+      onFocalChange?.(hit.index, focal);
     }
 
     return (
@@ -162,10 +246,12 @@ export const CollagePreview = React.forwardRef<HTMLCanvasElement, CollagePreview
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        onDoubleClick={handleDoubleClick}
         className={`h-auto max-h-full w-auto touch-none rounded-sm shadow-2xl ${
           side === 'front' ? 'cursor-grab active:cursor-grabbing' : ''
         }`}
         style={{ aspectRatio: `${PAGE_W} / ${PAGE_H}` }}
+        title={side === 'front' ? 'Drag to reposition, scroll to zoom, double-click to reset zoom' : undefined}
       />
     );
   },

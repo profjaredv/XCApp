@@ -174,15 +174,16 @@ export const photosService = {
     await api.delete(`/photos/${photoId}/tags/${athleteId}`);
   },
 
-  // Build module's "move the photo to see faces" drag — where this
-  // athlete's collage crop should center on this photo. focalX/focalY are
-  // each 0-1.
-  async setPhotoFocal(photoId: string, athleteId: string, focalX: number, focalY: number): Promise<{ focalX: number; focalY: number }> {
-    const response = await api.put<{ athleteId: string; focalX: number; focalY: number }>(
+  // Build module's "move the photo to see faces" drag, plus how zoomed in
+  // it is (scroll-to-zoom on the same control) — where this athlete's
+  // collage crop should center on this photo. focalX/focalY are each 0-1;
+  // focalZoom is 1 (the default) or higher.
+  async setPhotoFocal(photoId: string, athleteId: string, focalX: number, focalY: number, focalZoom = 1): Promise<{ focalX: number; focalY: number; focalZoom: number | null }> {
+    const response = await api.put<{ athleteId: string; focalX: number; focalY: number; focalZoom: number | null }>(
       `/photos/${photoId}/tags/${athleteId}/focal`,
-      { focalX, focalY },
+      { focalX, focalY, focalZoom },
     );
-    return { focalX: response.data.focalX, focalY: response.data.focalY };
+    return { focalX: response.data.focalX, focalY: response.data.focalY, focalZoom: response.data.focalZoom };
   },
 
   // The one photo shared across every athlete's collage back page and

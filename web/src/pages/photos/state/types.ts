@@ -19,6 +19,11 @@ export interface PhotoAthlete {
   // out of a slot and back in.
   focalX?: number | null;
   focalY?: number | null;
+  // How tightly cropped the photo is in its slot — the same drag
+  // control's scroll-to-zoom. 1 or null/undefined means the default
+  // cover-fit crop; never below 1 (that would loosen the crop past the
+  // slot's own cover-fit, leaving a gap the design never accounts for).
+  focalZoom?: number | null;
 }
 
 export interface Photo {
