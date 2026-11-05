@@ -20,6 +20,7 @@ function stats(overrides: Partial<AthleteBuildStats> = {}): AthleteBuildStats {
     averagePaceSecPerMile: 420,
     totalRaces: 1,
     bestByDistance: [],
+    careerBestByDistance: [],
     races: [seasonRace()],
     careerRaces: [careerRace()],
     coaches: { headCoaches: [], coaches: [], volunteers: [] },

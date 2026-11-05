@@ -171,6 +171,21 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
     distanceLabel: r.race.distance,
   }));
 
+  // Same shape as seasonResultsFlat, same fallback, but across every
+  // season — feeds careerBestByDistance below, the printed collage's
+  // answer to the Athlete Journey page's "Personal records" card
+  // (routes/analytics.js's `prs: computePRs(allOwnResultsFlat)`), not to
+  // be confused with bestByDistance above, which is this season only.
+  const careerResultsFlat = careerResults.map((r) => ({
+    raceId: r.race.id,
+    raceName: r.race.name,
+    date: r.race.date,
+    time: r.time,
+    distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
+    distanceLabel: r.race.distance,
+    season: r.race.season,
+  }));
+
   return {
     name: athlete.preferredName || athlete.name,
     season,
@@ -190,6 +205,13 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
       raceName: pr.raceName,
       date: pr.date,
     })),
+    careerBestByDistance: computePRs(careerResultsFlat).map((pr) => ({
+      distanceMeters: pr.distanceMeters,
+      distanceLabel: careerResultsFlat.find((r) => r.raceId === pr.raceId)?.distanceLabel ?? null,
+      timeSec: pr.time,
+      raceName: pr.raceName,
+      date: pr.date,
+    })),
     races: seasonResultsFlat.map((r) => ({
       raceName: r.raceName,
       date: r.date,
@@ -197,13 +219,13 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
       distanceLabel: r.distanceLabel,
       timeSec: r.time,
     })),
-    careerRaces: careerResults.map((r) => ({
-      raceName: r.race.name,
-      date: r.race.date,
-      distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
-      distanceLabel: r.race.distance,
+    careerRaces: careerResultsFlat.map((r) => ({
+      raceName: r.raceName,
+      date: r.date,
+      distanceMeters: r.distanceMeters,
+      distanceLabel: r.distanceLabel,
       timeSec: r.time,
-      season: r.race.season,
+      season: r.season,
     })),
     coaches,
     inviteToken,

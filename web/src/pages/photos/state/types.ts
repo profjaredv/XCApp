@@ -140,6 +140,8 @@ export interface AthleteBuildStats {
   averagePaceSecPerMile: number | null;
   totalRaces: number;
   bestByDistance: AthleteBestByDistance[];
+  /** Best time per distance across every season, not just this one — the collage's answer to the Athlete Journey page's "Personal records" card. */
+  careerBestByDistance: AthleteBestByDistance[];
   races: AthleteRaceResult[];
   /** Every FINISHED result this athlete has, any season — see AthleteCareerRaceResult. */
   careerRaces: AthleteCareerRaceResult[];

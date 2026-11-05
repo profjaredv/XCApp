@@ -56,10 +56,11 @@ function toDraftRace(r: AthleteRaceResult, isBest: boolean): DraftRace {
  * edited copy (state.ts's AthleteBuildStats, not anything persisted), and
  * it resets the moment the athlete changes or their real stats refetch.
  *
- * Doesn't cover every field — careerRaces (the multi-season career chart)
- * and coaches are out of scope here; this is a quick-fix tool for the
- * season stats and race list a coach is most likely to spot a typo in
- * right before printing, not a full data-entry form.
+ * Doesn't cover every field — careerRaces and careerBestByDistance (the
+ * multi-season career chart) and coaches are out of scope here; this is
+ * a quick-fix tool for the season stats and race list a coach is most
+ * likely to spot a typo in right before printing, not a full data-entry
+ * form.
  */
 export const EditStatsPanel: React.FC<EditStatsPanelProps> = ({ open, onOpenChange, stats, hasOverride, onApply, onResetToOriginal }) => {
   const [grade, setGrade] = useState('');

@@ -114,9 +114,48 @@ test('getAthleteBuildStats assembles name, grade, career PR, season totals, best
   assert.equal(stats.bestByDistance.length, 2);
   assert.ok(stats.bestByDistance.some((d) => d.distanceMeters === 5000 && d.timeSec === 1052));
   assert.ok(stats.bestByDistance.some((d) => d.distanceMeters === 3200 && d.timeSec === 665));
+  assert.equal(stats.careerBestByDistance.length, 2);
+  assert.ok(stats.careerBestByDistance.some((d) => d.distanceMeters === 5000 && d.timeSec === 1052 && d.raceName === 'EHS Invitational'));
+  assert.ok(stats.careerBestByDistance.some((d) => d.distanceMeters === 3200 && d.timeSec === 665));
   assert.equal(stats.careerRaces.length, 3);
   assert.equal(stats.careerRaces[0].raceName, 'Freshman Opener');
   assert.equal(stats.careerRaces[0].season, 2024);
+});
+
+// careerBestByDistance must pull from every season, not just the current
+// one — the collage's answer to the Athlete Journey page's "Personal
+// records" card. Here the athlete's actual PR at 5000m was set as a
+// freshman; this season's own 5000m race is slower, so bestByDistance
+// (season-only) and careerBestByDistance must disagree on purpose.
+test('getAthleteBuildStats\' careerBestByDistance reflects an earlier, faster season, not just this one', async (t) => {
+  const restoreSeason = withActiveSeason(2026);
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null, userId: 'already-linked' }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', (args) => {
+    if (args.where.race?.season) {
+      return [{ time: 1150, race: { id: 'race-2', name: 'Senior Season Opener', date: new Date('2026-09-05'), distanceMeters: 5000, distance: '5K' } }];
+    }
+    return [
+      { time: 1052, race: { id: 'race-1', name: 'Freshman PR', date: new Date('2023-09-05'), distanceMeters: 5000, distance: '5K', season: 2023 } },
+      { time: 1150, race: { id: 'race-2', name: 'Senior Season Opener', date: new Date('2026-09-05'), distanceMeters: 5000, distance: '5K', season: 2026 } },
+    ];
+  });
+  t.after(() => {
+    restoreSeason();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+
+  assert.equal(stats.bestByDistance.length, 1);
+  assert.equal(stats.bestByDistance[0].raceName, 'Senior Season Opener');
+  assert.equal(stats.careerBestByDistance.length, 1);
+  assert.equal(stats.careerBestByDistance[0].raceName, 'Freshman PR');
+  assert.equal(stats.careerBestByDistance[0].timeSec, 1052);
 });
 
 // A race scraped with only its text distance set (distanceMeters still
