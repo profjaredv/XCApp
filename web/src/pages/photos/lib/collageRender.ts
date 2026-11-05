@@ -763,6 +763,71 @@ interface PacePoint {
 }
 
 /**
+ * Traces a smooth monotone-cubic curve through `points` into the current
+ * path (call ctx.beginPath() first) — the same curve shape the Athlete
+ * Journey page's chart (AthleteProgressChart.tsx, Recharts' `type="monotone"`)
+ * already draws, instead of the straight-segment polyline this used to be.
+ * Monotone cubic (Fritsch-Carlson) rather than a plain Catmull-Rom spline
+ * on purpose: it never overshoots past a point on either side, so a sharp
+ * single-race spike doesn't balloon into a curve that dips below a
+ * neighboring point that was never that fast. Points must already be
+ * sorted by x (ascending).
+ */
+function traceMonotoneCurve(ctx: CanvasRenderingContext2D, points: { x: number; y: number }[]) {
+  const n = points.length;
+  if (n === 0) return;
+  ctx.moveTo(points[0].x, points[0].y);
+  if (n < 3) {
+    for (let i = 1; i < n; i++) ctx.lineTo(points[i].x, points[i].y);
+    return;
+  }
+
+  const dx: number[] = [];
+  const secant: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const deltaX = points[i + 1].x - points[i].x;
+    dx.push(deltaX);
+    secant.push(deltaX === 0 ? 0 : (points[i + 1].y - points[i].y) / deltaX);
+  }
+
+  const tangent: number[] = new Array(n);
+  tangent[0] = secant[0];
+  tangent[n - 1] = secant[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    // A tangent is only meaningful when the curve is actually heading the
+    // same direction on both sides — at a local peak or valley (the
+    // secants swap sign), flattening it to 0 is what keeps the curve
+    // monotone through that point instead of overshooting it.
+    tangent[i] = secant[i - 1] === 0 || secant[i] === 0 || secant[i - 1] < 0 !== secant[i] < 0 ? 0 : (secant[i - 1] + secant[i]) / 2;
+  }
+
+  for (let i = 0; i < n - 1; i++) {
+    if (secant[i] === 0) {
+      tangent[i] = 0;
+      tangent[i + 1] = 0;
+      continue;
+    }
+    const alpha = tangent[i] / secant[i];
+    const beta = tangent[i + 1] / secant[i];
+    if (alpha < 0) tangent[i] = 0;
+    if (beta < 0) tangent[i + 1] = 0;
+    const magnitude = alpha * alpha + beta * beta;
+    if (magnitude > 9) {
+      const tau = 3 / Math.sqrt(magnitude);
+      tangent[i] = tau * alpha * secant[i];
+      tangent[i + 1] = tau * beta * secant[i];
+    }
+  }
+
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    const third = dx[i] / 3;
+    ctx.bezierCurveTo(p0.x + third, p0.y + tangent[i] * third, p1.x - third, p1.y - tangent[i + 1] * third, p1.x, p1.y);
+  }
+}
+
+/**
  * Build spec section 5. Plots only races over a mile (drops the mile time
  * trial); x is proportional to days since the first PLOTTED race rather
  * than an even index-based spread, so a long gap between two races reads
@@ -842,12 +907,7 @@ function drawPaceChart(ctx: CanvasRenderingContext2D, scale: number, chartLeft: 
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.beginPath();
-  points.forEach((p, i) => {
-    const x = plotX(p.dateMs);
-    const y = plotY(p.pace);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
+  traceMonotoneCurve(ctx, points.map((p) => ({ x: plotX(p.dateMs), y: plotY(p.pace) })));
   ctx.stroke();
 
   ctx.fillStyle = INK;
@@ -1025,12 +1085,7 @@ function drawCareerChart(ctx: CanvasRenderingContext2D, scale: number, top: numb
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.beginPath();
-  points.forEach((p, i) => {
-    const x = plotX(p.dateMs);
-    const y = plotY(p.pace);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
+  traceMonotoneCurve(ctx, points.map((p) => ({ x: plotX(p.dateMs), y: plotY(p.pace) })));
   ctx.stroke();
 
   ctx.fillStyle = INK;
