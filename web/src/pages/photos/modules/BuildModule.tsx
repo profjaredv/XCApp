@@ -11,7 +11,7 @@ import { renderCollage, renderCollageBack, type CollageHeaderText, type FocalPoi
 import { buildTwoPagePdf } from '../lib/pdfExport';
 import { athletesById as buildAthletesById, eligibleForCollage } from '../lib/selectors';
 import { REQUIRED_PICKS, PANELS } from '../lib/templates';
-import { isPhotoVisible } from '../lib/tagRules';
+import { canBrowseFullRoster, isPhotoVisible } from '../lib/tagRules';
 import { photosService, type CollageSettings } from '../../../api/photosService';
 import { cn } from '@/lib/utils';
 import type { Athlete, AthleteBuildStats, PhotoAthleteTags } from '../state/types';
@@ -78,7 +78,7 @@ export const BuildModule: React.FC = () => {
   // name field just below.
   const teamLabel = state.buildHeader.team || teamName || '';
 
-  const linkedDefault = !actor.isCoach ? actor.linkedAthleteIds[0] : undefined;
+  const linkedDefault = !canBrowseFullRoster(actor) ? actor.linkedAthleteIds[0] : undefined;
   const athleteId = state.buildAthleteId ?? linkedDefault;
   const athlete = state.athletes.find((a) => a.id === athleteId);
 

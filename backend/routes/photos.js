@@ -12,7 +12,7 @@ const { resolvePhotosTeam, requirePhotosFeatureEnabled } = require('../middlewar
 const { isFeatureEnabled } = require('../lib/teamFeatures');
 const { authenticateUserOrVolunteer } = require('../middleware/photosVolunteer');
 const photosVolunteerAccess = require('../lib/photosVolunteerAccess');
-const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
+const { ANY_COACH, FULL_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
 const { resolveActiveSeason, deriveGrade, isEnrolled } = require('../lib/season');
 const photosAccess = require('../lib/photosAccess');
 const photoBuildStats = require('../lib/photoBuildStats');
@@ -20,6 +20,7 @@ const { getActiveMembershipsForTeamSeason } = require('../lib/groups');
 const { importGoogleAlbum, validateGooglePhotosUrl } = require('../lib/googlePhotosImport');
 const googlePhotosImportJobs = require('../lib/googlePhotosImportJobs');
 const { sendEmail } = require('../lib/email');
+const { requireActivePlan } = require('../lib/entitlements');
 const { MAX_PICKS } = photosAccess;
 
 // Same fallback every other email-sending route uses (routes/athletes.js,
@@ -119,6 +120,7 @@ async function attachPhotoActor(req, res, next) {
       req.photoActor = {
         userId: null,
         isCoach: false,
+        isPhotosAdmin: false,
         isVolunteer: true,
         selfAthleteId: null,
         guardianAthleteIds: [],
@@ -142,6 +144,18 @@ function sendAccessError(res, error, fallbackMessage) {
   }
   console.error(fallbackMessage, error.message);
   return res.status(500).json({ msg: 'Server error' });
+}
+
+// The "Add" tier (uploading, creating meets, importing from Google
+// Photos) — a coach or an invited Photos Admin, same authority
+// test/roleMatrix.test.js's VOLUNTEER_WRITE_ROUTES comment already
+// documents for a volunteer coach (the TeamMember role, not the
+// tagging-passcode isVolunteer actor, which this must never admit: a
+// volunteer's photoActor.isCoach/isPhotosAdmin are always false). Must
+// run after attachPhotoActor.
+function requirePhotoWriteAccess(req, res, next) {
+  if (req.photoActor && (req.photoActor.isCoach || req.photoActor.isPhotosAdmin)) return next();
+  return res.status(403).json({ msg: 'Only a coach or an invited Photos Admin can do that.' });
 }
 
 // Brute-force protection on the one endpoint that checks a password
@@ -198,6 +212,163 @@ router.put('/tag-password', authenticate, requireFeature('photos'), requireTeam,
   res.json(await photosVolunteerAccess.setTagPassword(prisma, req.user.teamId, password));
 });
 
+const PHOTOS_ADMIN_INVITE_TTL_DAYS = 30;
+
+// POST /api/photos/admin-invite — invite anyone (a parent, most commonly,
+// but anyone willing) to full Load/Tag/Build authority in this module
+// without making them a coach — see lib/photosAccess.js's PhotosAdmin for
+// exactly what that does and doesn't grant. FULL_COACH, same tier as
+// routes/team.js's staff-invite: handing a new account real access to
+// this team's data is a "staff management" action even when the account
+// it creates is scoped to one module. requireActivePlan for the same
+// reason staff/athlete invites and guardian-link approval already
+// require it (lib/entitlements.js) — this exposes the app to a new
+// account too.
+router.post('/admin-invite', authenticate, requireFeature('photos'), requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
+  const { email } = req.body || {};
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    return res.status(400).json({ msg: 'A valid email is required.' });
+  }
+  const teamId = req.user.teamId;
+
+  try {
+    const expiresAt = new Date(Date.now() + PHOTOS_ADMIN_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+    // One invite per (team, email) — resending overwrites the token
+    // rather than accumulating history, same pattern as StaffInvite.
+    const invite = await prisma.photosAdminInvite.upsert({
+      where: { teamId_email: { teamId, email } },
+      update: { status: 'pending', expiresAt, acceptedAt: null, invitedById: req.user.id },
+      create: { teamId, email, expiresAt, invitedById: req.user.id },
+    });
+
+    const inviteLink = `${FRONTEND_URL}/photos-admin-invite/${invite.token}`;
+    let emailSent = false;
+    try {
+      const result = await sendEmail({
+        to: email,
+        subject: `You're invited to help with photos on ${req.user.team.name}'s LeadPack XC team`,
+        html: `<p>${req.user.name || 'A coach'} invited you to load, tag, and build photo collages for <strong>${req.user.team.name}</strong> on LeadPack — no coaching access, just the Photos module.</p>`
+          + `<p><a href="${inviteLink}">${inviteLink}</a></p>`
+          + `<p>This invite expires on ${expiresAt.toDateString()}.</p>`,
+      });
+      emailSent = result.sent;
+    } catch (error) {
+      console.error('Error sending Photos Admin invite email:', error.message);
+    }
+
+    res.status(201).json({
+      msg: emailSent ? `Invite sent to ${email}.` : `Invite ready for ${email}.`,
+      token: invite.token,
+      emailSent,
+      invite: { token: invite.token, email: invite.email, expiresAt: invite.expiresAt },
+    });
+  } catch (error) {
+    console.error('Error creating Photos Admin invite:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/photos/accept-admin-invite — authenticated: the token
+// identifies the invite (team); the session identifies who is accepting
+// it. Deliberately never touches req.user.teamId — a Photos Admin is not
+// a TeamMember (PhotosAdmin's own schema comment), same as a guardian. No
+// requireFeature/requirePhotosFeatureEnabled up front — there's no team to
+// check the feature flag against before the token resolves one, same
+// reasoning as POST /volunteer-login — so it carries the same inline
+// isFeatureEnabled check GET /download-link/:token uses instead, once the
+// invite's team is in hand: an invite minted before Photos was turned off
+// should behave like everything else once it's off.
+router.post('/accept-admin-invite', authenticate, async (req, res) => {
+  const { token } = req.body || {};
+  const userId = req.user.id;
+
+  if (!token) {
+    return res.status(400).json({ msg: 'Invite token is required.' });
+  }
+
+  try {
+    const invite = await prisma.photosAdminInvite.findUnique({ where: { token }, include: { team: true } });
+
+    if (!invite || invite.status !== 'pending') {
+      return res.status(404).json({ msg: 'This invite is no longer valid.' });
+    }
+    if (invite.expiresAt < new Date()) {
+      return res.status(410).json({ msg: 'This invite has expired. Ask the coach who sent it to resend it.' });
+    }
+    if (!isFeatureEnabled(invite.team.features, 'photos')) {
+      return res.status(403).json({ msg: 'This team has turned Photos off.', code: 'FEATURE_DISABLED', feature: 'photos' });
+    }
+
+    await prisma.$transaction([
+      prisma.photosAdminInvite.update({ where: { id: invite.id }, data: { status: 'accepted', acceptedAt: new Date() } }),
+      prisma.photosAdmin.upsert({
+        where: { teamId_userId: { teamId: invite.teamId, userId } },
+        update: { active: true },
+        create: { teamId: invite.teamId, userId },
+      }),
+    ]);
+
+    res.json({
+      msg: `You can now load, tag, and build photos for ${invite.team.name}.`,
+      teamId: invite.teamId,
+      athleticTeamId: invite.team.athleticTeamId,
+    });
+  } catch (error) {
+    console.error('Error accepting Photos Admin invite:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/photos/admins — every Photos Admin grant (active and revoked)
+// plus pending invites, for the Settings panel that manages them. Mirrors
+// routes/team.js's GET /staff shape. ANY_COACH, same read tier as viewing
+// staff — only sending an invite or revoking one is FULL_COACH.
+router.get('/admins', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
+  try {
+    const [grants, invites] = await Promise.all([
+      prisma.photosAdmin.findMany({
+        where: { teamId: req.user.teamId },
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.photosAdminInvite.findMany({
+        where: { teamId: req.user.teamId, status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    res.json({
+      admins: grants.map((g) => ({ userId: g.userId, name: g.user.name, email: g.user.email, active: g.active, createdAt: g.createdAt })),
+      pendingInvites: invites.map((i) => ({ email: i.email, expiresAt: i.expiresAt, createdAt: i.createdAt })),
+    });
+  } catch (error) {
+    console.error('Error fetching Photos Admins:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// PATCH /api/photos/admins/:userId — revoke or restore a Photos Admin
+// grant. Revoked rather than deleted, same reasoning as TeamMember.active
+// — see PhotosAdmin's own schema comment.
+router.patch('/admins/:userId', authenticate, requireFeature('photos'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  const { active } = req.body || {};
+  if (typeof active !== 'boolean') {
+    return res.status(400).json({ msg: 'active (boolean) is required.' });
+  }
+  try {
+    const grant = await prisma.photosAdmin.findUnique({ where: { teamId_userId: { teamId: req.user.teamId, userId: req.params.userId } } });
+    if (!grant) {
+      return res.status(404).json({ msg: 'Photos Admin not found.' });
+    }
+    const updated = await prisma.photosAdmin.update({ where: { id: grant.id }, data: { active } });
+    res.json({ userId: updated.userId, active: updated.active });
+  } catch (error) {
+    console.error('Error updating Photos Admin:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // GET /api/photos/me — this account's Photos context: whether it's a
 // coach, its own linked athlete (if any), and which athletes it holds an
 // approved guardian link for. The frontend builds its Actor from this
@@ -212,6 +383,7 @@ router.get('/me', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosF
   res.json({
     userId: req.photoActor.userId,
     isCoach: req.photoActor.isCoach,
+    isPhotosAdmin: Boolean(req.photoActor.isPhotosAdmin),
     isVolunteer: Boolean(req.photoActor.isVolunteer),
     selfAthleteId: req.photoActor.selfAthleteId,
     guardianAthleteIds: req.photoActor.guardianAthleteIds,
@@ -425,19 +597,20 @@ router.get('/meets', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhot
   }
 });
 
-// POST /api/photos/meets — Load module's "new meet" button. Admin-only,
-// same tier as uploading. Auto-resolves the team's active season rather
-// than asking the coach to pick one, matching the spec's "Load, made dead
-// easy" principle.
-router.post('/meets', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
+// POST /api/photos/meets — Load module's "new meet" button. Admin-only
+// (coach or Photos Admin), same tier as uploading. Auto-resolves the
+// team's active season rather than asking for one, matching the spec's
+// "Load, made dead easy" principle. resolvePhotosTeam, not requireTeam —
+// a Photos Admin has no TeamMember row (see that model's own comment).
+router.post('/meets', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, async (req, res) => {
   const { name, date } = req.body || {};
   if (!name || !String(name).trim() || !date) {
     return res.status(400).json({ msg: 'name and date are required.' });
   }
   try {
-    const season = await photosAccess.resolveActiveSeasonRow(prisma, req.user.teamId);
+    const season = await photosAccess.resolveActiveSeasonRow(prisma, req.photosTeamId);
     const meet = await prisma.meet.create({
-      data: { teamId: req.user.teamId, seasonId: season.id, name: String(name).trim(), date: new Date(date) },
+      data: { teamId: req.photosTeamId, seasonId: season.id, name: String(name).trim(), date: new Date(date) },
     });
     res.status(201).json({ id: meet.id, name: meet.name, date: meet.date });
   } catch (error) {
@@ -446,10 +619,9 @@ router.post('/meets', authenticate, requireFeature('photos'), requireTeam, requi
 });
 
 // POST /api/photos/authorize — Load module, step 2. Body: { meetId, files:
-// [{ sha256, width, height, bytes, takenAt }] }. Admin-only (super admin,
-// coach, volunteer coach — spec's "coach" definition), so a real team
-// membership is required up front.
-router.post('/authorize', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), authorizeLimiter, attachPhotoActor, async (req, res) => {
+// [{ sha256, width, height, bytes, takenAt }] }. Admin-only (coach or
+// Photos Admin).
+router.post('/authorize', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, authorizeLimiter, async (req, res) => {
   const { meetId, files } = req.body || {};
   if (!meetId || !Array.isArray(files) || files.length === 0) {
     return res.status(400).json({ msg: 'meetId and a non-empty files array are required.' });
@@ -465,7 +637,7 @@ router.post('/authorize', authenticate, requireFeature('photos'), requireTeam, r
 
   try {
     const results = await photosAccess.authorizeUpload(prisma, {
-      teamId: req.user.teamId,
+      teamId: req.photosTeamId,
       meetId,
       uploadedById: req.user.id,
       files,
@@ -477,7 +649,7 @@ router.post('/authorize', authenticate, requireFeature('photos'), requireTeam, r
 });
 
 // POST /api/photos/finalize — Load module, step 4. Body: { photoIds: [...] }.
-router.post('/finalize', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.post('/finalize', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, async (req, res) => {
   const { photoIds } = req.body || {};
   if (!Array.isArray(photoIds) || photoIds.length === 0) {
     return res.status(400).json({ msg: 'photoIds is required.' });
@@ -486,7 +658,7 @@ router.post('/finalize', authenticate, requireFeature('photos'), requireTeam, re
   try {
     const results = {};
     for (const photoId of photoIds) {
-      results[photoId] = await photosAccess.finalizeTeamPhoto(prisma, req.user.teamId, photoId);
+      results[photoId] = await photosAccess.finalizeTeamPhoto(prisma, req.photosTeamId, photoId);
     }
     res.json({ results });
   } catch (error) {
@@ -506,7 +678,7 @@ router.post('/finalize', authenticate, requireFeature('photos'), requireTeam, re
 // per photo, filling in as each one lands) rather than one spinner for
 // the whole thing. This responds with a jobId as soon as the job is
 // created; GET .../google-album/:jobId (below) is what the frontend polls.
-router.post('/import/google-album', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), googleImportLimiter, async (req, res) => {
+router.post('/import/google-album', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, googleImportLimiter, async (req, res) => {
   const { meetId, albumUrl } = req.body || {};
   if (!meetId || !albumUrl) {
     return res.status(400).json({ msg: 'meetId and albumUrl are required.' });
@@ -521,12 +693,12 @@ router.post('/import/google-album', authenticate, requireFeature('photos'), requ
   // Checked synchronously here too, not just inside importGoogleAlbum
   // itself, so a bad meetId fails fast as a normal 404 response instead of
   // only surfacing on the job's first poll.
-  const meet = await prisma.meet.findFirst({ where: { id: meetId, teamId: req.user.teamId } });
+  const meet = await prisma.meet.findFirst({ where: { id: meetId, teamId: req.photosTeamId } });
   if (!meet) {
     return res.status(404).json({ msg: 'Meet not found.' });
   }
 
-  const job = googlePhotosImportJobs.createJob({ teamId: req.user.teamId, meetId });
+  const job = googlePhotosImportJobs.createJob({ teamId: req.photosTeamId, meetId });
   res.status(202).json({ jobId: job.id });
 
   // Everything from here on runs after the response above has already
@@ -534,7 +706,7 @@ router.post('/import/google-album', authenticate, requireFeature('photos'), requ
   // the GET route below reads. Errors land in the job record, not an HTTP
   // response; there's no request left to send one to.
   importGoogleAlbum(prisma, {
-    teamId: req.user.teamId,
+    teamId: req.photosTeamId,
     meetId,
     albumUrl: validatedUrl,
     uploadedById: req.user.id,
@@ -560,9 +732,9 @@ router.post('/import/google-album', authenticate, requireFeature('photos'), requ
 // to drive its per-photo tile grid. Same access tier as starting the
 // import; a job also carries its own teamId so one team can never poll
 // another's job even with a guessed/leaked id.
-router.get('/import/google-album/:jobId', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), (req, res) => {
+router.get('/import/google-album/:jobId', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, (req, res) => {
   const job = googlePhotosImportJobs.getJob(req.params.jobId);
-  if (!job || job.teamId !== req.user.teamId) {
+  if (!job || job.teamId !== req.photosTeamId) {
     return res.status(404).json({ msg: 'No import job found with that id (it may have finished long ago, or the server restarted).' });
   }
   res.json({

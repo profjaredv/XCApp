@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
+import { canBrowseFullRoster } from '../lib/tagRules';
 
 function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -74,7 +75,7 @@ export function useWorkspaceKeyboard(onOpenArmPalette: () => void, armPaletteOpe
         }
         case 't':
         case 'T':
-          if (actor.isCoach) onOpenArmPalette();
+          if (canBrowseFullRoster(actor)) onOpenArmPalette();
           break;
         case 'Enter':
           tagSelected();

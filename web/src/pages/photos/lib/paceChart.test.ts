@@ -15,6 +15,7 @@ function stats(overrides: Partial<AthleteBuildStats> = {}): AthleteBuildStats {
     name: 'Alex',
     season: 2026,
     grade: 11,
+    isCaptain: false,
     careerBest5kSec: 1030,
     totalMiles: 100,
     averagePaceSecPerMile: 420,

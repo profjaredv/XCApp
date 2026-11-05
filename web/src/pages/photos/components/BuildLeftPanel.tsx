@@ -3,6 +3,7 @@ import { Layers, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { filterByGroup, searchAthletes } from '../lib/selectors';
+import { canBrowseFullRoster } from '../lib/tagRules';
 import { GroupFilterSelect } from './GroupFilterSelect';
 import { REQUIRED_PICKS } from '../lib/templates';
 import type { Athlete, AthletePicks, Photo } from '../state/types';
@@ -51,8 +52,10 @@ export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({
   const [query, setQuery] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  if (!actor.isCoach) {
+  if (!canBrowseFullRoster(actor)) {
     // Families land straight on their own athlete — no roster to browse.
+    // A Photos Admin falls through to the full roster view below instead
+    // (same Build authority as a coach, minus the settings gear button).
     const own = athletes.filter((a) => actor.linkedAthleteIds.includes(a.id));
     return (
       <ul className="space-y-0.5 p-3">
@@ -90,23 +93,27 @@ export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({
         >
           <Layers className="h-3.5 w-3.5" /> {generatingAll ? 'Generating…' : 'Generate all (ZIP)'}
         </button>
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          className="flex items-center justify-center rounded-md bg-ink-border/40 px-2 py-1.5 text-ink-foreground hover:bg-ink-border/60"
-          title="Collage settings — accent color, logo, team photo"
-          aria-label="Collage settings"
-        >
-          <Settings className="h-3.5 w-3.5" />
-        </button>
+        {actor.isCoach && (
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center justify-center rounded-md bg-ink-border/40 px-2 py-1.5 text-ink-foreground hover:bg-ink-border/60"
+            title="Collage settings — accent color, logo, team photo"
+            aria-label="Collage settings"
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
-      <CollageSettingsPanel
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        photosById={photosById}
-        settings={collageSettings}
-        onSettingsChange={onCollageSettingsChange}
-      />
+      {actor.isCoach && (
+        <CollageSettingsPanel
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          photosById={photosById}
+          settings={collageSettings}
+          onSettingsChange={onCollageSettingsChange}
+        />
+      )}
       <div className="flex items-center gap-1.5 px-1">
         <Search className="h-3.5 w-3.5 text-ink-muted" />
         <input

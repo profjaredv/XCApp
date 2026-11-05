@@ -52,6 +52,7 @@ const EXCLUDED_MODELS = {
     'Exists only to carry a live session token (the no-account Photos tagging path) — not data the team created, and the tags made through it are already exported via PhotoAthlete.',
   PhotoDownloadLink:
     'Exists only to carry a live download token for one parent — not data the team created, and the photos it unlocks are already exported via Photo/PhotoAthlete.',
+  PhotosAdminInvite: 'Exists only to carry a live token; the invitee\'s email is already on the photosAdmins row once accepted.',
 };
 
 /**
@@ -146,6 +147,7 @@ const TEAM_EXPORT = [
   // own absence from ATHLETE_EXPORT below (no athlete FK at all; a listed
   // photo may depict several athletes or none).
   { key: 'slideshowItems', model: 'slideshowItem', where: direct, label: 'Slideshow collection (metadata only — bytes live in R2)' },
+  { key: 'photosAdmins', model: 'photosAdmin', where: direct, label: 'Photos Admins — non-coach accounts with Load/Tag/Build access' },
 
   // --- things this app computed ---
   { key: 'teamSeasonMetrics', model: 'teamSeasonMetrics', where: direct, label: 'Team season metrics', derived: true },

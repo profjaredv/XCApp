@@ -127,14 +127,18 @@ const VOLUNTEER_WRITE_ROUTES = [
   'intervalSessions.js DELETE /entries/:entryId',
   // LeadPack Photos build spec, "Decisions": "Only authorized admins
   // upload: super admin, coach, and volunteer coach" — volunteer coaches
-  // are explicitly meant to run the Load module at a meet, same as a paid
-  // coach, including reversing their own hide.
-  'photos.js POST /authorize',
-  'photos.js POST /finalize',
+  // are explicitly meant to reverse their own hide, same as a paid coach.
+  // Uploading itself (authorize/finalize/meets/google-album import) moved
+  // off requireRole(ANY_COACH) onto attachPhotoActor + the module's own
+  // requirePhotoWriteAccess, so a Photos Admin (a non-coach, invite-only
+  // grant scoped to this module — lib/photosAccess.js's PhotosAdmin) can
+  // reach it too; a volunteer coach still can, since photoActor.isCoach
+  // is the same hasTeamRole(ANY_COACH) check this gate used to run
+  // directly. This scanner only sees requireRole literals, so those four
+  // routes no longer appear here even though the access they grant a
+  // volunteer coach is unchanged.
   'photos.js POST /:id/hide',
   'photos.js POST /:id/unhide',
-  'photos.js POST /meets',
-  'photos.js POST /import/google-album',
   'photos.js PUT /tag-password',
   // Emailing a parent a link to photos they could already see themselves
   // by logging in — no more sensitive than the hide/unhide and authorize

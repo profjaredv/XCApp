@@ -165,6 +165,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     if (!me) return { userId: '', isCoach: false, role: 'guardian', linkedAthleteIds: [], ledGroupIds: [] };
     if (me.isVolunteer) return { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [], ledGroupIds: [] };
     if (me.isCoach) return { userId: me.userId, isCoach: true, role: 'coach', linkedAthleteIds: [], ledGroupIds: [] };
+    if (me.isPhotosAdmin) return { userId: me.userId, isCoach: false, role: 'photos_admin', linkedAthleteIds: [], ledGroupIds: [] };
     const linkedAthleteIds = [me.selfAthleteId, ...me.guardianAthleteIds].filter((id): id is string => Boolean(id));
     return {
       userId: me.userId,

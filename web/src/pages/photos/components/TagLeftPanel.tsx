@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { coverage, filterByGroup, searchAthletes, tagCountForAthlete } from '../lib/selectors';
+import { canBrowseFullRoster } from '../lib/tagRules';
 import { TimeWindowJump } from './TimeWindowJump';
 import { GroupFilterSelect } from './GroupFilterSelect';
 import { AthleteFilterSelect } from './AthleteFilterSelect';
@@ -67,14 +68,18 @@ export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags,
   // (!actor.isCoach)` branch below (actor.isCoach itself can change at
   // runtime via the preview-role switch), so this stays unconditional and
   // no-ops for a coach.
-  useEffect(() => {
-    if (!actor.isCoach && state.meetFilter === null && currentMeet) setMeetFilter(currentMeet.id);
-  }, [actor.isCoach, state.meetFilter, currentMeet, setMeetFilter]);
+  const isFamilyActor = !canBrowseFullRoster(actor);
 
-  if (!actor.isCoach) {
+  useEffect(() => {
+    if (isFamilyActor && state.meetFilter === null && currentMeet) setMeetFilter(currentMeet.id);
+  }, [isFamilyActor, state.meetFilter, currentMeet, setMeetFilter]);
+
+  if (isFamilyActor) {
     // Families skip the roster and arming entirely — see the Tag module
     // description's "families skip arming" note. A guardian of more than
-    // one athlete still gets to switch who they're tagging for.
+    // one athlete still gets to switch who they're tagging for. A Photos
+    // Admin falls through to the full roster view below instead (same
+    // Tag authority as a coach, minus the group-ZIP download button).
     const own = athletes.filter((a) => actor.linkedAthleteIds.includes(a.id));
 
     // A captain (GroupLeader, see lib/tagRules.ts's ledGroupIds) gets a
@@ -197,7 +202,7 @@ export const TagLeftPanel: React.FC<TagLeftPanelProps> = ({ meets, photos, tags,
       <div>
         <div className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">Group</div>
         <GroupFilterSelect groups={state.groups} value={state.groupFilter} onChange={setGroupFilter} />
-        {state.groupFilter && (
+        {actor.isCoach && state.groupFilter && (
           <button
             type="button"
             onClick={handleDownloadGroup}

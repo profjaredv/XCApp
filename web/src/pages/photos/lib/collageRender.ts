@@ -16,7 +16,6 @@
 import { HERO, PANELS, PANEL_LEAN, heroPixelRect, type PhotoPanel } from './templates';
 import { formatRaceTime, formatRaceDate, formatRaceDistance } from './raceFormat';
 import { ensureCollageFontsLoaded, DISPLAY_FONT, BODY_FONT } from './collageFonts';
-import { drawQrCode } from './qrCode';
 import type { AthleteBuildStats, AthleteCareerRaceResult, AthleteRaceResult } from '../state/types';
 
 export interface CollageHeaderText {
@@ -244,33 +243,6 @@ function fitNameFont(ctx: CanvasRenderingContext2D, text: string, maxWidth: numb
   return { fontSize: size, text: finalText };
 }
 
-/** Greedily wraps `text` onto at most `maxLines` lines within maxWidth, truncating the last line with an ellipsis if even it overflows. Expects ctx.font already set. */
-function wrapToLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
-  const words = text.split(' ');
-  const lines: string[] = [];
-  let current = '';
-  let i = 0;
-  while (i < words.length) {
-    const word = words[i];
-    const candidate = current ? `${current} ${word}` : word;
-    const fits = ctx.measureText(candidate).width <= maxWidth;
-    const isLastAllowedLine = lines.length === maxLines - 1;
-    if (!fits && current && isLastAllowedLine) break; // out of lines — stop accumulating, truncate what's left below
-    if (!fits && current) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = candidate;
-    }
-    i++;
-  }
-  if (lines.length < maxLines) {
-    const rest = [current, ...words.slice(i)].filter(Boolean).join(' ');
-    lines.push(ctx.measureText(rest).width > maxWidth ? truncateToWidth(ctx, rest, maxWidth) : rest);
-  }
-  return lines;
-}
-
 /** Draws `img` contain-fit (not cropped, unlike every photo elsewhere on the page — a logo's own proportions matter) centered in the (x,y,size,size) box. */
 function drawImageContainFit(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, size: number) {
   const scale = Math.min(size / img.width, size / img.height);
@@ -447,9 +419,13 @@ function drawFrontTextBlock(ctx: CanvasRenderingContext2D, scale: number, header
   fillTrackedText(ctx, 'CAREER-BEST 5K', d(776) - timeWidth - d(10), baselineY, 0.12 * d(14), 'right');
 
   ctx.textAlign = 'left';
-  // "GRADE 10 · 2026" — season sits right next to grade rather than only
-  // appearing in the small team line above, per the coach's own request.
-  const gradeText = [stats?.grade != null ? `GRADE ${stats.grade}` : 'GRADE -', header.season || null].filter(Boolean).join(' · ');
+  // "GRADE 10 · 2026 · CAPTAIN" — season sits right next to grade rather
+  // than only appearing in the small team line above, per the coach's
+  // own request; captain (this season's own SeasonRoster.isCaptain, not
+  // a permanent title) appends the same way when it applies.
+  const gradeText = [stats?.grade != null ? `GRADE ${stats.grade}` : 'GRADE -', header.season || null, stats?.isCaptain ? 'CAPTAIN' : null]
+    .filter(Boolean)
+    .join(' · ');
   ctx.font = `600 ${d(16)}px ${BODY_FONT}`;
   ctx.fillStyle = MUTED;
   fillTrackedText(ctx, gradeText, d(40), baselineY, 0.12 * d(16), 'left');
@@ -555,7 +531,7 @@ export async function renderCollage(
 
 // ---------------------------------------------------------------------------
 // Back page — build spec section 4 (stat tiles, race table, pace chart,
-// coaches, team photo, LeadPack/QR card). A fixed, stats-only layout —
+// coaches, team photo, LeadPack credit). A fixed, stats-only layout —
 // unlike the front it has no photo picks, so it doesn't vary per athlete
 // beyond the numbers/text/photo plugged into it.
 // ---------------------------------------------------------------------------
@@ -627,29 +603,37 @@ function drawStatTiles(ctx: CanvasRenderingContext2D, scale: number, stats: Athl
 /**
  * Which races the table prints (build spec section 6, generalized): every
  * race, as long as they all fit at the row-height floor; past that, every
- * "best" race plus the latest, trimmed down to `maxRows` (dropping the
- * oldest non-latest best rows first if even that overflows), always kept
- * in date order. `maxRows` is computed by the caller from the space
- * actually available (drawRaceTable) rather than the spec's original flat
- * 15/14 — the career chart above this section is conditional, so that
- * space isn't a fixed constant any more.
+ * "best" race plus the latest are guaranteed a spot, and whatever row
+ * budget is left over fills in with the next-most-recent races, so a
+ * tight budget doesn't collapse the table down to only the PRs — it
+ * drops only the oldest, least-recent non-PR races first. Only when
+ * there isn't even room for the guaranteed set does it trim that down
+ * too (oldest non-latest best rows first). Always returned in date
+ * order. `maxRows` is computed by the caller from the space actually
+ * available (drawRaceTable) rather than the spec's original flat 15/14
+ * — the career chart above this section is conditional, so that space
+ * isn't a fixed constant any more.
  */
 function selectRacesForTable(races: AthleteRaceResult[], bestByDistance: AthleteBuildStats['bestByDistance'], maxRows: number): AthleteRaceResult[] {
   if (races.length <= maxRows) return races;
   const key = (r: { raceName: string; date: string }) => `${r.raceName}|${r.date}`;
   const isBest = (r: AthleteRaceResult) => bestByDistance.some((b) => b.raceName === r.raceName && b.date === r.date);
   const latestKey = key(races[races.length - 1]);
-  const keep = new Set(races.filter(isBest).map(key));
-  keep.add(latestKey);
 
-  let kept = races.filter((r) => keep.has(key(r)));
-  if (kept.length > maxRows) {
-    const trimmable = kept.filter((r) => key(r) !== latestKey);
-    const dropCount = kept.length - maxRows;
-    const dropKeys = new Set(trimmable.slice(0, dropCount).map(key));
-    kept = kept.filter((r) => !dropKeys.has(key(r)));
+  const keptKeys = new Set(races.filter(isBest).map(key));
+  keptKeys.add(latestKey);
+
+  if (keptKeys.size > maxRows) {
+    const trimmable = races.filter((r) => keptKeys.has(key(r)) && key(r) !== latestKey);
+    const dropCount = keptKeys.size - maxRows;
+    for (const r of trimmable.slice(0, dropCount)) keptKeys.delete(key(r));
+  } else if (keptKeys.size < maxRows) {
+    for (let i = races.length - 1; i >= 0 && keptKeys.size < maxRows; i--) {
+      keptKeys.add(key(races[i]));
+    }
   }
-  return kept;
+
+  return races.filter((r) => keptKeys.has(key(r)));
 }
 
 /**
@@ -870,7 +854,10 @@ function drawPaceChart(ctx: CanvasRenderingContext2D, scale: number, chartLeft: 
   const lo = Math.floor(Math.min(...paces) / 10) * 10;
   const hi = Math.ceil(Math.max(...paces) / 10) * 10;
   const plotHeight = d(plotHeightDesign);
-  const plotY = (pace: number) => chartTop + d(14) + (hi > lo ? (pace - lo) / (hi - lo) : 0.5) * plotHeight;
+  // Faster (a smaller pace number) sits closer to the baseline, same as
+  // a normal ascending axis where smaller values are closer to 0 — not
+  // inverted to put faster at the top, which is what this used to do.
+  const plotY = (pace: number) => chartTop + d(14) + (hi > lo ? (hi - pace) / (hi - lo) : 0.5) * plotHeight;
   // 8 design units of gap between the plot's own bottom and the baseline
   // in the original 118-tall layout — kept proportional at any height.
   const baselineY = chartTop + d(14) + plotHeight + d(8);
@@ -1046,7 +1033,10 @@ function drawCareerChart(ctx: CanvasRenderingContext2D, scale: number, top: numb
   const paces = points.map((p) => p.pace);
   const lo = Math.floor(Math.min(...paces) / 10) * 10;
   const hi = Math.ceil(Math.max(...paces) / 10) * 10;
-  const plotY = (pace: number) => chartTop + d(14) + (hi > lo ? (pace - lo) / (hi - lo) : 0.5) * plotHeight;
+  // Faster (a smaller pace number) sits closer to the baseline, same as
+  // a normal ascending axis where smaller values are closer to 0 — not
+  // inverted to put faster at the top, which is what this used to do.
+  const plotY = (pace: number) => chartTop + d(14) + (hi > lo ? (hi - pace) / (hi - lo) : 0.5) * plotHeight;
 
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
@@ -1293,36 +1283,24 @@ function drawBackTeamPhoto(ctx: CanvasRenderingContext2D, scale: number, img: HT
   ctx.restore();
 }
 
-function drawQrCard(ctx: CanvasRenderingContext2D, scale: number, qrUrl: string) {
+/**
+ * A small LeadPack credit line, bottom-right of the team photo — replaced
+ * the earlier scannable QR code (a coach's own request: not everyone
+ * wants to point a phone at a printed photo, a plain mention reads
+ * faster). Just enough paper-colored padding to keep it legible over
+ * whatever the team photo looks like underneath it.
+ */
+function drawLeadPackCredit(ctx: CanvasRenderingContext2D, scale: number) {
   const d = (n: number) => n * scale;
-  const qrSize = d(60);
-  const gap = d(10);
-  const padLeft = d(8);
-  const padRight = d(12);
-  const padTop = d(8);
-  const padBottom = d(8);
-  const maxTextWidth = d(120);
+  const pad = d(5);
+  const fontSize = d(12);
+  const text = 'Built with LeadPack - view your profile at www.leadpack.cc';
 
-  const titleFontSize = d(15);
-  ctx.font = `800 ${titleFontSize}px ${DISPLAY_FONT}`;
-  const titleLines = wrapToLines(ctx, 'CREATED WITH LEADPACK', maxTextWidth, 2);
-  const titleWidth = Math.max(...titleLines.map((l) => ctx.measureText(l).width));
-  const titleLineHeight = titleFontSize * 1.05;
-
-  const subtitleText = 'View your data here.';
-  const subtitleFontSize = d(13);
-  ctx.font = `${subtitleFontSize}px ${BODY_FONT}`;
-  const subtitleWidth = ctx.measureText(subtitleText).width;
-  const subtitleLineHeight = subtitleFontSize * 1.2;
-
-  // Sized from measureText rather than hard-coded (build spec section 4,
-  // item 7) — the text column width is whichever actually-measured line
-  // is widest, capped at the mockup's own 120-unit max.
-  const textColumnWidth = Math.min(maxTextWidth, Math.max(titleWidth, subtitleWidth));
-  const textColumnHeight = titleLines.length * titleLineHeight + d(2) + subtitleLineHeight;
-  const contentHeight = Math.max(qrSize, textColumnHeight);
-  const cardWidth = padLeft + qrSize + gap + textColumnWidth + padRight;
-  const cardHeight = padTop + contentHeight + padBottom;
+  ctx.font = `${fontSize}px ${BODY_FONT}`;
+  const textWidth = ctx.measureText(text).width;
+  const lineHeight = fontSize * 1.3;
+  const cardWidth = textWidth + pad * 2;
+  const cardHeight = lineHeight + pad * 2;
 
   const cardRight = d(776);
   const cardBottom = d(1016);
@@ -1332,35 +1310,20 @@ function drawQrCard(ctx: CanvasRenderingContext2D, scale: number, qrUrl: string)
   ctx.fillStyle = PAPER;
   ctx.fillRect(cardX, cardY, cardWidth, cardHeight);
 
-  const qrX = cardX + padLeft;
-  const qrY = cardY + padTop + (contentHeight - qrSize) / 2;
-  drawQrCode(ctx, qrUrl, qrX, qrY, qrSize, INK, PAPER);
-
-  const textX = qrX + qrSize + gap;
-  let textY = cardY + padTop + (contentHeight - textColumnHeight) / 2;
   ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.font = `800 ${titleFontSize}px ${DISPLAY_FONT}`;
-  ctx.fillStyle = INK;
-  for (const line of titleLines) {
-    ctx.fillText(line, textX, textY);
-    textY += titleLineHeight;
-  }
-  textY += d(2);
-  ctx.font = `${subtitleFontSize}px ${BODY_FONT}`;
+  ctx.textBaseline = 'middle';
   ctx.fillStyle = MUTED;
-  ctx.fillText(subtitleText, textX, textY);
+  ctx.fillText(text, cardX + pad, cardY + cardHeight / 2);
 }
 
 /**
  * The back page: header, stat tiles, the full race table, the pace chart,
- * coaches (split by role), a full-bleed team photo, and the LeadPack/QR
- * card whose target is the athlete's own self-registration invite link
- * (AthleteBuildStats.qrUrl — backend/lib/photoBuildStats.js). Same
- * "degrade, don't break" rule as the front page — a null stats object or
- * a group photo that fails to load just draws less, never throws, even
- * for the export canvas: the group photo is one shared team asset reused
- * across every athlete's export, never worth failing a whole batch over.
+ * coaches (split by role), a full-bleed team photo, and a small LeadPack
+ * credit line. Same "degrade, don't break" rule as the front page — a
+ * null stats object or a group photo that fails to load just draws less,
+ * never throws, even for the export canvas: the group photo is one
+ * shared team asset reused across every athlete's export, never worth
+ * failing a whole batch over.
  */
 export async function renderCollageBack(
   canvas: HTMLCanvasElement,
@@ -1415,5 +1378,5 @@ export async function renderCollageBack(
   }
   drawBackTeamPhoto(ctx, scale, groupImg, accent);
 
-  if (stats?.qrUrl) drawQrCard(ctx, scale, stats.qrUrl);
+  drawLeadPackCredit(ctx, scale);
 }

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Redo2, Undo2, User, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
-import { canReachModule } from '../lib/tagRules';
+import { canBrowseFullRoster, canReachModule } from '../lib/tagRules';
 import type { Module } from '../state/types';
 
 const MODULES: { key: Module; label: string }[] = [
@@ -40,7 +40,7 @@ export const TopBar: React.FC = () => {
 
       <div className="flex-1" />
 
-      {actor.isCoach && armedAthlete && (
+      {canBrowseFullRoster(actor) && armedAthlete && (
         <button
           type="button"
           onClick={() => armAthlete(null)}
@@ -51,7 +51,7 @@ export const TopBar: React.FC = () => {
           {armedAthlete.preferredName || armedAthlete.name}
         </button>
       )}
-      {actor.isCoach && !armedAthlete && (
+      {canBrowseFullRoster(actor) && !armedAthlete && (
         <span className="hidden text-xs text-ink-muted sm:inline">Press T to arm an athlete</span>
       )}
 
