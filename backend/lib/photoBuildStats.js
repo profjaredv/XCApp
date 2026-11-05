@@ -20,6 +20,7 @@ const { computePRs } = require('./athleteJourney');
 const { canManageAthlete } = require('./photoTagRules');
 const { mergeStaffRoster } = require('./teamStaff');
 const { decideCanHaveAccount } = require('./minorPolicy');
+const { parseDistanceToMeters } = require('./distance');
 
 // Head coach first, then paid assistants, then volunteers — mergeStaffRoster
 // itself returns insertion order (owner, then whatever order the
@@ -149,12 +150,20 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
     volunteers: rankedCoaches.filter((c) => c.role === 'VOLUNTEER_COACH').map((c) => c.name || c.email),
   };
 
+  // Falls back to parsing the scraped text distance when distanceMeters
+  // itself is null — same fallback routes/analytics.js's athlete-journey
+  // endpoint and routes/groups.js already apply. Without it, a race
+  // scraped with only "distance" set (no numeric field parsed out of it
+  // yet) silently drops out of computePRs below (it requires a number)
+  // and the career/season pace charts (collageRender.ts filters on
+  // distanceMeters too) — a PR or a plotted race going missing isn't an
+  // edge case worth risking just to skip this one extra lookup.
   const seasonResultsFlat = seasonResults.map((r) => ({
     raceId: r.race.id,
     raceName: r.race.name,
     date: r.race.date,
     time: r.time,
-    distanceMeters: r.race.distanceMeters,
+    distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
     distanceLabel: r.race.distance,
   }));
 
@@ -187,7 +196,7 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
     careerRaces: careerResults.map((r) => ({
       raceName: r.race.name,
       date: r.race.date,
-      distanceMeters: r.race.distanceMeters,
+      distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
       distanceLabel: r.race.distance,
       timeSec: r.time,
       season: r.race.season,

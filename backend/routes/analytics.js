@@ -469,6 +469,7 @@ router.get('/athlete/:athleteId/journey', authenticate, async (req, res) => {
             date: true,
             season: true,
             distanceMeters: true,
+            distance: true,
             courseId: true,
             course: { select: { name: true } },
           },
@@ -519,7 +520,7 @@ router.get('/athlete/:athleteId/journey', authenticate, async (req, res) => {
         raceName: r.race.name,
         date: r.race.date,
         time: r.time,
-        distanceMeters: r.race.distanceMeters,
+        distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
       });
     }
 
@@ -543,7 +544,12 @@ router.get('/athlete/:athleteId/journey', authenticate, async (req, res) => {
       raceName: r.race.name,
       date: r.race.date,
       time: r.time,
-      distanceMeters: r.race.distanceMeters,
+      // Falls back to the scraped text distance when distanceMeters
+      // itself is null (same fallback this file already applies above,
+      // e.g. line 370) — without it, computePRs silently drops a race
+      // from "best per distance" just because it has no numeric field
+      // parsed yet, not because it isn't actually a PR.
+      distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
       courseId: r.race.courseId,
       courseName: r.race.course?.name ?? null,
     }));
