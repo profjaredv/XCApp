@@ -1107,7 +1107,7 @@ function drawCoachesSection(ctx: CanvasRenderingContext2D, scale: number, origin
   ctx.fillStyle = INK;
   fillTrackedText(ctx, 'COACHES', originX, top + d(7), 0.12 * d(14), 'left');
 
-  const names = [coaches.headCoach, ...coaches.coaches, ...coaches.volunteers].filter((n): n is string => Boolean(n));
+  const names = [...coaches.headCoaches, ...coaches.coaches, ...coaches.volunteers].filter((n): n is string => Boolean(n));
   if (names.length === 0) return;
 
   const bodyTop = top + d(28) + d(8);
@@ -1140,7 +1140,7 @@ function drawCoachesSection(ctx: CanvasRenderingContext2D, scale: number, origin
 function drawRightColumn(ctx: CanvasRenderingContext2D, scale: number, originX: number, top: number, stats: AthleteBuildStats | null, accent: string, accentDark: string, showPaceChart = true) {
   const d = (n: number) => n * scale;
   const sectionTop = top;
-  const coaches = stats?.coaches ?? { headCoach: null, coaches: [], volunteers: [] };
+  const coaches = stats?.coaches ?? { headCoaches: [], coaches: [], volunteers: [] };
 
   if (!showPaceChart) {
     drawCoachesSection(ctx, scale, originX, sectionTop, coaches);
@@ -1168,7 +1168,7 @@ function drawRightColumn(ctx: CanvasRenderingContext2D, scale: number, originX: 
   // and however many coach-name rows there are (whichever column needs
   // more), so the coaches list itself is never what has to shrink — same
   // "degrade, don't overflow" reasoning as the race table's row height.
-  const coachNameCount = [coaches.headCoach, ...coaches.coaches, ...coaches.volunteers].filter(Boolean).length;
+  const coachNameCount = [...coaches.headCoaches, ...coaches.coaches, ...coaches.volunteers].filter(Boolean).length;
   const coachRows = Math.ceil(coachNameCount / 2);
   const belowChartReserve = d(2 + 16 + 18 + 28 + 8) + coachRows * d(22); // caption gap+caption+gap+coaches-header+gap+name rows
   const chartOverhead = d(14 + 8 + 20); // top pad + plot-to-baseline gap + baseline-to-labels gap (see drawPaceChart)

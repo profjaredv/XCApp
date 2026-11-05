@@ -142,10 +142,14 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
     coachTeamMembers.map((m) => ({ userId: m.userId, role: m.role, name: m.user.name, email: m.user.email })),
   ).sort((a, b) => (COACH_ROLE_ORDER[a.role] ?? 99) - (COACH_ROLE_ORDER[b.role] ?? 99));
 
-  // Grouped by role, not flattened — the back page's "HEAD COACH /
-  // COACHES / VOLUNTEER COACHES" three-way split (lib/collageRender.ts).
+  // Grouped by role, not flattened — lib/collageRender.ts reads these
+  // three groups back in head/coach/volunteer order to build its flat,
+  // title-less list. headCoaches is plural: a team can have more than one
+  // HEAD_COACH row (co-head coaches), and an earlier version of this that
+  // picked only the first one silently dropped every head coach after it
+  // from the printed collage.
   const coaches = {
-    headCoach: rankedCoaches.find((c) => c.role === 'HEAD_COACH')?.name || rankedCoaches.find((c) => c.role === 'HEAD_COACH')?.email || null,
+    headCoaches: rankedCoaches.filter((c) => c.role === 'HEAD_COACH').map((c) => c.name || c.email),
     coaches: rankedCoaches.filter((c) => c.role === 'COACH').map((c) => c.name || c.email),
     volunteers: rankedCoaches.filter((c) => c.role === 'VOLUNTEER_COACH').map((c) => c.name || c.email),
   };

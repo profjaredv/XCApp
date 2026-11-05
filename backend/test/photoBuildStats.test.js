@@ -256,7 +256,44 @@ test('getAthleteBuildStats orders the coach list head coach, then coach, then vo
   });
 
   const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
-  assert.deepEqual(stats.coaches, { headCoach: 'Pat Owner', coaches: ['Jamie Assistant'], volunteers: ['Volunteer Val'] });
+  assert.deepEqual(stats.coaches, { headCoaches: ['Pat Owner'], coaches: ['Jamie Assistant'], volunteers: ['Volunteer Val'] });
+});
+
+// A team can have more than one HEAD_COACH row (co-head coaches) — an
+// earlier version of this picked only the first HEAD_COACH found
+// (rankedCoaches.find), which silently dropped every head coach after it
+// from the printed collage. headCoaches must carry all of them.
+test('getAthleteBuildStats keeps every head coach, not just the first one found', async (t) => {
+  const restoreTeam = stub('team', 'findUnique', () => ({
+    currentSeason: 2026,
+    coach: { id: 'coach-1', name: 'Pat Owner', email: 'pat@x.com' },
+  }));
+  const restoreSeasonRow = stub('season', 'findFirst', () => ({ id: 'season-1', year: 2026 }));
+  const restoreRace = stub('race', 'findMany', () => []);
+  const restoreTeamMember = stub('teamMember', 'findMany', () => [
+    // A second HEAD_COACH, distinct from the team owner's own synthesized
+    // HEAD_COACH entry — a real co-head-coach scenario, not a dedupe of
+    // the same person.
+    { userId: 'coach-4', role: 'HEAD_COACH', user: { name: 'Jeff Hashimoto', email: 'jeff@x.com' } },
+    { userId: 'coach-3', role: 'VOLUNTEER_COACH', user: { name: 'Volunteer Val', email: 'val@x.com' } },
+  ]);
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null, userId: 'already-linked' }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', () => []);
+  t.after(() => {
+    restoreTeam();
+    restoreSeasonRow();
+    restoreRace();
+    restoreTeamMember();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+  assert.deepEqual(stats.coaches.headCoaches.sort(), ['Jeff Hashimoto', 'Pat Owner']);
 });
 
 test('getAthleteBuildStats issues a fresh collage invite token for an eligible, unlinked athlete', async (t) => {

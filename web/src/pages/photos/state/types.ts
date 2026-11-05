@@ -143,9 +143,9 @@ export interface AthleteBuildStats {
   races: AthleteRaceResult[];
   /** Every FINISHED result this athlete has, any season — see AthleteCareerRaceResult. */
   careerRaces: AthleteCareerRaceResult[];
-  /** Display names, owner + active TeamMember coaches merged, grouped by role — the back page's three-way COACHES split. */
+  /** Display names, owner + active TeamMember coaches merged, grouped by role — the back page's flat, head/coach/volunteer-ordered list. headCoaches is plural: a team can have more than one HEAD_COACH. */
   coaches: {
-    headCoach: string | null;
+    headCoaches: string[];
     coaches: string[];
     volunteers: string[];
   };
