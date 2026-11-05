@@ -1107,7 +1107,7 @@ function drawCoachesSection(ctx: CanvasRenderingContext2D, scale: number, origin
   ctx.fillStyle = INK;
   fillTrackedText(ctx, 'COACHES', originX, top + d(7), 0.12 * d(14), 'left');
 
-  const names = [coaches.headCoach, ...coaches.coaches, ...coaches.volunteers].filter((n): n is string => Boolean(n));
+  const names = [...coaches.headCoaches, ...coaches.coaches, ...coaches.volunteers].filter((n): n is string => Boolean(n));
   if (names.length === 0) return;
 
   const bodyTop = top + d(28) + d(8);
@@ -1130,10 +1130,22 @@ function drawCoachesSection(ctx: CanvasRenderingContext2D, scale: number, origin
  * races, hide the chart and let the coaches section move up"). `top` is
  * in pixels (already scaled) — see drawRaceTable's own comment on why
  * this isn't a fixed constant.
+ *
+ * `showPaceChart` is false when the full-width career chart already drew
+ * above this section — a career-spanning trend and a single-season one
+ * covering the same ground is one pace chart too many, so the caller
+ * (renderCollageBack) shows only whichever one applies. Coaches then
+ * takes the whole column, starting right at the top.
  */
-function drawRightColumn(ctx: CanvasRenderingContext2D, scale: number, originX: number, top: number, stats: AthleteBuildStats | null, accent: string, accentDark: string) {
+function drawRightColumn(ctx: CanvasRenderingContext2D, scale: number, originX: number, top: number, stats: AthleteBuildStats | null, accent: string, accentDark: string, showPaceChart = true) {
   const d = (n: number) => n * scale;
   const sectionTop = top;
+  const coaches = stats?.coaches ?? { headCoaches: [], coaches: [], volunteers: [] };
+
+  if (!showPaceChart) {
+    drawCoachesSection(ctx, scale, originX, sectionTop, coaches);
+    return;
+  }
 
   ctx.strokeStyle = INK;
   ctx.lineWidth = d(2);
@@ -1156,8 +1168,7 @@ function drawRightColumn(ctx: CanvasRenderingContext2D, scale: number, originX: 
   // and however many coach-name rows there are (whichever column needs
   // more), so the coaches list itself is never what has to shrink — same
   // "degrade, don't overflow" reasoning as the race table's row height.
-  const coaches = stats?.coaches ?? { headCoach: null, coaches: [], volunteers: [] };
-  const coachNameCount = [coaches.headCoach, ...coaches.coaches, ...coaches.volunteers].filter(Boolean).length;
+  const coachNameCount = [...coaches.headCoaches, ...coaches.coaches, ...coaches.volunteers].filter(Boolean).length;
   const coachRows = Math.ceil(coachNameCount / 2);
   const belowChartReserve = d(2 + 16 + 18 + 28 + 8) + coachRows * d(22); // caption gap+caption+gap+coaches-header+gap+name rows
   const chartOverhead = d(14 + 8 + 20); // top pad + plot-to-baseline gap + baseline-to-labels gap (see drawPaceChart)
@@ -1314,7 +1325,7 @@ export async function renderCollageBack(
   const sectionTop = careerChartHeight > 0 ? careerChartTop + careerChartHeight + 20 * scale : 232 * scale;
 
   drawRaceTable(ctx, scale, sectionTop, stats, accent);
-  drawRightColumn(ctx, scale, 504 * scale, sectionTop, stats, accent, accentDark);
+  drawRightColumn(ctx, scale, 504 * scale, sectionTop, stats, accent, accentDark, careerChartHeight === 0);
 
   let groupImg: HTMLImageElement | null = null;
   if (groupPhotoUrl) {

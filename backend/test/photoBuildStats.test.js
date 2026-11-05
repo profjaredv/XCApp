@@ -119,6 +119,44 @@ test('getAthleteBuildStats assembles name, grade, career PR, season totals, best
   assert.equal(stats.careerRaces[0].season, 2024);
 });
 
+// A race scraped with only its text distance set (distanceMeters still
+// null, pending a later parse pass) must not silently drop out of
+// best-by-distance or the career race list — same
+// distanceMeters ?? parseDistanceToMeters(distance) fallback
+// routes/analytics.js's athlete-journey endpoint already applies.
+test('getAthleteBuildStats falls back to parsing the text distance when distanceMeters is null', async (t) => {
+  const restoreSeason = withActiveSeason(2026);
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({
+    id: 'athlete-1',
+    name: 'Alex',
+    preferredName: null,
+    graduationYear: 2027,
+    userId: 'already-linked',
+  }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', (args) => {
+    if (args.where.race?.season) {
+      return [{ time: 323, race: { id: 'race-1', name: 'Reed Park Time Trial', date: new Date('2026-09-08'), distanceMeters: null, distance: '1.5 Miles' } }];
+    }
+    return [{ time: 323, race: { id: 'race-1', name: 'Reed Park Time Trial', date: new Date('2026-09-08'), distanceMeters: null, distance: '1.5 Miles', season: 2026 } }];
+  });
+  t.after(() => {
+    restoreSeason();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+
+  assert.equal(stats.races[0].distanceMeters, 1.5 * 1609.34);
+  assert.equal(stats.bestByDistance.length, 1, 'the only race at its distance is trivially a PR, so it must still be flagged even with distanceMeters originally null');
+  assert.equal(stats.bestByDistance[0].raceName, 'Reed Park Time Trial');
+  assert.equal(stats.careerRaces[0].distanceMeters, 1.5 * 1609.34);
+});
+
 test('getAthleteBuildStats grade is null when graduationYear is unknown, not a guess', async (t) => {
   const restoreSeason = withActiveSeason(2026);
   const restoreAthlete = stub('athlete', 'findFirst', () => ({
@@ -218,7 +256,44 @@ test('getAthleteBuildStats orders the coach list head coach, then coach, then vo
   });
 
   const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
-  assert.deepEqual(stats.coaches, { headCoach: 'Pat Owner', coaches: ['Jamie Assistant'], volunteers: ['Volunteer Val'] });
+  assert.deepEqual(stats.coaches, { headCoaches: ['Pat Owner'], coaches: ['Jamie Assistant'], volunteers: ['Volunteer Val'] });
+});
+
+// A team can have more than one HEAD_COACH row (co-head coaches) — an
+// earlier version of this picked only the first HEAD_COACH found
+// (rankedCoaches.find), which silently dropped every head coach after it
+// from the printed collage. headCoaches must carry all of them.
+test('getAthleteBuildStats keeps every head coach, not just the first one found', async (t) => {
+  const restoreTeam = stub('team', 'findUnique', () => ({
+    currentSeason: 2026,
+    coach: { id: 'coach-1', name: 'Pat Owner', email: 'pat@x.com' },
+  }));
+  const restoreSeasonRow = stub('season', 'findFirst', () => ({ id: 'season-1', year: 2026 }));
+  const restoreRace = stub('race', 'findMany', () => []);
+  const restoreTeamMember = stub('teamMember', 'findMany', () => [
+    // A second HEAD_COACH, distinct from the team owner's own synthesized
+    // HEAD_COACH entry — a real co-head-coach scenario, not a dedupe of
+    // the same person.
+    { userId: 'coach-4', role: 'HEAD_COACH', user: { name: 'Jeff Hashimoto', email: 'jeff@x.com' } },
+    { userId: 'coach-3', role: 'VOLUNTEER_COACH', user: { name: 'Volunteer Val', email: 'val@x.com' } },
+  ]);
+  const restoreAthlete = stub('athlete', 'findFirst', () => ({ id: 'athlete-1', name: 'Alex', preferredName: null, userId: 'already-linked' }));
+  const restoreMetrics = stub('athleteSeasonMetrics', 'findUnique', () => null);
+  const restoreAggregate = stub('athleteSeasonMetrics', 'aggregate', () => ({ _min: { bestTime5k: null } }));
+  const restoreResults = stub('result', 'findMany', () => []);
+  t.after(() => {
+    restoreTeam();
+    restoreSeasonRow();
+    restoreRace();
+    restoreTeamMember();
+    restoreAthlete();
+    restoreMetrics();
+    restoreAggregate();
+    restoreResults();
+  });
+
+  const stats = await getAthleteBuildStats(prisma, 'team-1', 'athlete-1', COACH);
+  assert.deepEqual(stats.coaches.headCoaches.sort(), ['Jeff Hashimoto', 'Pat Owner']);
 });
 
 test('getAthleteBuildStats issues a fresh collage invite token for an eligible, unlinked athlete', async (t) => {

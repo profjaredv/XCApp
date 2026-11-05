@@ -20,6 +20,7 @@ const { computePRs } = require('./athleteJourney');
 const { canManageAthlete } = require('./photoTagRules');
 const { mergeStaffRoster } = require('./teamStaff');
 const { decideCanHaveAccount } = require('./minorPolicy');
+const { parseDistanceToMeters } = require('./distance');
 
 // Head coach first, then paid assistants, then volunteers — mergeStaffRoster
 // itself returns insertion order (owner, then whatever order the
@@ -141,20 +142,32 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
     coachTeamMembers.map((m) => ({ userId: m.userId, role: m.role, name: m.user.name, email: m.user.email })),
   ).sort((a, b) => (COACH_ROLE_ORDER[a.role] ?? 99) - (COACH_ROLE_ORDER[b.role] ?? 99));
 
-  // Grouped by role, not flattened — the back page's "HEAD COACH /
-  // COACHES / VOLUNTEER COACHES" three-way split (lib/collageRender.ts).
+  // Grouped by role, not flattened — lib/collageRender.ts reads these
+  // three groups back in head/coach/volunteer order to build its flat,
+  // title-less list. headCoaches is plural: a team can have more than one
+  // HEAD_COACH row (co-head coaches), and an earlier version of this that
+  // picked only the first one silently dropped every head coach after it
+  // from the printed collage.
   const coaches = {
-    headCoach: rankedCoaches.find((c) => c.role === 'HEAD_COACH')?.name || rankedCoaches.find((c) => c.role === 'HEAD_COACH')?.email || null,
+    headCoaches: rankedCoaches.filter((c) => c.role === 'HEAD_COACH').map((c) => c.name || c.email),
     coaches: rankedCoaches.filter((c) => c.role === 'COACH').map((c) => c.name || c.email),
     volunteers: rankedCoaches.filter((c) => c.role === 'VOLUNTEER_COACH').map((c) => c.name || c.email),
   };
 
+  // Falls back to parsing the scraped text distance when distanceMeters
+  // itself is null — same fallback routes/analytics.js's athlete-journey
+  // endpoint and routes/groups.js already apply. Without it, a race
+  // scraped with only "distance" set (no numeric field parsed out of it
+  // yet) silently drops out of computePRs below (it requires a number)
+  // and the career/season pace charts (collageRender.ts filters on
+  // distanceMeters too) — a PR or a plotted race going missing isn't an
+  // edge case worth risking just to skip this one extra lookup.
   const seasonResultsFlat = seasonResults.map((r) => ({
     raceId: r.race.id,
     raceName: r.race.name,
     date: r.race.date,
     time: r.time,
-    distanceMeters: r.race.distanceMeters,
+    distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
     distanceLabel: r.race.distance,
   }));
 
@@ -187,7 +200,7 @@ async function getAthleteBuildStats(prisma, teamId, athleteId, actor) {
     careerRaces: careerResults.map((r) => ({
       raceName: r.race.name,
       date: r.race.date,
-      distanceMeters: r.race.distanceMeters,
+      distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
       distanceLabel: r.race.distance,
       timeSec: r.time,
       season: r.race.season,
