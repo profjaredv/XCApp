@@ -558,7 +558,7 @@ test('untagPhoto lets a coach remove any tag', async () => {
 test('setPhotoFocal refuses an athlete this actor cannot manage', async () => {
   const actor = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
   await assert.rejects(
-    () => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-99', 0.2, 0.8, actor),
+    () => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-99', 0.2, 0.8, 1, actor),
     /cannot reposition/,
   );
 });
@@ -567,7 +567,7 @@ test('setPhotoFocal 404s on a photo from another team even for a coach', async (
   const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
   const restore = stub('photo', 'findFirst', () => null);
   try {
-    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, actor), /not found/);
+    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, 1, actor), /not found/);
   } finally {
     restore();
   }
@@ -580,13 +580,13 @@ test('setPhotoFocal 404s when the athlete has no tag on this photo', async () =>
     stub('photoAthlete', 'findUnique', () => null),
   ];
   try {
-    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, actor), /not tagged/);
+    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, 1, actor), /not tagged/);
   } finally {
     restores.forEach((r) => r());
   }
 });
 
-test('setPhotoFocal clamps out-of-range values into 0-1 before saving', async () => {
+test('setPhotoFocal clamps out-of-range x/y values into 0-1 before saving', async () => {
   const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
   let savedData;
   const restores = [
@@ -598,9 +598,9 @@ test('setPhotoFocal clamps out-of-range values into 0-1 before saving', async ()
     }),
   ];
   try {
-    const result = await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 1.4, -0.3, actor);
-    assert.deepEqual(savedData, { focalX: 1, focalY: 0 });
-    assert.deepEqual(result, { athleteId: 'athlete-1', focalX: 1, focalY: 0 });
+    const result = await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 1.4, -0.3, 1, actor);
+    assert.deepEqual(savedData, { focalX: 1, focalY: 0, focalZoom: null });
+    assert.deepEqual(result, { athleteId: 'athlete-1', focalX: 1, focalY: 0, focalZoom: null });
   } finally {
     restores.forEach((r) => r());
   }
@@ -618,8 +618,46 @@ test('setPhotoFocal lets a guardian reposition their own linked athlete', async 
     }),
   ];
   try {
-    await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-2', 0.3, 0.7, actor);
-    assert.deepEqual(savedData, { focalX: 0.3, focalY: 0.7 });
+    await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-2', 0.3, 0.7, 1, actor);
+    assert.deepEqual(savedData, { focalX: 0.3, focalY: 0.7, focalZoom: null });
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
+test('setPhotoFocal stores a zoom greater than 1, clamped to the 3x ceiling', async () => {
+  const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  let savedData;
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
+    stub('photoAthlete', 'findUnique', () => ({ photoId: 'photo-1', athleteId: 'athlete-1' })),
+    stub('photoAthlete', 'update', (args) => {
+      savedData = args.data;
+      return { athleteId: 'athlete-1', ...args.data };
+    }),
+  ];
+  try {
+    await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.5, 0.5, 10, actor);
+    assert.equal(savedData.focalZoom, 3);
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
+test('setPhotoFocal never stores a zoom under 1 (it would loosen the crop past the slot\'s own cover-fit)', async () => {
+  const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  let savedData;
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
+    stub('photoAthlete', 'findUnique', () => ({ photoId: 'photo-1', athleteId: 'athlete-1' })),
+    stub('photoAthlete', 'update', (args) => {
+      savedData = args.data;
+      return { athleteId: 'athlete-1', ...args.data };
+    }),
+  ];
+  try {
+    await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.5, 0.5, 0.2, actor);
+    assert.equal(savedData.focalZoom, null);
   } finally {
     restores.forEach((r) => r());
   }

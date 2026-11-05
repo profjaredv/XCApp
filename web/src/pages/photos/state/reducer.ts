@@ -130,7 +130,7 @@ export type Action =
   // Build module's "move the photo to see faces" drag — a display/config
   // tweak like SET_BUILD_HEADER, not an editorial tag/pick change, so it
   // isn't part of the undo/redo history.
-  | { type: 'SET_PHOTO_FOCAL'; photoId: string; athleteId: string; focalX: number; focalY: number };
+  | { type: 'SET_PHOTO_FOCAL'; photoId: string; athleteId: string; focalX: number; focalY: number; focalZoom: number };
 
 function applyForward(state: WorkspaceState, entry: HistoryEntry): WorkspaceState {
   const tags = { ...state.tags };
@@ -315,7 +315,7 @@ export function workspaceReducer(state: WorkspaceState, action: Action): Workspa
       const tags = {
         ...state.tags,
         [action.photoId]: existing.map((t) =>
-          t.athleteId === action.athleteId ? { ...t, focalX: action.focalX, focalY: action.focalY } : t,
+          t.athleteId === action.athleteId ? { ...t, focalX: action.focalX, focalY: action.focalY, focalZoom: action.focalZoom } : t,
         ),
       };
       return { ...state, tags };

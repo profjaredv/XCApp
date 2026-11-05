@@ -51,7 +51,7 @@ export interface PhotosWorkspaceValue {
   removePick: (athleteId: string, photoId: string) => void;
   swapPick: (athleteId: string, position: number, photoId: string) => void;
   reorderPick: (athleteId: string, fromIndex: number, toIndex: number) => void;
-  setPhotoFocal: (photoId: string, athleteId: string, focalX: number, focalY: number) => void;
+  setPhotoFocal: (photoId: string, athleteId: string, focalX: number, focalY: number, focalZoom?: number) => void;
 
   dispatch: Dispatch<Parameters<typeof workspaceReducer>[1]>;
 }

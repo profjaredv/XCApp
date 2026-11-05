@@ -2109,6 +2109,11 @@ model PhotoAthlete {
   // slot and back in, and isn't wiped by setPicks' delete/recreate.
   focalX    Float?         @map("focal_x")
   focalY    Float?         @map("focal_y")
+  // How tightly cropped the photo is in its collage slot — 1 (or null) is
+  // the default cover-fit, >1 zooms in. Null never changes a photo nobody
+  // has zoomed; this doesn't widen the crop (zoom < 1 isn't allowed, see
+  // setPhotoFocal) since the slot already cover-fits by default.
+  focalZoom Float?         @map("focal_zoom")
 
   photo   Photo   @relation(fields: [photoId], references: [id], onDelete: Cascade)
   athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)

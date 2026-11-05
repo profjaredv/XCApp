@@ -16,6 +16,29 @@ export function formatRaceTime(sec: number): string {
   return `${minutes}:${paddedSeconds}`;
 }
 
+/**
+ * The inverse of formatRaceTime — "17:32" or "1:02:05" -> seconds. Used by
+ * the Build module's "edit data for print" form (components/EditStatsPanel.tsx)
+ * to turn a coach's typed time back into the number every other part of
+ * the collage already works in. Returns null for anything that isn't
+ * cleanly m:ss or h:mm:ss (an empty field, stray text, out-of-range
+ * minutes/seconds) rather than guessing.
+ */
+export function parseTimeToSeconds(text: string): number | null {
+  const parts = text.trim().split(':');
+  // The leading part (hours, or minutes if there's no hours part) may run
+  // past two digits; every part after it is seconds-like — exactly 1-2
+  // digits, under 60.
+  if (parts.length < 2 || parts.length > 3) return null;
+  if (!parts.every((p) => /^\d+$/.test(p))) return null;
+  const nums = parts.map(Number);
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] >= 60 || parts[i].length > 2) return null;
+  }
+  if (nums.length === 2) return nums[0] * 60 + nums[1];
+  return nums[0] * 3600 + nums[1] * 60 + nums[2];
+}
+
 /** Seconds-per-mile -> "7:24/mi". */
 export function formatPace(secPerMile: number): string {
   return `${formatRaceTime(secPerMile)}/mi`;

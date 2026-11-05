@@ -308,13 +308,16 @@ async function untagPhoto(prisma, teamId, photoId, athleteId, actor) {
 
 /**
  * Where this athlete's collage crop should center on this photo — the
- * Build module's "move the photo to see faces" drag. Lives on the tag
+ * Build module's "move the photo to see faces" drag — and how tightly
+ * zoomed in it is (the same control's scroll-to-zoom). Lives on the tag
  * itself (not Pick) so a reposition survives the photo being swapped out
  * of a slot and back in. Same authorization as setPicks: a coach, or the
  * athlete's own linked guardian/self account — never a volunteer tagging
- * session.
+ * session. `focalZoom` of 1 (the default cover-fit, no extra zoom) is
+ * stored as null, same "null means the default" convention as a never-set
+ * focalX/focalY.
  */
-async function setPhotoFocal(prisma, teamId, photoId, athleteId, focalX, focalY, actor) {
+async function setPhotoFocal(prisma, teamId, photoId, athleteId, focalX, focalY, focalZoom, actor) {
   if (!canManageAthlete(actor, athleteId)) {
     const err = new Error('This account cannot reposition that photo.');
     err.statusCode = 403;
@@ -332,10 +335,15 @@ async function setPhotoFocal(prisma, teamId, photoId, athleteId, focalX, focalY,
     err.statusCode = 404;
     throw err;
   }
-  const clamp = (n) => Math.min(1, Math.max(0, n));
+  const clamp01 = (n) => Math.min(1, Math.max(0, n));
+  // Zoom only ever tightens the crop, never loosens it past the slot's own
+  // cover-fit (that would leave paper-colored gaps the design never
+  // accounts for) — capped at 3x so a coach can't zoom a photo into an
+  // unrecognizable crop by accident.
+  const zoom = Math.min(3, Math.max(1, focalZoom ?? 1));
   return prisma.photoAthlete.update({
     where: { photoId_athleteId: { photoId, athleteId } },
-    data: { focalX: clamp(focalX), focalY: clamp(focalY) },
+    data: { focalX: clamp01(focalX), focalY: clamp01(focalY), focalZoom: zoom === 1 ? null : zoom },
   });
 }
 
