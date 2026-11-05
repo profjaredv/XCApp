@@ -62,7 +62,6 @@ model User {
   athleteClaims             AthleteClaim[]
   sentStaffInvites          StaffInvite[]            @relation("StaffInviteSender")
   photosAdminGrants         PhotosAdmin[]
-  sentPhotosAdminInvites    PhotosAdminInvite[]      @relation("PhotosAdminInviteSender")
   guardianLinks             GuardianLink[]           @relation("GuardianAccount")
   resolvedGuardianLinks     GuardianLink[]           @relation("GuardianLinkResolver")
   ledGroups                 GroupLeader[]
@@ -133,6 +132,15 @@ model Team {
   // account credential.
   photosTagPassword String? @map("photos_tag_password")
 
+  // A standing, reusable code that lets anyone holding it become a Photos
+  // Admin (full Load/Tag/Build authority, see the PhotosAdmin model below)
+  // the moment they accept it — no per-invitee entry, no approval step,
+  // same shape as joinCode/photosTagPassword above: a shared code a coach
+  // rotates or clears (POST/DELETE /api/photos/join-link) rather than a
+  // personal credential. Null until a coach generates one for the first
+  // time (Collage settings' Photos Admins panel).
+  photosAdminJoinCode String? @unique @map("photos_admin_join_code")
+
   // One photo, shared across every athlete's collage back page and the
   // Slideshow collection's own template — e.g. a team photo at the start
   // of the season. Null until a coach picks one (Build module). Not
@@ -175,7 +183,6 @@ model Team {
   athleteClaims           AthleteClaim[]
   staffInvites            StaffInvite[]
   photosAdmins            PhotosAdmin[]
-  photosAdminInvites      PhotosAdminInvite[]
   groups                  Group[]
   practicePlans           PracticePlan[]
   practiceLocations       PracticeLocation[]
@@ -2259,6 +2266,10 @@ model PhotoDownloadLink {
 // actions (hide/delete, collage branding, the tag-password itself,
 // emailing a parent a download link) stay coach-only regardless —
 // lib/photoTagRules.js's canHidePhoto never consults this.
+// Granted by accepting the team's standing photosAdminJoinCode (Team
+// model, above) — there's no per-invitee row here, since the same code is
+// meant to be reused by any number of parents/volunteers a coach shares it
+// with; this table only ever records who has actually accepted.
 model PhotosAdmin {
   id        String   @id @default(uuid()) @db.Uuid
   teamId    String   @map("team_id") @db.Uuid
@@ -2275,29 +2286,6 @@ model PhotosAdmin {
   @@unique([teamId, userId])
   @@index([userId])
   @@map("photos_admins")
-}
-
-// Structurally parallel to StaffInvite (token, pending/accepted/revoked,
-// one row per invitee that re-inviting overwrites) but coach-issued
-// rather than head-coach-only — any coach handing off the photo workflow
-// to a parent doesn't need to go through the head coach to do it.
-model PhotosAdminInvite {
-  id          String    @id @default(uuid()) @db.Uuid
-  teamId      String    @map("team_id") @db.Uuid
-  email       String
-  token       String    @unique @default(uuid())
-  status      String    @default("pending") // pending | accepted | revoked
-  invitedById String    @map("invited_by") @db.Uuid
-  createdAt   DateTime  @default(now()) @map("created_at")
-  acceptedAt  DateTime? @map("accepted_at")
-  expiresAt   DateTime  @map("expires_at")
-
-  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  invitedBy User @relation("PhotosAdminInviteSender", fields: [invitedById], references: [id])
-
-  @@unique([teamId, email])
-  @@index([teamId])
-  @@map("photos_admin_invites")
 }
 
 // ---------------------------------------------------------------------------

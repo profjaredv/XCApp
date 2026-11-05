@@ -4,6 +4,7 @@ const router = express.Router();
 // same import shape as routes/export.js.
 const { ZipArchive } = require('archiver');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
+const { nanoid } = require('nanoid');
 const prisma = require('../lib/db');
 const r2 = require('../lib/r2');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
@@ -212,135 +213,121 @@ router.put('/tag-password', authenticate, requireFeature('photos'), requireTeam,
   res.json(await photosVolunteerAccess.setTagPassword(prisma, req.user.teamId, password));
 });
 
-const PHOTOS_ADMIN_INVITE_TTL_DAYS = 30;
+// A standing, reusable code — unlike StaffInvite/the old per-email
+// PhotosAdminInvite, there is no per-invitee row: any number of parents a
+// coach shares this with can accept it, until it's regenerated or
+// revoked (Team.photosAdminJoinCode's own schema comment). 21 chars from
+// nanoid's default alphabet — meant to live in a URL, not be typed, so it
+// doesn't need joinCode's short/typeable tradeoff.
+function buildPhotosAdminJoinLink(code) {
+  return code ? `${FRONTEND_URL}/photos-admin-join/${code}` : null;
+}
 
-// POST /api/photos/admin-invite — invite anyone (a parent, most commonly,
-// but anyone willing) to full Load/Tag/Build authority in this module
-// without making them a coach — see lib/photosAccess.js's PhotosAdmin for
-// exactly what that does and doesn't grant. FULL_COACH, same tier as
-// routes/team.js's staff-invite: handing a new account real access to
-// this team's data is a "staff management" action even when the account
-// it creates is scoped to one module. requireActivePlan for the same
-// reason staff/athlete invites and guardian-link approval already
-// require it (lib/entitlements.js) — this exposes the app to a new
-// account too.
-router.post('/admin-invite', authenticate, requireFeature('photos'), requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
-  const { email } = req.body || {};
-  if (!email || typeof email !== 'string' || !email.includes('@')) {
-    return res.status(400).json({ msg: 'A valid email is required.' });
-  }
-  const teamId = req.user.teamId;
-
+// GET /api/photos/join-link — the team's current code (null if none has
+// been generated yet), for the Settings panel to show/copy. ANY_COACH,
+// same read tier as viewing staff — only generating or revoking one is
+// FULL_COACH.
+router.get('/join-link', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
-    const expiresAt = new Date(Date.now() + PHOTOS_ADMIN_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
-
-    // One invite per (team, email) — resending overwrites the token
-    // rather than accumulating history, same pattern as StaffInvite.
-    const invite = await prisma.photosAdminInvite.upsert({
-      where: { teamId_email: { teamId, email } },
-      update: { status: 'pending', expiresAt, acceptedAt: null, invitedById: req.user.id },
-      create: { teamId, email, expiresAt, invitedById: req.user.id },
-    });
-
-    const inviteLink = `${FRONTEND_URL}/photos-admin-invite/${invite.token}`;
-    let emailSent = false;
-    try {
-      const result = await sendEmail({
-        to: email,
-        subject: `You're invited to help with photos on ${req.user.team.name}'s LeadPack XC team`,
-        html: `<p>${req.user.name || 'A coach'} invited you to load, tag, and build photo collages for <strong>${req.user.team.name}</strong> on LeadPack — no coaching access, just the Photos module.</p>`
-          + `<p><a href="${inviteLink}">${inviteLink}</a></p>`
-          + `<p>This invite expires on ${expiresAt.toDateString()}.</p>`,
-      });
-      emailSent = result.sent;
-    } catch (error) {
-      console.error('Error sending Photos Admin invite email:', error.message);
-    }
-
-    res.status(201).json({
-      msg: emailSent ? `Invite sent to ${email}.` : `Invite ready for ${email}.`,
-      token: invite.token,
-      emailSent,
-      invite: { token: invite.token, email: invite.email, expiresAt: invite.expiresAt },
-    });
+    const team = await prisma.team.findUnique({ where: { id: req.user.teamId }, select: { photosAdminJoinCode: true } });
+    res.json({ code: team.photosAdminJoinCode, link: buildPhotosAdminJoinLink(team.photosAdminJoinCode) });
   } catch (error) {
-    console.error('Error creating Photos Admin invite:', error.message);
+    console.error('Error fetching Photos Admin join link:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
-// POST /api/photos/accept-admin-invite — authenticated: the token
-// identifies the invite (team); the session identifies who is accepting
-// it. Deliberately never touches req.user.teamId — a Photos Admin is not
-// a TeamMember (PhotosAdmin's own schema comment), same as a guardian. No
-// requireFeature/requirePhotosFeatureEnabled up front — there's no team to
-// check the feature flag against before the token resolves one, same
-// reasoning as POST /volunteer-login — so it carries the same inline
-// isFeatureEnabled check GET /download-link/:token uses instead, once the
-// invite's team is in hand: an invite minted before Photos was turned off
-// should behave like everything else once it's off.
-router.post('/accept-admin-invite', authenticate, async (req, res) => {
-  const { token } = req.body || {};
+// POST /api/photos/join-link — generate (or regenerate, replacing
+// whatever code existed) the team's standing join code. FULL_COACH, same
+// tier as routes/team.js's staff-invite: handing out a code that grants
+// real access to this team's data is a "staff management" action even
+// when the account it creates is scoped to one module. requireActivePlan
+// for the same reason staff/athlete invites already require it
+// (lib/entitlements.js) — this exposes the app to new accounts too.
+router.post('/join-link', authenticate, requireFeature('photos'), requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
+  try {
+    const code = nanoid();
+    await prisma.team.update({ where: { id: req.user.teamId }, data: { photosAdminJoinCode: code } });
+    res.json({ code, link: buildPhotosAdminJoinLink(code) });
+  } catch (error) {
+    console.error('Error generating Photos Admin join link:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// DELETE /api/photos/join-link — revoke the standing code so it can no
+// longer be used to join; existing Photos Admin grants are untouched
+// (revoke those individually via PATCH /admins/:userId instead).
+router.delete('/join-link', authenticate, requireFeature('photos'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    await prisma.team.update({ where: { id: req.user.teamId }, data: { photosAdminJoinCode: null } });
+    res.json({ msg: 'Join link revoked.' });
+  } catch (error) {
+    console.error('Error revoking Photos Admin join link:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/photos/join-as-admin — authenticated: the code identifies the
+// team; the session identifies who is joining. Deliberately never touches
+// req.user.teamId — a Photos Admin is not a TeamMember (PhotosAdmin's own
+// schema comment), same as a guardian. No requireFeature/
+// requirePhotosFeatureEnabled up front — there's no team to check the
+// feature flag against before the code resolves one, same reasoning as
+// POST /volunteer-login — so it carries the same inline isFeatureEnabled
+// check GET /download-link/:token uses instead, once the code's team is
+// in hand: a link shared before Photos was turned off should behave like
+// everything else once it's off. Reusable by design, so unlike the old
+// accept-admin-invite this never consumes or invalidates the code.
+router.post('/join-as-admin', authenticate, async (req, res) => {
+  const { code } = req.body || {};
   const userId = req.user.id;
 
-  if (!token) {
-    return res.status(400).json({ msg: 'Invite token is required.' });
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ msg: 'A join code is required.' });
   }
 
   try {
-    const invite = await prisma.photosAdminInvite.findUnique({ where: { token }, include: { team: true } });
+    const team = await prisma.team.findUnique({ where: { photosAdminJoinCode: code } });
 
-    if (!invite || invite.status !== 'pending') {
-      return res.status(404).json({ msg: 'This invite is no longer valid.' });
+    if (!team) {
+      return res.status(404).json({ msg: 'This link is no longer valid. Ask the coach who shared it for a current one.' });
     }
-    if (invite.expiresAt < new Date()) {
-      return res.status(410).json({ msg: 'This invite has expired. Ask the coach who sent it to resend it.' });
-    }
-    if (!isFeatureEnabled(invite.team.features, 'photos')) {
+    if (!isFeatureEnabled(team.features, 'photos')) {
       return res.status(403).json({ msg: 'This team has turned Photos off.', code: 'FEATURE_DISABLED', feature: 'photos' });
     }
 
-    await prisma.$transaction([
-      prisma.photosAdminInvite.update({ where: { id: invite.id }, data: { status: 'accepted', acceptedAt: new Date() } }),
-      prisma.photosAdmin.upsert({
-        where: { teamId_userId: { teamId: invite.teamId, userId } },
-        update: { active: true },
-        create: { teamId: invite.teamId, userId },
-      }),
-    ]);
+    await prisma.photosAdmin.upsert({
+      where: { teamId_userId: { teamId: team.id, userId } },
+      update: { active: true },
+      create: { teamId: team.id, userId },
+    });
 
     res.json({
-      msg: `You can now load, tag, and build photos for ${invite.team.name}.`,
-      teamId: invite.teamId,
-      athleticTeamId: invite.team.athleticTeamId,
+      msg: `You can now load, tag, and build photos for ${team.name}.`,
+      teamId: team.id,
+      athleticTeamId: team.athleticTeamId,
     });
   } catch (error) {
-    console.error('Error accepting Photos Admin invite:', error.message);
+    console.error('Error accepting Photos Admin join link:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
-// GET /api/photos/admins — every Photos Admin grant (active and revoked)
-// plus pending invites, for the Settings panel that manages them. Mirrors
-// routes/team.js's GET /staff shape. ANY_COACH, same read tier as viewing
-// staff — only sending an invite or revoking one is FULL_COACH.
+// GET /api/photos/admins — every Photos Admin grant (active and revoked),
+// for the Settings panel that manages them. Mirrors routes/team.js's GET
+// /staff shape. ANY_COACH, same read tier as viewing staff — only
+// revoking/restoring one is FULL_COACH.
 router.get('/admins', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
   try {
-    const [grants, invites] = await Promise.all([
-      prisma.photosAdmin.findMany({
-        where: { teamId: req.user.teamId },
-        include: { user: { select: { id: true, name: true, email: true } } },
-        orderBy: { createdAt: 'asc' },
-      }),
-      prisma.photosAdminInvite.findMany({
-        where: { teamId: req.user.teamId, status: 'pending' },
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
+    const grants = await prisma.photosAdmin.findMany({
+      where: { teamId: req.user.teamId },
+      include: { user: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
 
     res.json({
       admins: grants.map((g) => ({ userId: g.userId, name: g.user.name, email: g.user.email, active: g.active, createdAt: g.createdAt })),
-      pendingInvites: invites.map((i) => ({ email: i.email, expiresAt: i.expiresAt, createdAt: i.createdAt })),
     });
   } catch (error) {
     console.error('Error fetching Photos Admins:', error.message);

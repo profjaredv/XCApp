@@ -348,11 +348,6 @@ const CLASSIFICATION = {
     what: 'An account a coach granted full Load/Tag/Build access to the Photos module, without making them a coach.',
     why: 'Same posture as StaffInvite/TeamMember above — onboarding and access for an adult, naming no student.',
   },
-  PhotosAdminInvite: {
-    class: CLASSES.OPERATIONAL,
-    what: 'A pending invitation to become a Photos Admin.',
-    why: 'Onboarding for an adult, same as StaffInvite. Names no student.',
-  },
 
   // --- Athlete-authored: hers ---------------------------------------------
   TrainingLog: {

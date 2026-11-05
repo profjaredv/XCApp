@@ -8,7 +8,7 @@ export { default as AnalyticsPage } from './AnalyticsPage';
 export { default as ToolsPage } from './ToolsPage';
 export { default as InviteAcceptPage } from './InviteAcceptPage';
 export { default as StaffInviteAcceptPage } from './StaffInviteAcceptPage';
-export { default as PhotosAdminInviteAcceptPage } from './PhotosAdminInviteAcceptPage';
+export { default as PhotosAdminJoinPage } from './PhotosAdminJoinPage';
 export { default as ClaimTeamPage } from './ClaimTeamPage';
 export { default as PhotoDownloadLinkPage } from './photos/DownloadLinkPage';
 export { default as TeamAthleteProfilePage } from './TeamAthleteProfilePage';
