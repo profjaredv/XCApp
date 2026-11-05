@@ -59,14 +59,12 @@ export interface SendDownloadLinkResult {
   expiresAt: string;
 }
 
-// Photos Admin: an invited, non-coach account with full Load/Tag/Build
-// authority in this module only (backend's PhotosAdmin). Mirrors
-// routes/team.js's staff-invite shape, scoped to Photos.
-export interface SendPhotosAdminInviteResult {
-  msg: string;
-  token: string;
-  emailSent: boolean;
-  invite: { token: string; email: string; expiresAt: string };
+// Photos Admin: a non-coach account with full Load/Tag/Build authority in
+// this module only (backend's PhotosAdmin), granted by accepting the
+// team's standing join link rather than a per-person invite.
+export interface PhotosAdminJoinLink {
+  code: string | null;
+  link: string | null;
 }
 
 export interface PhotosAdminGrant {
@@ -77,15 +75,8 @@ export interface PhotosAdminGrant {
   createdAt: string;
 }
 
-export interface PhotosAdminPendingInvite {
-  email: string;
-  expiresAt: string;
-  createdAt: string;
-}
-
 export interface PhotosAdminsList {
   admins: PhotosAdminGrant[];
-  pendingInvites: PhotosAdminPendingInvite[];
 }
 
 // Shown on the public DownloadLinkPage — note this never includes an
@@ -416,10 +407,21 @@ export const photosService = {
   },
 
   // Photos Admin management — FULL_COACH-only (a coach, not a volunteer
-  // coach), matching routes/team.js's own staff-invite tier. Grants
-  // Load/Tag/Build authority in this module only, never coaching access.
-  async sendPhotosAdminInvite(email: string): Promise<SendPhotosAdminInviteResult> {
-    const response = await api.post<SendPhotosAdminInviteResult>('/photos/admin-invite', { email });
+  // coach) to generate/revoke the link, matching routes/team.js's own
+  // staff-invite tier; ANY_COACH to view it. Grants Load/Tag/Build
+  // authority in this module only, never coaching access.
+  async getPhotosAdminJoinLink(): Promise<PhotosAdminJoinLink> {
+    const response = await api.get<PhotosAdminJoinLink>('/photos/join-link');
+    return response.data;
+  },
+
+  async generatePhotosAdminJoinLink(): Promise<PhotosAdminJoinLink> {
+    const response = await api.post<PhotosAdminJoinLink>('/photos/join-link');
+    return response.data;
+  },
+
+  async revokePhotosAdminJoinLink(): Promise<{ msg: string }> {
+    const response = await api.delete<{ msg: string }>('/photos/join-link');
     return response.data;
   },
 
@@ -433,11 +435,12 @@ export const photosService = {
     return response.data;
   },
 
-  // Authenticated: the token identifies the invite; the signed-in session
-  // is who's accepting it. Never makes the account a TeamMember — see
-  // backend's PhotosAdmin schema comment.
-  async acceptPhotosAdminInvite(token: string): Promise<{ msg: string; teamId: string; athleticTeamId: string }> {
-    const response = await api.post<{ msg: string; teamId: string; athleticTeamId: string }>('/photos/accept-admin-invite', { token });
+  // Authenticated: the code identifies the team; the signed-in session is
+  // who's joining. Never makes the account a TeamMember — see backend's
+  // PhotosAdmin schema comment. Reusable — accepting never consumes the
+  // code, so the same link works for the next parent too.
+  async joinAsPhotosAdmin(code: string): Promise<{ msg: string; teamId: string; athleticTeamId: string }> {
+    const response = await api.post<{ msg: string; teamId: string; athleticTeamId: string }>('/photos/join-as-admin', { code });
     return response.data;
   },
 };

@@ -17,27 +17,32 @@ interface PhotosAdminSectionProps {
  * Invite anyone — not just a coach — to full Load/Tag/Build authority in
  * the Photos module (backend's PhotosAdmin). Lives inside Collage settings
  * since it's a once-per-team, coach-managed setting like accent/logo/team
- * photo, not a per-athlete thing. Sending an invite or revoking one is
- * actually FULL_COACH-only server-side (routes/photos.js); a volunteer
- * coach who tries gets a plain 403 toast rather than a frontend-side gate,
- * since this module's Actor model doesn't otherwise distinguish a
- * volunteer coach from a full one.
+ * photo, not a per-athlete thing. One standing, reusable link rather than
+ * a per-person invite: a coach generates it once and shares it however
+ * they like (text, email, a group chat) — any parent who has it can click
+ * and join directly, no email typed in one at a time. Generating,
+ * regenerating, or revoking the link is actually FULL_COACH-only
+ * server-side (routes/photos.js); a volunteer coach who tries gets a
+ * plain 403 toast rather than a frontend-side gate, since this module's
+ * Actor model doesn't otherwise distinguish a volunteer coach from a full
+ * one.
  */
 export const PhotosAdminSection: React.FC<PhotosAdminSectionProps> = ({ active }) => {
   const [list, setList] = useState<PhotosAdminsList | null>(null);
+  const [link, setLink] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [email, setEmail] = useState('');
-  const [inviting, setInviting] = useState(false);
+  const [working, setWorking] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
     setLoading(true);
-    photosService
-      .listPhotosAdmins()
-      .then((result) => {
-        if (!cancelled) setList(result);
+    Promise.all([photosService.listPhotosAdmins(), photosService.getPhotosAdminJoinLink()])
+      .then(([admins, joinLink]) => {
+        if (cancelled) return;
+        setList(admins);
+        setLink(joinLink.link);
       })
       .catch((error) => {
         if (!cancelled) toast.error("Couldn't load Photos Admins.", { description: getApiErrorMessage(error) });
@@ -50,21 +55,39 @@ export const PhotosAdminSection: React.FC<PhotosAdminSectionProps> = ({ active }
     };
   }, [active]);
 
-  async function handleInvite() {
-    const trimmed = email.trim();
-    if (!trimmed) return;
-    setInviting(true);
+  async function handleGenerate() {
+    setWorking(true);
     try {
-      const result = await photosService.sendPhotosAdminInvite(trimmed);
-      toast.success(result.emailSent ? `Invite sent to ${trimmed}.` : `Invite ready for ${trimmed}.`, {
-        description: result.emailSent ? undefined : "Couldn't send the email, but the invite is live — share the link yourself.",
-      });
-      setEmail('');
-      setList((prev) => (prev ? { ...prev, pendingInvites: [{ email: trimmed, expiresAt: result.invite.expiresAt, createdAt: new Date().toISOString() }, ...prev.pendingInvites.filter((i) => i.email !== trimmed)] } : prev));
+      const result = await photosService.generatePhotosAdminJoinLink();
+      setLink(result.link);
+      toast.success(link ? 'Link regenerated — the old one no longer works.' : 'Link ready to share.');
     } catch (error) {
-      toast.error("Couldn't send that invite.", { description: getApiErrorMessage(error) });
+      toast.error("Couldn't create that link.", { description: getApiErrorMessage(error) });
     } finally {
-      setInviting(false);
+      setWorking(false);
+    }
+  }
+
+  async function handleCopy() {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success('Link copied.');
+    } catch {
+      toast.error("Couldn't copy the link — select and copy it manually.");
+    }
+  }
+
+  async function handleRevoke() {
+    setWorking(true);
+    try {
+      await photosService.revokePhotosAdminJoinLink();
+      setLink(null);
+      toast.success('Link revoked. Anyone with the old one can no longer join.');
+    } catch (error) {
+      toast.error("Couldn't revoke that link.", { description: getApiErrorMessage(error) });
+    } finally {
+      setWorking(false);
     }
   }
 
@@ -85,24 +108,37 @@ export const PhotosAdminSection: React.FC<PhotosAdminSectionProps> = ({ active }
     <div className="space-y-2">
       <Label>Photos Admins</Label>
       <p className="text-xs text-ink-muted">
-        Invite anyone — a parent, or any other volunteer — to load, tag, and build collages without making them a
-        coach. They never see the roster, results, or any other coaching tool; they also can't hide/delete photos or
-        change these settings.
+        Share one link with anyone — a parent, or any other volunteer — to let them load, tag, and build collages
+        without making them a coach. They never see the roster, results, or any other coaching tool; they also can't
+        hide/delete photos or change these settings.
       </p>
-      <div className="flex gap-1.5">
-        <Input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email to invite"
-          className="h-8 flex-1 border-ink-border bg-transparent text-xs text-ink-foreground"
-        />
-        <Button size="sm" variant="outline" disabled={inviting || !email.trim()} onClick={handleInvite}>
-          {inviting ? 'Sending…' : 'Invite'}
-        </Button>
-      </div>
 
       {loading && <p className="text-xs text-ink-muted">Loading…</p>}
+
+      {!loading && (
+        <div className="space-y-1.5">
+          {link ? (
+            <div className="flex gap-1.5">
+              <Input readOnly value={link} className="h-8 flex-1 border-ink-border bg-transparent text-xs text-ink-foreground" onFocus={(e) => e.currentTarget.select()} />
+              <Button size="sm" variant="outline" onClick={handleCopy}>
+                Copy
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-ink-muted">No link generated yet.</p>
+          )}
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="outline" disabled={working} onClick={handleGenerate}>
+              {working ? 'Working…' : link ? 'Regenerate link' : 'Generate link'}
+            </Button>
+            {link && (
+              <Button size="sm" variant="ghost" className="text-ink-muted" disabled={working} onClick={handleRevoke}>
+                Revoke
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {list && list.admins.length > 0 && (
         <ul className="space-y-1">
@@ -129,23 +165,7 @@ export const PhotosAdminSection: React.FC<PhotosAdminSectionProps> = ({ active }
         </ul>
       )}
 
-      {list && list.pendingInvites.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Pending</p>
-          <ul className="space-y-1">
-            {list.pendingInvites.map((invite) => (
-              <li key={invite.email} className="flex items-center justify-between gap-2 rounded-md bg-ink-border/10 px-2 py-1.5 text-xs text-ink-muted">
-                <span className="truncate">{invite.email}</span>
-                <span className="shrink-0">until {new Date(invite.expiresAt).toLocaleDateString()}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {list && list.admins.length === 0 && list.pendingInvites.length === 0 && (
-        <p className="text-xs text-ink-muted">No one invited yet.</p>
-      )}
+      {list && list.admins.length === 0 && !loading && <p className="text-xs text-ink-muted">No one has joined yet.</p>}
     </div>
   );
 };

@@ -8,27 +8,32 @@ import { getApiErrorMessage } from '../lib/apiError';
 import { photosService } from '../api/photosService';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 
-// Accept half of the Photos Admin invite flow (backend's PhotosAdmin —
-// full Load/Tag/Build authority in the Photos module only, for anyone a
-// coach invites, not just a coach). Mirrors StaffInviteAcceptPage.tsx's
-// shape, but calls photosService directly rather than going through
-// AuthContext: accepting never changes this account's team membership
-// (user.teamId stays null, same as a guardian — see backend's PhotosAdmin
-// schema comment), so there's no currentUser refresh to coordinate here.
-const PhotosAdminInviteAcceptPage: React.FC = () => {
-  const { token } = useParams<{ token: string }>();
+// Accept half of the Photos Admin join flow (backend's PhotosAdmin — full
+// Load/Tag/Build authority in the Photos module only, for anyone a coach
+// shares the team's standing join link with, not just a coach). Mirrors
+// StaffInviteAcceptPage.tsx's shape, but calls photosService directly
+// rather than going through AuthContext: accepting never changes this
+// account's team membership (user.teamId stays null, same as a guardian —
+// see backend's PhotosAdmin schema comment), so there's no currentUser
+// refresh to coordinate here. Unlike a personal invite, the code here is
+// reusable — several different signed-in accounts can land on this same
+// URL and each one joins independently, so there's no "already used"
+// state to show.
+const PhotosAdminJoinPage: React.FC = () => {
+  const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'requires_auth'>('loading');
   const [message, setMessage] = useState<string>('');
   const [athleticTeamId, setAthleticTeamId] = useState<string | null>(null);
-  // Same "accept exactly once per token" guard as StaffInviteAcceptPage —
-  // see that file's own comment for the bug this prevents.
-  const attemptedTokenRef = useRef<string | null>(null);
+  // Same "accept exactly once per code, per page load" guard as
+  // StaffInviteAcceptPage — see that file's own comment for the bug this
+  // prevents.
+  const attemptedCodeRef = useRef<string | null>(null);
 
   useEffect(() => {
     const handleAcceptance = async () => {
-      if (!token) {
+      if (!code) {
         setStatus('error');
         setMessage('Invalid invitation link.');
         return;
@@ -40,24 +45,24 @@ const PhotosAdminInviteAcceptPage: React.FC = () => {
         return;
       }
 
-      if (attemptedTokenRef.current === token) return;
-      attemptedTokenRef.current = token;
+      if (attemptedCodeRef.current === code) return;
+      attemptedCodeRef.current = code;
 
       try {
         setStatus('loading');
-        const response = await photosService.acceptPhotosAdminInvite(token);
+        const response = await photosService.joinAsPhotosAdmin(code);
         setStatus('success');
         setMessage(response.msg);
         setAthleticTeamId(response.athleticTeamId);
       } catch (error) {
-        console.error('Error accepting Photos Admin invitation:', error);
+        console.error('Error accepting Photos Admin join link:', error);
         setStatus('error');
         setMessage(getApiErrorMessage(error, 'Failed to accept invitation.'));
       }
     };
 
     handleAcceptance();
-  }, [token, currentUser]);
+  }, [code, currentUser]);
 
   const handleSignIn = () => {
     sessionStorage.setItem('redirectUrl', window.location.pathname);
@@ -144,4 +149,4 @@ const PhotosAdminInviteAcceptPage: React.FC = () => {
   );
 };
 
-export default PhotosAdminInviteAcceptPage;
+export default PhotosAdminJoinPage;

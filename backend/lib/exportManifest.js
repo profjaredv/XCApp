@@ -23,9 +23,10 @@
 //
 // joinCode and the invite/claim tokens are not "sensitive-ish" — they are
 // bearer credentials. Anyone holding the join code can put themselves on
-// the roster; anyone holding an invite token can accept it. The Stripe ids
+// the roster; anyone holding an invite token can accept it; anyone
+// holding photosAdminJoinCode can become a Photos Admin. The Stripe ids
 // are billing-account handles that have no business in a coach's backup.
-const SENSITIVE_FIELDS = ['token', 'joinCode', 'stripeCustomerId', 'stripeSubscriptionId'];
+const SENSITIVE_FIELDS = ['token', 'joinCode', 'photosAdminJoinCode', 'stripeCustomerId', 'stripeSubscriptionId'];
 
 // Whole tables that never appear in an export, with the reason, because
 // "why is X missing" is a question this file should answer.
@@ -52,7 +53,6 @@ const EXCLUDED_MODELS = {
     'Exists only to carry a live session token (the no-account Photos tagging path) — not data the team created, and the tags made through it are already exported via PhotoAthlete.',
   PhotoDownloadLink:
     'Exists only to carry a live download token for one parent — not data the team created, and the photos it unlocks are already exported via Photo/PhotoAthlete.',
-  PhotosAdminInvite: 'Exists only to carry a live token; the invitee\'s email is already on the photosAdmins row once accepted.',
 };
 
 /**

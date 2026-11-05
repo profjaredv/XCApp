@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '../App';
-import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, PhotosAdminInviteAcceptPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage, PhotoDownloadLinkPage } from '../pages';
+import { AuthFlowPage, LoginPage, RegisterPage, OnboardingPage, ProfilePage, AnalyticsPage, InviteAcceptPage, StaffInviteAcceptPage, PhotosAdminJoinPage, ClaimTeamPage, TeamAthleteProfilePage, JoinTeamPage, FixCoachRolePage, MyProgressPage, PoliciesPage, AdminDashboardPage, StartPage, BandTrendsPage, FieldResultsPage, PhotoDownloadLinkPage } from '../pages';
 import CheckoutPage from '../pages/CheckoutPage';
 import { FeatureGate } from '../components/FeatureGate';
 import GroupDayPage from '../pages/GroupDayPage';
@@ -114,13 +114,13 @@ export const router = createBrowserRouter([
         path: '/staff-invite/:token',
         element: <StaffInviteAcceptPage />,
       },
-      // LeadPack Photos: accept a Photos Admin invite — full Load/Tag/Build
-      // authority in this module only, for anyone a coach invites, not
-      // just a coach (backend's PhotosAdmin). See PhotosAdminSection.tsx
-      // for where a coach sends these.
+      // LeadPack Photos: join via the team's standing Photos Admin link —
+      // full Load/Tag/Build authority in this module only, for anyone a
+      // coach shares it with, not just a coach (backend's PhotosAdmin).
+      // See PhotosAdminSection.tsx for where a coach generates this link.
       {
-        path: '/photos-admin-invite/:token',
-        element: <PhotosAdminInviteAcceptPage />,
+        path: '/photos-admin-join/:code',
+        element: <PhotosAdminJoinPage />,
       },
       // F3 (LeadPack Master Build Handoff): public — shows the team name
       // and masked email before sign-in. See routes/teamClaims.js.
