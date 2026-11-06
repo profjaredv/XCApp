@@ -19,6 +19,14 @@ import type { Athlete, AthleteBuildStats, PhotoAthleteTags } from '../state/type
 const EXPORT_W = 2550;
 const EXPORT_H = 3300;
 
+// Both collage pages paint an opaque background before drawing anything
+// else (collageRender.ts's renderCollage/renderCollageBack), so there's
+// no transparency to lose — PNG's lossless encoding was spending most of
+// an export's size on photographic content it compresses badly, bloating
+// a single collage to tens of MB. JPEG at this quality is visually
+// indistinguishable for a printed page and runs 10-20x smaller.
+const EXPORT_JPEG_QUALITY = 0.92;
+
 /**
  * Each pick's crop position/zoom for one athlete — lives on the tag, not
  * the pick, so it survives a swap-out/swap-back. Aligned 1:1 with
@@ -254,7 +262,7 @@ export const BuildModule: React.FC = () => {
             accentColor,
             logoExport.url,
           );
-          const frontDataUrl = canvas.toDataURL('image/png');
+          const frontDataUrl = canvas.toDataURL('image/jpeg', EXPORT_JPEG_QUALITY);
           await renderCollageBack(
             canvas,
             EXPORT_W,
@@ -266,7 +274,7 @@ export const BuildModule: React.FC = () => {
             accentColor,
             logoExport.url,
           );
-          const backDataUrl = canvas.toDataURL('image/png');
+          const backDataUrl = canvas.toDataURL('image/jpeg', EXPORT_JPEG_QUALITY);
           const pdfBlob = buildTwoPagePdf(frontDataUrl, backDataUrl).output('blob');
           zip.file(`leadpack-photos-collage-${candidate.id}.pdf`, pdfBlob);
         } catch (error) {
@@ -331,9 +339,9 @@ export const BuildModule: React.FC = () => {
         accentColor,
         logoExport.url,
       );
-      const frontDataUrl = canvas.toDataURL('image/png');
+      const frontDataUrl = canvas.toDataURL('image/jpeg', EXPORT_JPEG_QUALITY);
       await renderCollageBack(canvas, EXPORT_W, EXPORT_H, header, displayStats, groupPhotoExport.url, true, accentColor, logoExport.url);
-      const backDataUrl = canvas.toDataURL('image/png');
+      const backDataUrl = canvas.toDataURL('image/jpeg', EXPORT_JPEG_QUALITY);
       // Opaque id only — the spec's privacy rule bars an athlete's name
       // from ever appearing in a key, URL, or download filename.
       buildTwoPagePdf(frontDataUrl, backDataUrl).save(`leadpack-photos-collage-${athlete.id}.pdf`);
