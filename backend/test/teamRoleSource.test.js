@@ -20,8 +20,8 @@ test('no route or middleware reads req.user.teamRole', () => {
   assert.deepEqual(offenders, []);
 });
 
-test('journey and strategy check the coach role through hasTeamRole', () => {
+test('journey, strategy and footsteps check the coach role through hasTeamRole', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'analytics.js'), 'utf8');
   const calls = src.match(/isTeamCoach = req\.user\.teamId === athlete\.teamId && \(await hasTeamRole\(req\.user, ANY_COACH\)\)/g) ?? [];
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
 });
