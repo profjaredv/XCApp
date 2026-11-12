@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Check, Copy, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAthleticTeamId } from '@/hooks/useTeamRoute';
+import { useTeamSlug } from '@/hooks/useTeamRoute';
 import { photosService } from '../../../api/photosService';
 import { getApiErrorMessage } from '@/lib/apiError';
 
@@ -12,7 +12,7 @@ import { getApiErrorMessage } from '@/lib/apiError';
 // tag photos without signing in at all. Off by default for every team —
 // setting a password here is what turns that door on.
 export const TagPasswordControl: React.FC = () => {
-  const athleticTeamId = useAthleticTeamId();
+  const teamSlug = useTeamSlug();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
@@ -31,7 +31,7 @@ export const TagPasswordControl: React.FC = () => {
     };
   }, []);
 
-  const link = athleticTeamId ? `${window.location.origin}/photos-tag-in/${athleticTeamId}` : '';
+  const link = teamSlug ? `${window.location.origin}/photos-tag-in/${teamSlug}` : '';
 
   async function handleSave() {
     const password = draft.trim();

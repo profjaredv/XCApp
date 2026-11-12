@@ -22,7 +22,7 @@ export type NextNavZone = 'week' | 'insights' | 'setup';
 export interface NextNavEntry {
   key: string;
   label: string;
-  /** Appended to /t/:athleticTeamId. */
+  /** Appended to /t/:teamSlug. */
   path: string;
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   audience: NextNavRole[];

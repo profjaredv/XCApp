@@ -121,7 +121,7 @@ const SECTION_BY_SUBPATH: Record<string, SectionKey> = {
  */
 export function sectionForPath(pathname: string): SectionTheme {
   const parts = pathname.split('/').filter(Boolean);
-  // Strip the /t/:athleticTeamId prefix when present.
+  // Strip the /t/:teamSlug prefix when present.
   const rest = parts[0] === 't' ? parts.slice(2) : parts;
   const head = rest[0] ?? '';
   return SECTION_THEME[SECTION_BY_SUBPATH[head] ?? 'home'];

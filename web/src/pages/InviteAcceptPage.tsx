@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { getApiErrorMessage } from '../lib/apiError';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { teamAddress } from '../lib/teamAddress';
 
 const InviteAcceptPage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
@@ -25,7 +26,7 @@ const InviteAcceptPage: React.FC = () => {
   // then got an invalid/unauthorized link" bug.
   const attemptedTokenRef = useRef<string | null>(null);
   const [athleteId, setAthleteId] = useState<string | null>(null);
-  const [athleticTeamId, setAthleticTeamId] = useState<string | null>(null);
+  const [teamSlug, setTeamSlug] = useState<string | null>(null);
 
   useEffect(() => {
     const handleInviteAcceptance = async () => {
@@ -52,7 +53,7 @@ const InviteAcceptPage: React.FC = () => {
           setStatus('success');
           setMessage(response.msg as string);
           setAthleteId((response as { athleteId?: string }).athleteId || null);
-          setAthleticTeamId((response as { athleticTeamId?: string }).athleticTeamId || null);
+          setTeamSlug(teamAddress(response as { slug?: string; athleticTeamId?: string }) ?? null);
         } else {
           setStatus('success');
           setMessage('Invitation accepted successfully!');
@@ -68,10 +69,10 @@ const InviteAcceptPage: React.FC = () => {
   }, [token, currentUser, acceptInvite]);
 
   const handleContinue = () => {
-    // Prefer the athleticTeamId /athletes/accept-invite just returned over
+    // Prefer the team address /athletes/accept-invite just returned over
     // currentUser.team — the auth context refresh acceptInvite() kicks off
     // is async and may not have landed yet the instant this runs.
-    const resolvedAthleticTeamId = athleticTeamId ?? currentUser?.team?.athleticTeamId;
+    const resolvedAthleticTeamId = teamSlug ?? teamAddress(currentUser?.team);
     if (athleteId && resolvedAthleticTeamId) {
       navigate(`/t/${resolvedAthleticTeamId}/team/athlete/${athleteId}`);
     } else {

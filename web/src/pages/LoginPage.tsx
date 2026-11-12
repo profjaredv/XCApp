@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { AuthView } from '@neondatabase/neon-js/auth/react/ui';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { teamHome } from '../lib/teamAddress';
 
 // Uses Neon Auth's (Better Auth) prebuilt <AuthView/> component rather than a
 // hand-rolled email/password form. `redirectTo="/login"` keeps AuthView's own
@@ -30,7 +31,7 @@ const LoginPage: React.FC = () => {
       } else if (!currentUser.team) {
         navigate('/onboarding', { replace: true });
       } else {
-        navigate(`/t/${currentUser.team.athleticTeamId}`, { replace: true });
+        navigate(teamHome(currentUser.team), { replace: true });
       }
     }
   }, [currentUser, navigate]);

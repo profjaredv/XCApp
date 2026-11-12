@@ -334,8 +334,9 @@ export const photosService = {
   // No account, no Authorization header — see PhotosTagInPage.tsx and
   // lib/photosVolunteer.ts, which stores the returned token and attaches
   // it (as X-Photos-Volunteer-Token) to every subsequent Photos request.
-  async volunteerLogin(athleticTeamId: string, password: string): Promise<{ token: string }> {
-    const response = await api.post<{ token: string }>('/photos/volunteer-login', { athleticTeamId, password });
+  /** `team` is whatever the tagging link carries: the team's slug, or its Athletic.net id on an older link. */
+  async volunteerLogin(team: string, password: string): Promise<{ token: string }> {
+    const response = await api.post<{ token: string }>('/photos/volunteer-login', { team, password });
     return response.data;
   },
 
@@ -439,8 +440,8 @@ export const photosService = {
   // who's joining. Never makes the account a TeamMember — see backend's
   // PhotosAdmin schema comment. Reusable — accepting never consumes the
   // code, so the same link works for the next parent too.
-  async joinAsPhotosAdmin(code: string): Promise<{ msg: string; teamId: string; athleticTeamId: string }> {
-    const response = await api.post<{ msg: string; teamId: string; athleticTeamId: string }>('/photos/join-as-admin', { code });
+  async joinAsPhotosAdmin(code: string): Promise<{ msg: string; teamId: string; slug?: string; athleticTeamId: string }> {
+    const response = await api.post<{ msg: string; teamId: string; slug?: string; athleticTeamId: string }>('/photos/join-as-admin', { code });
     return response.data;
   },
 };

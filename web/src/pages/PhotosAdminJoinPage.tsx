@@ -25,7 +25,7 @@ const PhotosAdminJoinPage: React.FC = () => {
   const { currentUser } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'requires_auth'>('loading');
   const [message, setMessage] = useState<string>('');
-  const [athleticTeamId, setAthleticTeamId] = useState<string | null>(null);
+  const [teamSlug, setTeamSlug] = useState<string | null>(null);
   // Same "accept exactly once per code, per page load" guard as
   // StaffInviteAcceptPage — see that file's own comment for the bug this
   // prevents.
@@ -53,7 +53,7 @@ const PhotosAdminJoinPage: React.FC = () => {
         const response = await photosService.joinAsPhotosAdmin(code);
         setStatus('success');
         setMessage(response.msg);
-        setAthleticTeamId(response.athleticTeamId);
+        setTeamSlug(response.slug ?? response.athleticTeamId);
       } catch (error) {
         console.error('Error accepting Photos Admin join link:', error);
         setStatus('error');
@@ -75,7 +75,7 @@ const PhotosAdminJoinPage: React.FC = () => {
   };
 
   const handleContinue = () => {
-    if (athleticTeamId) navigate(`/t/${athleticTeamId}/photos`);
+    if (teamSlug) navigate(`/t/${teamSlug}/photos`);
     else navigate('/');
   };
 

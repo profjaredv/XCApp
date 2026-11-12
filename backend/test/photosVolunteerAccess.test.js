@@ -32,7 +32,7 @@ test('safeEqual: true for identical strings, false for different ones (same or d
 
 test('verifyVolunteerLogin issues a token when the password matches', async (t) => {
   const restoreTeam = stub('team', 'findUnique', (args) => {
-    assert.deepEqual(args.where, { athleticTeamId: 'ehs-xc' });
+    assert.deepEqual(args.where, { slug: 'ehs-xc' });
     return { id: 'team-1', photosTagPassword: 'go-tigers-2026' };
   });
   let createArgs;
@@ -45,7 +45,7 @@ test('verifyVolunteerLogin issues a token when the password matches', async (t) 
     restoreSession();
   });
 
-  const result = await verifyVolunteerLogin(prisma, { athleticTeamId: 'ehs-xc', password: 'go-tigers-2026' });
+  const result = await verifyVolunteerLogin(prisma, { teamAddress: 'ehs-xc', password: 'go-tigers-2026' });
 
   assert.equal(result.ok, true);
   assert.equal(typeof result.token, 'string');
@@ -57,21 +57,21 @@ test('verifyVolunteerLogin issues a token when the password matches', async (t) 
 test('verifyVolunteerLogin refuses a wrong password', async (t) => {
   const restore = stub('team', 'findUnique', () => ({ id: 'team-1', photosTagPassword: 'go-tigers-2026' }));
   t.after(restore);
-  const result = await verifyVolunteerLogin(prisma, { athleticTeamId: 'ehs-xc', password: 'wrong' });
+  const result = await verifyVolunteerLogin(prisma, { teamAddress: 'ehs-xc', password: 'wrong' });
   assert.deepEqual(result, { ok: false });
 });
 
 test('verifyVolunteerLogin refuses a team that never set a password, identically to a wrong one', async (t) => {
   const restore = stub('team', 'findUnique', () => ({ id: 'team-1', photosTagPassword: null }));
   t.after(restore);
-  const result = await verifyVolunteerLogin(prisma, { athleticTeamId: 'ehs-xc', password: 'anything' });
+  const result = await verifyVolunteerLogin(prisma, { teamAddress: 'ehs-xc', password: 'anything' });
   assert.deepEqual(result, { ok: false });
 });
 
-test('verifyVolunteerLogin refuses an athleticTeamId that does not exist, identically to a wrong password', async (t) => {
+test('verifyVolunteerLogin refuses a team address that does not exist, identically to a wrong password', async (t) => {
   const restore = stub('team', 'findUnique', () => null);
   t.after(restore);
-  const result = await verifyVolunteerLogin(prisma, { athleticTeamId: 'no-such-team', password: 'anything' });
+  const result = await verifyVolunteerLogin(prisma, { teamAddress: 'no-such-team', password: 'anything' });
   assert.deepEqual(result, { ok: false });
 });
 

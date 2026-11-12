@@ -10,7 +10,7 @@ import type { Season } from '@/hooks/useAvailableSeasons';
 // else used) — pick a season on one screen and every other screen forgot
 // it existed. This is the one place that selection lives now; the
 // SeasonProvider component (SeasonProvider.tsx) is provided once in
-// TeamRouteGuard.tsx (wrapping every /t/:athleticTeamId/* route, including
+// TeamRouteGuard.tsx (wrapping every /t/:teamSlug/* route, including
 // the standalone full-screen ones that render outside <Layout>) so it
 // survives navigating between screens, and reset only on a full reload
 // (same as the per-page state it replaces already behaved).
@@ -48,7 +48,7 @@ export function useSeasonSelection(): SeasonContextValue {
 
 // Non-throwing variant for the one consumer that renders both inside and
 // outside the provider — Layout.tsx's header, which also covers /profile
-// (deliberately outside /t/:athleticTeamId, so no SeasonProvider there).
+// (deliberately outside /t/:teamSlug, so no SeasonProvider there).
 export function useOptionalSeasonSelection(): SeasonContextValue | null {
   return useContext(SeasonContext);
 }

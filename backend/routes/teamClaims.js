@@ -78,6 +78,7 @@ router.post('/:token/claim', authenticate, async (req, res) => {
 
     res.json({
       teamId: claim.teamId,
+      slug: claim.team.slug,
       athleticTeamId: claim.team.athleticTeamId,
       teamName: claim.team.name,
       checkoutRequired: claim.team.plan !== 'active',

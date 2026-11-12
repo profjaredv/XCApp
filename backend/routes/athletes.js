@@ -963,6 +963,7 @@ router.post('/accept-invite', authenticate, async (req, res) => {
       athleteId: athlete.id,
       athleteName: athlete.name,
       teamId: invite.teamId,
+      slug: invite.team.slug,
       athleticTeamId: invite.team.athleticTeamId,
     });
   } catch (error) {
