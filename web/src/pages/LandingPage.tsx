@@ -3,30 +3,31 @@ import { Suspense, lazy } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   ArrowRight,
-  BarChart3,
+  Camera,
   CalendarDays,
-  CheckCircle2,
   ClipboardList,
   ClipboardPaste,
   Download,
-  FileSpreadsheet,
-  Palette,
-  Upload,
-  PencilLine,
-  X,
-  Flag,
+  Footprints,
   GraduationCap,
+  HeartHandshake,
   Lock,
-  School,
+  NotebookPen,
+  Package,
+  Palette,
+  PencilLine,
   ShieldCheck,
   Target,
   Timer,
   TrendingUp,
+  Upload,
   Users,
+  UsersRound,
 } from 'lucide-react';
 import { accentFor, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
 import { AppPreview } from '@/components/landing/AppPreview';
+import { FootstepsShowcase, MeetDayShowcase, PhotosShowcase, PracticeShowcase } from '@/components/landing/Showcases';
 
 // Recharts is the heavy part of this page; it loads after the first paint.
 const ExampleCharts = lazy(() => import('@/components/landing/ExampleCharts'));
@@ -52,39 +53,76 @@ const ExampleCharts = lazy(() => import('@/components/landing/ExampleCharts'));
 // skeptical of, and the people who evaluate this have been trained to
 // discount it. See src/content/dataPolicy.ts.
 
-const AUDIENCES: Array<{
-  icon: typeof School;
+// The page is organised around what the product does, biggest first. Each
+// showcase is one job, a picture of it, and three plain facts. Everything
+// claimed here exists in the app today.
+const SHOWCASES: Array<{
+  id: string;
+  icon: typeof Camera;
+  section: SectionKey;
+  eyebrow: string;
   title: string;
   body: string;
-  section: SectionKey;
+  points: string[];
+  visual: React.ReactNode;
 }> = [
   {
-    icon: School,
-    title: 'High school',
-    body: 'Class years, JV and varsity, parent access, and four years of history per athlete. We sign your district’s data privacy agreement.',
-    section: 'season',
-  },
-  {
-    icon: GraduationCap,
-    title: 'College',
-    body: 'Big rosters, training groups with their own assistants, and multi-year progression.',
-    section: 'athletes',
-  },
-  {
-    icon: Flag,
-    title: 'Club',
-    body: 'Mixed ages and schools, volunteer coaches with limited access, and meet logistics.',
+    id: 'photos',
+    icon: Camera,
     section: 'meets',
+    eyebrow: 'LeadPack Photos',
+    title: 'Every runner gets their photos',
+    body: 'Hundreds of meet photos usually sit in one parent’s camera roll. Load them once, tag who is in each, and every athlete ends the season with their own.',
+    points: [
+      'Load from your computer or a shared Google Photos album.',
+      'Parents help tag with a meet-day password. No account needed.',
+      'One-page collage per runner with their stats and season chart, as a print-ready PDF.',
+      'A private download link per athlete, and a slideshow for the banquet.',
+    ],
+    visual: <PhotosShowcase />,
   },
-];
-
-const PAIN: string[] = [
-  'Roster in one file, results in another, the latest version in an email.',
-  'Attendance on paper, then retyped. Or not.',
-  'Meet entries rebuilt every weekend.',
-  'Paces worked out by hand.',
-  'Last season’s results on a laptop that’s gone.',
-  'An assistant who needs the sheet, and now sees all of it.',
+  {
+    id: 'footsteps',
+    icon: Footprints,
+    section: 'program',
+    eyebrow: 'Footsteps',
+    title: 'See where a runner is heading',
+    body: 'Your own alumni are the best prediction you have. Footsteps finds the runners from your program who ran like this athlete at the same grade, and shows what they went on to run.',
+    points: [
+      'A projected time with its range and how many runners it rests on.',
+      'Built from your team’s history. No formula, no AI.',
+      'Coaches see who the matches are. Athletes and parents see class year only.',
+    ],
+    visual: <FootstepsShowcase />,
+  },
+  {
+    id: 'meet-day',
+    icon: Timer,
+    section: 'meets',
+    eyebrow: 'Meet day',
+    title: 'Entries to team score, on your phone',
+    body: 'Build entries from the roster, time the race, and have the scores before the bus leaves.',
+    points: [
+      'Entries and meet plans by race and division.',
+      'A live timer that records mile splits as they pass.',
+      'Team scoring, pack spread and PRs. Add the full field and see where you placed.',
+    ],
+    visual: <MeetDayShowcase />,
+  },
+  {
+    id: 'practice',
+    icon: CalendarDays,
+    section: 'groups',
+    eyebrow: 'Every day',
+    title: 'Attendance, plans and paces by group',
+    body: 'The part of coaching that happens at 3:30. Each assistant sees their own group and nothing else.',
+    points: [
+      'Take attendance at the trailhead in a few taps.',
+      'Plan the week and assign workouts by training group.',
+      'Define Threshold and VO2 your way. Paces come from each runner’s races.',
+    ],
+    visual: <PracticeShowcase />,
+  },
 ];
 
 const COMPARE: Array<{ job: string; sheet: string; app: string }> = [
@@ -92,10 +130,9 @@ const COMPARE: Array<{ job: string; sheet: string; app: string }> = [
   { job: 'Attendance', sheet: 'A column nobody trusts', app: 'Taken on your phone, by group' },
   { job: 'Results', sheet: 'Pasted into tabs, broken formulas', app: 'Paste or upload; every season kept' },
   { job: 'Workout paces', sheet: 'Calculated by hand', app: 'From each athlete’s own races' },
-  { job: 'Meet day', sheet: 'A new sheet every weekend', app: 'Entries, heats, timer, scoring' },
-  { job: 'Who’s improving', sheet: 'A chart you built once', app: 'Pack spread, progress, who’s stalled' },
+  { job: 'Meet day', sheet: 'A new sheet every weekend', app: 'Entries, timer, scoring' },
+  { job: 'Photos', sheet: 'Not in the sheet', app: 'Tagged, and handed to each runner' },
   { job: 'Access', sheet: 'Everyone sees everything', app: 'Assistants see only their groups' },
-  { job: 'Athletes', sheet: 'Not in the sheet', app: 'Their own private log and goals' },
 ];
 
 const INTAKE: Array<{ icon: typeof Upload; title: string; body: string }> = [
@@ -104,6 +141,7 @@ const INTAKE: Array<{ icon: typeof Upload; title: string; body: string }> = [
   { icon: PencilLine, title: 'Type', body: 'Enter a race, time or athlete by hand.' },
 ];
 
+// The rest of the product, one line each.
 const FEATURES: Array<{
   icon: typeof ClipboardList;
   title: string;
@@ -113,38 +151,50 @@ const FEATURES: Array<{
   {
     icon: ClipboardList,
     title: 'A roster that carries forward',
-    body: 'Build it once. Class years roll over and seniors retire themselves.',
+    body: 'Class years roll over and seniors retire themselves.',
     section: 'athletes',
   },
   {
-    icon: CalendarDays,
-    title: 'Attendance & practice plans',
-    body: 'Take attendance at the trailhead. Plan practices and assign workouts by group.',
-    section: 'groups',
-  },
-  {
-    icon: Timer,
-    title: 'Workouts in your language',
-    body: 'Define Threshold and VO2 your way. Paces come from each athlete’s own races.',
-    section: 'training',
-  },
-  {
-    icon: BarChart3,
-    title: 'Meet day, handled',
-    body: 'Entries, heats, a live timer, and team scoring.',
-    section: 'meets',
-  },
-  {
     icon: TrendingUp,
-    title: 'Analytics that answer',
-    body: 'Who’s improving, who’s stalled, how tight the pack is, across every season.',
+    title: 'Season and program analytics',
+    body: 'Who’s improving, how tight the pack is, and how far each season went.',
     section: 'program',
   },
   {
-    icon: Palette,
-    title: 'Looks like your team',
-    body: 'Set your colors once. The app and your exports wear them.',
+    icon: NotebookPen,
+    title: 'Athlete log and goals',
+    body: 'Private until shared. Runs come in from Garmin, Strava, Apple Health or a watch file.',
+    section: 'training',
+  },
+  {
+    icon: HeartHandshake,
+    title: 'Parents, with limits',
+    body: 'A parent sees their own runner once you approve the link.',
+    section: 'athletes',
+  },
+  {
+    icon: UsersRound,
+    title: 'Staff roles',
+    body: 'Assistants and volunteers get their groups, not the whole team.',
+    section: 'groups',
+  },
+  {
+    icon: Package,
+    title: 'Equipment',
+    body: 'Uniforms and gear checked out to names, with what’s overdue.',
     section: 'season',
+  },
+  {
+    icon: Palette,
+    title: 'Your colors',
+    body: 'Set them once. The app and every export wear them.',
+    section: 'season',
+  },
+  {
+    icon: Download,
+    title: 'Exports',
+    body: 'The team or one athlete, any time. No fee, no ticket.',
+    section: 'meets',
   },
 ];
 
@@ -238,8 +288,8 @@ export default function LandingPage() {
           <h1 className="mt-3 text-5xl font-bold tracking-tight sm:text-7xl">LeadPack XC</h1>
           <p className="mt-2 text-2xl font-semibold tracking-tight sm:text-4xl">Team management for cross country</p>
           <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground sm:text-xl">
-            Your season has outgrown the spreadsheet. Paste or upload your results and get
-            attendance, workouts, meet day and analytics.
+            Roster, practice, meet day, results and photos in one place. Everything your spreadsheet does, and the
+            things it never could.
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Link to="/start">
@@ -248,39 +298,98 @@ export default function LandingPage() {
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
-            <a href="#spreadsheet">
+            <a href="#photos">
               <Button size="lg" variant="outline" className="w-full px-8 sm:w-auto">
-                See what replaces your sheet
+                See what it does
               </Button>
             </a>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
             No credit card · Free for 30 days
           </p>
+          {/* Jump links: the page in one line. */}
+          <nav aria-label="Features" className="mt-8 flex flex-wrap justify-center gap-2">
+            {SHOWCASES.map(({ id, icon: Icon, eyebrow }) => (
+              <a
+                key={id}
+                href={`#${id}`}
+                className="inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
+              >
+                <Icon className="h-4 w-4 text-primary" aria-hidden />
+                {eyebrow}
+              </a>
+            ))}
+          </nav>
         </div>
         <AppPreview />
       </section>
 
-      {/* The problem */}
+      {/* Feature showcases: one job each, picture beside it, alternating sides. */}
+      {SHOWCASES.map((item, i) => {
+        const accent = accentFor(item.section);
+        return (
+          <section
+            key={item.id}
+            id={item.id}
+            className={cn('scroll-mt-20', i % 2 === 0 && 'border-y bg-muted/40')}
+          >
+            <div className="container mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 md:grid-cols-2 md:py-20">
+              <div className={cn(i % 2 === 1 && 'md:order-2')}>
+                <p className={cn('flex items-center gap-2 text-sm font-semibold uppercase tracking-widest', accent.text)}>
+                  <item.icon className="h-4 w-4" aria-hidden />
+                  {item.eyebrow}
+                </p>
+                <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{item.title}</h2>
+                <p className="mt-3 text-lg text-muted-foreground">{item.body}</p>
+                <ul className="mt-6 space-y-3">
+                  {item.points.map((point) => (
+                    <li key={point} className="flex gap-3 text-sm">
+                      <span className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current', accent.text)} aria-hidden />
+                      <span className="leading-relaxed">{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className={cn('min-w-0', i % 2 === 1 && 'md:order-1')}>
+                {item.visual}
+                <p className="mt-3 text-center text-xs text-muted-foreground">Example with made-up names and numbers.</p>
+              </div>
+            </div>
+          </section>
+        );
+      })}
+
+      {/* What you get out */}
+      <section id="analytics" className="container mx-auto max-w-6xl scroll-mt-20 px-4 py-20">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">See the season. See the growth.</h2>
+          <p className="mt-3 text-lg text-muted-foreground">Enter results once. The charts build themselves.</p>
+        </div>
+        <div className="mt-10">
+          <Suspense fallback={<div className="h-96 rounded-2xl border bg-muted/30" aria-hidden />}>
+            <ExampleCharts />
+          </Suspense>
+        </div>
+      </section>
+
+      {/* The rest of the product */}
       <section className="border-y bg-muted/40">
-        <div className="container mx-auto max-w-5xl px-4 py-16">
+        <div className="container mx-auto px-4 py-20">
           <div className="mx-auto max-w-2xl text-center">
-            <FileSpreadsheet className={cn('mx-auto h-9 w-9', accentFor('season').text)} />
-            <h2 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-              Sound like your August?
-            </h2>
-            <p className="mt-3 text-lg text-muted-foreground">
-              A spreadsheet holds the numbers. It doesn’t do the jobs.
-            </p>
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">And the rest of the job</h2>
           </div>
-          <ul className="mx-auto mt-10 grid max-w-4xl gap-4 md:grid-cols-2">
-            {PAIN.map((line) => (
-              <li key={line} className="flex gap-3 rounded-2xl border bg-card p-5 text-sm shadow-sm">
-                <X className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
-                <span className="leading-relaxed text-muted-foreground">{line}</span>
-              </li>
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {FEATURES.map((item) => (
+              <div key={item.title} className="rounded-2xl border bg-card p-5 shadow-sm">
+                <IconTile icon={item.icon} section={item.section} />
+                <h3 className="mt-4 font-semibold">{item.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
+              </div>
             ))}
-          </ul>
+          </div>
+          <p className="mx-auto mt-10 max-w-2xl text-center text-sm text-muted-foreground">
+            For high school, college and club teams.
+          </p>
         </div>
       </section>
 
@@ -316,19 +425,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* What you get out */}
-      <section className="container mx-auto max-w-6xl px-4 py-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">See the season. See the growth.</h2>
-          <p className="mt-3 text-lg text-muted-foreground">Enter results once. The charts build themselves.</p>
-        </div>
-        <div className="mt-10">
-          <Suspense fallback={<div className="h-96 rounded-2xl border bg-muted/30" aria-hidden />}>
-            <ExampleCharts />
-          </Suspense>
-        </div>
-      </section>
-
       {/* How the data gets in */}
       <section className="border-y bg-muted/40">
         <div className="container mx-auto max-w-5xl px-4 py-20">
@@ -357,42 +453,6 @@ export default function LandingPage() {
           <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-muted-foreground">
             You always see a preview first. Imports never delete anything.
           </p>
-        </div>
-      </section>
-
-      {/* Who it's for */}
-      <section className="container mx-auto px-4 pt-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Built for your kind of team</h2>
-        </div>
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
-          {AUDIENCES.map((item) => (
-            <div key={item.title} className="rounded-2xl border bg-card p-6 shadow-sm">
-              <IconTile icon={item.icon} section={item.section} />
-              <h3 className="mt-4 text-lg font-semibold">{item.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="container mx-auto px-4 py-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">The daily work, done</h2>
-        </div>
-
-        <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((item) => (
-            <div
-              key={item.title}
-              className="rounded-2xl border bg-card p-6 shadow-sm transition-shadow hover:shadow-md"
-            >
-              <IconTile icon={item.icon} section={item.section} />
-              <h3 className="mt-4 text-lg font-semibold">{item.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
-            </div>
-          ))}
         </div>
       </section>
 
@@ -435,63 +495,11 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* For coaches / for athletes */}
-      <section className="container mx-auto px-4 py-20">
-        <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-          Built for coaches & athletes
-        </h2>
-        <div className="mx-auto mt-12 grid max-w-4xl gap-10 md:grid-cols-2">
-          <div>
-            <h3 className="flex items-center gap-2 text-xl font-semibold">
-              <Users className={cn('h-5 w-5', accentFor('athletes').text)} />
-              For coaches
-            </h3>
-            <ul className="mt-4 space-y-3">
-              {[
-                'Retire the roster, attendance and meet-day sheets',
-                'See who’s improving and who’s stalled',
-                'Give assistants access to just their groups',
-                'Keep every season, four years in one picture',
-              ].map((line) => (
-                <li key={line} className="flex gap-3 text-sm">
-                  <CheckCircle2
-                    className={cn('mt-0.5 h-4 w-4 shrink-0', accentFor('athletes').text)}
-                  />
-                  <span className="text-muted-foreground">{line}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="flex items-center gap-2 text-xl font-semibold">
-              <Target className={cn('h-5 w-5', accentFor('training').text)} />
-              For athletes
-            </h3>
-            <ul className="mt-4 space-y-3">
-              {[
-                'A training log that’s private until you share it',
-                'Add runs from Garmin, Strava, Apple Health or any watch file',
-                'Workout paces from your own recent races',
-                'Set goals before a race, reflect after',
-              ].map((line) => (
-                <li key={line} className="flex gap-3 text-sm">
-                  <CheckCircle2
-                    className={cn('mt-0.5 h-4 w-4 shrink-0', accentFor('training').text)}
-                  />
-                  <span className="text-muted-foreground">{line}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </section>
-
       {/* CTA */}
       <section className="border-t bg-muted/40">
         <div className="container mx-auto max-w-2xl px-4 py-20 text-center">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Ready to close the spreadsheet?</h2>
-          <p className="mt-3 text-lg text-muted-foreground">Upload your roster, paste last season. Working in an afternoon.</p>
+          <p className="mt-3 text-lg text-muted-foreground">Upload your roster, paste last season, load a meet’s photos. Working in an afternoon.</p>
           <Link to="/start">
             <Button size="lg" className="mt-8 px-8">
               Start your free trial
