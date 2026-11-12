@@ -95,6 +95,9 @@ model Team {
   coachUid        String?  @map("coach_uid") @db.Uuid
   joinCode        String   @unique @map("join_code")
   athleticTeamId  String   @unique @map("athletic_team_id")
+  // The team's LeadPack address (/t/<slug>), made from its name. This, not
+  // the Athletic.net id above, is how the app addresses a team. See lib/teamSlug.js.
+  slug            String   @unique
   // The team's Athletic.net calendar (iCal) link, pasted by a coach. Fetched only when a coach clicks Import calendar.
   calendarFeedUrl String?  @map("calendar_feed_url")
   importedSeasons Int[]    @default([]) @map("imported_seasons")

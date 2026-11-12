@@ -4,6 +4,7 @@ export interface AdminTeamSummary {
   id: string;
   name: string;
   athleticTeamId: string;
+  slug?: string;
   currentSeason: number | null;
   athleteCount: number;
 }
@@ -72,7 +73,7 @@ export interface DemoJob {
 
 export interface DemoTeamStatus {
   exists: boolean;
-  team?: { id: string; name: string; athleticTeamId: string; currentSeason: number | null; createdAt: string };
+  team?: { id: string; name: string; slug?: string; athleticTeamId: string; currentSeason: number | null; createdAt: string };
   counts?: { athletes: number; seasons: number; races: number; results: number };
   job: DemoJob;
 }

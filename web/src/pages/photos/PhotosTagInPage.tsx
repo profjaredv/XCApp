@@ -17,13 +17,13 @@ import PhotosWorkspacePage from './PhotosWorkspacePage';
 // of a real Bearer token or the stored volunteer token applies (see
 // api/axios.ts).
 const PhotosTagInPage: React.FC = () => {
-  const { athleticTeamId } = useParams<{ athleticTeamId: string }>();
-  const [unlocked, setUnlocked] = useState(() => Boolean(athleticTeamId && getVolunteerToken(athleticTeamId)));
+  const { teamSlug } = useParams<{ teamSlug: string }>();
+  const [unlocked, setUnlocked] = useState(() => Boolean(teamSlug && getVolunteerToken(teamSlug)));
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!athleticTeamId) {
+  if (!teamSlug) {
     return (
       <div className="dark fixed inset-0 flex items-center justify-center bg-ink text-center text-sm text-ink-muted">
         That tagging link looks incomplete.
@@ -41,8 +41,8 @@ const PhotosTagInPage: React.FC = () => {
     setSubmitting(true);
     setError(null);
     try {
-      const { token } = await photosService.volunteerLogin(athleticTeamId!, password.trim());
-      setVolunteerToken(athleticTeamId!, token);
+      const { token } = await photosService.volunteerLogin(teamSlug!, password.trim());
+      setVolunteerToken(teamSlug!, token);
       setUnlocked(true);
     } catch (err) {
       setError(getApiErrorMessage(err, "That didn't work — check the password and try again."));

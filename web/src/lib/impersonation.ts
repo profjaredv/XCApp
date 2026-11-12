@@ -27,13 +27,13 @@ export function getAdminTeamName(): string | null {
 // new identity — simpler and safer than trying to invalidate every
 // react-query key by hand for a feature that's used rarely, deliberately,
 // and always followed by a full navigation anyway.
-export function setAdminTeam(teamId: string, teamName: string, athleticTeamId: string) {
+export function setAdminTeam(teamId: string, teamName: string, teamSlug: string) {
   sessionStorage.setItem(ADMIN_TEAM_ID_KEY, teamId);
   sessionStorage.setItem(ADMIN_TEAM_NAME_KEY, teamName);
   // No destination — clear the preview flag without navigating; the
   // href assignment below is this function's own navigation.
   clearPreviewAthlete();
-  window.location.href = `/t/${athleticTeamId}`;
+  window.location.href = `/t/${teamSlug}`;
 }
 
 export function clearAdminTeam(reload = true) {

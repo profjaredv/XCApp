@@ -41,6 +41,7 @@ router.get('/current', authenticate, requireTeam, async (req, res) => {
     res.json({
       id: team.id,
       name: team.name,
+      slug: team.slug,
       athleticTeamId: team.athleticTeamId,
       joinCode: team.joinCode,
       // Was missing entirely, which broke the round trip: Settings reads
@@ -514,7 +515,7 @@ router.get('/context', authenticate, requireTeam, async (req, res) => {
     const [team, activeSeason, seasonsWithData, athleteCount, raceCount] = await Promise.all([
       prisma.team.findUnique({
         where: { id: teamId },
-        select: { id: true, name: true, athleticTeamId: true, currentSeason: true, joinCode: true, plan: true },
+        select: { id: true, name: true, slug: true, athleticTeamId: true, currentSeason: true, joinCode: true, plan: true },
       }),
       resolveActiveSeason(teamId),
       listSeasonsWithData(teamId),

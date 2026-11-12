@@ -146,7 +146,7 @@ export const router = createBrowserRouter([
       // session. See PhotosTagInPage.tsx and routes/photos.js's
       // POST /volunteer-login.
       {
-        path: '/photos-tag-in/:athleticTeamId',
+        path: '/photos-tag-in/:teamSlug',
         element: <PhotosTagInPage />,
       },
       {
@@ -158,12 +158,12 @@ export const router = createBrowserRouter([
         element: <ProtectedRoute />,
         children: [
           // Identity-level, not team data — deliberately outside
-          // /t/:athleticTeamId (reachable even for a signed-in user who
+          // /t/:teamSlug (reachable even for a signed-in user who
           // hasn't joined/created a team yet). Still wrapped in Layout so
           // it gets the same sidebar/header chrome as every other screen
           // instead of rendering as a bare, nav-less page — useTeamPath's
           // athleticTeamId falls back to the user's own team from
-          // AuthContext here since there's no :athleticTeamId URL param.
+          // AuthContext here since there's no :teamSlug URL param.
           // ShellSwitch rather than Layout (UI trial, §1.4): Profile is
           // reached from the next shell's avatar menu too, and should keep
           // the chrome of whichever shell the person is in.
@@ -181,7 +181,7 @@ export const router = createBrowserRouter([
             element: <UpgradeRolePage />,
           },
           // Pre-team-scoped-URL paths: bounce old bookmarks/links to the
-          // equivalent /t/:athleticTeamId route instead of 404ing.
+          // equivalent /t/:teamSlug route instead of 404ing.
           // These three were all pre-team-scoped-URL aliases for "the
           // default view when you sign in" — that's Today now (Workstream
           // A), not Analytics, so they bounce to the bare team path.
@@ -223,7 +223,7 @@ export const router = createBrowserRouter([
           // redirects (not just hides nav) any non-admin session. The real
           // boundary is server-side (requireSuperAdmin on every
           // /api/track/* route); this is UX only. Not nested under
-          // /t/:athleticTeamId on purpose: this surface predates the
+          // /t/:teamSlug on purpose: this surface predates the
           // sport-aware season picker merge the handoff describes for
           // launch (Section 1a) — it's where in-progress phases land for
           // Jared to click through before that merge happens. See
@@ -244,7 +244,7 @@ export const router = createBrowserRouter([
             ],
           },
           {
-            path: '/t/:athleticTeamId',
+            path: '/t/:teamSlug',
             element: <TeamRouteGuard />,
             children: [
               // Race visualization - standalone without Layout (no sidebar)

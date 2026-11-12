@@ -96,7 +96,7 @@ export const DemoTeamCard: React.FC = () => {
 
         <div className="flex flex-wrap gap-2">
           {data?.exists && data.team && !running && (
-            <Button onClick={() => setAdminTeam(data.team!.id, data.team!.name, data.team!.athleticTeamId)}>
+            <Button onClick={() => setAdminTeam(data.team!.id, data.team!.name, data.team!.slug ?? data.team!.athleticTeamId)}>
               <PlayCircle className="mr-2 h-4 w-4" />
               Open demo team
             </Button>

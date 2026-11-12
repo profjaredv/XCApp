@@ -178,11 +178,15 @@ const volunteerLoginLimiter = rateLimit({
 // locally and sends back as X-Photos-Volunteer-Token on every Photos
 // request from then on (see middleware/photosVolunteer.js).
 router.post('/volunteer-login', volunteerLoginLimiter, async (req, res) => {
-  const { athleticTeamId, password } = req.body || {};
-  if (!athleticTeamId || !password || typeof password !== 'string') {
-    return res.status(400).json({ msg: 'athleticTeamId and password are required.' });
+  // `team` is the address from the link: the LeadPack slug, or the
+  // Athletic.net id on a link shared before slugs existed. `athleticTeamId`
+  // is the old body field, still accepted from a cached client.
+  const { password } = req.body || {};
+  const teamAddress = (req.body || {}).team || (req.body || {}).athleticTeamId;
+  if (!teamAddress || typeof teamAddress !== 'string' || !password || typeof password !== 'string') {
+    return res.status(400).json({ msg: 'team and password are required.' });
   }
-  const result = await photosVolunteerAccess.verifyVolunteerLogin(prisma, { athleticTeamId, password });
+  const result = await photosVolunteerAccess.verifyVolunteerLogin(prisma, { teamAddress, password });
   if (!result.ok) {
     return res.status(401).json({ msg: 'Incorrect password.' });
   }
@@ -306,6 +310,7 @@ router.post('/join-as-admin', authenticate, async (req, res) => {
     res.json({
       msg: `You can now load, tag, and build photos for ${team.name}.`,
       teamId: team.id,
+      slug: team.slug,
       athleticTeamId: team.athleticTeamId,
     });
   } catch (error) {
