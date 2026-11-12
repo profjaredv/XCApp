@@ -16,6 +16,7 @@ const { decideCanViewAthleteJourney } = require('../lib/athleteJourneyPermission
 const { buildAthleteSplitRows } = require('../lib/splitRows');
 const { aggregateSplitsByDistance, normalizeDistanceMeters } = require('../lib/splitAggregates');
 const { buildStrategy } = require('../lib/raceStrategy');
+const { buildFootsteps } = require('../lib/footsteps');
 const { parseDistanceToMeters } = require('../lib/distance');
 const { groupMeetMetricsByMeet } = require('../lib/meetMapping');
 const { compareByFinishTime } = require('../lib/raceResults');
@@ -418,6 +419,77 @@ router.get('/athlete/:athleteId/strategy', authenticate, async (req, res) => {
   } catch (err) {
     console.error('Error building race strategy:', err.message);
     res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/analytics/athlete/:athleteId/footsteps — the runners this
+// program has had who ran like this athlete at the same grade, and what
+// they went on to run. See lib/footsteps.js.
+//
+// Same three-way permission as journey and strategy below. What differs is
+// what comes back: a coach sees who the matches are; the athlete themself
+// or a guardian sees only "Class of 2022", because the matches are other
+// students and nothing here should name one to a teammate or a parent.
+router.get('/athlete/:athleteId/footsteps', authenticate, async (req, res) => {
+  const { athleteId } = req.params;
+
+  try {
+    const athlete = await prisma.athlete.findUnique({
+      where: { id: athleteId },
+      select: { id: true, name: true, preferredName: true, gender: true, teamId: true, graduationYear: true },
+    });
+    if (!athlete) {
+      return res.status(404).json({ msg: 'Athlete not found' });
+    }
+
+    const isSelf = req.user.linkedAthlete?.id === athleteId;
+    const isTeamCoach = req.user.teamId === athlete.teamId && (await hasTeamRole(req.user, ANY_COACH));
+    let hasApprovedGuardianLink = false;
+    if (!isSelf && !isTeamCoach) {
+      const link = await prisma.guardianLink.findUnique({
+        where: { userId_athleteId: { userId: req.user.id, athleteId } },
+      });
+      hasApprovedGuardianLink = Boolean(link && link.status === 'approved');
+    }
+    if (!decideCanViewAthleteJourney({ isSelf, isTeamCoach, hasApprovedGuardianLink })) {
+      return res.status(403).json({ msg: 'Access denied.' });
+    }
+
+    const [athletes, results] = await Promise.all([
+      prisma.athlete.findMany({
+        where: { teamId: athlete.teamId, gender: athlete.gender, graduationYear: { not: null } },
+        select: { id: true, name: true, graduationYear: true },
+      }),
+      prisma.result.findMany({
+        where: { teamId: athlete.teamId, status: 'FINISHED', time: { gt: 0 }, athlete: { gender: athlete.gender } },
+        select: { athleteId: true, time: true, race: { select: { season: true, distanceMeters: true, distance: true } } },
+      }),
+    ]);
+
+    const footsteps = buildFootsteps({
+      athleteId,
+      athletes,
+      results: results.map((r) => ({
+        athleteId: r.athleteId,
+        season: r.race.season,
+        timeSec: r.time,
+        distanceMeters: r.race.distanceMeters ?? parseDistanceToMeters(r.race.distance),
+      })),
+      // A coach previewing the app as an athlete sees what the athlete sees.
+      showNames: isTeamCoach && !isSelf,
+    });
+
+    const { athlete: self, ...rest } = footsteps;
+    res.json({
+      ...rest,
+      athlete: { id: athlete.id, name: athlete.preferredName || athlete.name, graduationYear: athlete.graduationYear },
+      // The athlete's own season bests by grade, and the grade the matches are measured from.
+      self,
+      namesShown: isTeamCoach && !isSelf,
+    });
+  } catch (error) {
+    console.error('Error in GET /analytics/athlete/:athleteId/footsteps:', error.message);
+    res.status(500).json({ msg: 'Failed to load footsteps.' });
   }
 });
 

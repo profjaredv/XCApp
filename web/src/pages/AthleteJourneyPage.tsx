@@ -10,6 +10,7 @@ import { BackButton } from '@/components/BackButton';
 import { athleteJourneyService, type Band } from '@/api/athleteJourneyService';
 import { formatTime, formatPace, formatDateShort } from '@/lib/formatUtils';
 import { deriveGrade, gradeLabel } from '@/lib/seasonUtils';
+import { FootstepsCard } from '@/components/analytics/FootstepsCard';
 
 // Workstream E1 (LeadPack Master Build Handoff): "one scrolling page with
 // the band path as the spine... freshman year at rank 87, senior year at
@@ -65,6 +66,9 @@ const AthleteJourneyPage: React.FC = () => {
           {seasons.length} season{seasons.length === 1 ? '' : 's'} on record
         </p>
       </div>
+
+      {/* Where this is heading, before where it has been. */}
+      {athleteId && seasons.length > 0 && <FootstepsCard athleteId={athleteId} />}
 
       {seasons.length === 0 ? (
         <p className="text-muted-foreground">No finished races on record yet.</p>
