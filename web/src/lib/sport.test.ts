@@ -30,7 +30,7 @@ describe('the two sports do not share a nav', () => {
     expect(NAV_ITEMS.some((e) => e.path.startsWith('/track'))).toBe(false);
   });
   it('every track nav entry lives under /track', () => {
-    expect(TRACK_NAV.every((e) => e.path.startsWith('/track/'))).toBe(true);
+    expect(TRACK_NAV.every((e) => e.path === '/track' || e.path.startsWith('/track/'))).toBe(true);
   });
   it('an athlete page keeps Roster lit, a group page keeps Groups lit', () => {
     const by = (k: string) => TRACK_NAV.find((e) => e.key === k)!;
@@ -39,7 +39,7 @@ describe('the two sports do not share a nav', () => {
     expect(trackNavActive(by('events'), 'track/points')).toBe(false);
   });
   it('carries the spine a coach asked for', () => {
-    expect(TRACK_NAV.map((e) => e.label)).toEqual(['Roster', 'Groups', 'Schedule', 'Meets', 'Events', 'Points', 'Import results', 'Equipment', 'Photos']);
+    expect(TRACK_NAV.map((e) => e.label)).toEqual(['Today', 'Roster', 'Groups', 'Schedule', 'Meets', 'Events', 'Points', 'Import results', 'Equipment', 'Photos']);
   });
 });
 

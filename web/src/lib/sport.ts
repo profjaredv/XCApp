@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { Medal, BarChart3, Flag, Upload, ClipboardList, Users, CalendarDays, Package, Camera } from 'lucide-react';
+import { Home, Medal, BarChart3, Flag, Upload, ClipboardList, Users, CalendarDays, Package, Camera } from 'lucide-react';
 import type { TeamFeatureKey } from './teamFeatureKeys';
 
 // One team, two sports. The sport is chosen at the top of the nav, and
@@ -91,6 +91,7 @@ export interface TrackNavEntry {
 // else). The same spine as cross country (athletes, groups, practice,
 // meets) plus Events, the thing track is organised around.
 export const TRACK_NAV: TrackNavEntry[] = [
+  { key: 'home', label: 'Today', path: '/track', icon: Home, zone: 'season' },
   { key: 'roster', label: 'Roster', path: '/track/roster', icon: ClipboardList, zone: 'season', mobileTab: 1 },
   { key: 'groups', label: 'Groups', path: '/track/groups', icon: Users, zone: 'season', mobileTab: 2 },
   { key: 'schedule', label: 'Schedule', path: '/track/schedule', icon: CalendarDays, zone: 'season', mobileTab: 3 },
@@ -107,5 +108,6 @@ export function trackNavActive(entry: TrackNavEntry, sub: string): boolean {
   if (entry.key === 'events') return sub === target;
   if (entry.key === 'roster') return sub === target || sub.startsWith('track/athlete/');
   if (entry.key === 'groups') return sub === target || sub.startsWith('track/group');
+  if (entry.key === 'meets') return sub === target || sub.startsWith('track/meet/');
   return sub === target;
 }

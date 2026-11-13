@@ -241,6 +241,7 @@ const main = async () => {
     app.use('/api/race-predictions', racePredictionRoutes);
     // Track & Field — coach-gated, feature-gated and sport-scoped per route
     app.use('/api/track', trackRoutes);
+    app.use('/api/track-me', require('./routes/trackMe'));
 
     // Enhanced performance routes
     const enhancedPerformanceRoutes = require('./routes/enhancedPerformanceRoutes');

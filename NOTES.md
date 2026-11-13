@@ -4792,3 +4792,57 @@ above, but nobody has looked at them under track yet.
   track version. Athletes and parents see nothing of track yet.
 - Relays, indoor events, and the Round column's level prefix, as before.
 - Staff invites still cannot be scoped to one sport.
+
+## PR6: track meets, entries, relays, a Track home, and the athlete's own page
+
+**Meets.** A coach can add a meet before it happens (`POST /track/meets`),
+write the plan for the day (`TrackMeet.notes`), and open any meet at
+`/track/meet/:id`: entries and results by event, PRs flagged
+(`prsAtMeet`: better than everything that athlete had done in the event
+before that date, first-ever marks included). A planned meet with no
+results can be removed; one with results cannot.
+
+**Entries are TrackResult rows with status `ENTERED`** and no mark, not a
+second table. When the meet's results are imported, the import's upsert
+hits the same (meet, event, athlete, round) key and turns the entry into
+the result. Everything that counts marks already required `FINISHED`, and
+the places that count rows (points entrants, the athlete record) now skip
+`ENTERED`. `PUT /track/meets/:id/entries` sets one event's list and only
+ever deletes rows that are still `ENTERED`.
+
+**Relays.** A relay is a TrackResult with no `athleteId`, its runners in
+`relayAthleteIds` in leg order, and a new `relayTeam` (A, B...) because a
+school often runs several squads in one event. The relay builder on the
+meet page picks the event, squad and four legs, and shows each athlete's
+season best in the relay's open event (4x100 -> 100 Meters), with what the
+chosen four and the fastest four add up to. That sum is labelled as open
+times added together, not a prediction. The time and place are typed in
+once it is run. Relays appear on the meet, on the Events screen as squads
+fastest first, and on every leg-runner's athlete page (found through
+`relayAthleteIds`, per the handoff's verify gate 5). A relay with a time
+needs a head coach to delete.
+
+**Relay import is still not built.** Relay results have to be typed in.
+The Athletic.net Relays tab is a different page and there is still no
+sample of its markup to write a parser against.
+
+**Track home** (`/track`, "Today" in the track nav): roster, meets, events
+and results counts, upcoming meets, and the last meet with its PRs.
+
+**Athletes** get "My Track & Field" (`/me/track`, `GET /api/track-me`):
+their own marks, PRs and relays. It reads only the caller's linked athlete
+and takes no id. It lives outside `/track` because that prefix is the
+coach's side and sends the sport header athletes are refused on.
+
+Migration `20261114000000_track_meets_relays`: two nullable columns.
+
+**Verified** on Postgres 16 with the real pages in Chromium: add a meet,
+save notes, enter three athletes in the 100, build a 4x100 from the
+suggestions, record 44.52 and 2nd, see it on the meet, the Events screen,
+the leg-runner's athlete page and the athlete's own page; the home screen
+picks the meet up. No failed requests or page errors. Backend 1217 of
+1218, web 930 of 930, build clean (same two standing exceptions).
+
+**Still open**: parents see nothing of track; athletes do not see the meet
+plan or their entries; no track Season dashboard or Program beyond Points;
+relay splits; indoor; sport-scoped staff invites.
