@@ -4684,3 +4684,37 @@ depth-by-event-group, the cross-sport link on the athlete page, and a
 sport picker on staff invites. `web`'s `tsc -b` has one error that predates
 this work on `neon-migration` (`LandingPage.tsx`, `School` not imported);
 the deploy build (`vite build`) does not type-check and is clean.
+
+## PR4: Track & Field is its own sport, not a screen inside cross country
+
+PR3 put Track & Field in the cross country nav as one item with tabs
+inside it. Wrong shape: the two sports keep different stats, so they need
+different screens from the top down (handoff Section 1a).
+
+Now the sport is chosen at the top of the nav (`SportSwitcher`, both
+shells; in the new shell's phone layout it is at the top of the More
+sheet) and the whole nav below belongs to that sport. `lib/sport.ts` is the
+model: every track screen lives under `/track`, every other team screen is
+cross country, and the few that belong to neither (settings, profile) keep
+the last sport, remembered in localStorage. `lib/sport.test.ts` fails if a
+track screen is ever added to either cross country nav list.
+
+In Track & Field the nav is Leaders, Points, Meets, and under Setup, Import
+results and Settings. Each is its own route and page
+(`pages/track/Track*Page.tsx`); the tabbed `TrackPage` is gone. Cross
+country's season picker, group scope, athlete finder and timer are hidden
+there. A team with no track results lands on Import, which is the sport's
+setup: importing a year is what creates the season. Only coaches on a team
+with the feature on see the switcher; athletes are unaffected.
+
+Not there yet, deliberately: Roster, Groups, Schedule and practice plans
+do not appear under Track & Field. Those screens are keyed to cross
+country seasons today, so showing them there would show XC data under a
+track heading. They need track seasons as real `Season` rows first, which
+means auditing the 17 backend files that look seasons up by
+`(teamId, year)` with no sport filter.
+
+Verified in Chromium in both shells with the real API behind them: the nav
+swaps completely on switch, Settings keeps the sport, switching back lands
+on Today with no track items, an athlete account gets no switcher, and the
+phone tab bar becomes Leaders, Points, Meets, Import results.

@@ -11,12 +11,12 @@ const labels = (xs: { label: string }[]) => xs.map((x) => x.label);
 describe('next nav per role', () => {
   it('head coach / coach: desktop zones and Setup', () => {
     expect(labels(nextNavFor('coach', 'week'))).toEqual(['Today', 'Train', 'Groups']);
-    expect(labels(nextNavFor('coach', 'insights'))).toEqual(['Athletes', 'Meets', 'Season', 'Program', 'Track & Field']);
+    expect(labels(nextNavFor('coach', 'insights'))).toEqual(['Athletes', 'Meets', 'Season', 'Program']);
     expect(labels(nextNavFor('coach', 'setup'))).toEqual(['Roster', 'Data & Import', 'Equipment', 'Field Results', 'Photos', 'Settings', 'Coaching staff']);
   });
   it('coach phone: Today, Train, Groups, Meets + More (Athletes, Season, Program, Setup)', () => {
     expect(labels(mobileTabsFor('coach'))).toEqual(['Today', 'Train', 'Groups', 'Meets']);
-    expect(labels(moreItemsFor('coach'))).toEqual(['Athletes', 'Season', 'Program', 'Track & Field', 'Roster', 'Data & Import', 'Equipment', 'Field Results', 'Photos', 'Settings', 'Coaching staff']);
+    expect(labels(moreItemsFor('coach'))).toEqual(['Athletes', 'Season', 'Program', 'Roster', 'Data & Import', 'Equipment', 'Field Results', 'Photos', 'Settings', 'Coaching staff']);
   });
   it('volunteer coach: same, minus Setup', () => {
     expect(labels(nextNavFor('volunteer', 'week'))).toEqual(['Today', 'Train', 'Groups']);

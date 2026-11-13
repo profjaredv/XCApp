@@ -4,7 +4,7 @@ import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-do
 // these are the ones this file draws itself.
 import { accentFor, sectionForNavKey, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, X, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon, Activity } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, X, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamContext } from '../hooks/useTeamContext';
@@ -23,6 +23,9 @@ import { navFor, navEntry } from '../lib/navigation';
 import { useTeamFeatures } from '@/hooks/useTeamFeatures';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { APP_VERSION } from '@/version';
+import { SportSwitcher } from './SportSwitcher';
+import { useSport } from '@/hooks/useSport';
+import { TRACK_NAV } from '@/lib/sport';
 
 interface SidebarProps {
   isMobileOpen: boolean;
@@ -229,6 +232,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
   const { data: features } = useTeamFeatures();
   const isVolunteerCoach = teamRole === 'VOLUNTEER_COACH';
   const isCoachSpine = teamRole === 'HEAD_COACH' || teamRole === 'COACH' || isVolunteerCoach;
+  const { sport, canSwitch, switchTo } = useSport();
+  const inTrack = sport === 'TRACK';
 
   const handleLogout = () => {
     authClient.signOut();
@@ -291,7 +296,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
         ) : (
           <>
             <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent transition-opacity duration-300">
-              LeadPack XC
+              {inTrack ? 'LeadPack Track' : 'LeadPack XC'}
             </h1>
             {/* A build identifier a coach can point to when reporting "did
                 my fix actually deploy" — see version.ts for why this is a
@@ -320,10 +325,41 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
           peer of Schedule). Athletes have no Schedule/calendar view of
           their own, so their Meets link stays here as their only path to
           it. */}
+      {/* One team, two sports. The sport is picked here and the whole nav
+          below belongs to it: Track & Field is not a screen inside cross
+          country, and none of cross country's screens show under it. */}
+      {canSwitch && (
+        <div className="px-3">
+          <SportSwitcher
+            sport={sport}
+            collapsed={isCollapsed}
+            onChange={(next) => {
+              handleLinkClick();
+              switchTo(next);
+            }}
+          />
+        </div>
+      )}
       <nav className="mt-2 flex-1 min-h-0 px-3 overflow-y-auto">
-        <NavItem to={teamPath(navEntry('today').path)} icon={navEntry('today').icon} label={navEntry('today').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('today')} />
+        {!inTrack && (
+          <NavItem to={teamPath(navEntry('today').path)} icon={navEntry('today').icon} label={navEntry('today').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('today')} />
+        )}
 
-        {isCoachSpine ? (
+        {inTrack ? (
+          <>
+            {TRACK_NAV.filter((e) => e.zone === 'season').map((e) => (
+              <NavItem key={e.key} to={teamPath(e.path)} icon={e.icon} label={e.label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            ))}
+            {!isVolunteerCoach && (
+              <CollapsibleSetupSection isCollapsed={isCollapsed}>
+                {TRACK_NAV.filter((e) => e.zone === 'setup').map((e) => (
+                  <NavItem key={e.key} to={teamPath(e.path)} icon={e.icon} label={e.label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
+                ))}
+                <NavItem to={teamPath(navEntry('settings').path)} icon={navEntry('settings').icon} label={navEntry('settings').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('settings')} />
+              </CollapsibleSetupSection>
+            )}
+          </>
+        ) : isCoachSpine ? (
           <>
             {/* Rendered from lib/navigation.ts so the sidebar and the
                 feature tour cannot drift apart — see that file. Season is
@@ -357,11 +393,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
               onLinkClick={handleLinkClick}
             />
             <NavItem to={teamPath(navEntry('program').path)} icon={navEntry('program').icon} label={navEntry('program').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('program')} />
-            {/* The team's other sport. Not in NAV_ITEMS: that list is the
-                cross country spine the feature tour walks. */}
-            {features?.enabled?.track !== false && (
-              <NavItem to={teamPath('/track')} icon={Activity} label="Track & Field" isCollapsed={isCollapsed} onClick={handleLinkClick} />
-            )}
             {!isVolunteerCoach && (
               <CollapsibleSetupSection isCollapsed={isCollapsed}>
                 {navFor('coach', 'setup')
@@ -500,6 +531,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
 export const TeamSeasonHeader: React.FC = () => {
   const { data: context } = useTeamContext();
   const seasonSelection = useOptionalSeasonSelection();
+  // The season picker is cross country's; a track screen carries its own.
+  const inTrack = useSport().sport === 'TRACK';
 
   return (
     <>
@@ -509,7 +542,7 @@ export const TeamSeasonHeader: React.FC = () => {
           them instead of right-aligning as a group. min-w-0 keeps
           truncate working once the name is the flexible item. */}
       <span className="font-semibold text-sm md:text-base truncate min-w-0 flex-1">{context?.team?.name}</span>
-      {seasonSelection && seasonSelection.seasons.length > 0 && (
+      {!inTrack && seasonSelection && seasonSelection.seasons.length > 0 && (
         <Select
           value={seasonSelection.activeYear != null ? String(seasonSelection.activeYear) : undefined}
           onValueChange={(v) => seasonSelection.setSelectedYear(Number(v))}
