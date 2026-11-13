@@ -6,6 +6,8 @@ import {
   canHidePhoto,
   canPickPhoto,
   canViewGroupCoverage,
+  canReachModule,
+  canBrowseFullRoster,
   isPhotoVisible,
   tagSourceFor,
   type Actor,
@@ -24,6 +26,9 @@ const athleteSelf: Actor = { userId: 'athlete-1', isCoach: false, role: 'athlete
 // Unlocked tagging with the team's shared password (middleware/photosVolunteer.js
 // on the backend) instead of any account — no userId, no linked athletes.
 const volunteer: Actor = { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [], ledGroupIds: [] };
+// An invited, non-coach account with full Load/Tag/Build authority
+// (backend's PhotosAdmin) — a real account (userId set), unlike a volunteer.
+const photosAdmin: Actor = { userId: 'parent-9', isCoach: false, role: 'photos_admin', linkedAthleteIds: [], ledGroupIds: [] };
 
 describe('canTagAthlete', () => {
   it('lets a coach tag any athlete', () => {
@@ -39,6 +44,11 @@ describe('canTagAthlete', () => {
     expect(canTagAthlete(volunteer, 'athlete-1')).toBe(true);
     expect(canTagAthlete(volunteer, 'athlete-99')).toBe(true);
   });
+
+  it('lets a Photos Admin tag any athlete, same as a coach', () => {
+    expect(canTagAthlete(photosAdmin, 'athlete-1')).toBe(true);
+    expect(canTagAthlete(photosAdmin, 'athlete-99')).toBe(true);
+  });
 });
 
 describe('canManageAthlete (picks/opt-out)', () => {
@@ -52,14 +62,20 @@ describe('canManageAthlete (picks/opt-out)', () => {
     expect(canManageAthlete(volunteer, 'athlete-1')).toBe(false);
     expect(canManageAthlete(volunteer, 'athlete-99')).toBe(false);
   });
+
+  it('DOES extend to a Photos Admin, unlike a volunteer — it has a real account', () => {
+    expect(canManageAthlete(photosAdmin, 'athlete-1')).toBe(true);
+    expect(canManageAthlete(photosAdmin, 'athlete-99')).toBe(true);
+  });
 });
 
 describe('tagSourceFor', () => {
-  it('records coach, guardian, athlete and volunteer tags with distinct provenance', () => {
+  it('records coach, guardian, athlete, volunteer, and Photos Admin tags with distinct provenance', () => {
     expect(tagSourceFor(coach)).toBe('coach');
     expect(tagSourceFor(parent)).toBe('parent');
     expect(tagSourceFor(athleteSelf)).toBe('self');
     expect(tagSourceFor(volunteer)).toBe('volunteer');
+    expect(tagSourceFor(photosAdmin)).toBe('photos_admin');
   });
 });
 
@@ -77,13 +93,18 @@ describe('canRemoveTag', () => {
     expect(canRemoveTag(volunteer, { athleteId: 'athlete-1', source: 'volunteer', taggedBy: null })).toBe(true);
     expect(canRemoveTag(volunteer, { athleteId: 'athlete-1', source: 'parent', taggedBy: 'parent-1' })).toBe(false);
   });
+
+  it('lets a Photos Admin remove any tag, same as a coach', () => {
+    expect(canRemoveTag(photosAdmin, { athleteId: 'athlete-1', source: 'parent', taggedBy: 'parent-1' })).toBe(true);
+  });
 });
 
 describe('canHidePhoto', () => {
-  it('is coach-only', () => {
+  it('is coach-only — never granted by a Photos Admin invite', () => {
     expect(canHidePhoto(coach)).toBe(true);
     expect(canHidePhoto(parent)).toBe(false);
     expect(canHidePhoto(volunteer)).toBe(false);
+    expect(canHidePhoto(photosAdmin)).toBe(false);
   });
 });
 
@@ -101,6 +122,11 @@ describe('canViewGroupCoverage', () => {
     expect(canViewGroupCoverage(coach, 'group-red')).toBe(true);
   });
 
+  it('lets a Photos Admin view coverage for any group, same as a coach', () => {
+    expect(canViewGroupCoverage(photosAdmin, 'group-blue')).toBe(true);
+    expect(canViewGroupCoverage(photosAdmin, 'group-red')).toBe(true);
+  });
+
   it('lets a captain view only the group(s) they lead', () => {
     expect(canViewGroupCoverage(captain, 'group-blue')).toBe(true);
     expect(canViewGroupCoverage(captain, 'group-red')).toBe(false);
@@ -108,6 +134,36 @@ describe('canViewGroupCoverage', () => {
 
   it('refuses a plain athlete/guardian with no led groups', () => {
     expect(canViewGroupCoverage(parent, 'group-blue')).toBe(false);
+  });
+});
+
+describe('canBrowseFullRoster', () => {
+  it('is true for a coach or a Photos Admin, false for everyone else', () => {
+    expect(canBrowseFullRoster(coach)).toBe(true);
+    expect(canBrowseFullRoster(photosAdmin)).toBe(true);
+    expect(canBrowseFullRoster(parent)).toBe(false);
+    expect(canBrowseFullRoster(athleteSelf)).toBe(false);
+    expect(canBrowseFullRoster(volunteer)).toBe(false);
+  });
+});
+
+describe('canReachModule', () => {
+  it('opens load to a coach or Photos Admin only', () => {
+    expect(canReachModule(coach, 'load')).toBe(true);
+    expect(canReachModule(photosAdmin, 'load')).toBe(true);
+    expect(canReachModule(parent, 'load')).toBe(false);
+    expect(canReachModule(volunteer, 'load')).toBe(false);
+  });
+
+  it('keeps slideshow coach-only, excluding a Photos Admin', () => {
+    expect(canReachModule(coach, 'slideshow')).toBe(true);
+    expect(canReachModule(photosAdmin, 'slideshow')).toBe(false);
+  });
+
+  it('opens build to any real account except a volunteer', () => {
+    expect(canReachModule(photosAdmin, 'build')).toBe(true);
+    expect(canReachModule(parent, 'build')).toBe(true);
+    expect(canReachModule(volunteer, 'build')).toBe(false);
   });
 });
 
@@ -131,10 +187,11 @@ describe('isPhotoVisible', () => {
     expect(isPhotoVisible(photo, undefined, athletesById, parent)).toBe(true);
   });
 
-  it('hides a photo tagged with an opted-out athlete from everyone but a coach', () => {
+  it('hides a photo tagged with an opted-out athlete from everyone but a coach or Photos Admin', () => {
     const tags = [{ athleteId: 'athlete-2', source: 'coach' as const, taggedBy: 'coach-1' }];
     expect(isPhotoVisible(photo, tags, athletesById, parent)).toBe(false);
     expect(isPhotoVisible(photo, tags, athletesById, coach)).toBe(true);
+    expect(isPhotoVisible(photo, tags, athletesById, photosAdmin)).toBe(true);
   });
 
   it('hides a coach-hidden photo from everyone, coach included', () => {

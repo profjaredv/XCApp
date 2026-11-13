@@ -1,6 +1,7 @@
 import type { Athlete, AthletePicks, Photo, PhotoAthleteTags } from '../state/types';
 import type { TagFilter } from '../state/reducer';
 import { isPhotoVisible, type Actor } from './tagRules';
+import { REQUIRED_PICKS } from './templates';
 
 export function athletesById(athletes: Athlete[]): Map<string, Athlete> {
   return new Map(athletes.map((a) => [a.id, a]));
@@ -117,13 +118,15 @@ export function filterByGroup(athletes: Athlete[], groupId: string | null): Athl
 }
 
 /**
- * Build spec, "Collage generation": "generate all" renders a collage "for
- * every athlete with at least three picks" — and separately, an
- * opted-out athlete is "skipped by collage generation" outright. Used by
- * BuildModule.tsx's handleGenerateAll; the single-athlete "Export PNG"
- * button has no pick-count floor (a coach there already chose that one
- * athlete deliberately) but still skips an opted-out athlete the same way.
+ * Build spec, "Collage generation": "generate all" renders a collage for
+ * every athlete with enough picks — now a fixed REQUIRED_PICKS (hero +
+ * four grid panels; the template-size picker is gone, every athlete needs
+ * the same five). An opted-out athlete is still "skipped by collage
+ * generation" outright. Used by BuildModule.tsx's handleGenerateAll; the
+ * single-athlete Export button has no pick-count floor of its own (a
+ * coach there already chose that one athlete deliberately) but still
+ * skips an opted-out athlete the same way.
  */
 export function eligibleForCollage(athletes: Athlete[], picks: AthletePicks): Athlete[] {
-  return athletes.filter((a) => !a.photosOptOut && (picks[a.id]?.length ?? 0) >= 3);
+  return athletes.filter((a) => !a.photosOptOut && (picks[a.id]?.length ?? 0) >= REQUIRED_PICKS);
 }

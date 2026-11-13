@@ -6,15 +6,15 @@
 // browser upload batch, not just for the current tab.
 //
 // Scoped to one team per device: a stored token is only reused when the
-// athleticTeamId it was issued for still matches the one being opened.
+// team address (the slug in the tagging link) it was issued for still matches the one being opened.
 // Visiting a different team's tagging link naturally prompts for that
 // team's password instead of silently reusing a stale, wrong-team token.
 const TOKEN_KEY = 'xc_photos_volunteer_token';
 const TEAM_KEY = 'xc_photos_volunteer_team';
 
-export function getVolunteerToken(athleticTeamId: string): string | null {
+export function getVolunteerToken(teamSlug: string): string | null {
   try {
-    if (localStorage.getItem(TEAM_KEY) !== athleticTeamId) return null;
+    if (localStorage.getItem(TEAM_KEY) !== teamSlug) return null;
     return localStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
@@ -35,9 +35,9 @@ export function getStoredVolunteerToken(): string | null {
   }
 }
 
-export function setVolunteerToken(athleticTeamId: string, token: string): void {
+export function setVolunteerToken(teamSlug: string, token: string): void {
   try {
-    localStorage.setItem(TEAM_KEY, athleticTeamId);
+    localStorage.setItem(TEAM_KEY, teamSlug);
     localStorage.setItem(TOKEN_KEY, token);
   } catch {
     // A device with storage disabled (private mode, full disk) just has

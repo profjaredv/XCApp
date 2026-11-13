@@ -1,53 +1,84 @@
 import { describe, it, expect } from 'vitest';
-import { hitTestSlot, nextFocalPoint } from './focalDrag';
-import type { CollageTemplate } from './templates';
+import { hitTestSlot, nextFocalPoint, nextZoom } from './focalDrag';
+import { HERO, PANELS } from './templates';
 
-const TEMPLATE: CollageTemplate = {
-  size: 3,
-  header: { x: 0, y: 0, w: 1, h: 0.1 },
-  statStrip: { x: 0, y: 0.1, w: 1, h: 0.05 },
-  resultsBlock: { x: 0, y: 0.8, w: 1, h: 0.2 },
-  slots: [
-    { x: 0, y: 0.2, w: 0.5, h: 0.3 },
-    { x: 0.5, y: 0.2, w: 0.5, h: 0.3 },
-  ],
-};
+// hitTestSlot reads geometry straight off lib/templates.ts's HERO/PANELS
+// now (the one fixed design — see that file), not a fixture template, so
+// these tests exercise the real hero circle and the real panel A's
+// bounding box. Index 0 is always the hero circle; PANELS fills every
+// index after it, shifted by one — see hitTestSlot's own header comment.
 const PAGE_W = 1000;
 const PAGE_H = 1000;
+const hero = { cx: HERO.cx * PAGE_W, cy: HERO.cy * PAGE_H, radius: HERO.radius * PAGE_W };
+const panelA = {
+  x: PANELS[0].rect.x * PAGE_W,
+  y: PANELS[0].rect.y * PAGE_H,
+  w: PANELS[0].rect.w * PAGE_W,
+  h: PANELS[0].rect.h * PAGE_H,
+};
 
 describe('hitTestSlot', () => {
-  it('finds the slot containing the point', () => {
-    const hit = hitTestSlot(TEMPLATE, PAGE_W, PAGE_H, 100, 250, [
-      { width: 400, height: 400 },
+  it('finds the hero circle at index 0', () => {
+    const hit = hitTestSlot(PAGE_W, PAGE_H, hero.cx, hero.cy, [
+      { width: 1000, height: 1000 },
       { width: 400, height: 400 },
     ]);
     expect(hit?.index).toBe(0);
   });
 
+  it('finds a grid panel, index shifted by one past the hero', () => {
+    const hit = hitTestSlot(PAGE_W, PAGE_H, panelA.x + panelA.w / 2, panelA.y + panelA.h / 2, [
+      { width: 1000, height: 1000 },
+      { width: 400, height: 400 },
+    ]);
+    expect(hit?.index).toBe(1);
+  });
+
+  it('misses a point inside the hero\'s bounding square but outside the actual circle', () => {
+    // A corner of the hero's bounding square, well outside the circle —
+    // proves the hit test is circular, not just "inside the square".
+    const hit = hitTestSlot(PAGE_W, PAGE_H, hero.cx + hero.radius * 0.9, hero.cy - hero.radius * 0.9, [
+      { width: 1000, height: 1000 },
+    ]);
+    expect(hit).toBeNull();
+  });
+
   it('returns null outside every slot', () => {
-    const hit = hitTestSlot(TEMPLATE, PAGE_W, PAGE_H, 100, 900, [{ width: 400, height: 400 }, undefined]);
+    const hit = hitTestSlot(PAGE_W, PAGE_H, 1, 999, [{ width: 1000, height: 1000 }, undefined]);
     expect(hit).toBeNull();
   });
 
   it('returns null for a slot with no photo', () => {
-    const hit = hitTestSlot(TEMPLATE, PAGE_W, PAGE_H, 100, 250, [undefined, undefined]);
+    const hit = hitTestSlot(PAGE_W, PAGE_H, panelA.x + 1, panelA.y + 1, [{ width: 1000, height: 1000 }, undefined]);
     expect(hit).toBeNull();
   });
 
   it('returns null for a photo with zero/unknown dimensions', () => {
-    const hit = hitTestSlot(TEMPLATE, PAGE_W, PAGE_H, 100, 250, [{ width: 0, height: 0 }, undefined]);
+    const hit = hitTestSlot(PAGE_W, PAGE_H, panelA.x + 1, panelA.y + 1, [
+      { width: 1000, height: 1000 },
+      { width: 0, height: 0 },
+    ]);
     expect(hit).toBeNull();
   });
 
-  it('reports the slot\'s pannable overflow for a landscape photo in a square-ish frame', () => {
-    // Slot 0 is 500x300px. A 1000x1000 (square) image cover-fit into that
-    // scales to 500x500 — 200px of vertical overflow, none horizontal.
-    const hit = hitTestSlot(TEMPLATE, PAGE_W, PAGE_H, 100, 250, [
+  it('reports a grid panel\'s pannable overflow for a square photo in its (landscape) frame', () => {
+    // Panel A's bounding box is wider than it is tall. A 1000x1000 image
+    // cover-fit into it scales to panelA.w x panelA.w — vertical overflow,
+    // none horizontal.
+    const hit = hitTestSlot(PAGE_W, PAGE_H, panelA.x + 1, panelA.y + 1, [
       { width: 1000, height: 1000 },
-      undefined,
+      { width: 1000, height: 1000 },
     ]);
     expect(hit?.overflowX).toBe(0);
-    expect(hit?.overflowY).toBe(200);
+    expect(hit?.overflowY).toBeCloseTo(panelA.w - panelA.h, 5);
+  });
+
+  it('reports the hero\'s pannable overflow for a landscape photo in its square frame', () => {
+    // A 2x1 image cover-fit into the hero's square frame overflows
+    // horizontally by exactly the frame's own diameter.
+    const hit = hitTestSlot(PAGE_W, PAGE_H, hero.cx, hero.cy, [{ width: 600, height: 300 }]);
+    expect(hit?.overflowX).toBeCloseTo(hero.radius * 2, 5);
+    expect(hit?.overflowY).toBe(0);
   });
 });
 
@@ -72,5 +103,32 @@ describe('nextFocalPoint', () => {
   it('never moves an axis with no overflow', () => {
     const next = nextFocalPoint({ x: 0.5, y: 0.5 }, 999, 999, 0, 0);
     expect(next).toEqual({ x: 0.5, y: 0.5 });
+  });
+});
+
+describe('nextZoom', () => {
+  it('zooms in (increases) on a negative deltaY — scrolling up/away, the usual zoom-in gesture', () => {
+    expect(nextZoom(1, -100)).toBeGreaterThan(1);
+  });
+
+  it('zooms out (decreases) on a positive deltaY', () => {
+    expect(nextZoom(2, 100)).toBeLessThan(2);
+  });
+
+  it('never goes below 1 (never loosens the crop past the slot\'s own cover-fit)', () => {
+    expect(nextZoom(1, 100)).toBe(1);
+    expect(nextZoom(1.05, 1000)).toBe(1);
+  });
+
+  it('never exceeds 3', () => {
+    expect(nextZoom(2.98, -1000)).toBe(3);
+  });
+});
+
+describe('hitTestSlot with zoom', () => {
+  it("reports a larger pannable overflow when the slot is already zoomed in", () => {
+    const unzoomed = hitTestSlot(PAGE_W, PAGE_H, hero.cx, hero.cy, [{ width: 600, height: 300 }]);
+    const zoomed = hitTestSlot(PAGE_W, PAGE_H, hero.cx, hero.cy, [{ width: 600, height: 300 }], [2]);
+    expect(zoomed?.overflowX).toBeGreaterThan(unzoomed?.overflowX ?? 0);
   });
 });

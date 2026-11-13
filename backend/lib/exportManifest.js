@@ -23,9 +23,10 @@
 //
 // joinCode and the invite/claim tokens are not "sensitive-ish" — they are
 // bearer credentials. Anyone holding the join code can put themselves on
-// the roster; anyone holding an invite token can accept it. The Stripe ids
+// the roster; anyone holding an invite token can accept it; anyone
+// holding photosAdminJoinCode can become a Photos Admin. The Stripe ids
 // are billing-account handles that have no business in a coach's backup.
-const SENSITIVE_FIELDS = ['token', 'joinCode', 'stripeCustomerId', 'stripeSubscriptionId'];
+const SENSITIVE_FIELDS = ['token', 'joinCode', 'photosAdminJoinCode', 'stripeCustomerId', 'stripeSubscriptionId'];
 
 // Whole tables that never appear in an export, with the reason, because
 // "why is X missing" is a question this file should answer.
@@ -146,6 +147,7 @@ const TEAM_EXPORT = [
   // own absence from ATHLETE_EXPORT below (no athlete FK at all; a listed
   // photo may depict several athletes or none).
   { key: 'slideshowItems', model: 'slideshowItem', where: direct, label: 'Slideshow collection (metadata only — bytes live in R2)' },
+  { key: 'photosAdmins', model: 'photosAdmin', where: direct, label: 'Photos Admins — non-coach accounts with Load/Tag/Build access' },
 
   // --- things this app computed ---
   { key: 'teamSeasonMetrics', model: 'teamSeasonMetrics', where: direct, label: 'Team season metrics', derived: true },

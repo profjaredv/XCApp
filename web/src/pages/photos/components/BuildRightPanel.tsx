@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Image as ImageIcon, Mail, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Mail, Pencil, Plus, Target, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { photosService } from '../../../api/photosService';
 import { getApiErrorMessage } from '../../../lib/apiError';
-import type { Athlete, Photo, PhotoAthleteTags, TemplateSize } from '../state/types';
+import { REQUIRED_PICKS } from '../lib/templates';
+import { EditStatsPanel } from './EditStatsPanel';
+import type { Athlete, AthleteBuildStats, Photo, PhotoAthleteTags } from '../state/types';
 
 interface BuildRightPanelProps {
   athlete: Athlete | undefined;
@@ -19,14 +19,20 @@ interface BuildRightPanelProps {
   onExport: () => void;
   onDownload: () => void;
   downloading: boolean;
-  // The team's shared group photo (back page, full-bleed) — team-wide,
-  // not athlete-specific, so this lives in BuildModule.tsx rather than
-  // this panel's own state.
-  groupPhotoId: string | null;
-  onGroupPhotoChange: (photoId: string | null) => void;
+  // The backend's own resolved active season (e.g. "2026") — shown in the
+  // Season field whenever the coach hasn't typed a custom one in, same
+  // "blank means use the sensible default" pattern as the team field just
+  // below it.
+  seasonFallback: string;
+  // "Edit data for print" (components/EditStatsPanel.tsx) — a coach's
+  // local-only correction, never saved back. null while stats are still
+  // loading, in which case the Edit button stays disabled (nothing to
+  // seed the form from yet).
+  editableStats: AthleteBuildStats | null;
+  hasStatsOverride: boolean;
+  onApplyStatsOverride: (edited: AthleteBuildStats) => void;
+  onResetStatsOverride: () => void;
 }
-
-const TEMPLATE_SIZES: TemplateSize[] = [3, 4, 5];
 
 export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   athlete,
@@ -37,31 +43,17 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
   onExport,
   onDownload,
   downloading,
-  groupPhotoId,
-  onGroupPhotoChange,
+  seasonFallback,
+  editableStats,
+  hasStatsOverride,
+  onApplyStatsOverride,
+  onResetStatsOverride,
 }) => {
-  const { state, actor, teamName, setBuildTemplate, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
+  const { state, actor, teamName, setBuildHeader, addPick, removePick, swapPick, reorderPick } = usePhotosWorkspace();
   const dragIndexRef = React.useRef<number | null>(null);
+  const [editStatsOpen, setEditStatsOpen] = useState(false);
   const [parentEmail, setParentEmail] = useState('');
   const [sendingLink, setSendingLink] = useState(false);
-  const [groupPhotoPickerOpen, setGroupPhotoPickerOpen] = useState(false);
-  const [settingGroupPhoto, setSettingGroupPhoto] = useState(false);
-
-  // Coach-only, same authority as the rest of this panel's team-wide
-  // settings (template, header). Any team photo is eligible, tagged or
-  // not — this isn't scoped to one athlete.
-  async function handleSetGroupPhoto(photoId: string | null) {
-    setSettingGroupPhoto(true);
-    try {
-      const result = await photosService.setGroupPhoto(photoId);
-      onGroupPhotoChange(result);
-      setGroupPhotoPickerOpen(false);
-    } catch (error) {
-      toast.error("Couldn't set the group photo.", { description: getApiErrorMessage(error) });
-    } finally {
-      setSettingGroupPhoto(false);
-    }
-  }
 
   // "Notify parent" — coach-only, same authority as the download button
   // just below it. A family viewing their own athlete is already signed
@@ -104,6 +96,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
     .filter((id) => photosById.has(id));
 
   const notPicked = taggedPhotoIds.filter((id) => !picks.includes(id));
+  const requiredPicks = REQUIRED_PICKS;
 
   function cycleSlot(index: number) {
     if (notPicked.length === 0) return;
@@ -115,7 +108,8 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-3">
       <div>
         <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-          Picks ({picks.length}/5) — click a photo to swap it, drag or use the arrows to reorder
+          Picks ({picks.length}/{requiredPicks}) — the first pick is the big circled hero photo. Click a photo to
+          swap it, drag or use the arrows to reorder.
         </div>
         <div className="flex flex-wrap gap-1.5">
           {picks.map((photoId, index) => {
@@ -144,6 +138,14 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
                 >
                   <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
                 </button>
+                {index === 0 && (
+                  <span
+                    className="absolute left-0 top-0 flex h-4 w-4 items-center justify-center bg-accent text-accent-foreground"
+                    title="Hero photo — the big circled photo on the printed collage"
+                  >
+                    <Target className="h-2.5 w-2.5" />
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => removePick(athlete.id, photoId)}
@@ -180,13 +182,19 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
         </div>
       </div>
 
-      {picks.length < 3 && (
+      {picks.length < requiredPicks && (
         <div>
           <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-            Tagged photos — add at least {3 - picks.length} more
+            Tagged photos ({notPicked.length}) — add at least {requiredPicks - picks.length} more
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {notPicked.slice(0, 12).map((photoId) => {
+          {/* Every tagged-but-unpicked photo, not just a handful — an
+              athlete easily ends up with dozens tagged across a season, and
+              a coach needs to actually browse all of them to pick the best
+              five, not just whichever happened to load first. Scrolls
+              within its own bounded area instead of growing the whole
+              right panel unbounded. */}
+          <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
+            {notPicked.map((photoId) => {
               const photo = photosById.get(photoId)!;
               return (
                 <button
@@ -206,81 +214,6 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
         </div>
       )}
 
-      <div>
-        <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">Template</div>
-        <div className="flex gap-1.5">
-          {TEMPLATE_SIZES.map((size) => (
-            <button
-              key={size}
-              type="button"
-              onClick={() => setBuildTemplate(size)}
-              className={cn(
-                'rounded-md px-3 py-1 text-xs',
-                state.buildTemplateSize === size ? 'bg-accent text-accent-foreground' : 'bg-ink-border/40 hover:bg-ink-border/60',
-              )}
-            >
-              {size} photos
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {actor.isCoach && (
-        <div>
-          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-            Team group photo — back page
-          </div>
-          <div className="flex items-center gap-2">
-            {groupPhotoId && photosById.get(groupPhotoId) ? (
-              <img
-                src={photosById.get(groupPhotoId)!.thumbUrl}
-                alt=""
-                className="h-12 w-16 rounded object-cover ring-1 ring-ink-border/60"
-              />
-            ) : (
-              <div className="flex h-12 w-16 items-center justify-center rounded bg-ink-border/30 text-ink-muted">
-                <ImageIcon className="h-4 w-4" />
-              </div>
-            )}
-            <div className="flex flex-col gap-1">
-              <Button size="sm" variant="outline" onClick={() => setGroupPhotoPickerOpen(true)}>
-                {groupPhotoId ? 'Change' : 'Choose photo'}
-              </Button>
-              {groupPhotoId && (
-                <Button size="sm" variant="ghost" className="text-ink-muted" onClick={() => handleSetGroupPhoto(null)} disabled={settingGroupPhoto}>
-                  Remove
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <Dialog open={groupPhotoPickerOpen} onOpenChange={setGroupPhotoPickerOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Choose the team group photo</DialogTitle>
-          </DialogHeader>
-          <div className="grid max-h-96 grid-cols-4 gap-2 overflow-y-auto">
-            {Array.from(photosById.values()).map((photo) => (
-              <button
-                key={photo.id}
-                type="button"
-                disabled={settingGroupPhoto}
-                onClick={() => handleSetGroupPhoto(photo.id)}
-                className={cn(
-                  'aspect-square overflow-hidden rounded ring-1 ring-ink-border/60 hover:ring-accent disabled:opacity-50',
-                  groupPhotoId === photo.id && 'ring-2 ring-accent',
-                )}
-              >
-                <img src={photo.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-              </button>
-            ))}
-            {photosById.size === 0 && <p className="col-span-4 text-sm text-ink-muted">No photos uploaded yet.</p>}
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <div className="space-y-1.5">
         <div className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Header</div>
         <Input
@@ -294,10 +227,32 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
           className="h-8 border-ink-border bg-transparent text-sm text-ink-foreground"
         />
         <Input
-          value={state.buildHeader.season}
+          value={state.buildHeader.season || seasonFallback}
           onChange={(e) => setBuildHeader({ season: e.target.value })}
           className="h-8 border-ink-border bg-transparent text-sm text-ink-foreground"
         />
+      </div>
+
+      <div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full gap-1.5"
+          disabled={!editableStats}
+          onClick={() => setEditStatsOpen(true)}
+        >
+          <Pencil className="h-3.5 w-3.5" /> {hasStatsOverride ? 'Edit data (adjusted)' : 'Edit data for print'}
+        </Button>
+        {editableStats && (
+          <EditStatsPanel
+            open={editStatsOpen}
+            onOpenChange={setEditStatsOpen}
+            stats={editableStats}
+            hasOverride={hasStatsOverride}
+            onApply={onApplyStatsOverride}
+            onResetToOriginal={onResetStatsOverride}
+          />
+        )}
       </div>
 
       {exportBlocked && (
@@ -310,7 +265,7 @@ export const BuildRightPanel: React.FC<BuildRightPanelProps> = ({
         <Button
           size="sm"
           className="gap-1.5 bg-accent text-accent-foreground hover:bg-accent/90"
-          disabled={picks.length < 3 || exportBlocked}
+          disabled={picks.length < requiredPicks || exportBlocked}
           onClick={onExport}
         >
           <Download className="h-3.5 w-3.5" /> Export PDF

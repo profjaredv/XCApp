@@ -61,6 +61,7 @@ model User {
   linkedAthlete             Athlete?                 @relation("AthleteAccount")
   athleteClaims             AthleteClaim[]
   sentStaffInvites          StaffInvite[]            @relation("StaffInviteSender")
+  photosAdminGrants         PhotosAdmin[]
   guardianLinks             GuardianLink[]           @relation("GuardianAccount")
   resolvedGuardianLinks     GuardianLink[]           @relation("GuardianLinkResolver")
   ledGroups                 GroupLeader[]
@@ -94,6 +95,9 @@ model Team {
   coachUid        String?  @map("coach_uid") @db.Uuid
   joinCode        String   @unique @map("join_code")
   athleticTeamId  String   @unique @map("athletic_team_id")
+  // The team's LeadPack address (/t/<slug>), made from its name. This, not
+  // the Athletic.net id above, is how the app addresses a team. See lib/teamSlug.js.
+  slug            String   @unique
   // The team's Athletic.net calendar (iCal) link, pasted by a coach. Fetched only when a coach clicks Import calendar.
   calendarFeedUrl String?  @map("calendar_feed_url")
   importedSeasons Int[]    @default([]) @map("imported_seasons")
@@ -131,12 +135,34 @@ model Team {
   // account credential.
   photosTagPassword String? @map("photos_tag_password")
 
+  // A standing, reusable code that lets anyone holding it become a Photos
+  // Admin (full Load/Tag/Build authority, see the PhotosAdmin model below)
+  // the moment they accept it — no per-invitee entry, no approval step,
+  // same shape as joinCode/photosTagPassword above: a shared code a coach
+  // rotates or clears (POST/DELETE /api/photos/join-link) rather than a
+  // personal credential. Null until a coach generates one for the first
+  // time (Collage settings' Photos Admins panel).
+  photosAdminJoinCode String? @unique @map("photos_admin_join_code")
+
   // One photo, shared across every athlete's collage back page and the
   // Slideshow collection's own template — e.g. a team photo at the start
   // of the season. Null until a coach picks one (Build module). Not
   // scoped to a season: the same group photo carries over until replaced,
   // same as photosTagPassword above.
   groupPhotoId String? @map("group_photo_id") @db.Uuid
+
+  // Collage-only branding (lib/photosAccess.js's collage settings
+  // functions) — deliberately separate from `colors` above, which themes
+  // the whole live app: a team's printed collage can carry its own accent
+  // without recoloring every button and chart on screen. Null accent
+  // falls back to the collage's own built-in default (#2b6cb0, see
+  // web/src/pages/photos/lib/collageRender.ts); null logo falls back to
+  // the drawn XC roundel. The logo isn't a Photo row — it has no meet, no
+  // tags, nothing else that model requires — just an R2 object key
+  // (r2.js's collageLogoKey), written once an upload is confirmed to
+  // exist (see finalizeCollageLogo).
+  collageAccentColor String? @map("collage_accent_color")
+  collageLogoKey     String? @map("collage_logo_key")
 
   coach                   User?                    @relation("TeamCoach", fields: [coachUid], references: [id])
   groupPhoto              Photo?                   @relation("TeamGroupPhoto", fields: [groupPhotoId], references: [id], onDelete: SetNull)
@@ -159,6 +185,7 @@ model Team {
   athleteInvites          AthleteInvite[]
   athleteClaims           AthleteClaim[]
   staffInvites            StaffInvite[]
+  photosAdmins            PhotosAdmin[]
   groups                  Group[]
   practicePlans           PracticePlan[]
   practiceLocations       PracticeLocation[]
@@ -2044,6 +2071,7 @@ enum PhotoTagSource {
   PARENT
   COACH
   VOLUNTEER
+  PHOTOS_ADMIN
 }
 
 model Photo {
@@ -2096,6 +2124,11 @@ model PhotoAthlete {
   // slot and back in, and isn't wiped by setPicks' delete/recreate.
   focalX    Float?         @map("focal_x")
   focalY    Float?         @map("focal_y")
+  // How tightly cropped the photo is in its collage slot — 1 (or null) is
+  // the default cover-fit, >1 zooms in. Null never changes a photo nobody
+  // has zoomed; this doesn't widen the crop (zoom < 1 isn't allowed, see
+  // setPhotoFocal) since the slot already cover-fits by default.
+  focalZoom Float?         @map("focal_zoom")
 
   photo   Photo   @relation(fields: [photoId], references: [id], onDelete: Cascade)
   athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
@@ -2223,6 +2256,39 @@ model PhotoDownloadLink {
   @@index([athleteId])
   @@index([expiresAt])
   @@map("photo_download_links")
+}
+
+// Grants a real account (not the tagging-passcode volunteer session —
+// middleware/photosVolunteer.js stays the lightweight no-login path)
+// full Load/Tag/Build authority within the Photos module only, for
+// someone who isn't a coach: a parent, or any other volunteer a coach
+// wants to hand the whole photo workflow to. Deliberately not a TeamRole
+// — it grants nothing outside Photos, so a grantee's User.teamId stays
+// null exactly like a guardian's (see middleware/photosTeam.js's
+// resolvePhotosTeam, which this is a third source for). Settings-tier
+// actions (hide/delete, collage branding, the tag-password itself,
+// emailing a parent a download link) stay coach-only regardless —
+// lib/photoTagRules.js's canHidePhoto never consults this.
+// Granted by accepting the team's standing photosAdminJoinCode (Team
+// model, above) — there's no per-invitee row here, since the same code is
+// meant to be reused by any number of parents/volunteers a coach shares it
+// with; this table only ever records who has actually accepted.
+model PhotosAdmin {
+  id        String   @id @default(uuid()) @db.Uuid
+  teamId    String   @map("team_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  // Revoked rather than deleted, same reasoning as TeamMember.active —
+  // past tags/uploads attributed to this account (photo_athletes.tagged_by,
+  // photos.uploaded_by) must keep pointing at a real row.
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@map("photos_admins")
 }
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@
 
 const crypto = require('node:crypto');
 const C = require('./catalog');
+const { uniqueTeamSlugInDb } = require('../teamSlug');
 
 const uuid = () => crypto.randomUUID();
 const day = (s) => new Date(`${s}T00:00:00.000Z`);
@@ -40,6 +41,7 @@ async function writeDemoPlan(prisma, plan, { progress, adminUserId } = {}) {
     data: {
       id: teamId,
       name: plan.team.name,
+      slug: await uniqueTeamSlugInDb(prisma, plan.team.short || plan.team.name),
       athleticTeamId: plan.team.athleticTeamId,
       joinCode: plan.team.joinCode,
       plan: 'active',

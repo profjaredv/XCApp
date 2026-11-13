@@ -92,14 +92,16 @@ describe('visiblePhotos: athleteFilter', () => {
 });
 
 describe('eligibleForCollage', () => {
-  it('requires at least 3 picks', () => {
-    const picks: AthletePicks = { a: ['p1', 'p2'], b: ['p1', 'p2', 'p3'] };
+  // Every athlete needs the same fixed REQUIRED_PICKS (hero + four grid
+  // panels) — see lib/templates.ts. There's no more per-template variance.
+  it('requires at least REQUIRED_PICKS (5) picks', () => {
+    const picks: AthletePicks = { a: ['p1', 'p2', 'p3', 'p4'], b: ['p1', 'p2', 'p3', 'p4', 'p5'] };
     const athletes = [athlete('a', []), athlete('b', [])];
     expect(eligibleForCollage(athletes, picks).map((a) => a.id)).toEqual(['b']);
   });
 
-  it('skips an opted-out athlete even with 3+ picks', () => {
-    const picks: AthletePicks = { a: ['p1', 'p2', 'p3'] };
+  it('skips an opted-out athlete even with enough picks', () => {
+    const picks: AthletePicks = { a: ['p1', 'p2', 'p3', 'p4', 'p5'] };
     const athletes = [athlete('a', [], true)];
     expect(eligibleForCollage(athletes, picks)).toEqual([]);
   });

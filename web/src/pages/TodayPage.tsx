@@ -32,7 +32,7 @@ import { SetupChecklist } from '@/components/SetupChecklist';
 import { SeasonReadinessChecklist } from '@/components/SeasonReadinessChecklist';
 
 // Workstream A (LeadPack Master Build Handoff): the index route under
-// /t/:athleticTeamId. No season selector, no date picker, no filters —
+// /t/:teamSlug. No season selector, no date picker, no filters —
 // everything here derives from today's date and the signed-in user's role.
 // If a control feels necessary, the answer is a link to the full page
 // instead (see AGENTS/handoff doc, A1).

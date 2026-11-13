@@ -63,7 +63,7 @@ const ClaimTeamPage: React.FC = () => {
     setClaimError(null);
     try {
       const result = await claimTeam(token);
-      navigate(`/t/${result.athleticTeamId}/checkout`);
+      navigate(`/t/${result.slug ?? result.athleticTeamId}/checkout`);
     } catch (error) {
       setClaimError(getErrorMessage(error, 'Could not claim this team.'));
       setClaiming(false);

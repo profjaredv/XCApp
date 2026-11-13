@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import { Layers, Search } from 'lucide-react';
+import { Layers, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePhotosWorkspace } from '../state/PhotosWorkspaceContext';
 import { filterByGroup, searchAthletes } from '../lib/selectors';
+import { canBrowseFullRoster } from '../lib/tagRules';
 import { GroupFilterSelect } from './GroupFilterSelect';
-import type { Athlete, AthletePicks } from '../state/types';
+import { REQUIRED_PICKS } from '../lib/templates';
+import type { Athlete, AthletePicks, Photo } from '../state/types';
+import type { CollageSettings } from '../../../api/photosService';
+import { CollageSettingsPanel } from './CollageSettingsPanel';
 
 interface BuildLeftPanelProps {
   athletes: Athlete[];
@@ -17,6 +21,12 @@ interface BuildLeftPanelProps {
   // pick count) and does the actual rendering.
   onGenerateAll: (candidates: Athlete[]) => void;
   generatingAll: boolean;
+  // Build settings (accent/logo/team photo) — set once for the whole team,
+  // not per athlete, so this lives up here rather than in the per-athlete
+  // right panel. photosById backs the team-photo picker inside the panel.
+  photosById: Map<string, Photo>;
+  collageSettings: CollageSettings | null;
+  onCollageSettingsChange: (settings: CollageSettings) => void;
 }
 
 function PickDots({ count }: { count: number }) {
@@ -29,12 +39,23 @@ function PickDots({ count }: { count: number }) {
   );
 }
 
-export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({ athletes, picks, onGenerateAll, generatingAll }) => {
+export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({
+  athletes,
+  picks,
+  onGenerateAll,
+  generatingAll,
+  photosById,
+  collageSettings,
+  onCollageSettingsChange,
+}) => {
   const { state, actor, setBuildAthlete, setGroupFilter } = usePhotosWorkspace();
   const [query, setQuery] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  if (!actor.isCoach) {
+  if (!canBrowseFullRoster(actor)) {
     // Families land straight on their own athlete — no roster to browse.
+    // A Photos Admin falls through to the full roster view below instead
+    // (same Build authority as a coach, minus the settings gear button).
     const own = athletes.filter((a) => actor.linkedAthleteIds.includes(a.id));
     return (
       <ul className="space-y-0.5 p-3">
@@ -62,15 +83,37 @@ export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({ athletes, picks,
   return (
     <div className="flex h-full flex-col gap-2 p-3">
       <GroupFilterSelect groups={state.groups} value={state.groupFilter} onChange={setGroupFilter} />
-      <button
-        type="button"
-        onClick={() => onGenerateAll(groupFilteredAthletes)}
-        disabled={generatingAll}
-        className="flex w-full items-center justify-center gap-1.5 rounded-md bg-ink-border/40 px-2 py-1.5 text-xs text-ink-foreground hover:bg-ink-border/60 disabled:opacity-50"
-        title={state.groupFilter ? 'Generate a collage for every eligible athlete in this group' : 'Generate a collage for every eligible athlete on the roster'}
-      >
-        <Layers className="h-3.5 w-3.5" /> {generatingAll ? 'Generating…' : 'Generate all (ZIP)'}
-      </button>
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => onGenerateAll(groupFilteredAthletes)}
+          disabled={generatingAll}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-ink-border/40 px-2 py-1.5 text-xs text-ink-foreground hover:bg-ink-border/60 disabled:opacity-50"
+          title={state.groupFilter ? 'Generate a collage for every eligible athlete in this group' : 'Generate a collage for every eligible athlete on the roster'}
+        >
+          <Layers className="h-3.5 w-3.5" /> {generatingAll ? 'Generating…' : 'Generate all (ZIP)'}
+        </button>
+        {actor.isCoach && (
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center justify-center rounded-md bg-ink-border/40 px-2 py-1.5 text-ink-foreground hover:bg-ink-border/60"
+            title="Collage settings — accent color, logo, team photo"
+            aria-label="Collage settings"
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {actor.isCoach && (
+        <CollageSettingsPanel
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          photosById={photosById}
+          settings={collageSettings}
+          onSettingsChange={onCollageSettingsChange}
+        />
+      )}
       <div className="flex items-center gap-1.5 px-1">
         <Search className="h-3.5 w-3.5 text-ink-muted" />
         <input
@@ -91,7 +134,7 @@ export const BuildLeftPanel: React.FC<BuildLeftPanelProps> = ({ athletes, picks,
                 className={cn(
                   'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm',
                   state.buildAthleteId === athlete.id ? 'bg-accent text-accent-foreground' : 'hover:bg-ink-border/40',
-                  count < 3 && 'text-ink-muted',
+                  count < REQUIRED_PICKS && 'text-ink-muted',
                 )}
               >
                 <span className="truncate">{athlete.preferredName || athlete.name}</span>

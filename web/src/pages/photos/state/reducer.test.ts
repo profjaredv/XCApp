@@ -31,7 +31,6 @@ function baseState(loadBatches: LoadBatch[]): WorkspaceState {
     searchQuery: '',
     timeWindow: null,
     buildAthleteId: null,
-    buildTemplateSize: 3,
     buildHeader: { name: '', team: '', season: '' },
     batchFilterPhotoIds: null,
     past: [],

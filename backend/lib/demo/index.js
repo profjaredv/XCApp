@@ -15,7 +15,7 @@ const snapshot = () => ({ ...job });
 async function findDemoTeam(prisma) {
   return prisma.team.findUnique({
     where: { athleticTeamId: TEAM.athleticTeamId },
-    select: { id: true, name: true, athleticTeamId: true, currentSeason: true, coachUid: true, createdAt: true },
+    select: { id: true, name: true, slug: true, athleticTeamId: true, currentSeason: true, coachUid: true, createdAt: true },
   });
 }
 

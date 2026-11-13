@@ -7,7 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 // teamId at the moment it was still loading, so state kept resetting when the
 // real ID arrived — a real, if a somewhat funny, cause of the "URLs don't
 // feel persistent" complaint. Now that the team is identified once in the
-// route (/t/:athleticTeamId/...), query params don't need any of that.
+// route (/t/:teamSlug/...), query params don't need any of that.
 
 /** A single string query param. Returns undefined when absent. */
 export function useQueryParam(key: string): [string | undefined, (value: string | undefined) => void] {

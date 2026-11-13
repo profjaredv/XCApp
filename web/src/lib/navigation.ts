@@ -25,7 +25,7 @@ export interface NavEntry {
   key: string;
   /** Exactly what the sidebar shows. The tour reuses it verbatim. */
   label: string;
-  /** Appended to /t/:athleticTeamId. */
+  /** Appended to /t/:teamSlug. */
   path: string;
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   audience: NavAudience[];

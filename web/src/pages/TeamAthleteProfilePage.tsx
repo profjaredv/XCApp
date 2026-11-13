@@ -61,7 +61,7 @@ interface SeasonBreakdown {
 
 const TeamAthleteProfilePage = () => {
   // The route no longer carries a :teamId param — the team is identified once,
-  // higher up, by :athleticTeamId (see router/index.tsx). The internal team
+  // higher up, by :teamSlug (see router/index.tsx). The internal team
   // UUID some hooks below still need comes from the signed-in user's own team.
   const { athleteId } = useParams<{ athleteId: string }>();
   const { currentUser } = useAuth();

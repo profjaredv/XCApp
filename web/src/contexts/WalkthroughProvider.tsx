@@ -5,7 +5,7 @@ import type { WalkthroughRole } from '../lib/walkthroughContent';
 
 // Mounted once in ProtectedRoute so it covers every authenticated landing
 // spot an invite can drop someone on (/profile for a new staff member,
-// /t/:athleticTeamId/... for a new athlete) — not just Layout's routes,
+// /t/:teamSlug/... for a new athlete) — not just Layout's routes,
 // which /profile isn't one of.
 export const WalkthroughProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser } = useAuth();

@@ -1,5 +1,6 @@
 import api from './api';
 import { downloadBlobFile } from '../lib/downloadBlob';
+import { putWithProgress } from '../pages/photos/lib/uploadPipeline';
 import type { Athlete, AthleteBuildStats, Meet, Photo, PhotoAthlete, PhotoGroup, TagSource } from '../pages/photos/state/types';
 
 // Backend routes: backend/routes/photos.js. Every call is scoped by the
@@ -9,6 +10,11 @@ import type { Athlete, AthleteBuildStats, Meet, Photo, PhotoAthlete, PhotoGroup,
 export interface PhotosMe {
   userId: string | null;
   isCoach: boolean;
+  // An invited, non-coach account with full Load/Tag/Build authority in
+  // this module only (backend/lib/photosAccess.js's PhotosAdmin) —
+  // everywhere this never widens to hide/delete, collage branding, or the
+  // tag-password itself; those stay coach-only.
+  isPhotosAdmin: boolean;
   // Unlocked tagging with the team's shared password instead of signing
   // in — see lib/photosVolunteer.ts and middleware/photosVolunteer.js.
   isVolunteer: boolean;
@@ -24,6 +30,15 @@ export interface PhotosMe {
   // /teams/context, the app's usual source for this, which 403s for a
   // guardian — never a TeamMember).
   teamName: string | null;
+}
+
+// Build-settings team branding — set once, applies to every athlete's
+// collage. accentColor/logoUrl null means "use the collage's own built-in
+// default" (backend/lib/photosAccess.js's getCollageSettings).
+export interface CollageSettings {
+  groupPhotoId: string | null;
+  accentColor: string | null;
+  logoUrl: string | null;
 }
 
 export interface ApiPhoto {
@@ -42,6 +57,26 @@ export interface SendDownloadLinkResult {
   emailSent: boolean;
   downloadUrl: string;
   expiresAt: string;
+}
+
+// Photos Admin: a non-coach account with full Load/Tag/Build authority in
+// this module only (backend's PhotosAdmin), granted by accepting the
+// team's standing join link rather than a per-person invite.
+export interface PhotosAdminJoinLink {
+  code: string | null;
+  link: string | null;
+}
+
+export interface PhotosAdminGrant {
+  userId: string;
+  name: string | null;
+  email: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface PhotosAdminsList {
+  admins: PhotosAdminGrant[];
 }
 
 // Shown on the public DownloadLinkPage — note this never includes an
@@ -164,29 +199,62 @@ export const photosService = {
     await api.delete(`/photos/${photoId}/tags/${athleteId}`);
   },
 
-  // Build module's "move the photo to see faces" drag — where this
-  // athlete's collage crop should center on this photo. focalX/focalY are
-  // each 0-1.
-  async setPhotoFocal(photoId: string, athleteId: string, focalX: number, focalY: number): Promise<{ focalX: number; focalY: number }> {
-    const response = await api.put<{ athleteId: string; focalX: number; focalY: number }>(
+  // Build module's "move the photo to see faces" drag, plus how zoomed in
+  // it is (scroll-to-zoom on the same control) — where this athlete's
+  // collage crop should center on this photo. focalX/focalY are each 0-1;
+  // focalZoom is 1 (the default) or higher.
+  async setPhotoFocal(photoId: string, athleteId: string, focalX: number, focalY: number, focalZoom = 1): Promise<{ focalX: number; focalY: number; focalZoom: number | null }> {
+    const response = await api.put<{ athleteId: string; focalX: number; focalY: number; focalZoom: number | null }>(
       `/photos/${photoId}/tags/${athleteId}/focal`,
-      { focalX, focalY },
+      { focalX, focalY, focalZoom },
     );
-    return { focalX: response.data.focalX, focalY: response.data.focalY };
+    return { focalX: response.data.focalX, focalY: response.data.focalY, focalZoom: response.data.focalZoom };
   },
 
   // The one photo shared across every athlete's collage back page and
   // the Slideshow collection's own template — null until a coach sets
-  // one (Build module). setGroupPhoto is coach-only server-side; pass
-  // null to clear it.
-  async getGroupPhoto(): Promise<string | null> {
-    const response = await api.get<{ photoId: string | null }>('/photos/group-photo');
-    return response.data.photoId;
-  },
-
+  // one (Build settings panel). Coach-only server-side; pass null to
+  // clear it. Reading it is folded into getCollageSettings below now
+  // (one fetch for the whole settings panel) — this is the setter only.
   async setGroupPhoto(photoId: string | null): Promise<string | null> {
     const response = await api.put<{ photoId: string | null }>('/photos/group-photo', { photoId });
     return response.data.photoId;
+  },
+
+  // Build settings (components/CollageSettingsPanel.tsx) — set once, team-
+  // wide, so a coach never re-sets these per athlete. getCollageSettings
+  // bundles the group photo's own id into this same read (one fetch for
+  // the whole settings panel); it's still set through setGroupPhoto above.
+  async getCollageSettings(): Promise<CollageSettings> {
+    const response = await api.get<CollageSettings>('/photos/collage-settings');
+    return response.data;
+  },
+
+  async setCollageAccentColor(accentColor: string | null): Promise<string | null> {
+    const response = await api.put<{ accentColor: string | null }>('/photos/collage-settings', { accentColor });
+    return response.data.accentColor;
+  },
+
+  // Two-step upload — presign, then PUT the bytes straight to R2 (never
+  // through this server), then confirm — same shape as the Load module's
+  // own photo upload (lib/uploadPipeline.ts's putWithProgress).
+  async uploadCollageLogo(file: File): Promise<string | null> {
+    const presign = await api.post<{ uploadUrl: string; key: string }>('/photos/collage-logo/presign', { contentType: file.type });
+    await putWithProgress(presign.data.uploadUrl, file, file.type, () => {});
+    const finalize = await api.put<{ logoUrl: string | null }>('/photos/collage-logo');
+    return finalize.data.logoUrl;
+  },
+
+  async clearCollageLogo(): Promise<void> {
+    await api.delete('/photos/collage-logo');
+  },
+
+  // Same same-origin-blob reasoning as getPhotoWebBlobUrl below — the
+  // export canvas's logo load must not depend on R2's own CORS response
+  // surviving whatever network it's on.
+  async getCollageLogoBlobUrl(): Promise<string> {
+    const response = await api.get('/photos/collage-logo/raw', { responseType: 'blob' });
+    return URL.createObjectURL(response.data as Blob);
   },
 
   // The Slideshow module's flat, ordered (add order) photo collection —
@@ -266,8 +334,9 @@ export const photosService = {
   // No account, no Authorization header — see PhotosTagInPage.tsx and
   // lib/photosVolunteer.ts, which stores the returned token and attaches
   // it (as X-Photos-Volunteer-Token) to every subsequent Photos request.
-  async volunteerLogin(athleticTeamId: string, password: string): Promise<{ token: string }> {
-    const response = await api.post<{ token: string }>('/photos/volunteer-login', { athleticTeamId, password });
+  /** `team` is whatever the tagging link carries: the team's slug, or its Athletic.net id on an older link. */
+  async volunteerLogin(team: string, password: string): Promise<{ token: string }> {
+    const response = await api.post<{ token: string }>('/photos/volunteer-login', { team, password });
     return response.data;
   },
 
@@ -336,5 +405,43 @@ export const photosService = {
 
   downloadViaLink(token: string): Promise<void> {
     return downloadBlobFile(api, `/photos/download-link/${token}/zip`, `leadpack-photos-${token}.zip`, 'zip');
+  },
+
+  // Photos Admin management — FULL_COACH-only (a coach, not a volunteer
+  // coach) to generate/revoke the link, matching routes/team.js's own
+  // staff-invite tier; ANY_COACH to view it. Grants Load/Tag/Build
+  // authority in this module only, never coaching access.
+  async getPhotosAdminJoinLink(): Promise<PhotosAdminJoinLink> {
+    const response = await api.get<PhotosAdminJoinLink>('/photos/join-link');
+    return response.data;
+  },
+
+  async generatePhotosAdminJoinLink(): Promise<PhotosAdminJoinLink> {
+    const response = await api.post<PhotosAdminJoinLink>('/photos/join-link');
+    return response.data;
+  },
+
+  async revokePhotosAdminJoinLink(): Promise<{ msg: string }> {
+    const response = await api.delete<{ msg: string }>('/photos/join-link');
+    return response.data;
+  },
+
+  async listPhotosAdmins(): Promise<PhotosAdminsList> {
+    const response = await api.get<PhotosAdminsList>('/photos/admins');
+    return response.data;
+  },
+
+  async setPhotosAdminActive(userId: string, active: boolean): Promise<{ userId: string; active: boolean }> {
+    const response = await api.patch<{ userId: string; active: boolean }>(`/photos/admins/${userId}`, { active });
+    return response.data;
+  },
+
+  // Authenticated: the code identifies the team; the signed-in session is
+  // who's joining. Never makes the account a TeamMember — see backend's
+  // PhotosAdmin schema comment. Reusable — accepting never consumes the
+  // code, so the same link works for the next parent too.
+  async joinAsPhotosAdmin(code: string): Promise<{ msg: string; teamId: string; slug?: string; athleticTeamId: string }> {
+    const response = await api.post<{ msg: string; teamId: string; slug?: string; athleticTeamId: string }>('/photos/join-as-admin', { code });
+    return response.data;
   },
 };

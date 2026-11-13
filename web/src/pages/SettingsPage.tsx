@@ -39,6 +39,7 @@ interface Team {
   id: string;
   name: string;
   athleticTeamId?: string;
+  slug?: string;
   currentSeason?: number;
 }
 
@@ -77,6 +78,7 @@ const SimpleSettingsPage: React.FC = () => {
             id: response.data.id,
             name: response.data.name || '',
             athleticTeamId: response.data.athleticTeamId || '',
+            slug: response.data.slug || '',
             // camelCase, matching what the API actually returns. Reading
             // current_season here always produced undefined, so the field
             // below silently defaulted to the current calendar year and
@@ -227,6 +229,18 @@ const SimpleSettingsPage: React.FC = () => {
                 )}
               </div>
               
+              {team?.slug && (
+                <div className="space-y-2">
+                  <Label>LeadPack address</Label>
+                  <div className="p-2 border rounded-md bg-muted/50 break-all">
+                    {window.location.host}/t/<span className="font-semibold">{team.slug}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Your team's own address on LeadPack. It doesn't change if the Athletic.net ID below does.
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="athleticTeamId">Athletic.net Team ID</Label>
                 {isEditing ? (
@@ -241,7 +255,7 @@ const SimpleSettingsPage: React.FC = () => {
                 )}
                 {!isEditing && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    This ID is used to link to your team's pages on Athletic.net
+                    Only used to link out to your team's pages on Athletic.net. LeadPack no longer uses it in its own addresses.
                   </p>
                 )}
               </div>

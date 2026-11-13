@@ -4,7 +4,7 @@ import { isAuthError } from '@/lib/apiError';
 import { photosService } from '../../../api/photosService';
 import type { PhotosMe } from '../../../api/photosService';
 import { workspaceReducer, type WorkspaceState, type BuildHeader, type HistoryEntry } from './reducer';
-import type { Module, Photo, PhotoAthlete, PreviewRole, TemplateSize } from './types';
+import type { Module, Photo, PhotoAthlete, PreviewRole } from './types';
 import {
   canHidePhoto,
   canManageAthlete,
@@ -47,7 +47,6 @@ function initialState(): WorkspaceState {
     timeWindow: null,
 
     buildAthleteId: null,
-    buildTemplateSize: 3,
     // team starts blank, not a hardcoded placeholder — BuildModule.tsx
     // falls back to the real team's name (GET /photos/me's teamName) once
     // it loads, the same "blank means use the sensible default" pattern
@@ -166,6 +165,7 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     if (!me) return { userId: '', isCoach: false, role: 'guardian', linkedAthleteIds: [], ledGroupIds: [] };
     if (me.isVolunteer) return { userId: null, isCoach: false, role: 'volunteer', linkedAthleteIds: [], ledGroupIds: [] };
     if (me.isCoach) return { userId: me.userId, isCoach: true, role: 'coach', linkedAthleteIds: [], ledGroupIds: [] };
+    if (me.isPhotosAdmin) return { userId: me.userId, isCoach: false, role: 'photos_admin', linkedAthleteIds: [], ledGroupIds: [] };
     const linkedAthleteIds = [me.selfAthleteId, ...me.guardianAthleteIds].filter((id): id is string => Boolean(id));
     return {
       userId: me.userId,
@@ -369,7 +369,6 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   }, []);
 
   const setBuildAthlete = useCallback((athleteId: string | null) => dispatch({ type: 'SET_BUILD_ATHLETE', athleteId }), []);
-  const setBuildTemplate = useCallback((size: TemplateSize) => dispatch({ type: 'SET_BUILD_TEMPLATE', size }), []);
   const setBuildHeader = useCallback((patch: Partial<BuildHeader>) => dispatch({ type: 'SET_BUILD_HEADER', patch }), []);
   const setBatchFilter = useCallback(
     (photoIds: string[], meetId: string) => dispatch({ type: 'SET_BATCH_FILTER', photoIds, meetId }),
@@ -434,16 +433,17 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   // previous offset on a failed save, since unlike the history-tracked
   // mutations there's no syncHistoryEntry reconciliation path for it.
   const setPhotoFocal = useCallback(
-    (photoId: string, athleteId: string, focalX: number, focalY: number) => {
+    (photoId: string, athleteId: string, focalX: number, focalY: number, focalZoom: number = 1) => {
       if (!canManageAthlete(actor, athleteId)) return;
       const previousTag = state.tags[photoId]?.find((t) => t.athleteId === athleteId);
       const previousFocalX = previousTag?.focalX ?? 0.5;
       const previousFocalY = previousTag?.focalY ?? 0.5;
-      dispatch({ type: 'SET_PHOTO_FOCAL', photoId, athleteId, focalX, focalY });
-      photosService.setPhotoFocal(photoId, athleteId, focalX, focalY).catch((error) => {
+      const previousFocalZoom = previousTag?.focalZoom ?? 1;
+      dispatch({ type: 'SET_PHOTO_FOCAL', photoId, athleteId, focalX, focalY, focalZoom });
+      photosService.setPhotoFocal(photoId, athleteId, focalX, focalY, focalZoom).catch((error) => {
         console.error("Failed to save photo's position:", error);
         toast.error("Couldn't save that photo's position.");
-        dispatch({ type: 'SET_PHOTO_FOCAL', photoId, athleteId, focalX: previousFocalX, focalY: previousFocalY });
+        dispatch({ type: 'SET_PHOTO_FOCAL', photoId, athleteId, focalX: previousFocalX, focalY: previousFocalY, focalZoom: previousFocalZoom });
       });
     },
     [actor, state.tags],
@@ -480,7 +480,6 @@ export const PhotosWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     addMeet,
     refreshPhotos,
     setBuildAthlete,
-    setBuildTemplate,
     setBuildHeader,
     setBatchFilter,
     addPick,

@@ -25,7 +25,7 @@ export const AdminTeamSwitcher = ({ isCollapsed }: { isCollapsed: boolean }) => 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return teams;
-    return teams.filter((t) => t.name.toLowerCase().includes(q) || t.athleticTeamId.includes(q));
+    return teams.filter((t) => t.name.toLowerCase().includes(q) || t.athleticTeamId.includes(q) || (t.slug ?? '').includes(q));
   }, [teams, search]);
 
   return (
@@ -64,7 +64,7 @@ export const AdminTeamSwitcher = ({ isCollapsed }: { isCollapsed: boolean }) => 
               filtered.map((team) => (
                 <button
                   key={team.id}
-                  onClick={() => setAdminTeam(team.id, team.name, team.athleticTeamId)}
+                  onClick={() => setAdminTeam(team.id, team.name, team.slug ?? team.athleticTeamId)}
                   className="w-full text-left rounded-md px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between"
                 >
                   <span className="font-medium">{team.name}</span>

@@ -7,6 +7,7 @@ import { Progress } from './ui/progress';
 import { useAuth } from '../contexts/AuthContext';
 import { useWalkthrough } from '../contexts/WalkthroughContext';
 import { WALKTHROUGH_STEPS } from '../lib/walkthroughContent';
+import { teamAddress } from '../lib/teamAddress';
 
 // Stepped first-time tour — five features, one per role, picked as the
 // core workflow (see lib/walkthroughContent.ts). Auto-opens once per
@@ -28,10 +29,10 @@ export function WalkthroughDialog() {
   const step = steps[stepIndex];
   const isLast = stepIndex === steps.length - 1;
   const Icon = step.icon;
-  // Built from the user's own team, not the current route's :athleticTeamId
+  // Built from the user's own team, not the current route's :teamSlug
   // param — this dialog can be open on routes (like /profile) that don't
   // have one, right after a new staff member accepts their invite.
-  const athleticTeamId = currentUser?.team?.athleticTeamId;
+  const teamSlug = teamAddress(currentUser?.team);
 
   const reset = () => setStepIndex(0);
 
@@ -43,8 +44,8 @@ export function WalkthroughDialog() {
   };
 
   const handleGoThere = () => {
-    if (athleticTeamId) {
-      navigate(`/t/${athleticTeamId}${step.path}`);
+    if (teamSlug) {
+      navigate(`/t/${teamSlug}${step.path}`);
     }
     reset();
     close();
@@ -84,7 +85,7 @@ export function WalkthroughDialog() {
             Skip
           </Button>
           <div className="flex gap-2">
-            {athleticTeamId && (
+            {teamSlug && (
               <Button variant="outline" size="sm" onClick={handleGoThere}>
                 {step.cta}
               </Button>

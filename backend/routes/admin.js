@@ -6,6 +6,7 @@ const { authenticate, requireSuperAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../lib/email');
 const demoTeam = require('../lib/demo');
 const { TEAM: DEMO_TEAM, DEMO_EMAIL_DOMAIN } = require('../lib/demo/catalog');
+const { uniqueTeamSlugInDb } = require('../lib/teamSlug');
 
 const generateJoinCode = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
 const CLAIM_TTL_DAYS = 30;
@@ -23,6 +24,7 @@ router.get('/teams', authenticate, requireSuperAdmin, async (req, res) => {
         id: true,
         name: true,
         athleticTeamId: true,
+        slug: true,
         currentSeason: true,
         _count: { select: { athletes: true } },
       },
@@ -33,6 +35,7 @@ router.get('/teams', authenticate, requireSuperAdmin, async (req, res) => {
         id: t.id,
         name: t.name,
         athleticTeamId: t.athleticTeamId,
+        slug: t.slug,
         currentSeason: t.currentSeason,
         athleteCount: t._count.athletes,
       }))
@@ -79,6 +82,7 @@ router.post('/teams', authenticate, requireSuperAdmin, async (req, res) => {
     const team = await prisma.team.create({
       data: {
         name,
+        slug: await uniqueTeamSlugInDb(prisma, name),
         athleticTeamId: String(athleticTeamId),
         joinCode,
         claim: { create: { email, expiresAt } },
@@ -105,7 +109,7 @@ router.post('/teams', authenticate, requireSuperAdmin, async (req, res) => {
     res.status(201).json({
       message: emailSent ? `Claim link sent to ${email}.` : `Claim link ready for ${email}.`,
       emailSent,
-      team: { id: team.id, name: team.name, athleticTeamId: team.athleticTeamId },
+      team: { id: team.id, name: team.name, slug: team.slug, athleticTeamId: team.athleticTeamId },
       claimToken: team.claim.token,
       claimLink,
     });
@@ -476,6 +480,7 @@ router.post('/team-requests/:id/approve', authenticate, requireSuperAdmin, async
       const created = await tx.team.create({
         data: {
           name,
+          slug: await uniqueTeamSlugInDb(tx, name),
           athleticTeamId: String(athleticTeamId),
           joinCode,
           claim: { create: { email, expiresAt } },
@@ -513,7 +518,7 @@ router.post('/team-requests/:id/approve', authenticate, requireSuperAdmin, async
     }
 
     res.status(201).json({
-      team: { id: team.id, name: team.name, athleticTeamId: team.athleticTeamId, joinCode: team.joinCode },
+      team: { id: team.id, name: team.name, slug: team.slug, athleticTeamId: team.athleticTeamId, joinCode: team.joinCode },
       claimLink,
       emailSent,
     });

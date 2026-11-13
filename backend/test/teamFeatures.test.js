@@ -164,12 +164,16 @@ test('every route of an optional feature carries the gate', () => {
   // isFeatureEnabled(link.team.features, 'photos') check instead, right
   // after resolving the token, so a team that turns Photos off still
   // closes this path too — just expressed differently than the
-  // middleware pattern this scan looks for.
+  // middleware pattern this scan looks for. POST /join-as-admin is the
+  // same shape: the team comes from the join code, not from
+  // req.user/req.photosTeamId, so it carries the same inline check once
+  // the code resolves.
   const ungatedExceptions = {
     'photos.js': [
       `router.post('/volunteer-login'`,
       `router.get('/download-link/:token'`,
       `router.get('/download-link/:token/zip'`,
+      `router.post('/join-as-admin'`,
     ],
   };
 

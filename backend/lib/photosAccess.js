@@ -23,40 +23,48 @@ const MAX_PICKS = 5;
 
 /**
  * Builds the PhotoActor for this request: coach-ness via the same
- * TeamMember role check every other route uses, plus this account's own
- * linked athlete and any athletes it holds an APPROVED GuardianLink for —
- * both scoped to `teamId`, never to `user.teamId` directly. The two differ
- * for a guardian account: a parent is never a TeamMember (routes/guardian.js),
- * so `user.teamId` is null for them and the caller (routes/photos.js's
- * resolvePhotosTeam) has already worked out which team their approved link
- * actually belongs to.
+ * TeamMember role check every other route uses, an active PhotosAdmin
+ * grant (full Load/Tag/Build authority without being a coach), plus this
+ * account's own linked athlete and any athletes it holds an APPROVED
+ * GuardianLink for — all scoped to `teamId`, never to `user.teamId`
+ * directly. These differ for a guardian or Photos Admin account: neither
+ * is ever a TeamMember (routes/guardian.js; PhotosAdmin's own schema
+ * comment), so `user.teamId` is null for them and the caller
+ * (routes/photos.js's resolvePhotosTeam) has already worked out which
+ * team they actually belong to.
  */
 async function resolveActor(prisma, user, teamId) {
   const isCoach = Boolean((user.isSuperAdmin && user.isImpersonating) || (await hasTeamRole(user, ANY_COACH)));
 
   // A coach's authority already covers every athlete (authorizeTag checks
-  // isCoach first) — skip the guardian-link lookup entirely rather than
-  // run a query whose result can never change the outcome. ledGroupIds is
-  // the captain-only capability below; a coach's isCoach already covers
-  // every group, so it stays empty rather than duplicating that authority.
+  // isCoach first) — skip the guardian-link and Photos Admin lookups
+  // entirely rather than run queries whose result can never change the
+  // outcome. ledGroupIds is the captain-only capability below; a coach's
+  // isCoach already covers every group, so it stays empty rather than
+  // duplicating that authority.
   if (isCoach) {
-    return { userId: user.id, isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [], ledGroupIds: [] };
+    return { userId: user.id, isCoach: true, isPhotosAdmin: false, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [], ledGroupIds: [] };
   }
 
   const selfAthleteId = user.linkedAthlete && user.linkedAthlete.teamId === teamId ? user.linkedAthlete.id : null;
 
-  const [guardianLinks, ledGroupIds] = await Promise.all([
+  const [guardianLinks, ledGroupIds, photosAdminGrant] = await Promise.all([
     prisma.guardianLink.findMany({
       where: { userId: user.id, status: 'approved', athlete: { teamId } },
       select: { athleteId: true },
     }),
     ledGroupIdsFor(prisma, user.id, teamId),
+    // Full Load/Tag/Build authority for a non-coach account — see
+    // PhotosAdmin's own schema comment. Never widens canHidePhoto: that
+    // stays coach-only regardless of this grant.
+    prisma.photosAdmin.findUnique({ where: { teamId_userId: { teamId, userId: user.id } } }),
   ]);
   const guardianAthleteIds = guardianLinks.map((l) => l.athleteId);
+  const isPhotosAdmin = Boolean(photosAdminGrant && photosAdminGrant.active);
 
   const linkedAthleteIds = Array.from(new Set([selfAthleteId, ...guardianAthleteIds].filter(Boolean)));
 
-  return { userId: user.id, isCoach, selfAthleteId, guardianAthleteIds, linkedAthleteIds, ledGroupIds };
+  return { userId: user.id, isCoach, isPhotosAdmin, selfAthleteId, guardianAthleteIds, linkedAthleteIds, ledGroupIds };
 }
 
 // A new, deliberately narrow read capability: a non-coach account (an
@@ -210,7 +218,10 @@ async function finalizeTeamPhoto(prisma, teamId, photoId) {
 /**
  * Every READY (or, for a coach only, HIDDEN) photo for this team, with its
  * tags, filtered by the spec's rule 4: a photo tagged with an opted-out
- * athlete disappears from every grid except the coach's.
+ * athlete disappears from every grid except a coach's or Photos Admin's.
+ * The HIDDEN review list itself stays coach-only — part of the same
+ * hide/unhide moderation workflow canHidePhoto gates, which a Photos
+ * Admin invite never grants.
  */
 async function listTeamPhotos(prisma, teamId, actor, { meetId, includeHidden } = {}) {
   const status = includeHidden ? 'HIDDEN' : 'READY';
@@ -226,7 +237,7 @@ async function listTeamPhotos(prisma, teamId, actor, { meetId, includeHidden } =
     orderBy: { takenAt: 'asc' },
   });
 
-  if (actor.isCoach) return photos;
+  if (actor.isCoach || actor.isPhotosAdmin) return photos;
 
   const optedOut = await prisma.athlete.findMany({ where: { teamId, photosOptOut: true }, select: { id: true } });
   const optedOutIds = new Set(optedOut.map((a) => a.id));
@@ -308,13 +319,16 @@ async function untagPhoto(prisma, teamId, photoId, athleteId, actor) {
 
 /**
  * Where this athlete's collage crop should center on this photo — the
- * Build module's "move the photo to see faces" drag. Lives on the tag
+ * Build module's "move the photo to see faces" drag — and how tightly
+ * zoomed in it is (the same control's scroll-to-zoom). Lives on the tag
  * itself (not Pick) so a reposition survives the photo being swapped out
  * of a slot and back in. Same authorization as setPicks: a coach, or the
  * athlete's own linked guardian/self account — never a volunteer tagging
- * session.
+ * session. `focalZoom` of 1 (the default cover-fit, no extra zoom) is
+ * stored as null, same "null means the default" convention as a never-set
+ * focalX/focalY.
  */
-async function setPhotoFocal(prisma, teamId, photoId, athleteId, focalX, focalY, actor) {
+async function setPhotoFocal(prisma, teamId, photoId, athleteId, focalX, focalY, focalZoom, actor) {
   if (!canManageAthlete(actor, athleteId)) {
     const err = new Error('This account cannot reposition that photo.');
     err.statusCode = 403;
@@ -332,10 +346,15 @@ async function setPhotoFocal(prisma, teamId, photoId, athleteId, focalX, focalY,
     err.statusCode = 404;
     throw err;
   }
-  const clamp = (n) => Math.min(1, Math.max(0, n));
+  const clamp01 = (n) => Math.min(1, Math.max(0, n));
+  // Zoom only ever tightens the crop, never loosens it past the slot's own
+  // cover-fit (that would leave paper-colored gaps the design never
+  // accounts for) — capped at 3x so a coach can't zoom a photo into an
+  // unrecognizable crop by accident.
+  const zoom = Math.min(3, Math.max(1, focalZoom ?? 1));
   return prisma.photoAthlete.update({
     where: { photoId_athleteId: { photoId, athleteId } },
-    data: { focalX: clamp(focalX), focalY: clamp(focalY) },
+    data: { focalX: clamp01(focalX), focalY: clamp01(focalY), focalZoom: zoom === 1 ? null : zoom },
   });
 }
 
@@ -457,6 +476,85 @@ async function setGroupPhoto(prisma, teamId, photoId, actor) {
     }
   }
   return prisma.team.update({ where: { id: teamId }, data: { groupPhotoId: photoId } });
+}
+
+// --- Collage branding (accent color + logo) ----------------------------
+//
+// Build module settings, same authority split as the group photo above:
+// read is open to anyone who can already view the collage, set is
+// coach-only. Deliberately separate from the group photo's own
+// GET/PUT /photos/group-photo (which predates this and plenty of other
+// code already calls it) — bundled together only in the read, so the new
+// settings panel is one fetch.
+
+const ALLOWED_LOGO_CONTENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']);
+
+function requireCoach(actor, message) {
+  if (actor.isCoach) return;
+  const err = new Error(message);
+  err.statusCode = 403;
+  throw err;
+}
+
+async function getCollageSettings(prisma, teamId) {
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { groupPhotoId: true, collageAccentColor: true, collageLogoKey: true },
+  });
+  return {
+    groupPhotoId: team?.groupPhotoId ?? null,
+    accentColor: team?.collageAccentColor ?? null,
+    logoUrl: team?.collageLogoKey ? await r2.presignGetUrl(team.collageLogoKey) : null,
+  };
+}
+
+async function setCollageAccentColor(prisma, teamId, accentColor, actor) {
+  requireCoach(actor, 'Only a coach can set the collage\'s accent color.');
+  if (accentColor != null && !/^#[0-9a-f]{6}$/i.test(accentColor)) {
+    const err = new Error('accentColor must be a #rrggbb hex string, or null to clear it.');
+    err.statusCode = 400;
+    throw err;
+  }
+  const team = await prisma.team.update({ where: { id: teamId }, data: { collageAccentColor: accentColor } });
+  return { accentColor: team.collageAccentColor };
+}
+
+/** Step 1 of the logo upload — bytes go straight from the browser to R2, never through this server (same as every photo upload). */
+async function presignCollageLogoUpload(prisma, teamId, contentType, actor) {
+  requireCoach(actor, 'Only a coach can set the collage logo.');
+  if (!ALLOWED_LOGO_CONTENT_TYPES.has(contentType)) {
+    const err = new Error(`Unsupported image type. Use one of: ${[...ALLOWED_LOGO_CONTENT_TYPES].join(', ')}.`);
+    err.statusCode = 400;
+    throw err;
+  }
+  const key = r2.collageLogoKey(teamId);
+  return { uploadUrl: await r2.presignPutUrl(key, contentType), key };
+}
+
+/** Step 2 — called once the browser's PUT to that presigned URL succeeds. Never trusts that alone; confirms the object actually landed first. */
+async function finalizeCollageLogo(prisma, teamId, actor) {
+  requireCoach(actor, 'Only a coach can set the collage logo.');
+  const key = r2.collageLogoKey(teamId);
+  if (!(await r2.objectExists(key))) {
+    const err = new Error('The logo upload did not complete — try again.');
+    err.statusCode = 400;
+    throw err;
+  }
+  await prisma.team.update({ where: { id: teamId }, data: { collageLogoKey: key } });
+  return { logoUrl: await r2.presignGetUrl(key) };
+}
+
+/** Reverts to the collage's own drawn default logo. */
+async function clearCollageLogo(prisma, teamId, actor) {
+  requireCoach(actor, 'Only a coach can set the collage logo.');
+  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { collageLogoKey: true } });
+  if (team?.collageLogoKey) {
+    await r2.deleteObject(team.collageLogoKey).catch((error) => {
+      console.error('Error deleting the old collage logo object (continuing — the team row is still cleared):', error.message);
+    });
+  }
+  await prisma.team.update({ where: { id: teamId }, data: { collageLogoKey: null } });
+  return { logoUrl: null };
 }
 
 // --- Slideshow collection ---------------------------------------------
@@ -748,6 +846,11 @@ module.exports = {
   resolvePhotoDownloadLink,
   listPhotosForDownloadLinkTarget,
   setGroupPhoto,
+  getCollageSettings,
+  setCollageAccentColor,
+  presignCollageLogoUpload,
+  finalizeCollageLogo,
+  clearCollageLogo,
   listSlideshowItems,
   addSlideshowItem,
   removeSlideshowItem,

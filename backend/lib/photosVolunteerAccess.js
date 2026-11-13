@@ -10,6 +10,7 @@
 // that happens to live in the same feature.
 
 const crypto = require('crypto');
+const { findTeamByAddress } = require('./teamSlug');
 
 function safeEqual(a, b) {
   const bufA = Buffer.from(a);
@@ -28,11 +29,8 @@ function safeEqual(a, b) {
  * identically — `{ ok: false }` — which of those is true must never be
  * distinguishable from outside.
  */
-async function verifyVolunteerLogin(prisma, { athleticTeamId, password }) {
-  const team = await prisma.team.findUnique({
-    where: { athleticTeamId },
-    select: { id: true, photosTagPassword: true },
-  });
+async function verifyVolunteerLogin(prisma, { teamAddress, password }) {
+  const team = await findTeamByAddress(prisma, teamAddress, { id: true, photosTagPassword: true });
   if (!team || !team.photosTagPassword || !safeEqual(password, team.photosTagPassword)) {
     return { ok: false };
   }

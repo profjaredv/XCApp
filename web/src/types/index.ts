@@ -8,6 +8,7 @@ export type Result = {
 export interface Team {
     id: string; // Supabase UUID
     name: string;
+    slug?: string; // LeadPack address: /t/<slug>
     athletic_team_id: string; // Athletic.net ID
     join_code: string;
     coach_uid: string;

@@ -4,6 +4,7 @@ const router = express.Router();
 // same import shape as routes/export.js.
 const { ZipArchive } = require('archiver');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
+const { nanoid } = require('nanoid');
 const prisma = require('../lib/db');
 const r2 = require('../lib/r2');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
@@ -12,7 +13,7 @@ const { resolvePhotosTeam, requirePhotosFeatureEnabled } = require('../middlewar
 const { isFeatureEnabled } = require('../lib/teamFeatures');
 const { authenticateUserOrVolunteer } = require('../middleware/photosVolunteer');
 const photosVolunteerAccess = require('../lib/photosVolunteerAccess');
-const { ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
+const { ANY_COACH, FULL_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
 const { resolveActiveSeason, deriveGrade, isEnrolled } = require('../lib/season');
 const photosAccess = require('../lib/photosAccess');
 const photoBuildStats = require('../lib/photoBuildStats');
@@ -20,6 +21,7 @@ const { getActiveMembershipsForTeamSeason } = require('../lib/groups');
 const { importGoogleAlbum, validateGooglePhotosUrl } = require('../lib/googlePhotosImport');
 const googlePhotosImportJobs = require('../lib/googlePhotosImportJobs');
 const { sendEmail } = require('../lib/email');
+const { requireActivePlan } = require('../lib/entitlements');
 const { MAX_PICKS } = photosAccess;
 
 // Same fallback every other email-sending route uses (routes/athletes.js,
@@ -119,6 +121,7 @@ async function attachPhotoActor(req, res, next) {
       req.photoActor = {
         userId: null,
         isCoach: false,
+        isPhotosAdmin: false,
         isVolunteer: true,
         selfAthleteId: null,
         guardianAthleteIds: [],
@@ -144,6 +147,18 @@ function sendAccessError(res, error, fallbackMessage) {
   return res.status(500).json({ msg: 'Server error' });
 }
 
+// The "Add" tier (uploading, creating meets, importing from Google
+// Photos) — a coach or an invited Photos Admin, same authority
+// test/roleMatrix.test.js's VOLUNTEER_WRITE_ROUTES comment already
+// documents for a volunteer coach (the TeamMember role, not the
+// tagging-passcode isVolunteer actor, which this must never admit: a
+// volunteer's photoActor.isCoach/isPhotosAdmin are always false). Must
+// run after attachPhotoActor.
+function requirePhotoWriteAccess(req, res, next) {
+  if (req.photoActor && (req.photoActor.isCoach || req.photoActor.isPhotosAdmin)) return next();
+  return res.status(403).json({ msg: 'Only a coach or an invited Photos Admin can do that.' });
+}
+
 // Brute-force protection on the one endpoint that checks a password
 // against nothing but req.body — keyed by IP, since by definition there's
 // no authenticated user yet at this point.
@@ -163,11 +178,15 @@ const volunteerLoginLimiter = rateLimit({
 // locally and sends back as X-Photos-Volunteer-Token on every Photos
 // request from then on (see middleware/photosVolunteer.js).
 router.post('/volunteer-login', volunteerLoginLimiter, async (req, res) => {
-  const { athleticTeamId, password } = req.body || {};
-  if (!athleticTeamId || !password || typeof password !== 'string') {
-    return res.status(400).json({ msg: 'athleticTeamId and password are required.' });
+  // `team` is the address from the link: the LeadPack slug, or the
+  // Athletic.net id on a link shared before slugs existed. `athleticTeamId`
+  // is the old body field, still accepted from a cached client.
+  const { password } = req.body || {};
+  const teamAddress = (req.body || {}).team || (req.body || {}).athleticTeamId;
+  if (!teamAddress || typeof teamAddress !== 'string' || !password || typeof password !== 'string') {
+    return res.status(400).json({ msg: 'team and password are required.' });
   }
-  const result = await photosVolunteerAccess.verifyVolunteerLogin(prisma, { athleticTeamId, password });
+  const result = await photosVolunteerAccess.verifyVolunteerLogin(prisma, { teamAddress, password });
   if (!result.ok) {
     return res.status(401).json({ msg: 'Incorrect password.' });
   }
@@ -198,6 +217,150 @@ router.put('/tag-password', authenticate, requireFeature('photos'), requireTeam,
   res.json(await photosVolunteerAccess.setTagPassword(prisma, req.user.teamId, password));
 });
 
+// A standing, reusable code — unlike StaffInvite/the old per-email
+// PhotosAdminInvite, there is no per-invitee row: any number of parents a
+// coach shares this with can accept it, until it's regenerated or
+// revoked (Team.photosAdminJoinCode's own schema comment). 21 chars from
+// nanoid's default alphabet — meant to live in a URL, not be typed, so it
+// doesn't need joinCode's short/typeable tradeoff.
+function buildPhotosAdminJoinLink(code) {
+  return code ? `${FRONTEND_URL}/photos-admin-join/${code}` : null;
+}
+
+// GET /api/photos/join-link — the team's current code (null if none has
+// been generated yet), for the Settings panel to show/copy. ANY_COACH,
+// same read tier as viewing staff — only generating or revoking one is
+// FULL_COACH.
+router.get('/join-link', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({ where: { id: req.user.teamId }, select: { photosAdminJoinCode: true } });
+    res.json({ code: team.photosAdminJoinCode, link: buildPhotosAdminJoinLink(team.photosAdminJoinCode) });
+  } catch (error) {
+    console.error('Error fetching Photos Admin join link:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/photos/join-link — generate (or regenerate, replacing
+// whatever code existed) the team's standing join code. FULL_COACH, same
+// tier as routes/team.js's staff-invite: handing out a code that grants
+// real access to this team's data is a "staff management" action even
+// when the account it creates is scoped to one module. requireActivePlan
+// for the same reason staff/athlete invites already require it
+// (lib/entitlements.js) — this exposes the app to new accounts too.
+router.post('/join-link', authenticate, requireFeature('photos'), requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
+  try {
+    const code = nanoid();
+    await prisma.team.update({ where: { id: req.user.teamId }, data: { photosAdminJoinCode: code } });
+    res.json({ code, link: buildPhotosAdminJoinLink(code) });
+  } catch (error) {
+    console.error('Error generating Photos Admin join link:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// DELETE /api/photos/join-link — revoke the standing code so it can no
+// longer be used to join; existing Photos Admin grants are untouched
+// (revoke those individually via PATCH /admins/:userId instead).
+router.delete('/join-link', authenticate, requireFeature('photos'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    await prisma.team.update({ where: { id: req.user.teamId }, data: { photosAdminJoinCode: null } });
+    res.json({ msg: 'Join link revoked.' });
+  } catch (error) {
+    console.error('Error revoking Photos Admin join link:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/photos/join-as-admin — authenticated: the code identifies the
+// team; the session identifies who is joining. Deliberately never touches
+// req.user.teamId — a Photos Admin is not a TeamMember (PhotosAdmin's own
+// schema comment), same as a guardian. No requireFeature/
+// requirePhotosFeatureEnabled up front — there's no team to check the
+// feature flag against before the code resolves one, same reasoning as
+// POST /volunteer-login — so it carries the same inline isFeatureEnabled
+// check GET /download-link/:token uses instead, once the code's team is
+// in hand: a link shared before Photos was turned off should behave like
+// everything else once it's off. Reusable by design, so unlike the old
+// accept-admin-invite this never consumes or invalidates the code.
+router.post('/join-as-admin', authenticate, async (req, res) => {
+  const { code } = req.body || {};
+  const userId = req.user.id;
+
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ msg: 'A join code is required.' });
+  }
+
+  try {
+    const team = await prisma.team.findUnique({ where: { photosAdminJoinCode: code } });
+
+    if (!team) {
+      return res.status(404).json({ msg: 'This link is no longer valid. Ask the coach who shared it for a current one.' });
+    }
+    if (!isFeatureEnabled(team.features, 'photos')) {
+      return res.status(403).json({ msg: 'This team has turned Photos off.', code: 'FEATURE_DISABLED', feature: 'photos' });
+    }
+
+    await prisma.photosAdmin.upsert({
+      where: { teamId_userId: { teamId: team.id, userId } },
+      update: { active: true },
+      create: { teamId: team.id, userId },
+    });
+
+    res.json({
+      msg: `You can now load, tag, and build photos for ${team.name}.`,
+      teamId: team.id,
+      slug: team.slug,
+      athleticTeamId: team.athleticTeamId,
+    });
+  } catch (error) {
+    console.error('Error accepting Photos Admin join link:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// GET /api/photos/admins — every Photos Admin grant (active and revoked),
+// for the Settings panel that manages them. Mirrors routes/team.js's GET
+// /staff shape. ANY_COACH, same read tier as viewing staff — only
+// revoking/restoring one is FULL_COACH.
+router.get('/admins', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
+  try {
+    const grants = await prisma.photosAdmin.findMany({
+      where: { teamId: req.user.teamId },
+      include: { user: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    res.json({
+      admins: grants.map((g) => ({ userId: g.userId, name: g.user.name, email: g.user.email, active: g.active, createdAt: g.createdAt })),
+    });
+  } catch (error) {
+    console.error('Error fetching Photos Admins:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// PATCH /api/photos/admins/:userId — revoke or restore a Photos Admin
+// grant. Revoked rather than deleted, same reasoning as TeamMember.active
+// — see PhotosAdmin's own schema comment.
+router.patch('/admins/:userId', authenticate, requireFeature('photos'), requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  const { active } = req.body || {};
+  if (typeof active !== 'boolean') {
+    return res.status(400).json({ msg: 'active (boolean) is required.' });
+  }
+  try {
+    const grant = await prisma.photosAdmin.findUnique({ where: { teamId_userId: { teamId: req.user.teamId, userId: req.params.userId } } });
+    if (!grant) {
+      return res.status(404).json({ msg: 'Photos Admin not found.' });
+    }
+    const updated = await prisma.photosAdmin.update({ where: { id: grant.id }, data: { active } });
+    res.json({ userId: updated.userId, active: updated.active });
+  } catch (error) {
+    console.error('Error updating Photos Admin:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 // GET /api/photos/me — this account's Photos context: whether it's a
 // coach, its own linked athlete (if any), and which athletes it holds an
 // approved guardian link for. The frontend builds its Actor from this
@@ -212,6 +375,7 @@ router.get('/me', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosF
   res.json({
     userId: req.photoActor.userId,
     isCoach: req.photoActor.isCoach,
+    isPhotosAdmin: Boolean(req.photoActor.isPhotosAdmin),
     isVolunteer: Boolean(req.photoActor.isVolunteer),
     selfAthleteId: req.photoActor.selfAthleteId,
     guardianAthleteIds: req.photoActor.guardianAthleteIds,
@@ -220,20 +384,12 @@ router.get('/me', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosF
   });
 });
 
-// GET/PUT /api/photos/group-photo — the one photo shared across every
+// PUT /api/photos/group-photo — the one photo shared across every
 // athlete's collage back page and the Slideshow collection's template
-// (lib/photosAccess.js's setGroupPhoto). Read is open to anyone
-// resolvePhotosTeam lets through, same as the rest of Build; only a
-// coach can set it. Body/response shape: { photoId: string | null }.
-router.get('/group-photo', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
-  try {
-    const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { groupPhotoId: true } });
-    res.json({ photoId: team?.groupPhotoId ?? null });
-  } catch (error) {
-    sendAccessError(res, error, 'Error in GET /photos/group-photo:');
-  }
-});
-
+// (lib/photosAccess.js's setGroupPhoto). Coach-only. Body/response shape:
+// { photoId: string | null }. Reading it is folded into GET
+// /photos/collage-settings below (one fetch for the whole Build settings
+// panel) — this route is the setter only.
 router.put('/group-photo', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   const { photoId } = req.body || {};
   if (photoId !== null && typeof photoId !== 'string') {
@@ -244,6 +400,99 @@ router.put('/group-photo', authenticate, resolvePhotosTeam, requirePhotosFeature
     res.json({ photoId: team.groupPhotoId });
   } catch (error) {
     sendAccessError(res, error, 'Error in PUT /photos/group-photo:');
+  }
+});
+
+// GET/PUT /api/photos/collage-settings — the Build module's "collage
+// settings" panel: a collage-only accent color, separate from the app's
+// own theme (web/src/pages/photos/components/CollageSettingsPanel.tsx).
+// Bundles the group photo's own id into the read too, so that panel is one
+// fetch; the group photo is still SET through PUT /photos/group-photo
+// above (unchanged) since plenty of other code already calls that.
+router.get('/collage-settings', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
+  try {
+    const settings = await photosAccess.getCollageSettings(prisma, req.photosTeamId);
+    res.json(settings);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/collage-settings:');
+  }
+});
+
+router.put('/collage-settings', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  const { accentColor } = req.body || {};
+  if (accentColor !== null && accentColor !== undefined && typeof accentColor !== 'string') {
+    return res.status(400).json({ msg: 'accentColor (a #rrggbb hex string, or null to clear it) is required.' });
+  }
+  try {
+    const result = await photosAccess.setCollageAccentColor(prisma, req.photosTeamId, accentColor ?? null, req.photoActor);
+    res.json(result);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in PUT /photos/collage-settings:');
+  }
+});
+
+// The logo upload is two steps, same shape as the Load module's own photo
+// upload: presign a direct-to-R2 PUT, then confirm it landed. There's no
+// Photo row for a logo (no meet, no tags — the Photo model requires both),
+// so this is its own small pair of routes rather than reusing POST
+// /authorize + /finalize.
+router.post('/collage-logo/presign', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  const { contentType } = req.body || {};
+  if (!contentType || typeof contentType !== 'string') {
+    return res.status(400).json({ msg: 'contentType is required.' });
+  }
+  try {
+    const result = await photosAccess.presignCollageLogoUpload(prisma, req.photosTeamId, contentType, req.photoActor);
+    res.json(result);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in POST /photos/collage-logo/presign:');
+  }
+});
+
+router.put('/collage-logo', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    const result = await photosAccess.finalizeCollageLogo(prisma, req.photosTeamId, req.photoActor);
+    res.json(result);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in PUT /photos/collage-logo:');
+  }
+});
+
+router.delete('/collage-logo', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
+  try {
+    const result = await photosAccess.clearCollageLogo(prisma, req.photosTeamId, req.photoActor);
+    res.json(result);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in DELETE /photos/collage-logo:');
+  }
+});
+
+// GET /api/photos/collage-logo/raw — same-origin stream proxy for the
+// export canvas, same reasoning as GET /:id/web above: the export loads
+// images with crossOrigin="anonymous" so canvas.toDataURL() doesn't throw,
+// which requires either R2's own CORS response to survive the network or
+// (this route) a same-origin fetch that never needs CORS at all. The
+// preview uses collage-settings' own presigned logoUrl directly instead —
+// same split as every other photo in this app.
+router.get('/collage-logo/raw', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFeatureEnabled, async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({ where: { id: req.photosTeamId }, select: { collageLogoKey: true } });
+    if (!team?.collageLogoKey) {
+      return res.status(404).json({ msg: 'No custom collage logo is set.' });
+    }
+    const [contentType, stream] = await Promise.all([
+      r2.getObjectContentType(team.collageLogoKey),
+      r2.getObjectStream(team.collageLogoKey),
+    ]);
+    res.setHeader('Content-Type', contentType || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    stream.on('error', (err) => {
+      console.error('Collage logo stream-proxy failed:', err.message);
+      res.destroy();
+    });
+    stream.pipe(res);
+  } catch (error) {
+    sendAccessError(res, error, 'Error in GET /photos/collage-logo/raw:');
   }
 });
 
@@ -340,19 +589,20 @@ router.get('/meets', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhot
   }
 });
 
-// POST /api/photos/meets — Load module's "new meet" button. Admin-only,
-// same tier as uploading. Auto-resolves the team's active season rather
-// than asking the coach to pick one, matching the spec's "Load, made dead
-// easy" principle.
-router.post('/meets', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
+// POST /api/photos/meets — Load module's "new meet" button. Admin-only
+// (coach or Photos Admin), same tier as uploading. Auto-resolves the
+// team's active season rather than asking for one, matching the spec's
+// "Load, made dead easy" principle. resolvePhotosTeam, not requireTeam —
+// a Photos Admin has no TeamMember row (see that model's own comment).
+router.post('/meets', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, async (req, res) => {
   const { name, date } = req.body || {};
   if (!name || !String(name).trim() || !date) {
     return res.status(400).json({ msg: 'name and date are required.' });
   }
   try {
-    const season = await photosAccess.resolveActiveSeasonRow(prisma, req.user.teamId);
+    const season = await photosAccess.resolveActiveSeasonRow(prisma, req.photosTeamId);
     const meet = await prisma.meet.create({
-      data: { teamId: req.user.teamId, seasonId: season.id, name: String(name).trim(), date: new Date(date) },
+      data: { teamId: req.photosTeamId, seasonId: season.id, name: String(name).trim(), date: new Date(date) },
     });
     res.status(201).json({ id: meet.id, name: meet.name, date: meet.date });
   } catch (error) {
@@ -361,10 +611,9 @@ router.post('/meets', authenticate, requireFeature('photos'), requireTeam, requi
 });
 
 // POST /api/photos/authorize — Load module, step 2. Body: { meetId, files:
-// [{ sha256, width, height, bytes, takenAt }] }. Admin-only (super admin,
-// coach, volunteer coach — spec's "coach" definition), so a real team
-// membership is required up front.
-router.post('/authorize', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), authorizeLimiter, attachPhotoActor, async (req, res) => {
+// [{ sha256, width, height, bytes, takenAt }] }. Admin-only (coach or
+// Photos Admin).
+router.post('/authorize', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, authorizeLimiter, async (req, res) => {
   const { meetId, files } = req.body || {};
   if (!meetId || !Array.isArray(files) || files.length === 0) {
     return res.status(400).json({ msg: 'meetId and a non-empty files array are required.' });
@@ -380,7 +629,7 @@ router.post('/authorize', authenticate, requireFeature('photos'), requireTeam, r
 
   try {
     const results = await photosAccess.authorizeUpload(prisma, {
-      teamId: req.user.teamId,
+      teamId: req.photosTeamId,
       meetId,
       uploadedById: req.user.id,
       files,
@@ -392,7 +641,7 @@ router.post('/authorize', authenticate, requireFeature('photos'), requireTeam, r
 });
 
 // POST /api/photos/finalize — Load module, step 4. Body: { photoIds: [...] }.
-router.post('/finalize', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), async (req, res) => {
+router.post('/finalize', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, async (req, res) => {
   const { photoIds } = req.body || {};
   if (!Array.isArray(photoIds) || photoIds.length === 0) {
     return res.status(400).json({ msg: 'photoIds is required.' });
@@ -401,7 +650,7 @@ router.post('/finalize', authenticate, requireFeature('photos'), requireTeam, re
   try {
     const results = {};
     for (const photoId of photoIds) {
-      results[photoId] = await photosAccess.finalizeTeamPhoto(prisma, req.user.teamId, photoId);
+      results[photoId] = await photosAccess.finalizeTeamPhoto(prisma, req.photosTeamId, photoId);
     }
     res.json({ results });
   } catch (error) {
@@ -421,7 +670,7 @@ router.post('/finalize', authenticate, requireFeature('photos'), requireTeam, re
 // per photo, filling in as each one lands) rather than one spinner for
 // the whole thing. This responds with a jobId as soon as the job is
 // created; GET .../google-album/:jobId (below) is what the frontend polls.
-router.post('/import/google-album', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), googleImportLimiter, async (req, res) => {
+router.post('/import/google-album', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, googleImportLimiter, async (req, res) => {
   const { meetId, albumUrl } = req.body || {};
   if (!meetId || !albumUrl) {
     return res.status(400).json({ msg: 'meetId and albumUrl are required.' });
@@ -436,12 +685,12 @@ router.post('/import/google-album', authenticate, requireFeature('photos'), requ
   // Checked synchronously here too, not just inside importGoogleAlbum
   // itself, so a bad meetId fails fast as a normal 404 response instead of
   // only surfacing on the job's first poll.
-  const meet = await prisma.meet.findFirst({ where: { id: meetId, teamId: req.user.teamId } });
+  const meet = await prisma.meet.findFirst({ where: { id: meetId, teamId: req.photosTeamId } });
   if (!meet) {
     return res.status(404).json({ msg: 'Meet not found.' });
   }
 
-  const job = googlePhotosImportJobs.createJob({ teamId: req.user.teamId, meetId });
+  const job = googlePhotosImportJobs.createJob({ teamId: req.photosTeamId, meetId });
   res.status(202).json({ jobId: job.id });
 
   // Everything from here on runs after the response above has already
@@ -449,7 +698,7 @@ router.post('/import/google-album', authenticate, requireFeature('photos'), requ
   // the GET route below reads. Errors land in the job record, not an HTTP
   // response; there's no request left to send one to.
   importGoogleAlbum(prisma, {
-    teamId: req.user.teamId,
+    teamId: req.photosTeamId,
     meetId,
     albumUrl: validatedUrl,
     uploadedById: req.user.id,
@@ -475,9 +724,9 @@ router.post('/import/google-album', authenticate, requireFeature('photos'), requ
 // to drive its per-photo tile grid. Same access tier as starting the
 // import; a job also carries its own teamId so one team can never poll
 // another's job even with a guessed/leaked id.
-router.get('/import/google-album/:jobId', authenticate, requireFeature('photos'), requireTeam, requireRole(ANY_COACH), (req, res) => {
+router.get('/import/google-album/:jobId', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, requirePhotoWriteAccess, (req, res) => {
   const job = googlePhotosImportJobs.getJob(req.params.jobId);
-  if (!job || job.teamId !== req.user.teamId) {
+  if (!job || job.teamId !== req.photosTeamId) {
     return res.status(404).json({ msg: 'No import job found with that id (it may have finished long ago, or the server restarted).' });
   }
   res.json({
@@ -522,6 +771,7 @@ router.get('/', authenticateUserOrVolunteer, resolvePhotosTeam, requirePhotosFea
             taggedBy: t.taggedBy,
             focalX: t.focalX,
             focalY: t.focalY,
+            focalZoom: t.focalZoom,
           })),
         };
       }),
@@ -608,17 +858,22 @@ router.delete('/:id/tags/:athleteId', authenticateUserOrVolunteer, resolvePhotos
 });
 
 // PUT /api/photos/:id/tags/:athleteId/focal — Build module's "move the
-// photo to see faces" drag. Body: { focalX, focalY }, each 0-1. Plain
-// authenticate (not the volunteer-session middleware): a no-account
-// tagging session can tag a photo but never touches collage layout.
+// photo to see faces" drag, plus how zoomed in it is. Body: { focalX,
+// focalY, focalZoom? }, focalX/focalY each 0-1, focalZoom >= 1 (omit or 1
+// for no zoom). Plain authenticate (not the volunteer-session middleware):
+// a no-account tagging session can tag a photo but never touches collage
+// layout.
 router.put('/:id/tags/:athleteId/focal', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
-  const { focalX, focalY } = req.body || {};
+  const { focalX, focalY, focalZoom } = req.body || {};
   if (typeof focalX !== 'number' || typeof focalY !== 'number') {
     return res.status(400).json({ msg: 'focalX and focalY (numbers) are required.' });
   }
+  if (focalZoom !== undefined && typeof focalZoom !== 'number') {
+    return res.status(400).json({ msg: 'focalZoom, if given, must be a number.' });
+  }
   try {
-    const tag = await photosAccess.setPhotoFocal(prisma, req.photosTeamId, req.params.id, req.params.athleteId, focalX, focalY, req.photoActor);
-    res.json({ athleteId: tag.athleteId, focalX: tag.focalX, focalY: tag.focalY });
+    const tag = await photosAccess.setPhotoFocal(prisma, req.photosTeamId, req.params.id, req.params.athleteId, focalX, focalY, focalZoom, req.photoActor);
+    res.json({ athleteId: tag.athleteId, focalX: tag.focalX, focalY: tag.focalY, focalZoom: tag.focalZoom });
   } catch (error) {
     sendAccessError(res, error, 'Error in PUT /photos/:id/tags/:athleteId/focal:');
   }
@@ -801,8 +1056,14 @@ router.post('/athletes/:athleteId/opt-out', authenticate, resolvePhotosTeam, req
 // below).
 router.get('/athletes/:athleteId/build-stats', authenticate, resolvePhotosTeam, requirePhotosFeatureEnabled, attachPhotoActor, async (req, res) => {
   try {
-    const stats = await photoBuildStats.getAthleteBuildStats(prisma, req.photosTeamId, req.params.athleteId, req.photoActor);
-    res.json(stats);
+    const { inviteToken, ...stats } = await photoBuildStats.getAthleteBuildStats(prisma, req.photosTeamId, req.params.athleteId, req.photoActor);
+    // The collage's QR code target — a live invite link when the athlete
+    // doesn't have an account yet, or the plain site otherwise (already
+    // registered, or below the minimum account grade). Built here, not in
+    // lib/photoBuildStats.js, so URL assembly stays with this route's own
+    // FRONTEND_URL, same as every other invite/download link in this file.
+    const qrUrl = inviteToken ? `${FRONTEND_URL}/invite/${inviteToken}` : FRONTEND_URL;
+    res.json({ ...stats, qrUrl });
   } catch (error) {
     sendAccessError(res, error, 'Error in GET /photos/athletes/:athleteId/build-stats:');
   }

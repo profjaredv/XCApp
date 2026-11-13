@@ -407,7 +407,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
                 while this ships (SuperAdminRouteGuard is the real nav
                 equivalent of TeamRouteGuard here — see that guard's own
                 comment). Absolute path, not teamPath(...): /tf isn't
-                nested under /t/:athleticTeamId. */}
+                nested under /t/:teamSlug. */}
             <NavItem
               to="/tf/dashboard"
               icon={Activity}
@@ -502,7 +502,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
 // top bar: team name next to the menu button, season as an icon-sized
 // dropdown. Reads/writes the one shared SeasonContext selection — the
 // optional variant, since Layout also renders /profile, deliberately
-// outside /t/:athleticTeamId (no SeasonProvider there — see
+// outside /t/:teamSlug (no SeasonProvider there — see
 // TeamRouteGuard.tsx, where the provider actually lives).
 export const TeamSeasonHeader: React.FC = () => {
   const { data: context } = useTeamContext();

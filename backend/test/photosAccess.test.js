@@ -37,6 +37,11 @@ const {
   resolvePhotoDownloadLink,
   listPhotosForDownloadLinkTarget,
   setGroupPhoto,
+  getCollageSettings,
+  setCollageAccentColor,
+  presignCollageLogoUpload,
+  finalizeCollageLogo,
+  clearCollageLogo,
   listSlideshowItems,
   addSlideshowItem,
   removeSlideshowItem,
@@ -271,18 +276,22 @@ test('finalizeTeamPhoto is idempotent on an already-ready photo', async () => {
 // resolveActor
 // ---------------------------------------------------------------------------
 
-test('resolveActor: the team owner is a coach via the fast path, no guardian links or led-groups fetched', async () => {
+test('resolveActor: the team owner is a coach via the fast path, no guardian links, led-groups, or Photos Admin grant fetched', async () => {
   const restoreGuardian = stub('guardianLink', 'findMany', () => {
     throw new Error('should not be called for a coach');
   });
   const restoreLeader = stub('groupLeader', 'findMany', () => {
     throw new Error('should not be called for a coach — isCoach already covers every group');
   });
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => {
+    throw new Error('should not be called for a coach — isCoach already covers everything a Photos Admin grant would');
+  });
   try {
     const actor = await resolveActor(prisma, COACH, 'team-1');
     assert.deepEqual(actor, {
       userId: 'coach-1',
       isCoach: true,
+      isPhotosAdmin: false,
       selfAthleteId: null,
       guardianAthleteIds: [],
       linkedAthleteIds: [],
@@ -291,6 +300,7 @@ test('resolveActor: the team owner is a coach via the fast path, no guardian lin
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
   }
 });
 
@@ -298,16 +308,19 @@ test('resolveActor: a linked athlete on this team is "self"', async () => {
   const user = { id: 'user-2', teamId: null, team: null, linkedAthlete: { id: 'athlete-9', teamId: 'team-1' } };
   const restoreGuardian = stub('guardianLink', 'findMany', () => []);
   const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
   try {
     const actor = await resolveActor(prisma, user, 'team-1');
     assert.strictEqual(actor.isCoach, false);
+    assert.strictEqual(actor.isPhotosAdmin, false);
     assert.strictEqual(actor.selfAthleteId, 'athlete-9');
     assert.deepEqual(actor.linkedAthleteIds, ['athlete-9']);
     assert.deepEqual(actor.ledGroupIds, []);
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restoreSeason();
   }
 });
@@ -316,6 +329,7 @@ test('resolveActor: a linked athlete on a DIFFERENT team is not treated as self 
   const user = { id: 'user-2', teamId: null, team: null, linkedAthlete: { id: 'athlete-9', teamId: 'team-2' } };
   const restoreGuardian = stub('guardianLink', 'findMany', () => []);
   const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
   try {
     const actor = await resolveActor(prisma, user, 'team-1');
@@ -323,6 +337,7 @@ test('resolveActor: a linked athlete on a DIFFERENT team is not treated as self 
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restoreSeason();
   }
 });
@@ -335,6 +350,7 @@ test('resolveActor: approved guardian links scoped to this team become guardianA
     return [{ athleteId: 'athlete-2' }, { athleteId: 'athlete-3' }];
   });
   const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
   try {
     const actor = await resolveActor(prisma, user, 'team-1');
@@ -344,6 +360,7 @@ test('resolveActor: approved guardian links scoped to this team become guardianA
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restoreSeason();
   }
 });
@@ -356,6 +373,7 @@ test('resolveActor: a non-coach GroupLeader for the active season gets that grou
     seenWhere = args.where;
     return [{ groupId: 'group-blue' }];
   });
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
   try {
     const actor = await resolveActor(prisma, user, 'team-1');
@@ -364,6 +382,7 @@ test('resolveActor: a non-coach GroupLeader for the active season gets that grou
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restoreSeason();
   }
 });
@@ -374,6 +393,7 @@ test('resolveActor: no Season row for the active year means ledGroupIds is empty
   const restoreLeader = stub('groupLeader', 'findMany', () => {
     throw new Error('should not be called when there is no Season row to scope it to');
   });
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => null);
   const restores = [
     stub('team', 'findUnique', () => ({ currentSeason: 2026 })),
     stub('season', 'findFirst', () => null),
@@ -385,7 +405,47 @@ test('resolveActor: no Season row for the active year means ledGroupIds is empty
   } finally {
     restoreGuardian();
     restoreLeader();
+    restoreGrant();
     restores.forEach((r) => r());
+  }
+});
+
+test('resolveActor: an active Photos Admin grant sets isPhotosAdmin true', async () => {
+  const user = { id: 'parent-1', teamId: null, team: null, linkedAthlete: null };
+  let seenWhere;
+  const restoreGuardian = stub('guardianLink', 'findMany', () => []);
+  const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', (args) => {
+    seenWhere = args.where;
+    return { id: 'grant-1', teamId: 'team-1', userId: 'parent-1', active: true };
+  });
+  const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
+  try {
+    const actor = await resolveActor(prisma, user, 'team-1');
+    assert.deepEqual(seenWhere, { teamId_userId: { teamId: 'team-1', userId: 'parent-1' } });
+    assert.strictEqual(actor.isPhotosAdmin, true);
+  } finally {
+    restoreGuardian();
+    restoreLeader();
+    restoreGrant();
+    restoreSeason();
+  }
+});
+
+test('resolveActor: a revoked (inactive) Photos Admin grant does not set isPhotosAdmin', async () => {
+  const user = { id: 'parent-1', teamId: null, team: null, linkedAthlete: null };
+  const restoreGuardian = stub('guardianLink', 'findMany', () => []);
+  const restoreLeader = stub('groupLeader', 'findMany', () => []);
+  const restoreGrant = stub('photosAdmin', 'findUnique', () => ({ id: 'grant-1', teamId: 'team-1', userId: 'parent-1', active: false }));
+  const restoreSeason = withActiveSeason({ id: 'season-1', year: 2026 });
+  try {
+    const actor = await resolveActor(prisma, user, 'team-1');
+    assert.strictEqual(actor.isPhotosAdmin, false);
+  } finally {
+    restoreGuardian();
+    restoreLeader();
+    restoreGrant();
+    restoreSeason();
   }
 });
 
@@ -427,6 +487,25 @@ test('listTeamPhotos shows the coach everything, including photos with an opted-
 test('listTeamPhotos refuses includeHidden for a non-coach', async () => {
   const actor = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
   await assert.rejects(() => listTeamPhotos(prisma, 'team-1', actor, { includeHidden: true }), /Only a coach/);
+});
+
+test('listTeamPhotos refuses includeHidden for a Photos Admin too — hidden review stays coach-only', async () => {
+  const actor = { userId: 'parent-9', isCoach: false, isPhotosAdmin: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  await assert.rejects(() => listTeamPhotos(prisma, 'team-1', actor, { includeHidden: true }), /Only a coach/);
+});
+
+test('listTeamPhotos shows a Photos Admin everything, including photos with an opted-out athlete', async () => {
+  const actor = { userId: 'parent-9', isCoach: false, isPhotosAdmin: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  const restore = stub('photo', 'findMany', () => [
+    { id: 'photo-a', tags: [] },
+    { id: 'photo-opted-out', tags: [{ athleteId: 'athlete-optout' }] },
+  ]);
+  try {
+    const photos = await listTeamPhotos(prisma, 'team-1', actor);
+    assert.deepEqual(photos.map((p) => p.id), ['photo-a', 'photo-opted-out']);
+  } finally {
+    restore();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -553,7 +632,7 @@ test('untagPhoto lets a coach remove any tag', async () => {
 test('setPhotoFocal refuses an athlete this actor cannot manage', async () => {
   const actor = { userId: 'parent-1', isCoach: false, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
   await assert.rejects(
-    () => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-99', 0.2, 0.8, actor),
+    () => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-99', 0.2, 0.8, 1, actor),
     /cannot reposition/,
   );
 });
@@ -562,7 +641,7 @@ test('setPhotoFocal 404s on a photo from another team even for a coach', async (
   const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
   const restore = stub('photo', 'findFirst', () => null);
   try {
-    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, actor), /not found/);
+    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, 1, actor), /not found/);
   } finally {
     restore();
   }
@@ -575,13 +654,13 @@ test('setPhotoFocal 404s when the athlete has no tag on this photo', async () =>
     stub('photoAthlete', 'findUnique', () => null),
   ];
   try {
-    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, actor), /not tagged/);
+    await assert.rejects(() => setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.2, 0.8, 1, actor), /not tagged/);
   } finally {
     restores.forEach((r) => r());
   }
 });
 
-test('setPhotoFocal clamps out-of-range values into 0-1 before saving', async () => {
+test('setPhotoFocal clamps out-of-range x/y values into 0-1 before saving', async () => {
   const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
   let savedData;
   const restores = [
@@ -593,9 +672,9 @@ test('setPhotoFocal clamps out-of-range values into 0-1 before saving', async ()
     }),
   ];
   try {
-    const result = await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 1.4, -0.3, actor);
-    assert.deepEqual(savedData, { focalX: 1, focalY: 0 });
-    assert.deepEqual(result, { athleteId: 'athlete-1', focalX: 1, focalY: 0 });
+    const result = await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 1.4, -0.3, 1, actor);
+    assert.deepEqual(savedData, { focalX: 1, focalY: 0, focalZoom: null });
+    assert.deepEqual(result, { athleteId: 'athlete-1', focalX: 1, focalY: 0, focalZoom: null });
   } finally {
     restores.forEach((r) => r());
   }
@@ -613,8 +692,46 @@ test('setPhotoFocal lets a guardian reposition their own linked athlete', async 
     }),
   ];
   try {
-    await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-2', 0.3, 0.7, actor);
-    assert.deepEqual(savedData, { focalX: 0.3, focalY: 0.7 });
+    await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-2', 0.3, 0.7, 1, actor);
+    assert.deepEqual(savedData, { focalX: 0.3, focalY: 0.7, focalZoom: null });
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
+test('setPhotoFocal stores a zoom greater than 1, clamped to the 3x ceiling', async () => {
+  const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  let savedData;
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
+    stub('photoAthlete', 'findUnique', () => ({ photoId: 'photo-1', athleteId: 'athlete-1' })),
+    stub('photoAthlete', 'update', (args) => {
+      savedData = args.data;
+      return { athleteId: 'athlete-1', ...args.data };
+    }),
+  ];
+  try {
+    await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.5, 0.5, 10, actor);
+    assert.equal(savedData.focalZoom, 3);
+  } finally {
+    restores.forEach((r) => r());
+  }
+});
+
+test('setPhotoFocal never stores a zoom under 1 (it would loosen the crop past the slot\'s own cover-fit)', async () => {
+  const actor = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+  let savedData;
+  const restores = [
+    stub('photo', 'findFirst', () => ({ id: 'photo-1', teamId: 'team-1' })),
+    stub('photoAthlete', 'findUnique', () => ({ photoId: 'photo-1', athleteId: 'athlete-1' })),
+    stub('photoAthlete', 'update', (args) => {
+      savedData = args.data;
+      return { athleteId: 'athlete-1', ...args.data };
+    }),
+  ];
+  try {
+    await setPhotoFocal(prisma, 'team-1', 'photo-1', 'athlete-1', 0.5, 0.5, 0.2, actor);
+    assert.equal(savedData.focalZoom, null);
   } finally {
     restores.forEach((r) => r());
   }
@@ -1171,6 +1288,167 @@ test('setGroupPhoto clears the group photo when photoId is null, without looking
     assert.equal(team.groupPhotoId, null);
   } finally {
     restorePhoto();
+    restoreUpdate();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Collage branding: getCollageSettings / setCollageAccentColor /
+// presignCollageLogoUpload / finalizeCollageLogo / clearCollageLogo
+// ---------------------------------------------------------------------------
+
+const collageCoach = { userId: 'coach-1', isCoach: true, selfAthleteId: null, guardianAthleteIds: [], linkedAthleteIds: [] };
+const collageGuardian = { userId: 'parent-1', isCoach: false, selfAthleteId: 'athlete-1', guardianAthleteIds: ['athlete-1'], linkedAthleteIds: ['athlete-1'] };
+
+test('getCollageSettings resolves a presigned URL for a stored logo key, and passes through accent/group photo', async () => {
+  const restoreTeam = stub('team', 'findUnique', () => ({ groupPhotoId: 'photo-1', collageAccentColor: '#ff8800', collageLogoKey: 'teams/team-1/collage-logo' }));
+  const restoreGet = stubR2('presignGetUrl', (key) => `https://r2.example/${key}?sig=abc`);
+  try {
+    const settings = await getCollageSettings(prisma, 'team-1');
+    assert.deepEqual(settings, {
+      groupPhotoId: 'photo-1',
+      accentColor: '#ff8800',
+      logoUrl: 'https://r2.example/teams/team-1/collage-logo?sig=abc',
+    });
+  } finally {
+    restoreTeam();
+    restoreGet();
+  }
+});
+
+test('getCollageSettings returns nulls for a team that never set any of these, without touching R2', async () => {
+  const restoreTeam = stub('team', 'findUnique', () => ({ groupPhotoId: null, collageAccentColor: null, collageLogoKey: null }));
+  const restoreGet = stubR2('presignGetUrl', () => {
+    throw new Error('should not be called when there is no logo key');
+  });
+  try {
+    const settings = await getCollageSettings(prisma, 'team-1');
+    assert.deepEqual(settings, { groupPhotoId: null, accentColor: null, logoUrl: null });
+  } finally {
+    restoreTeam();
+    restoreGet();
+  }
+});
+
+test('setCollageAccentColor refuses a non-coach', async () => {
+  await assert.rejects(() => setCollageAccentColor(prisma, 'team-1', '#2b6cb0', collageGuardian), /Only a coach/);
+});
+
+test('setCollageAccentColor refuses a value that is not #rrggbb hex', async () => {
+  await assert.rejects(() => setCollageAccentColor(prisma, 'team-1', 'blue', collageCoach), /hex/);
+  await assert.rejects(() => setCollageAccentColor(prisma, 'team-1', '#fff', collageCoach), /hex/);
+});
+
+test('setCollageAccentColor stores a valid hex color', async () => {
+  const restoreUpdate = stub('team', 'update', (args) => ({ id: 'team-1', collageAccentColor: args.data.collageAccentColor }));
+  try {
+    const result = await setCollageAccentColor(prisma, 'team-1', '#2B6CB0', collageCoach);
+    assert.equal(result.accentColor, '#2B6CB0');
+  } finally {
+    restoreUpdate();
+  }
+});
+
+test('setCollageAccentColor clears the color when given null', async () => {
+  const restoreUpdate = stub('team', 'update', (args) => ({ id: 'team-1', collageAccentColor: args.data.collageAccentColor }));
+  try {
+    const result = await setCollageAccentColor(prisma, 'team-1', null, collageCoach);
+    assert.equal(result.accentColor, null);
+  } finally {
+    restoreUpdate();
+  }
+});
+
+test('presignCollageLogoUpload refuses a non-coach', async () => {
+  await assert.rejects(() => presignCollageLogoUpload(prisma, 'team-1', 'image/png', collageGuardian), /Only a coach/);
+});
+
+test('presignCollageLogoUpload refuses an unsupported content type', async () => {
+  await assert.rejects(() => presignCollageLogoUpload(prisma, 'team-1', 'application/pdf', collageCoach), /Unsupported image type/);
+});
+
+test('presignCollageLogoUpload returns a presigned PUT for the team\'s fixed logo key', async () => {
+  const restorePut = stubR2('presignPutUrl', (key, contentType) => `https://r2.example/put/${key}?type=${contentType}`);
+  try {
+    const result = await presignCollageLogoUpload(prisma, 'team-1', 'image/png', collageCoach);
+    assert.equal(result.key, 'teams/team-1/collage-logo');
+    assert.equal(result.uploadUrl, 'https://r2.example/put/teams/team-1/collage-logo?type=image/png');
+  } finally {
+    restorePut();
+  }
+});
+
+test('finalizeCollageLogo refuses a non-coach', async () => {
+  await assert.rejects(() => finalizeCollageLogo(prisma, 'team-1', collageGuardian), /Only a coach/);
+});
+
+test('finalizeCollageLogo refuses when the object never actually landed in R2', async () => {
+  const restoreExists = stubR2('objectExists', () => false);
+  try {
+    await assert.rejects(() => finalizeCollageLogo(prisma, 'team-1', collageCoach), /did not complete/);
+  } finally {
+    restoreExists();
+  }
+});
+
+test('finalizeCollageLogo stores the key and returns a fresh presigned URL once the object exists', async () => {
+  const restoreExists = stubR2('objectExists', () => true);
+  const restoreGet = stubR2('presignGetUrl', (key) => `https://r2.example/${key}`);
+  let seenData;
+  const restoreUpdate = stub('team', 'update', (args) => {
+    seenData = args.data;
+    return { id: 'team-1', collageLogoKey: args.data.collageLogoKey };
+  });
+  try {
+    const result = await finalizeCollageLogo(prisma, 'team-1', collageCoach);
+    assert.equal(seenData.collageLogoKey, 'teams/team-1/collage-logo');
+    assert.equal(result.logoUrl, 'https://r2.example/teams/team-1/collage-logo');
+  } finally {
+    restoreExists();
+    restoreGet();
+    restoreUpdate();
+  }
+});
+
+test('clearCollageLogo refuses a non-coach', async () => {
+  await assert.rejects(() => clearCollageLogo(prisma, 'team-1', collageGuardian), /Only a coach/);
+});
+
+test('clearCollageLogo deletes the R2 object and nulls the team\'s key', async () => {
+  const restoreTeam = stub('team', 'findUnique', () => ({ collageLogoKey: 'teams/team-1/collage-logo' }));
+  let deletedKey;
+  const restoreDelete = stubR2('deleteObject', (key) => {
+    deletedKey = key;
+  });
+  let seenData;
+  const restoreUpdate = stub('team', 'update', (args) => {
+    seenData = args.data;
+    return { id: 'team-1', collageLogoKey: args.data.collageLogoKey };
+  });
+  try {
+    const result = await clearCollageLogo(prisma, 'team-1', collageCoach);
+    assert.equal(deletedKey, 'teams/team-1/collage-logo');
+    assert.equal(seenData.collageLogoKey, null);
+    assert.equal(result.logoUrl, null);
+  } finally {
+    restoreTeam();
+    restoreDelete();
+    restoreUpdate();
+  }
+});
+
+test('clearCollageLogo is a no-op on R2 when there was never a logo set', async () => {
+  const restoreTeam = stub('team', 'findUnique', () => ({ collageLogoKey: null }));
+  const restoreDelete = stubR2('deleteObject', () => {
+    throw new Error('should not be called when there is no logo to delete');
+  });
+  const restoreUpdate = stub('team', 'update', (args) => ({ id: 'team-1', collageLogoKey: args.data.collageLogoKey }));
+  try {
+    const result = await clearCollageLogo(prisma, 'team-1', collageCoach);
+    assert.equal(result.logoUrl, null);
+  } finally {
+    restoreTeam();
+    restoreDelete();
     restoreUpdate();
   }
 });
