@@ -37,7 +37,7 @@ import TeamRouteGuard from './TeamRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
 import Layout from '../components/Layout';
 import TrackHome from '../pages/track/TrackHome';
-import TrackLeadersPage from '../pages/track/TrackLeadersPage';
+import TrackEventsPage from '../pages/track/TrackEventsPage';
 import TrackPointsPage from '../pages/track/TrackPointsPage';
 import TrackMeetsPage from '../pages/track/TrackMeetsPage';
 import TrackImportPage from '../pages/track/TrackImportPage';
@@ -251,6 +251,27 @@ export const router = createBrowserRouter([
               // Same list/detail split as interval sessions, for the same
               // "one session shouldn't compete with every other session for
               // phone screen space" reason.
+              // Track & Field's own copies of the full-screen tools.
+              {
+                path: 'track/attendance',
+                element: <FeatureGate feature="track"><FeatureGate feature="attendance"><AttendancePage /></FeatureGate></FeatureGate>,
+              },
+              {
+                path: 'track/attendance/:sessionId',
+                element: <FeatureGate feature="track"><FeatureGate feature="attendance"><AttendanceSessionPage /></FeatureGate></FeatureGate>,
+              },
+              {
+                path: 'track/photos',
+                element: <FeatureGate feature="track"><FeatureGate feature="photos"><PhotosWorkspacePage /></FeatureGate></FeatureGate>,
+              },
+              {
+                path: 'track/interval-sessions',
+                element: <FeatureGate feature="track"><IntervalSessionsPage /></FeatureGate>,
+              },
+              {
+                path: 'track/interval-sessions/:sessionId',
+                element: <FeatureGate feature="track"><IntervalSessionManagePage /></FeatureGate>,
+              },
               {
                 path: 'attendance',
                 element: (
@@ -491,12 +512,40 @@ export const router = createBrowserRouter([
                     ),
                   },
                   {
-                    path: 'track/leaders',
+                    path: 'track/events',
                     element: (
                       <FeatureGate feature="track">
-                        <TrackLeadersPage />
+                        <TrackEventsPage />
                       </FeatureGate>
                     ),
+                  },
+                  { path: 'track/leaders', element: <Navigate to="../track/events" replace /> },
+                  // The screens both sports have. Same pages as cross
+                  // country; being under /track is what makes every request
+                  // they send about the team's track season (lib/sport.ts).
+                  {
+                    path: 'track/roster',
+                    element: <FeatureGate feature="track"><RosterPage /></FeatureGate>,
+                  },
+                  {
+                    path: 'track/groups',
+                    element: <FeatureGate feature="track"><GroupsPage /></FeatureGate>,
+                  },
+                  {
+                    path: 'track/groups/manage',
+                    element: <FeatureGate feature="track"><GroupsPage /></FeatureGate>,
+                  },
+                  {
+                    path: 'track/group/:groupId',
+                    element: <FeatureGate feature="track"><GroupDayPage /></FeatureGate>,
+                  },
+                  {
+                    path: 'track/schedule',
+                    element: <FeatureGate feature="track"><SchedulePage /></FeatureGate>,
+                  },
+                  {
+                    path: 'track/equipment',
+                    element: <FeatureGate feature="track"><EquipmentPage /></FeatureGate>,
                   },
                   {
                     path: 'track/points',
@@ -519,6 +568,16 @@ export const router = createBrowserRouter([
                     element: (
                       <FeatureGate feature="track">
                         <TrackImportPage />
+                      </FeatureGate>
+                    ),
+                  },
+                  // Shared screens link to an athlete as team/athlete/:id; in
+                  // track that is the track athlete page.
+                  {
+                    path: 'track/team/athlete/:athleteId',
+                    element: (
+                      <FeatureGate feature="track">
+                        <TrackAthletePage />
                       </FeatureGate>
                     ),
                   },

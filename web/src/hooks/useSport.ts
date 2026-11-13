@@ -36,7 +36,7 @@ export function useSport() {
     (next: Sport) => {
       writeStoredSport(next);
       setStored(next);
-      navigate(teamPath(SPORT_HOME[next]));
+      navigate(teamPath(SPORT_HOME[next], next));
     },
     [navigate, teamPath]
   );

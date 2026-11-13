@@ -10,6 +10,7 @@
 // from the verified session), never from a request param or body.
 
 const crypto = require('crypto');
+const { currentSport } = require('./sport');
 const { hasTeamRole } = require('../middleware/auth');
 const { ANY_COACH } = require('./teamRoles');
 const { resolveActiveSeason, isAthleteOnSeasonRoster } = require('./season');
@@ -76,7 +77,7 @@ async function resolveActor(prisma, user, teamId) {
 // season doesn't leak into this one.
 async function ledGroupIdsFor(prisma, userId, teamId) {
   const seasonYear = await resolveActiveSeason(teamId);
-  const season = await prisma.season.findFirst({ where: { teamId, year: seasonYear }, select: { id: true } });
+  const season = await prisma.season.findFirst({ where: { teamId, year: seasonYear, sport: currentSport() }, select: { id: true } });
   if (!season) return [];
   const led = await prisma.groupLeader.findMany({
     where: { userId, group: { teamId, seasonId: season.id } },
@@ -362,7 +363,7 @@ async function setPhotoFocal(prisma, teamId, photoId, athleteId, focalX, focalY,
 
 async function resolveActiveSeasonRow(prisma, teamId) {
   const year = await resolveActiveSeason(teamId);
-  const season = await prisma.season.findFirst({ where: { teamId, year } });
+  const season = await prisma.season.findFirst({ where: { teamId, year, sport: currentSport() } });
   if (!season) {
     const err = new Error('No season is set up for this team yet.');
     err.statusCode = 409;

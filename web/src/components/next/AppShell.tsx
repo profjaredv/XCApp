@@ -49,7 +49,8 @@ function isActive(entry: NextNavEntry, sub: string): boolean {
   if (target === 'groups') return sub === 'groups' || sub.startsWith('group/') || sub.startsWith('groups/');
   if (target === 'meets') return sub === 'meets' || sub.startsWith('meet/');
   if (target === 'athletes') return sub === 'athletes' || sub.startsWith('athlete/');
-  if (target === 'track/leaders') return sub === target || sub.startsWith('track/athlete/');
+  if (target === 'track/roster') return sub === target || sub.startsWith('track/athlete/');
+  if (target === 'track/groups') return sub === target || sub.startsWith('track/group');
   return sub === target;
 }
 
@@ -79,8 +80,13 @@ const ShellFrame: React.FC = () => {
   const inTrack = sport === 'TRACK';
   const showScope = !inTrack && isCoach && scopeAppliesTo(sub, location.search);
 
-  const tabs = inTrack ? trackNavEntries() : mobileTabsFor(role, enabled);
-  const more = inTrack ? moreItemsFor(role, enabled).filter((e) => e.key === 'settings') : moreItemsFor(role, enabled);
+  const track = trackNavEntries(enabled);
+  const tabs = inTrack
+    ? track.filter((e) => e.mobileTab).sort((a, b) => ((a.mobileTab as { coach: number }).coach) - ((b.mobileTab as { coach: number }).coach))
+    : mobileTabsFor(role, enabled);
+  const more = inTrack
+    ? [...track.filter((e) => !e.mobileTab), ...moreItemsFor(role, enabled).filter((e) => e.key === 'settings')]
+    : moreItemsFor(role, enabled);
   const allEntries = [...tabs, ...more];
   const onNavDestination = location.pathname === '/profile' || sub === '' || allEntries.some((e) => isActive(e, sub) && e.path.replace(/^\//, '') === sub);
   const showBack = !onNavDestination;
@@ -263,7 +269,7 @@ const DesktopSidebar: React.FC<{
   }, [menuOpen]);
 
   const inTrack = sport === 'TRACK';
-  const track = trackNavEntries();
+  const track = trackNavEntries(enabled);
   const week = inTrack ? [] : nextNavFor(role, 'week', enabled);
   const insights = inTrack ? track.filter((e) => e.zone === 'insights') : nextNavFor(role, 'insights', enabled);
   const setup = inTrack

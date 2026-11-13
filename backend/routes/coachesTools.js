@@ -1,4 +1,5 @@
 const express = require('express');
+const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
@@ -204,8 +205,8 @@ router.post('/ai-insights/:season', authenticate, requireTeam, requireRole(FULL_
     let athletes = candidateAthletes;
     if (isPreseasonFallback) {
       const [requestedSeasonRow, usingSeasonRow] = await Promise.all([
-        prisma.season.findFirst({ where: { teamId, year: requestedSeason }, select: { id: true } }),
-        prisma.season.findFirst({ where: { teamId, year: usingSeason }, select: { id: true } }),
+        prisma.season.findFirst({ where: { teamId, year: requestedSeason, sport: currentSport() }, select: { id: true } }),
+        prisma.season.findFirst({ where: { teamId, year: usingSeason, sport: currentSport() }, select: { id: true } }),
       ]);
       const requestedRosterRows = requestedSeasonRow
         ? await prisma.seasonRoster.findMany({ where: { seasonId: requestedSeasonRow.id, isActive: true }, select: { athleteId: true } })

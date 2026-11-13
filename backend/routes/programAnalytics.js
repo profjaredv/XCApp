@@ -10,6 +10,7 @@
 // computation of field scoring here.
 
 const express = require('express');
+const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam } = require('../middleware/auth');
@@ -25,7 +26,7 @@ const ATTRITION_WINDOWS = [1, 2, 3, 4];
 
 router.get('/', authenticate, requireTeam, async (req, res) => {
   const teamId = req.user.teamId;
-  const sport = req.query.sport || 'XC';
+  const sport = req.query.sport || currentSport();
 
   try {
     const seasons = await prisma.season.findMany({

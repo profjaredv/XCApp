@@ -1,3 +1,5 @@
+import { EventGroupsSection } from '@/components/track/EventGroupsSection';
+import { sportOfLocation } from '@/lib/sport';
 import React, { useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -57,7 +59,7 @@ import { formatPace } from '@/lib/formatUtils';
 import { gradeLabel } from '@/lib/seasonUtils';
 import { formatDateShort } from '@/lib/formatUtils';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTeamPath } from '@/hooks/useTeamRoute';
 
 // Bulk assignment screen (T2, Team Management handoff): "Assigning 130
@@ -103,6 +105,7 @@ const GROUP_TYPE_LABEL: Record<GroupType, string> = {
   CAPTAIN: 'Captain group',
   CUSTOM: 'Group',
   X_TRAINING: 'Cross Training',
+  EVENT: 'Event group',
 };
 
 const AthleteGroupsView: React.FC = () => {
@@ -282,7 +285,9 @@ const CoachGroupsView: React.FC = () => {
   // logic) rather than the generic Captain/Custom "Manage members" card,
   // which reads current members via a plain endDate: null list — that
   // would miss anyone whose stint hasn't expired yet but is bounded.
-  const otherGroups = groups.filter((g) => g.type !== 'TRAINING' && g.type !== 'X_TRAINING' && !g.archived);
+  // Event groups (Track & Field) have their own section, EventGroupsSection.
+  const otherGroups = groups.filter((g) => g.type !== 'TRAINING' && g.type !== 'X_TRAINING' && g.type !== 'EVENT' && !g.archived);
+  const inTrack = sportOfLocation(useLocation().pathname) === 'TRACK';
   const changeCount = Object.keys(pendingChanges).length;
 
   // "My Groups" — whatever this coach is personally assigned to lead, any
@@ -528,7 +533,17 @@ const CoachGroupsView: React.FC = () => {
       {/* Lists the data draws, above the groups a coach builds by hand:
           fastest, biggest gains, who is next up for the scoring seven.
           Nothing here is a membership — see components/groups/DynamicGroups.tsx. */}
-      <DynamicGroups season={activeYear ?? null} />
+      {inTrack ? (
+        <EventGroupsSection
+          seasonId={seasonId}
+          groups={groups}
+          membersByGroup={membersByGroup}
+          roster={roster}
+          canEdit={currentUser?.teamRole === 'HEAD_COACH' || currentUser?.teamRole === 'COACH'}
+        />
+      ) : (
+        <DynamicGroups season={activeYear ?? null} />
+      )}
 
       {myLedGroups.length > 0 && (
         <CollapsibleSection

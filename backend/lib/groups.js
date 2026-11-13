@@ -14,6 +14,7 @@
 // moving an athlete between TRAINING groups never touches a concurrent
 // CAPTAIN/CUSTOM membership, and vice versa.
 const prisma = require('./db');
+const { currentSport } = require('./sport');
 
 function normalizeDate(d) {
   const date = d instanceof Date ? d : new Date(d);
@@ -40,7 +41,9 @@ function isMembershipActiveOn(membership, date) {
 // tests exercise.
 async function getGroupOn(athleteId, date, type = 'TRAINING') {
   const memberships = await prisma.groupMembership.findMany({
-    where: { athleteId, group: { type } },
+    // The team's two sports each have their own groups; an athlete's
+    // cross country training group says nothing about track.
+    where: { athleteId, group: { type, season: { sport: currentSport() } } },
     include: { group: true },
   });
   const active = memberships.filter((m) => isMembershipActiveOn(m, date));
@@ -68,22 +71,38 @@ async function getGroupOn(athleteId, date, type = 'TRAINING') {
 // endDate, if passed, bounds the new row up front (a scheduled stint that
 // expires on its own, per isMembershipActiveOn, with no further action
 // needed); omitted, it's the usual open-ended assignment.
+// An athlete has ONE training group, one captain's group and one
+// cross-training stint at a time; moving into another closes the last.
+// Custom and event groups are not like that: a sprinter who also long jumps
+// is in Sprints and Jumps, and can be in any number of custom groups.
+const NON_EXCLUSIVE_TYPES = new Set(['CUSTOM', 'EVENT']);
+const isExclusiveType = (type) => !NON_EXCLUSIVE_TYPES.has(type);
+
 async function moveAthleteToGroup({ athleteId, groupId, effectiveDate, movedById = null, reason = null, endDate = null }) {
-  const targetGroup = await prisma.group.findUniqueOrThrow({ where: { id: groupId } });
+  const targetGroup = await prisma.group.findUniqueOrThrow({ where: { id: groupId }, include: { season: { select: { sport: true } } } });
   const normalizedDate = normalizeDate(effectiveDate);
 
   return prisma.$transaction(async (tx) => {
-    const sameType = await tx.groupMembership.findMany({
-      where: { athleteId, group: { type: targetGroup.type } },
-    });
-    const currentlyActive = sameType.filter((m) => isMembershipActiveOn(m, normalizedDate));
-
-    for (const membership of currentlyActive) {
-      if (membership.groupId === groupId) continue; // already here — no-op, caller's problem to avoid calling this at all
-      await tx.groupMembership.update({
-        where: { id: membership.id },
-        data: { endDate: normalizedDate },
+    if (!isExclusiveType(targetGroup.type)) {
+      // Custom and event groups stack: joining one leaves the others alone.
+      const here = await tx.groupMembership.findMany({ where: { athleteId, groupId } });
+      const already = here.find((m) => isMembershipActiveOn(m, normalizedDate));
+      if (already) return already;
+    } else {
+      // Same type AND same sport: moving someone between track training
+      // groups must not end their cross country one (or the reverse).
+      const sameType = await tx.groupMembership.findMany({
+        where: { athleteId, group: { type: targetGroup.type, season: { sport: targetGroup.season?.sport ?? 'XC' } } },
       });
+      const currentlyActive = sameType.filter((m) => isMembershipActiveOn(m, normalizedDate));
+
+      for (const membership of currentlyActive) {
+        if (membership.groupId === groupId) continue; // already here — no-op, caller's problem to avoid calling this at all
+        await tx.groupMembership.update({
+          where: { id: membership.id },
+          data: { endDate: normalizedDate },
+        });
+      }
     }
 
     return tx.groupMembership.create({
@@ -153,6 +172,7 @@ async function getActiveMembershipsForTeamSeason(teamId, seasonId, date = new Da
 }
 
 module.exports = {
+  isExclusiveType,
   getGroupOn,
   getActiveMembersOf,
   getActiveMembershipsForTeamSeason,

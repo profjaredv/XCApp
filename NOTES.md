@@ -4718,3 +4718,77 @@ Verified in Chromium in both shells with the real API behind them: the nav
 swaps completely on switch, Settings keeps the sport, switching back lands
 on Today with no track items, an athlete account gets no switcher, and the
 phone tab bar becomes Leaders, Points, Meets, Import results.
+
+## PR5: Track & Field gets the same spine as cross country, on its own seasons
+
+The coach's brief: track needs Roster, Groups, Schedule, Meets, Events,
+Training and Photos, "same as XC but for TF", with groups by custom,
+captains, coaches and events, and an athlete in more than one.
+
+**The foundation: the request says which sport it is about.**
+`backend/lib/sport.js` reads an `X-Sport` header into AsyncLocalStorage
+(`currentSport()`); no header means cross country, so every existing caller
+is unchanged. The web app sends `X-Sport: TRACK` from any screen under
+`/track` (`web/src/api/axios.ts`), keeps the two sports' data apart in the
+query cache (`main.tsx` hashes the sport into every key), and `useTeamPath`
+keeps links inside the sport you are in (`sportSubpath`). Who may send
+`TRACK` is decided once, in `authenticate`: a coach on the team, whose
+staff access covers track, with the feature on.
+
+Every season lookup that went by `(teamId, year)` or `(teamId, isActive)`
+alone now also filters on sport: 20-odd sites across 14 files.
+`test/sport.test.js` scans the backend and fails if one comes back. With
+that, the season-scoped screens serve track through the same routes and
+pages: `/track/roster`, `/track/groups`, `/track/group/:id`,
+`/track/schedule` (practice plans, workout templates, attendance, interval
+sessions), `/track/equipment`, `/track/photos`. A track season row and its
+roster are created by the results import; "start a season" also works from
+a track screen.
+
+**Grade is worked out from the fall.** Outdoor track 2026 is the spring of
+the school year cross country 2025 started, so `deriveGrade`,
+`deriveGraduationYear`, `isEnrolled` and `hasGraduated` now go through
+`schoolYearStart(season, sport)`. Without it every track roster was a grade
+off and the seniors read as graduated in their own last season.
+
+**Events** (`/track/events`, was Leaders): every event with marks, grouped
+and filterable by event group. **Event groups** are a new `GroupType.EVENT`
+(migration `20261113120000_event_groups`): Sprints, Hurdles, Mid-distance,
+Distance, Relays, Jumps, Vault, Throws, Multis. Vault is split from Jumps
+on purpose. `POST /groups/event-groups/setup` builds them from the season's
+results and only ever adds, so it is safe to run after each meet. On the
+Groups screen they are one line each until opened, so nine groups do not
+sprawl.
+
+**Two behaviour changes in groups, both deliberate.** (1) Custom and event
+groups stack: joining one no longer ends the athlete's membership in
+another of that type. This applies to cross country custom groups too.
+Training, captain and cross-training groups are still one at a time. (2)
+That one-at-a-time rule is now per sport. Before, moving an athlete into a
+track training group would have ended their cross country one, because the
+check went by group type across every season the athlete had ever been in.
+
+**Verified** against Postgres 16 with the whole API mounted and the real
+pages in Chromium, both shells: track roster (right grades, results counts,
+each athlete's event groups), groups (set up from results: 32 memberships
+across 7 groups, every athlete in more than one, idempotent on a second
+run, add and remove by hand), schedule, events, athlete page from the
+roster, and the sport switch. Cross country roster and groups were checked
+alongside and are unchanged. No failed requests. Backend 1210 of 1211, web
+930 of 930, build clean; the usual two exceptions (Chromium for the
+bookmarklet test, `LandingPage.tsx` in `tsc`).
+
+**Not verified in a browser**: `/track/photos`, `/track/attendance`,
+`/track/equipment` and `/track/interval-sessions`. They are the same pages
+on the same season-scoped routes and their lookups are covered by the scan
+above, but nobody has looked at them under track yet.
+
+**Still cross country in shape, to do next**:
+- Track meets are imported results only. The meet tools (entries, plan,
+  itinerary, the meet page) are built on `Race`, which track does not have.
+- The Schedule calendar's meet chips and the roster card's "N races" wording
+  come from cross country.
+- Today, Season dashboard, Program and the athlete's own screens have no
+  track version. Athletes and parents see nothing of track yet.
+- Relays, indoor events, and the Round column's level prefix, as before.
+- Staff invites still cannot be scoped to one sport.

@@ -352,7 +352,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
             ))}
             {!isVolunteerCoach && (
               <CollapsibleSetupSection isCollapsed={isCollapsed}>
-                {TRACK_NAV.filter((e) => e.zone === 'setup').map((e) => (
+                {TRACK_NAV.filter((e) => e.zone === 'setup' && (!e.feature || features?.enabled?.[e.feature] !== false)).map((e) => (
                   <NavItem key={e.key} to={teamPath(e.path)} icon={e.icon} label={e.label} isCollapsed={isCollapsed} onClick={handleLinkClick} />
                 ))}
                 <NavItem to={teamPath(navEntry('settings').path)} icon={navEntry('settings').icon} label={navEntry('settings').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('settings')} />

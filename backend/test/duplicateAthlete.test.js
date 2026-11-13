@@ -45,7 +45,7 @@ test('two genuinely same-named athletes are still possible', () => {
 
 test('the roster payload carries both counts', () => {
   const listRoute = code.slice(code.indexOf("router.get('/',"), code.indexOf("router.get('/:athleteId'"));
-  assert.match(listRoute, /raceCount: races\.length/);
+  assert.match(listRoute, /raceCount: isTrack \? trackSeasonCounts\.get\(a\.id\) \?\? 0 : races\.length/);
   assert.match(listRoute, /careerRaceCount/);
   assert.match(listRoute, /result\.groupBy/);
 });

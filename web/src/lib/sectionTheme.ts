@@ -156,8 +156,8 @@ export function isDrillInPath(pathname: string): boolean {
   if (rest.length === 0) return false;
   // A known top-level subpath with nothing after it is not a drill-in;
   // the same subpath with an id after it (meets -> meet/:id) is.
-  // Track & Field's nav screens live one level down (track/leaders); only
-  // an athlete page under it is somewhere you drilled into.
-  if (rest[0] === 'track') return rest[1] === 'athlete';
+  // Track & Field's nav screens live one level down (track/leaders); 
+  // anything deeper (an athlete, a group) is somewhere you drilled into.
+  if (rest[0] === 'track') return rest.length > 2 || rest[1] === 'interval-sessions';
   return !(rest.length === 1 && TOP_LEVEL_SUBPATHS.has(rest[0]));
 }

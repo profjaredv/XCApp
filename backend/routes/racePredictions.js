@@ -30,6 +30,7 @@
 // point, kept to the same role tier as other data-affecting actions.
 
 const express = require('express');
+const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
@@ -170,7 +171,7 @@ async function getAthletePredictionErrors(athleteId, excludeMeetId) {
 // keeps one, otherwise inferred from having raced this season or still
 // being enrolled by grade.
 async function getCurrentSeasonRosterAthleteIds(teamId, season) {
-  const seasonRow = await prisma.season.findFirst({ where: { teamId, year: season }, select: { id: true } });
+  const seasonRow = await prisma.season.findFirst({ where: { teamId, year: season, sport: currentSport() }, select: { id: true } });
   if (seasonRow) {
     const rosterEntries = await prisma.seasonRoster.findMany({
       where: { seasonId: seasonRow.id },

@@ -1,4 +1,8 @@
 const { createRemoteJWKSet, jwtVerify } = require('jose');
+const { currentSport } = require('../lib/sport');
+const { isFeatureEnabled } = require('../lib/teamFeatures');
+const { ANY_COACH } = require('../lib/teamRoles');
+const { decideCanAccessSportScopedResource } = require('../lib/groupPermissions');
 const prisma = require('../lib/db');
 const { isSuperAdminEmail } = require('../lib/superAdmin');
 
@@ -151,6 +155,16 @@ const authenticate = async (req, res, next) => {
       }
     }
 
+    // A request that says it is about Track & Field (X-Sport, lib/sport.js)
+    // reads and writes the team's TRACK seasons through the same routes
+    // cross country uses, so who may say that is decided once, here, rather
+    // than on each of those routes: a coach on this team, whose staff access
+    // covers track, on a team that has Track & Field turned on.
+    if (currentSport() === 'TRACK' && req.user.teamId && !(req.user.isSuperAdmin && req.user.isImpersonating)) {
+      const refusal = await trackAccessRefusal(req.user);
+      if (refusal) return res.status(403).json(refusal);
+    }
+
     next();
   } catch (err) {
     console.error('Error resolving user profile for', authUserId, ':', err.message);
@@ -187,6 +201,22 @@ const authenticate = async (req, res, next) => {
 // Shared by requireRole and authenticate's X-Preview-Athlete-Id handling
 // above — same owner-fast-path-then-TeamMember-lookup logic requireRole
 // always used, just extracted so the preview check doesn't duplicate it.
+async function trackAccessRefusal(user) {
+  const team = await prisma.team.findUnique({ where: { id: user.teamId }, select: { features: true, coachUid: true } });
+  if (!isFeatureEnabled(team && team.features, 'track')) {
+    return { message: 'Track & Field is turned off for this team. A head coach can turn it on in Settings.', code: 'FEATURE_DISABLED', feature: 'track' };
+  }
+  const isOwner = Boolean(team && team.coachUid === user.id);
+  const membership = isOwner
+    ? null
+    : await prisma.teamMember.findUnique({ where: { teamId_userId: { teamId: user.teamId, userId: user.id } } });
+  const isCoach = isOwner || (membership?.active && ANY_COACH.includes(membership.role));
+  if (!isCoach || !decideCanAccessSportScopedResource({ isOwner, membership, resourceSport: 'TRACK' })) {
+    return { message: 'Your access does not include Track & Field.' };
+  }
+  return null;
+}
+
 async function hasTeamRole(user, allowedRoles) {
   if (!user?.teamId) return false;
   if (user.team?.coachUid === user.id && allowedRoles.includes('HEAD_COACH')) return true;

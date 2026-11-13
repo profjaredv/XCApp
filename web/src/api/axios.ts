@@ -2,6 +2,7 @@ import axios from 'axios';
 import { getAdminTeamId, getPreviewAthleteId } from '../lib/impersonation';
 import { getJWTToken } from '../lib/auth';
 import { getStoredVolunteerToken } from '../lib/photosVolunteer';
+import { sportOfLocation } from '../lib/sport';
 
 // Export the axios instance as both default and named export
 export const api = axios.create({
@@ -44,6 +45,13 @@ api.interceptors.request.use(async (config) => {
     // knows how to report, not as an unhandled rejection here.
     console.error('Could not refresh auth token:', err);
   }
+  return config;
+});
+
+// Which sport the screen is about (backend/lib/sport.js). Sent only from
+// Track & Field screens; no header means cross country, as it always has.
+api.interceptors.request.use((config) => {
+  if (sportOfLocation() === 'TRACK') config.headers.set('X-Sport', 'TRACK');
   return config;
 });
 

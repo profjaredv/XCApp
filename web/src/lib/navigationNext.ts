@@ -36,15 +36,15 @@ export interface NextNavEntry {
 const COACHES: NextNavRole[] = ['coach', 'volunteer'];
 
 /** The Track & Field nav in this shell's shape (lib/sport.ts owns the list). */
-export function trackNavEntries(): NextNavEntry[] {
-  return TRACK_NAV.map((e) => ({
+export function trackNavEntries(features?: Partial<Record<TeamFeatureKey, boolean>>): NextNavEntry[] {
+  return TRACK_NAV.filter((e) => !e.feature || features?.[e.feature] !== false).map((e) => ({
     key: `track-${e.key}`,
     label: e.label,
     path: e.path,
     icon: e.icon,
     audience: COACHES,
     zone: e.zone === 'setup' ? 'setup' : 'insights',
-    mobileTab: false,
+    mobileTab: e.mobileTab ? { coach: e.mobileTab, volunteer: e.mobileTab } : false,
   }));
 }
 

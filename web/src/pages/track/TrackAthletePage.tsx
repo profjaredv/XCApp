@@ -22,8 +22,8 @@ const TrackAthletePage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
-      <Link to={teamPath('/track/leaders')} className="inline-flex items-center text-sm text-muted-foreground hover:underline">
-        <ChevronLeft className="h-4 w-4" /> Leaders
+      <Link to={teamPath('/track/roster')} className="inline-flex items-center text-sm text-muted-foreground hover:underline">
+        <ChevronLeft className="h-4 w-4" /> Roster
       </Link>
       {isLoading ? (
         <Skeleton className="h-40 w-full" />

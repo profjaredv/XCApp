@@ -62,7 +62,7 @@ const main = async () => {
         origin: process.env.NODE_ENV === 'production' ? productionOrigins : allowedOrigins,
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Sport'],
         // Without this the browser hides Content-Disposition from JS on any
         // cross-origin response, so the data export downloads as a generic
         // fallback name instead of the team-and-date one the server chose.
@@ -87,6 +87,9 @@ const main = async () => {
     app.use('/api/auth-proxy', express.raw({ type: () => true, limit: '1mb' }), require('./lib/authProxy').authProxyHandler);
 
     app.use(express.json({ limit: '1mb' }));
+    // Which sport this request is about (X-Sport header; cross country
+    // unless it says track). See lib/sport.js.
+    app.use(require('./lib/sport').sportMiddleware);
 
     // These routes let an authenticated-but-unprivileged account change its
     // own team/role standing (join a team, upgrade to coach, claim a team)
