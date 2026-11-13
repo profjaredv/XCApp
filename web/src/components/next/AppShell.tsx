@@ -51,6 +51,7 @@ function isActive(entry: NextNavEntry, sub: string): boolean {
   if (target === 'athletes') return sub === 'athletes' || sub.startsWith('athlete/');
   if (target === 'track/roster') return sub === target || sub.startsWith('track/athlete/');
   if (target === 'track/groups') return sub === target || sub.startsWith('track/group');
+  if (target === 'track/meets') return sub === target || sub.startsWith('track/meet/');
   return sub === target;
 }
 

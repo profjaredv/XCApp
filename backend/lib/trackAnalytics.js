@@ -89,7 +89,7 @@ function pointsContribution(results, events, table = DEFAULT_SCORING_TABLE) {
       const scorers = new Set();
       const entrants = new Set();
       for (const r of seasonRows) {
-        if (r.athleteId) entrants.add(r.athleteId);
+        if (r.athleteId && r.status !== 'ENTERED') entrants.add(r.athleteId);
         const p = pointsFor(r, table);
         if (p > 0) {
           points += p;
@@ -132,4 +132,77 @@ function athleteProgression(results, events) {
   return out.sort((a, b) => a.event.sortOrder - b.event.sortOrder);
 }
 
-module.exports = { DEFAULT_SCORING_TABLE, parseScoringTable, isBetter, bestOf, seasonLeaders, pointsFor, pointsContribution, athleteProgression };
+// ---------------------------------------------------------------------------
+// Relays. A relay result has no athleteId; its runners are relayAthleteIds,
+// in leg order.
+
+/** The open event a relay's legs are judged by: "4x100 Relay" -> "100 Meters". */
+function relayLegEventName(relayName) {
+  const m = /^4x(\d+)/.exec(relayName || '');
+  return m ? `${m[1]} Meters` : null;
+}
+
+/**
+ * Who to consider for a relay: every athlete with a mark in the leg's open
+ * event, fastest first, plus what the four fastest add up to. The sum is a
+ * yardstick, not a prediction: it has no flying starts and no exchanges.
+ */
+function suggestRelay(results, legEvent) {
+  const mine = results.filter((r) => r.eventId === legEvent.id && r.athleteId);
+  const candidates = [];
+  for (const rows of groupBy(mine, (r) => r.athleteId).values()) {
+    const best = bestOf(rows, legEvent.scoringDirection);
+    if (best) candidates.push(best);
+  }
+  candidates.sort((a, b) => a.markValue - b.markValue);
+  const top = candidates.slice(0, 4);
+  return { candidates, projected: top.length === 4 ? top.reduce((sum, r) => sum + r.markValue, 0) : null };
+}
+
+// ---------------------------------------------------------------------------
+// One meet.
+
+const byPlaceThenMark = (direction) => (a, b) => {
+  const pa = Number.isInteger(a.place) ? a.place : Infinity;
+  const pb = Number.isInteger(b.place) ? b.place : Infinity;
+  if (pa !== pb) return pa - pb;
+  const ca = counts(a);
+  const cb = counts(b);
+  if (ca && cb) return isBetter(a.markValue, b.markValue, direction) ? -1 : a.markValue === b.markValue ? 0 : 1;
+  return ca ? -1 : cb ? 1 : 0;
+};
+
+/** A meet's rows by event, in catalog order: entries and results together. */
+function meetSheet(results, events) {
+  const byEvent = groupBy(results, (r) => r.eventId);
+  const out = [];
+  for (const event of [...events].sort((a, b) => a.sortOrder - b.sortOrder)) {
+    const rows = byEvent.get(event.id);
+    if (!rows) continue;
+    out.push({ event, rows: [...rows].sort(byPlaceThenMark(event.scoringDirection)) });
+  }
+  return out;
+}
+
+/**
+ * The individual results at one meet that were a personal record when set:
+ * better than everything that athlete had done in that event before it.
+ * `allResults` is the team's whole history, any season.
+ */
+function prsAtMeet(allResults, events, meetId) {
+  const eventById = new Map(events.map((e) => [e.id, e]));
+  const out = [];
+  for (const rows of groupBy(allResults.filter((r) => r.athleteId && counts(r)), (r) => `${r.athleteId}|${r.eventId}`).values()) {
+    const event = eventById.get(rows[0].eventId);
+    if (!event) continue;
+    const here = bestOf(rows.filter((r) => r.meetId === meetId), event.scoringDirection);
+    if (!here) continue;
+    const before = bestOf(rows.filter((r) => new Date(r.date) < new Date(here.date)), event.scoringDirection);
+    if (!before || isBetter(here.markValue, before.markValue, event.scoringDirection)) {
+      out.push({ ...here, previous: before ? before.markValue : null, event });
+    }
+  }
+  return out.sort((a, b) => a.event.sortOrder - b.event.sortOrder || String(a.athleteName).localeCompare(String(b.athleteName)));
+}
+
+module.exports = { relayLegEventName, suggestRelay, meetSheet, prsAtMeet, DEFAULT_SCORING_TABLE, parseScoringTable, isBetter, bestOf, seasonLeaders, pointsFor, pointsContribution, athleteProgression };

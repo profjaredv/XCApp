@@ -24,9 +24,9 @@ describe('next nav per role', () => {
     expect(labels(mobileTabsFor('volunteer'))).toEqual(['Today', 'Train', 'Groups', 'Meets']);
   });
   it('athlete: Today, My Season, Train, Meets, Photos; phone puts Meets in More', () => {
-    expect(labels([...nextNavFor('athlete', 'week'), ...nextNavFor('athlete', 'insights')])).toEqual(['Today', 'My Season', 'Train', 'Meets', 'Photos']);
+    expect(labels([...nextNavFor('athlete', 'week'), ...nextNavFor('athlete', 'insights')])).toEqual(['Today', 'My Season', 'Train', 'Meets', 'My Track & Field', 'Photos']);
     expect(labels(mobileTabsFor('athlete'))).toEqual(['Today', 'My Season', 'Train', 'Photos']);
-    expect(labels(moreItemsFor('athlete'))).toEqual(['Meets']);
+    expect(labels(moreItemsFor('athlete'))).toEqual(['Meets', 'My Track & Field']);
   });
   it('parent: Today, My Runner, Meets, Photos; phone puts Meets in More', () => {
     expect(labels([...nextNavFor('parent', 'week'), ...nextNavFor('parent', 'insights')])).toEqual(['Today', 'My Runner', 'Meets', 'Photos']);

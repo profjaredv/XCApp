@@ -4,7 +4,7 @@ import { Outlet, Link, NavLink, useLocation, useNavigate } from 'react-router-do
 // these are the ones this file draws itself.
 import { accentFor, sectionForNavKey, type SectionKey } from '@/lib/sectionAccent';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, X, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Settings, LogOut, User as UserIcon, Menu, X, LayoutDashboard, CalendarDays, MessageSquare, FlaskConical, ShieldCheck, Moon, Medal } from 'lucide-react';
 import { authClient } from '../lib/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamContext } from '../hooks/useTeamContext';
@@ -421,6 +421,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
               .map((item) => (
                 <NavItem key={item.key} to={teamPath(item.path)} icon={item.icon} label={item.label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey(item.key)} />
               ))}
+            {/* The athlete's own track record. Not in NAV_ITEMS: that list
+                is the cross country spine the feature tour walks. */}
+            {features?.enabled?.track !== false && (
+              <NavItem to={teamPath('/me/track')} icon={Medal} label="My Track & Field" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            )}
           </>
         ) : null}
       </nav>

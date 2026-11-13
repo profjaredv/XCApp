@@ -23,7 +23,7 @@ export function formatMark(value: number | null | undefined, unit: MarkUnit | st
   return String(Math.round(value));
 }
 
-const STATUS_LABEL: Record<string, string> = { DNS: 'DNS', DNF: 'DNF', DQ: 'DQ', NM: 'No mark' };
+const STATUS_LABEL: Record<string, string> = { DNS: 'DNS', DNF: 'DNF', DQ: 'DQ', NM: 'No mark', ENTERED: 'Entered' };
 
 /** A result's mark, or its status when it has none. */
 export function formatResult(r: { markValue: number | null; status: string }, unit: string): string {

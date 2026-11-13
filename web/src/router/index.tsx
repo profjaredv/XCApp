@@ -37,6 +37,8 @@ import TeamRouteGuard from './TeamRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
 import Layout from '../components/Layout';
 import TrackHome from '../pages/track/TrackHome';
+import TrackMeetPage from '../pages/track/TrackMeetPage';
+import MyTrackPage from '../pages/track/MyTrackPage';
 import TrackEventsPage from '../pages/track/TrackEventsPage';
 import TrackPointsPage from '../pages/track/TrackPointsPage';
 import TrackMeetsPage from '../pages/track/TrackMeetsPage';
@@ -520,6 +522,16 @@ export const router = createBrowserRouter([
                     ),
                   },
                   { path: 'track/leaders', element: <Navigate to="../track/events" replace /> },
+                  {
+                    path: 'track/meet/:meetId',
+                    element: <FeatureGate feature="track"><TrackMeetPage /></FeatureGate>,
+                  },
+                  // An athlete's own track record. Outside /track on
+                  // purpose: /track is the coach's side.
+                  {
+                    path: 'me/track',
+                    element: <FeatureGate feature="track"><MyTrackPage /></FeatureGate>,
+                  },
                   // The screens both sports have. Same pages as cross
                   // country; being under /track is what makes every request
                   // they send about the team's track season (lib/sport.ts).

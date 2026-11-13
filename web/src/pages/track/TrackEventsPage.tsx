@@ -38,12 +38,14 @@ const Events: React.FC<{ year: number; gender: TrackGender }> = ({ year, gender 
           <div className="grid gap-4 md:grid-cols-2">
             {data
               .filter((d) => eventGroupOf(d.event) === g.key)
-              .map(({ event, leaders }) => (
+              .map(({ event, leaders, relays }) => (
                 <Card key={event.id}>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base">{event.name}</CardTitle>
                     <CardDescription>
-                      {leaders.length} athlete{leaders.length === 1 ? '' : 's'} with a mark
+                      {event.isRelay
+                        ? `${relays.length} time${relays.length === 1 ? '' : 's'} this season`
+                        : `${leaders.length} athlete${leaders.length === 1 ? '' : 's'} with a mark`}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -59,6 +61,23 @@ const Events: React.FC<{ year: number; gender: TrackGender }> = ({ year, gender 
                         </li>
                       ))}
                     </ol>
+                    {relays.length > 0 && (
+                      <ol className="space-y-2 text-sm">
+                        {relays.slice(0, 6).map((r, i) => (
+                          <li key={r.id}>
+                            <div className="flex items-baseline gap-2">
+                              <span className="w-5 shrink-0 text-right text-muted-foreground">{i + 1}</span>
+                              <span className="min-w-0 flex-1 truncate">
+                                {r.relayTeam ? `${r.relayTeam} squad · ` : ''}
+                                {r.meetName}
+                              </span>
+                              <span className="shrink-0 font-semibold tabular-nums">{formatResult(r, event.unit)}</span>
+                            </div>
+                            <p className="pl-7 text-xs text-muted-foreground">{r.legs.map((l) => l.name).join(' → ')}</p>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
                     {leaders.length > 8 && <p className="mt-2 text-xs text-muted-foreground">and {leaders.length - 8} more</p>}
                   </CardContent>
                 </Card>

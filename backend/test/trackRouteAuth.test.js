@@ -22,12 +22,27 @@ test('every route in routes/track.js carries the full track gate', () => {
   assert.ok(router.stack.filter((l) => l.route).length >= 7);
 });
 
-test('only the import writes, and it takes a full coach', () => {
+test('every write takes a full coach, and nothing trusts a team id from the request', () => {
   const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'routes', 'track.js'), 'utf8');
   const writes = src.match(/router\.(post|put|patch|delete)\([^\n]*/g) || [];
-  assert.equal(writes.length, 1);
-  assert.match(writes[0], /requireRole\(FULL_COACH\)/);
+  assert.ok(writes.length >= 8);
+  for (const line of writes) assert.match(line, /requireRole\(FULL_COACH\)/, line);
   assert.doesNotMatch(src, /req\.(body|query|params)\.teamId/);
+});
+
+test('results cannot be thrown away through the meet or relay routes', () => {
+  const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'routes', 'track.js'), 'utf8');
+  // A meet with results is refused; entries only ever delete ENTERED rows;
+  // a relay with a time needs a head coach.
+  assert.match(src, /This meet has results, so it cannot be removed/);
+  assert.match(src, /r\.status === 'ENTERED' && !wanted\.includes/);
+  assert.match(src, /row\.status !== 'ENTERED' && !\(await hasTeamRole\(req\.user, DESTRUCTIVE\)\)/);
+});
+
+test('the athlete route only ever reads the caller\'s own linked athlete', () => {
+  const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'routes', 'trackMe.js'), 'utf8');
+  assert.match(src, /authenticate, requireTeam, requireFeature\('track'\), requireLinkedAthlete/);
+  assert.doesNotMatch(src, /req\.(params|query|body)/);
 });
 
 test('routes/track.js is mounted at /api/track in server.js', () => {

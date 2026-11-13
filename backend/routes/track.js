@@ -16,13 +16,25 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireRole, hasTeamRole } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/teamFeatures');
-const { FULL_COACH, ANY_COACH } = require('../lib/teamRoles');
+const { FULL_COACH, ANY_COACH, DESTRUCTIVE } = require('../lib/teamRoles');
+const { normalizeGender } = require('../lib/gender');
+const { parseMark } = require('../lib/trackMarks');
 const { decideCanAccessSportScopedResource } = require('../lib/groupPermissions');
 const { checkEventProgressCsv } = require('../lib/trackEventProgressCsv');
 const { importEventProgressCsv } = require('../lib/trackEventProgressImport');
-const { seasonLeaders, pointsContribution, athleteProgression, parseScoringTable, DEFAULT_SCORING_TABLE } = require('../lib/trackAnalytics');
+const {
+  seasonLeaders,
+  pointsContribution,
+  athleteProgression,
+  parseScoringTable,
+  relayLegEventName,
+  suggestRelay,
+  meetSheet,
+  prsAtMeet,
+  DEFAULT_SCORING_TABLE,
+} = require('../lib/trackAnalytics');
 
 async function requireTrackSport(req, res, next) {
   try {
@@ -54,6 +66,8 @@ const RESULT_SELECT = {
   wind: true,
   place: true,
   status: true,
+  relayAthleteIds: true,
+  relayTeam: true,
   athlete: { select: { id: true, name: true } },
   trackMeet: { select: { id: true, name: true, date: true, season: true } },
 };
@@ -69,6 +83,8 @@ const flatten = (r) => ({
   wind: r.wind,
   place: r.place,
   status: r.status,
+  relayAthleteIds: r.relayAthleteIds,
+  relayTeam: r.relayTeam,
   meetId: r.trackMeet.id,
   meetName: r.trackMeet.name,
   date: r.trackMeet.date,
@@ -139,7 +155,22 @@ router.get('/seasons/:year/leaders', authenticate, requireRole(ANY_COACH), requi
         select: RESULT_SELECT,
       }),
     ]);
-    res.json(seasonLeaders(results.map(flatten), events));
+    const rows = results.map(flatten);
+    // Relays have no single athlete, so they are listed as squads: every
+    // relay time this season, fastest first, with who ran it.
+    const relayEvents = events.filter((e) => e.isRelay).sort((a, b) => a.sortOrder - b.sortOrder);
+    const names = await athleteNames(req.user.teamId, rows);
+    const relays = relayEvents
+      .map((event) => ({
+        event,
+        leaders: [],
+        relays: rows
+          .filter((r) => r.eventId === event.id && r.status === 'FINISHED' && r.markValue != null)
+          .sort((a, b) => a.markValue - b.markValue)
+          .map((r) => withLegs(r, names)),
+      }))
+      .filter((e) => e.relays.length);
+    res.json([...seasonLeaders(rows, events).map((e) => ({ ...e, relays: [] })), ...relays].sort((a, b) => a.event.sortOrder - b.event.sortOrder));
   } catch (err) {
     console.error('Error fetching track leaders:', err.message);
     res.status(500).json({ message: 'Could not load event leaders.' });
@@ -176,14 +207,318 @@ router.get('/athletes/:athleteId', authenticate, requireRole(ANY_COACH), require
       select: { id: true, name: true, gender: true, graduationYear: true },
     });
     if (!athlete) return res.status(404).json({ message: 'Athlete not found.' });
-    const [events, results] = await Promise.all([
-      prisma.event.findMany(),
-      prisma.trackResult.findMany({ where: { teamId: req.user.teamId, athleteId: athlete.id }, select: RESULT_SELECT }),
-    ]);
-    res.json({ athlete, events: athleteProgression(results.map(flatten), events) });
+    res.json(await loadTrackAthlete(req.user.teamId, athlete));
   } catch (err) {
     console.error('Error fetching track athlete:', err.message);
     res.status(500).json({ message: 'Could not load that athlete.' });
+  }
+});
+
+
+// Names for the athletes a set of relay rows mention, in one query.
+async function athleteNames(teamId, rows) {
+  const ids = [...new Set(rows.flatMap((r) => r.relayAthleteIds || []))];
+  if (!ids.length) return new Map();
+  const athletes = await prisma.athlete.findMany({ where: { teamId, id: { in: ids } }, select: { id: true, name: true } });
+  return new Map(athletes.map((a) => [a.id, a.name]));
+}
+const withLegs = (row, names) => ({ ...row, legs: (row.relayAthleteIds || []).map((id) => ({ athleteId: id, name: names.get(id) || 'Unknown' })) });
+
+// Every relay an athlete ran a leg of, newest first. A relay belongs to the
+// team, so it is found through relayAthleteIds, never athleteId.
+async function loadRelaysFor(teamId, athleteId, events) {
+  const rows = (await prisma.trackResult.findMany({ where: { teamId, relayAthleteIds: { has: athleteId } }, select: RESULT_SELECT })).map(flatten);
+  const names = await athleteNames(teamId, rows);
+  const eventById = new Map(events.map((e) => [e.id, e]));
+  return rows
+    .map((r) => ({ ...withLegs(r, names), event: eventById.get(r.eventId), leg: r.relayAthleteIds.indexOf(athleteId) + 1 }))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+// One athlete's whole track record: marks by event with PRs flagged, and
+// every relay they ran a leg of.
+async function loadTrackAthlete(teamId, athlete) {
+  const [events, results] = await Promise.all([
+    prisma.event.findMany(),
+    prisma.trackResult.findMany({ where: { teamId, athleteId: athlete.id, status: { not: 'ENTERED' } }, select: RESULT_SELECT }),
+  ]);
+  const relays = await loadRelaysFor(teamId, athlete.id, events);
+  return { athlete, events: athleteProgression(results.map(flatten), events), relays };
+}
+
+const findMeet = (req) => prisma.trackMeet.findFirst({ where: { id: req.params.meetId, teamId: req.user.teamId } });
+const parseDay = (value) => {
+  const d = new Date(`${String(value).slice(0, 10)}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+// GET /api/track/seasons/:year/summary — the Track home screen: what is
+// coming up, what just happened, and the season so far.
+router.get('/seasons/:year/summary', authenticate, requireRole(ANY_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const year = parseInt(req.params.year, 10) || 0;
+    const teamId = req.user.teamId;
+    const [events, meets, all, season] = await Promise.all([
+      prisma.event.findMany(),
+      prisma.trackMeet.findMany({ where: { teamId, season: year }, orderBy: { date: 'asc' }, select: { id: true, name: true, date: true, location: true, notes: true } }),
+      prisma.trackResult.findMany({ where: { teamId }, select: RESULT_SELECT }),
+      prisma.season.findFirst({ where: { teamId, year, sport: 'TRACK' }, select: { id: true } }),
+    ]);
+    const rows = all.map(flatten);
+    const seasonRows = rows.filter((r) => r.season === year);
+    const competed = new Set(seasonRows.filter((r) => r.status !== 'ENTERED').map((r) => r.meetId));
+    const today = new Date(new Date().toISOString().slice(0, 10));
+    const upcoming = meets.filter((m) => m.date >= today && !competed.has(m.id));
+    const lastMeet = [...meets].reverse().find((m) => competed.has(m.id)) || null;
+    const rosterCount = season ? await prisma.seasonRoster.count({ where: { seasonId: season.id, isActive: true } }) : 0;
+    const prs = lastMeet ? prsAtMeet(rows, events, lastMeet.id) : [];
+    const leaders = seasonLeaders(seasonRows, events);
+    res.json({
+      year,
+      rosterCount,
+      meetCount: competed.size,
+      resultCount: seasonRows.filter((r) => r.status !== 'ENTERED').length,
+      eventCount: leaders.length,
+      upcoming,
+      lastMeet,
+      lastMeetPrs: prs.map((p) => ({ id: p.id, athleteId: p.athleteId, athleteName: p.athleteName, markValue: p.markValue, previous: p.previous, event: p.event })),
+    });
+  } catch (err) {
+    console.error('Error fetching track summary:', err.message);
+    res.status(500).json({ message: 'Could not load the season summary.' });
+  }
+});
+
+// POST /api/track/meets { name, date, season, location?, notes? } — a meet
+// the coach is planning, before any results exist.
+router.post('/meets', authenticate, requireRole(FULL_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const { name, location, notes } = req.body || {};
+    const date = parseDay(req.body?.date);
+    const season = parseInt(req.body?.season, 10);
+    if (!name || !String(name).trim() || !date || !Number.isFinite(season)) {
+      return res.status(400).json({ message: 'A meet needs a name, a date and a season.' });
+    }
+    const teamId = req.user.teamId;
+    const existing = await prisma.trackMeet.findFirst({ where: { teamId, name: String(name).trim(), date } });
+    if (existing) return res.status(409).json({ message: 'That meet is already on the schedule.', id: existing.id });
+    await prisma.season.upsert({
+      where: { teamId_year_sport: { teamId, year: season, sport: 'TRACK' } },
+      update: {},
+      create: { teamId, year: season, sport: 'TRACK' },
+    });
+    const meet = await prisma.trackMeet.create({
+      data: { teamId, name: String(name).trim(), date, season, location: location || null, notes: notes || null },
+    });
+    res.status(201).json(meet);
+  } catch (err) {
+    console.error('Error creating track meet:', err.message);
+    res.status(500).json({ message: 'Could not add that meet.' });
+  }
+});
+
+// PUT /api/track/meets/:meetId { location?, notes? } — the plan for the
+// day. Name and date are left alone: they are how a re-import finds the meet.
+router.put('/meets/:meetId', authenticate, requireRole(FULL_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const meet = await findMeet(req);
+    if (!meet) return res.status(404).json({ message: 'Meet not found.' });
+    const data = {};
+    if ('location' in (req.body || {})) data.location = req.body.location || null;
+    if ('notes' in (req.body || {})) data.notes = req.body.notes || null;
+    res.json(await prisma.trackMeet.update({ where: { id: meet.id }, data }));
+  } catch (err) {
+    console.error('Error updating track meet:', err.message);
+    res.status(500).json({ message: 'Could not save that meet.' });
+  }
+});
+
+// DELETE /api/track/meets/:meetId — only a meet with no results: this is
+// for a planned meet that was cancelled (routine scheduling, so any full
+// coach), never a way to throw results away.
+router.delete('/meets/:meetId', authenticate, requireRole(FULL_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const meet = await findMeet(req);
+    if (!meet) return res.status(404).json({ message: 'Meet not found.' });
+    const real = await prisma.trackResult.count({ where: { trackMeetId: meet.id, status: { not: 'ENTERED' } } });
+    if (real > 0) return res.status(409).json({ message: 'This meet has results, so it cannot be removed.' });
+    await prisma.trackMeet.delete({ where: { id: meet.id } });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting track meet:', err.message);
+    res.status(500).json({ message: 'Could not remove that meet.' });
+  }
+});
+
+// GET /api/track/meets/:meetId — one meet: entries and results by event,
+// relays with their legs, and the PRs set there.
+router.get('/meets/:meetId', authenticate, requireRole(ANY_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const meet = await findMeet(req);
+    if (!meet) return res.status(404).json({ message: 'Meet not found.' });
+    const [events, all] = await Promise.all([
+      prisma.event.findMany(),
+      prisma.trackResult.findMany({ where: { teamId: req.user.teamId }, select: RESULT_SELECT }),
+    ]);
+    const rows = all.map(flatten);
+    const here = rows.filter((r) => r.meetId === meet.id);
+    const names = await athleteNames(req.user.teamId, here);
+    const prIds = new Set(prsAtMeet(rows, events, meet.id).map((p) => p.id));
+    res.json({
+      meet,
+      hasResults: here.some((r) => r.status !== 'ENTERED'),
+      events: meetSheet(here, events).map(({ event, rows: eventRows }) => ({
+        event,
+        rows: eventRows.map((r) => ({ ...withLegs(r, names), isPr: prIds.has(r.id) })),
+      })),
+    });
+  } catch (err) {
+    console.error('Error fetching track meet:', err.message);
+    res.status(500).json({ message: 'Could not load that meet.' });
+  }
+});
+
+// PUT /api/track/meets/:meetId/entries { eventId, athleteIds } — who is
+// entered in one event. Sets the whole list for that event: adds the new,
+// drops the removed. An athlete who already has a real result there is
+// never touched; entries are only ever the rows still waiting on a mark.
+router.put('/meets/:meetId/entries', authenticate, requireRole(FULL_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const meet = await findMeet(req);
+    if (!meet) return res.status(404).json({ message: 'Meet not found.' });
+    const teamId = req.user.teamId;
+    const event = await prisma.event.findUnique({ where: { id: String(req.body?.eventId || '') } }).catch(() => null);
+    if (!event || event.isRelay) return res.status(400).json({ message: 'Pick an individual event. Relays are built as squads.' });
+    const wanted = [...new Set(Array.isArray(req.body?.athleteIds) ? req.body.athleteIds : [])];
+    const athletes = await prisma.athlete.findMany({ where: { teamId, id: { in: wanted } }, select: { id: true, gender: true } });
+    if (athletes.length !== wanted.length) return res.status(400).json({ message: 'One or more athletes are not on this team.' });
+
+    const existing = await prisma.trackResult.findMany({ where: { teamId, trackMeetId: meet.id, eventId: event.id, athleteId: { not: null } } });
+    const have = new Map(existing.map((r) => [r.athleteId, r]));
+    const toRemove = existing.filter((r) => r.status === 'ENTERED' && !wanted.includes(r.athleteId)).map((r) => r.id);
+    const toAdd = athletes.filter((a) => !have.has(a.id));
+    await prisma.$transaction([
+      prisma.trackResult.deleteMany({ where: { id: { in: toRemove } } }),
+      prisma.trackResult.createMany({
+        data: toAdd.map((a) => ({ teamId, trackMeetId: meet.id, eventId: event.id, athleteId: a.id, gender: normalizeGender(a.gender), round: 'FINAL', status: 'ENTERED' })),
+        skipDuplicates: true,
+      }),
+    ]);
+    res.json({ added: toAdd.length, removed: toRemove.length });
+  } catch (err) {
+    console.error('Error saving track entries:', err.message);
+    res.status(500).json({ message: 'Could not save those entries.' });
+  }
+});
+
+// Relay squads. A relay row has no athleteId; its runners are
+// relayAthleteIds in leg order, and relayTeam says which squad (A, B...).
+async function readRelayBody(req, res) {
+  const teamId = req.user.teamId;
+  const body = req.body || {};
+  const event = await prisma.event.findUnique({ where: { id: String(body.eventId || '') } }).catch(() => null);
+  if (!event || !event.isRelay) {
+    res.status(400).json({ message: 'Pick a relay event.' });
+    return null;
+  }
+  const legs = Array.isArray(body.athleteIds) ? body.athleteIds.filter(Boolean) : [];
+  const max = event.relayLegCount || 4;
+  if (legs.length > max || new Set(legs).size !== legs.length) {
+    res.status(400).json({ message: `A ${event.name} has ${max} legs, each a different athlete.` });
+    return null;
+  }
+  const found = await prisma.athlete.count({ where: { teamId, id: { in: legs } } });
+  if (found !== legs.length) {
+    res.status(400).json({ message: 'One or more athletes are not on this team.' });
+    return null;
+  }
+  const raw = String(body.mark || '').trim();
+  const parsed = raw ? parseMark(raw, event.unit) : null;
+  if (parsed && parsed.status === 'NM') {
+    res.status(400).json({ message: 'That time could not be read. Use 44.52 or 3:31.20, or DNS, DQ.' });
+    return null;
+  }
+  const place = parseInt(body.place, 10);
+  return {
+    event,
+    data: {
+      relayAthleteIds: legs,
+      relayTeam: String(body.relayTeam || 'A').trim().slice(0, 12) || 'A',
+      gender: normalizeGender(body.gender),
+      markValue: parsed ? parsed.markValue : null,
+      status: parsed ? parsed.status : 'ENTERED',
+      place: parsed && parsed.status === 'FINISHED' && Number.isInteger(place) && place > 0 ? place : null,
+    },
+  };
+}
+
+// POST /api/track/meets/:meetId/relays { eventId, gender, relayTeam, athleteIds, mark?, place? }
+router.post('/meets/:meetId/relays', authenticate, requireRole(FULL_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const meet = await findMeet(req);
+    if (!meet) return res.status(404).json({ message: 'Meet not found.' });
+    const parsed = await readRelayBody(req, res);
+    if (!parsed) return;
+    const row = await prisma.trackResult.create({
+      data: { teamId: req.user.teamId, trackMeetId: meet.id, eventId: parsed.event.id, athleteId: null, round: 'FINAL', ...parsed.data },
+    });
+    res.status(201).json(row);
+  } catch (err) {
+    console.error('Error creating relay:', err.message);
+    res.status(500).json({ message: 'Could not save that relay.' });
+  }
+});
+
+// PUT /api/track/relays/:resultId — change the legs, the squad, or record the time.
+router.put('/relays/:resultId', authenticate, requireRole(FULL_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const row = await prisma.trackResult.findFirst({ where: { id: req.params.resultId, teamId: req.user.teamId, athleteId: null } });
+    if (!row) return res.status(404).json({ message: 'Relay not found.' });
+    req.body = { ...req.body, eventId: row.eventId };
+    const parsed = await readRelayBody(req, res);
+    if (!parsed) return;
+    res.json(await prisma.trackResult.update({ where: { id: row.id }, data: parsed.data }));
+  } catch (err) {
+    console.error('Error updating relay:', err.message);
+    res.status(500).json({ message: 'Could not save that relay.' });
+  }
+});
+
+// DELETE /api/track/relays/:resultId — a squad that has not run yet can be
+// dropped by any full coach; one with a time is a result, head coach only.
+router.delete('/relays/:resultId', authenticate, requireRole(FULL_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const row = await prisma.trackResult.findFirst({ where: { id: req.params.resultId, teamId: req.user.teamId, athleteId: null } });
+    if (!row) return res.status(404).json({ message: 'Relay not found.' });
+    if (row.status !== 'ENTERED' && !(await hasTeamRole(req.user, DESTRUCTIVE)) && !(req.user.isSuperAdmin && req.user.isImpersonating)) {
+      return res.status(403).json({ message: 'Only a head coach can remove a relay that has a result.' });
+    }
+    await prisma.trackResult.delete({ where: { id: row.id } });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting relay:', err.message);
+    res.status(500).json({ message: 'Could not remove that relay.' });
+  }
+});
+
+// GET /api/track/seasons/:year/relay-suggest?eventId=&gender= — who to
+// consider for a relay, from season bests in its open event.
+router.get('/seasons/:year/relay-suggest', authenticate, requireRole(ANY_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const events = await prisma.event.findMany();
+    const relay = events.find((e) => e.id === req.query.eventId && e.isRelay);
+    if (!relay) return res.status(400).json({ message: 'Pick a relay event.' });
+    const legEvent = events.find((e) => e.name === relayLegEventName(relay.name));
+    if (!legEvent) return res.json({ legEvent: null, candidates: [], projected: null });
+    const gender = normalizeGenderParam(req.query.gender);
+    const results = await prisma.trackResult.findMany({
+      where: { teamId: req.user.teamId, eventId: legEvent.id, trackMeet: { season: parseInt(req.params.year, 10) || 0 }, ...(gender ? { gender } : {}) },
+      select: RESULT_SELECT,
+    });
+    res.json({ legEvent, ...suggestRelay(results.map(flatten), legEvent) });
+  } catch (err) {
+    console.error('Error suggesting relay:', err.message);
+    res.status(500).json({ message: 'Could not load relay suggestions.' });
   }
 });
 
@@ -215,3 +550,4 @@ router.post('/seasons/:year/import-event-progress-csv', authenticate, requireRol
 });
 
 module.exports = router;
+module.exports.loadTrackAthlete = loadTrackAthlete;

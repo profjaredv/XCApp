@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseScoringTable, seasonLeaders, pointsFor, pointsContribution, athleteProgression, DEFAULT_SCORING_TABLE } = require('../lib/trackAnalytics');
+const { relayLegEventName, suggestRelay, meetSheet, prsAtMeet, parseScoringTable, seasonLeaders, pointsFor, pointsContribution, athleteProgression, DEFAULT_SCORING_TABLE } = require('../lib/trackAnalytics');
 
 const E100 = { id: 'e100', name: '100 Meters', scoringDirection: 'LOWER_BETTER', sortOrder: 10 };
 const ESP = { id: 'esp', name: 'Shot Put', scoringDirection: 'HIGHER_BETTER', sortOrder: 180 };
@@ -89,4 +89,51 @@ test('parseScoringTable: a missing or malformed table falls back, never to a tab
   assert.equal(parseScoringTable('10,,8'), null);
   assert.equal(parseScoringTable('abc'), null);
   assert.deepEqual(parseScoringTable('5, 3, 1'), [5, 3, 1]);
+});
+
+test('relayLegEventName: a relay is judged by its open event', () => {
+  assert.equal(relayLegEventName('4x100 Relay'), '100 Meters');
+  assert.equal(relayLegEventName('4x800 Relay'), '800 Meters');
+  assert.equal(relayLegEventName('Shot Put'), null);
+});
+
+test('suggestRelay: fastest first, one row per athlete, sum of the top four', () => {
+  const rows = ['a', 'b', 'c', 'd', 'e'].map((id, i) => row({ eventId: 'e100', athleteId: id, markValue: 11 + i * 0.5 }));
+  rows.push(row({ eventId: 'e100', athleteId: 'e', markValue: 10.5 }), row({ eventId: 'e100', athleteId: 'f', markValue: null, status: 'DNS' }));
+  const out = suggestRelay(rows, E100);
+  assert.deepEqual(out.candidates.map((c) => c.athleteId), ['e', 'a', 'b', 'c', 'd']);
+  assert.equal(out.projected, 10.5 + 11 + 11.5 + 12);
+  assert.equal(suggestRelay(rows.slice(0, 3), E100).projected, null);
+});
+
+test('meetSheet: by event in catalog order, placed rows first, entries last', () => {
+  const sheet = meetSheet(
+    [
+      row({ eventId: 'e100', athleteId: 'a', status: 'ENTERED', markValue: null }),
+      row({ eventId: 'e100', athleteId: 'b', markValue: 11.9, place: 4 }),
+      row({ eventId: 'e100', athleteId: 'c', markValue: 11.2, place: 1 }),
+      row({ eventId: 'esp', athleteId: 'a', markValue: 400, place: 2 }),
+    ],
+    EVENTS
+  );
+  assert.deepEqual(sheet.map((s) => s.event.id), ['e100', 'esp']);
+  assert.deepEqual(sheet[0].rows.map((r) => r.athleteId), ['c', 'b', 'a']);
+});
+
+test('prsAtMeet: only marks better than everything before that meet, first-ever marks included', () => {
+  const all = [
+    row({ eventId: 'e100', athleteId: 'a', markValue: 11.8, date: '2025-04-01', meetId: 'm0' }),
+    row({ eventId: 'e100', athleteId: 'a', markValue: 11.5, date: '2026-04-01', meetId: 'm1', athleteName: 'A' }),
+    row({ eventId: 'e100', athleteId: 'b', markValue: 12.0, date: '2025-04-01', meetId: 'm0' }),
+    row({ eventId: 'e100', athleteId: 'b', markValue: 12.4, date: '2026-04-01', meetId: 'm1', athleteName: 'B' }),
+    row({ eventId: 'esp', athleteId: 'c', markValue: 300, date: '2026-04-01', meetId: 'm1', athleteName: 'C' }),
+    row({ eventId: 'esp', athleteId: 'c', markValue: 999, date: '2026-05-01', meetId: 'm2' }),
+  ];
+  const prs = prsAtMeet(all, EVENTS, 'm1');
+  assert.deepEqual(prs.map((p) => [p.athleteId, p.markValue, p.previous]), [['a', 11.5, 11.8], ['c', 300, null]]);
+});
+
+test('an entry is not an entrant with a result: it scores nothing and counts nowhere', () => {
+  const out = pointsContribution([row({ eventId: 'e100', athleteId: 'a', status: 'ENTERED', markValue: null })], EVENTS);
+  assert.deepEqual(out.events[0].bySeason[2026], { points: 0, scorers: 0, entrants: 0 });
 });

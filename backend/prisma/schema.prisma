@@ -2381,6 +2381,8 @@ model TrackMeet {
   location       String?
   sourceUrl      String?  @map("source_url")
   athleticMeetId String?  @map("athletic_meet_id")
+  // A coach's notes for the day: bus time, uniform, what to bring.
+  notes          String?
 
   team    Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
   results TrackResult[]
@@ -2425,6 +2427,8 @@ model TrackResult {
   // for DNF and NM.
   status          String    @default("FINISHED")
   relayAthleteIds String[]  @default([]) @map("relay_athlete_ids")
+  // Relays only: which squad ("A", "B"). One school often runs several.
+  relayTeam       String?   @map("relay_team")
 
   team      Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
   trackMeet TrackMeet @relation(fields: [trackMeetId], references: [id], onDelete: Cascade)
