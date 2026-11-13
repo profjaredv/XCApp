@@ -70,6 +70,7 @@ test('imports a new athlete, meet and a feet-inches result', async (t) => {
   assert.deepEqual(summary.unmatchedEvents, []);
   assert.equal(created.athletes.length, 1);
   assert.equal(created.athletes[0].name, 'Sam Example');
+  assert.equal(created.athletes[0].graduationYear, 2027); // 11th grade in spring 2026
   assert.equal(created.meets.length, 1);
   assert.equal(created.meets[0].name, 'Sample JV Invite');
   assert.equal(created.resultUpserts.length, 1);
@@ -129,4 +130,21 @@ test('re-importing the same row matches the existing athlete and meet instead of
   assert.equal(created.meets.length, 0); // matched, not re-created
   assert.equal(created.resultUpserts[0].create.athleteId, 'athlete-1');
   assert.equal(created.resultUpserts[0].create.trackMeetId, 'meet-1');
+});
+
+test('an existing athlete keeps the graduation year they already have', async (t) => {
+  const existingAthlete = { id: 'athlete-1', name: 'Sam Example', graduationYear: 2027, athleticAthleteId: null };
+  withStubs(t, { athletes: [existingAthlete] });
+  const updates = [];
+  const original = prisma.athlete.update;
+  prisma.athlete.update = async ({ data }) => {
+    updates.push(data);
+    return { ...existingAthlete, ...data };
+  };
+  t.after(() => {
+    prisma.athlete.update = original;
+  });
+  const data = csv([{ 'Athlete Name': 'Sam Example', Grade: '12', Event: '400 Meters', Result: '51.20', Round: 'V F', Date: '4/30/26', Season: '2026', 'Meet Name': 'Sample Invitational' }]);
+  await importEventProgressCsv({ id: 'team-1' }, 2026, data);
+  assert.equal(updates.some((u) => 'graduationYear' in u), false);
 });

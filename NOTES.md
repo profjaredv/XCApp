@@ -4628,3 +4628,59 @@ WIAA list is still provisional) and the migration above still needs `prisma
 migrate resolve --applied` from one too. Relay import, the Round column's
 dropped level/division text, and the scraper itself all stay blocked/
 deferred exactly as stated above.
+
+## PR3: Track & Field turned on for coaches
+
+The super-admin demo gate is gone. `/tf/dashboard` and
+`SuperAdminRouteGuard` are deleted; Track & Field now lives at
+`/t/<team>/track` in both shells' nav, for coaches.
+
+**Authorization** (`routes/track.js`, every route, GETs included, enforced
+by `test/trackRouteAuth.test.js`): `authenticate`, `requireRole` (ANY_COACH
+to read, FULL_COACH for the one write, the import), `requireFeature('track')`
+(a new team feature, default on like every other, so a team can switch the
+whole sport off in Settings), and `requireTrackSport`, which finally wires
+up Section 1b's `decideCanAccessSportScopedResource`: a TeamMember scoped to
+`sport: 'XC'` gets 403 here. Nothing sets `TeamMember.sport` yet (the staff
+invite screen has no sport picker), so in practice every coach is
+unrestricted; the check is live for when that lands. Athletes and parents
+get nothing: no route here takes ANY_TEAM_MEMBER.
+
+**No manual DB step.** Migrations run at deploy (`scripts/migrate.js`), so
+the event catalog is now seeded by a migration
+(`20261113000000_seed_track_events`, idempotent on name) rather than by
+someone running `seedTrackEvents.js`. The catalog is still the provisional
+WIAA outdoor list.
+
+**What a coach gets**: `lib/trackAnalytics.js` (pure, unit-tested) behind
+`GET /seasons`, `/seasons/:year/meets`, `/seasons/:year/leaders`, `/points`
+and `/athletes/:id`. Leaders is each athlete's season best per event;
+Points is place-in-finals scored on a default 10-8-6-5-4-3-2-1 table across
+every imported season (labelled on screen as an assumption, overridable
+with `?table=`; there is no editor for it); the athlete page flags each new
+PR in date order. A track "season" is simply a year that has imported
+meets. No `Season` row with `sport: 'TRACK'` is created, on purpose: 17
+backend files look seasons up by `(teamId, year)` with no sport filter, and
+a second row for the same year would leak into cross country screens.
+
+**Verified against a real Postgres 16 in the sandbox, not just stubs**:
+every migration applied from empty, then the real router served a real
+import and every read. That run caught two bugs the unit tests had not:
+`/points` with no `table` query parsed `''` as a table of `[0]` and scored
+everything zero; and the import passed the track season year to
+`deriveGraduationYear`, which expects the fall a school year starts in, so
+an 11th grader in spring 2026 came out class of 2028. Athletes are shared
+with cross country, so that would have shifted their XC grade. The import
+now derives from `year - 1` and only fills a missing graduation year, never
+overwrites one. Both have regression tests. The screens were then driven in
+Chromium against that same data (leaders, points, meets, athlete page, and
+a paste-and-import of the fixture page) with no console errors. Not
+verified: the signed-in app shell itself, since Neon Auth has no local
+mode; the pages were mounted in a harness with the real API behind them.
+
+**Still open**: relays (no markup sample for the Relays tab), indoor
+events (reported as skipped on import), the Round column's level prefix,
+depth-by-event-group, the cross-sport link on the athlete page, and a
+sport picker on staff invites. `web`'s `tsc -b` has one error that predates
+this work on `neon-migration` (`LandingPage.tsx`, `School` not imported);
+the deploy build (`vite build`) does not type-check and is clean.

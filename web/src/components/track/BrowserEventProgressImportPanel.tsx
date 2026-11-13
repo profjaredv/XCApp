@@ -66,7 +66,7 @@ export function BrowserEventProgressImportPanel({ season, onComplete }: { season
       setResult(summary);
       setPaste('');
       setParsed({});
-      queryClient.invalidateQueries({ queryKey: ['trackStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['track'] });
       onComplete();
     } catch (e) {
       setError(getApiErrorMessage(e, 'The import failed. Please try again.'));

@@ -357,6 +357,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
               onLinkClick={handleLinkClick}
             />
             <NavItem to={teamPath(navEntry('program').path)} icon={navEntry('program').icon} label={navEntry('program').label} isCollapsed={isCollapsed} onClick={handleLinkClick} section={sectionForNavKey('program')} />
+            {/* The team's other sport. Not in NAV_ITEMS: that list is the
+                cross country spine the feature tour walks. */}
+            {features?.enabled?.track !== false && (
+              <NavItem to={teamPath('/track')} icon={Activity} label="Track & Field" isCollapsed={isCollapsed} onClick={handleLinkClick} />
+            )}
             {!isVolunteerCoach && (
               <CollapsibleSetupSection isCollapsed={isCollapsed}>
                 {navFor('coach', 'setup')
@@ -400,18 +405,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
               to={teamPath('/admin')}
               icon={ShieldCheck}
               label="Platform"
-              isCollapsed={isCollapsed}
-              onClick={handleLinkClick}
-            />
-            {/* LeadPack Track & Field handoff: temporary, super-admin-only
-                while this ships (SuperAdminRouteGuard is the real nav
-                equivalent of TeamRouteGuard here — see that guard's own
-                comment). Absolute path, not teamPath(...): /tf isn't
-                nested under /t/:teamSlug. */}
-            <NavItem
-              to="/tf/dashboard"
-              icon={Activity}
-              label="Track & Field"
               isCollapsed={isCollapsed}
               onClick={handleLinkClick}
             />

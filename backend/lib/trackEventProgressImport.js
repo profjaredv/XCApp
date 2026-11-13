@@ -76,7 +76,12 @@ async function importEventProgressCsv(team, yearNum, csvData) {
     }
 
     const grade = row.Grade ? parseInt(row.Grade, 10) : null;
-    const graduationYear = grade ? deriveGraduationYear(grade, yearNum) : null;
+    // deriveGraduationYear takes the FALL a school year starts in (it was
+    // written for cross country). Outdoor track is the spring of that same
+    // school year, so an 11th grader in the 2026 track season started the
+    // year in fall 2025 and graduates in 2027, not 2028. Athletes are shared
+    // with cross country, so getting this wrong would move their XC grade too.
+    const graduationYear = grade ? deriveGraduationYear(grade, yearNum - 1) : null;
     const genderValue = normalizeGender(row.Gender);
     const athleticAthleteIdValue = row['Athletic Athlete ID'] || null;
 
@@ -87,14 +92,18 @@ async function importEventProgressCsv(team, yearNum, csvData) {
 
     let athlete;
     if (existingMatch) {
-      athlete = await prisma.athlete.update({
-        where: { id: existingMatch.id },
-        data: {
-          ...(genderValue ? { gender: genderValue } : {}),
-          ...(graduationYear !== null ? { graduationYear } : {}),
-          ...(athleticAthleteIdValue && !existingMatch.athleticAthleteId ? { athleticAthleteId: athleticAthleteIdValue } : {}),
-        },
-      });
+      const changes = {
+        ...(genderValue && existingMatch.gender !== genderValue ? { gender: genderValue } : {}),
+        // Fill a missing graduation year; never overwrite one cross
+        // country (or the coach) already set.
+        ...(graduationYear !== null && existingMatch.graduationYear == null ? { graduationYear } : {}),
+        ...(athleticAthleteIdValue && !existingMatch.athleticAthleteId ? { athleticAthleteId: athleticAthleteIdValue } : {}),
+      };
+      // One CSV row per result means the same athlete recurs dozens of
+      // times; only write when something actually changes.
+      athlete = Object.keys(changes).length
+        ? await prisma.athlete.update({ where: { id: existingMatch.id }, data: changes })
+        : existingMatch;
     } else {
       athlete = await prisma.athlete.create({
         data: { name: athleteName, teamId: team.id, gender: genderValue, graduationYear, athleticAthleteId: athleticAthleteIdValue },
