@@ -46,6 +46,16 @@ async function importEventProgressCsv(team, yearNum, csvData) {
   // across every event and athlete).
   const meetByKey = new Map(existingMeets.map((m) => [`${m.name}|${m.date.toISOString().slice(0, 10)}`, m]));
 
+  // The track season itself, and who is on it. Roster, groups, schedule and
+  // photos for track all hang off this row, so importing results is enough
+  // to make the season exist for them.
+  const seasonRow = await prisma.season.upsert({
+    where: { teamId_year_sport: { teamId: team.id, year: yearNum, sport: 'TRACK' } },
+    update: {},
+    create: { teamId: team.id, year: yearNum, sport: 'TRACK' },
+  });
+  const rostered = new Map();
+
   let recordsProcessed = 0;
   let skippedMissing = 0;
   let skippedDate = 0;
@@ -76,12 +86,10 @@ async function importEventProgressCsv(team, yearNum, csvData) {
     }
 
     const grade = row.Grade ? parseInt(row.Grade, 10) : null;
-    // deriveGraduationYear takes the FALL a school year starts in (it was
-    // written for cross country). Outdoor track is the spring of that same
-    // school year, so an 11th grader in the 2026 track season started the
-    // year in fall 2025 and graduates in 2027, not 2028. Athletes are shared
-    // with cross country, so getting this wrong would move their XC grade too.
-    const graduationYear = grade ? deriveGraduationYear(grade, yearNum - 1) : null;
+    // Outdoor track is the spring of a school year: an 11th grader in the
+    // 2026 track season graduates in 2027. Athletes are shared with cross
+    // country, so this must agree with what XC derives.
+    const graduationYear = grade ? deriveGraduationYear(grade, yearNum, 'TRACK') : null;
     const genderValue = normalizeGender(row.Gender);
     const athleticAthleteIdValue = row['Athletic Athlete ID'] || null;
 
@@ -111,6 +119,8 @@ async function importEventProgressCsv(team, yearNum, csvData) {
     }
     if (athlete.athleticAthleteId) athleteByAthleticId.set(athleticIdKey(athlete.athleticAthleteId), athlete);
     athleteByName.set(normalizeAthleteName(athlete.name), athlete);
+
+    if (!rostered.has(athlete.id) || (rostered.get(athlete.id) == null && grade != null)) rostered.set(athlete.id, grade);
 
     const meetDate = parsedDate.startOf('day').toDate();
     const meetKey = `${meetName}|${meetDate.toISOString().slice(0, 10)}`;
@@ -170,7 +180,19 @@ async function importEventProgressCsv(team, yearNum, csvData) {
     recordsProcessed++;
   }
 
-  return { recordsProcessed, skippedMissing, skippedDate, unmatchedEvents: [...unmatchedEvents] };
+  // Add anyone who competed to the season's roster. Never deactivates or
+  // removes: a coach who took someone off stays in charge of that.
+  const existingRoster = await prisma.seasonRoster.findMany({ where: { seasonId: seasonRow.id }, select: { athleteId: true } });
+  const onRoster = new Set(existingRoster.map((r) => r.athleteId));
+  const toAdd = [...rostered].filter(([athleteId]) => !onRoster.has(athleteId));
+  if (toAdd.length) {
+    await prisma.seasonRoster.createMany({
+      data: toAdd.map(([athleteId, g]) => ({ seasonId: seasonRow.id, athleteId, grade: g, isActive: true })),
+      skipDuplicates: true,
+    });
+  }
+
+  return { recordsProcessed, skippedMissing, skippedDate, unmatchedEvents: [...unmatchedEvents], rosterAdded: toAdd.length };
 }
 
 module.exports = { importEventProgressCsv };

@@ -1,4 +1,5 @@
 const express = require('express');
+const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, hasTeamRole } = require('../middleware/auth');
@@ -70,7 +71,7 @@ router.get('/overview', authenticate, requireTeam, async (req, res) => {
     // grade someone was in during THIS season, set when the roster was
     // synced or imported. Same source and same precedence as
     // routes/athletes.js.
-    const seasonRow = await prisma.season.findFirst({ where: { teamId, year: season }, select: { id: true } });
+    const seasonRow = await prisma.season.findFirst({ where: { teamId, year: season, sport: currentSport() }, select: { id: true } });
     const rosterGradeByAthleteId = new Map(
       seasonRow
         ? (

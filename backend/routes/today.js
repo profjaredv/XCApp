@@ -1,4 +1,5 @@
 const express = require('express');
+const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
@@ -256,7 +257,7 @@ router.get('/staff', authenticate, requireTeam, requireRole(ANY_COACH), async (r
       resolveActiveSeason(teamId),
     ]);
 
-    const activeRosterSeason = await prisma.season.findFirst({ where: { teamId, year: activeSeason }, select: { id: true } });
+    const activeRosterSeason = await prisma.season.findFirst({ where: { teamId, year: activeSeason, sport: currentSport() }, select: { id: true } });
     const athleteCount = activeRosterSeason
       ? await prisma.seasonRoster.count({ where: { seasonId: activeRosterSeason.id, isActive: true } })
       : 0;

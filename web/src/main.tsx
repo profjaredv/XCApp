@@ -1,7 +1,8 @@
 import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider, Link as RouterLink } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, hashKey } from '@tanstack/react-query';
+import { sportOfLocation } from './lib/sport';
 import { NeonAuthUIProvider } from '@neondatabase/neon-js/auth/react/ui';
 // Note: Neon Auth's CSS is imported via index.css (the `@neondatabase/neon-js/ui/tailwind`
 // tokens-only entry), NOT the full `/ui/css` bundle. This app already ships its own
@@ -29,7 +30,12 @@ applyCachedTeamTheme();
 // without service worker support.
 registerServiceWorker();
 
-const queryClient = new QueryClient();
+// The same query asked from a Track & Field screen and from a cross country
+// one gets different answers (the request carries the sport), so the sport
+// is part of every query's identity in the cache.
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { queryKeyHashFn: (key) => hashKey([sportOfLocation(), ...key]) } },
+});
 
 // better-auth-ui's Link prop shape is {href, className, children};
 // react-router's Link takes `to` — bridge the two.

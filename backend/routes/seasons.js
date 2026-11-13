@@ -1,11 +1,12 @@
 const express = require('express');
+const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
 const { DESTRUCTIVE, FULL_COACH } = require('../lib/teamRoles');
 
 router.get('/', authenticate, requireTeam, async (req, res) => {
-  const { sport = 'XC' } = req.query;
+  const { sport = currentSport() } = req.query;
 
   try {
     const seasons = await prisma.season.findMany({
@@ -20,7 +21,7 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
 });
 
 router.get('/current', authenticate, requireTeam, async (req, res) => {
-  const { sport = 'XC' } = req.query;
+  const { sport = currentSport() } = req.query;
 
   try {
     const currentSeason = await prisma.season.findFirst({
@@ -39,7 +40,7 @@ router.get('/current', authenticate, requireTeam, async (req, res) => {
 });
 
 router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
-  const { year, sport = 'XC', startDate, endDate } = req.body;
+  const { year, sport = currentSport(), startDate, endDate } = req.body;
   const teamId = req.user.teamId;
 
   if (!year) {

@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { teamAddress } from '../lib/teamAddress';
+import { sportOfLocation, sportSubpath, type Sport } from '../lib/sport';
 
 // Every "main app" route is nested under /t/:teamSlug — the team's own
 // LeadPack address, made from its name (backend/lib/teamSlug.js). It used
@@ -33,11 +34,11 @@ export function useTeamSlug(): string | undefined {
  */
 export function useTeamPath() {
   const teamSlug = useTeamSlug();
+  // Links keep you in the sport you are in (lib/sport.ts sportSubpath).
+  // Pass a sport to cross over on purpose, as the sport switch does.
+  const here = sportOfLocation(useLocation().pathname);
   return useCallback(
-    (subpath: string) => {
-      const suffix = subpath.startsWith('/') ? subpath : `/${subpath}`;
-      return `/t/${teamSlug ?? ''}${suffix}`;
-    },
-    [teamSlug]
+    (subpath: string, sport: Sport = here) => `/t/${teamSlug ?? ''}${sportSubpath(subpath, sport)}`,
+    [teamSlug, here]
   );
 }

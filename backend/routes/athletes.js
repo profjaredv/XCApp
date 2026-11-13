@@ -1,4 +1,5 @@
 const express = require('express');
+const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const { parse } = require('csv-parse/sync');
 const prisma = require('../lib/db');
@@ -58,10 +59,27 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
       orderBy: { name: 'asc' },
     });
 
-    const results = await prisma.result.findMany({
-      where: { teamId, athleteId: { in: athletes.map((a) => a.id) }, race: { season: seasonYear } },
-      include: { race: true },
-    });
+    // Track & Field has no races: its roster counts track results instead,
+    // and `races` (cross country's per-race rows) stays empty there.
+    const isTrack = currentSport() === 'TRACK';
+    const athleteIdList = athletes.map((a) => a.id);
+    const results = isTrack
+      ? []
+      : await prisma.result.findMany({
+          where: { teamId, athleteId: { in: athleteIdList }, race: { season: seasonYear } },
+          include: { race: true },
+        });
+    const trackSeasonCounts = isTrack
+      ? new Map(
+          (
+            await prisma.trackResult.groupBy({
+              by: ['athleteId'],
+              where: { teamId, athleteId: { in: athleteIdList }, trackMeet: { season: seasonYear } },
+              _count: { _all: true },
+            })
+          ).map((g) => [g.athleteId, g._count._all])
+        )
+      : null;
 
     const resultMap = new Map();
     results.forEach((result) => {
@@ -74,16 +92,18 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
     // holding four seasons of races reads "0 races" on a screen scoped to
     // this season, which is exactly the row a coach is looking for when
     // they go to merge duplicates.
-    const careerCounts = await prisma.result.groupBy({
-      by: ['athleteId'],
-      where: { teamId, athleteId: { in: athletes.map((a) => a.id) } },
-      _count: { _all: true },
-    });
+    const careerCounts = isTrack
+      ? await prisma.trackResult.groupBy({ by: ['athleteId'], where: { teamId, athleteId: { in: athleteIdList } }, _count: { _all: true } })
+      : await prisma.result.groupBy({
+          by: ['athleteId'],
+          where: { teamId, athleteId: { in: athletes.map((a) => a.id) } },
+          _count: { _all: true },
+        });
     const careerCountByAthlete = new Map(careerCounts.map((r) => [r.athleteId, r._count._all]));
 
     // An explicit roster for this season, if the coach has one.
     const seasonRow = await prisma.season.findFirst({
-      where: { teamId, year: seasonYear },
+      where: { teamId, year: seasonYear, sport: currentSport() },
       select: { id: true },
     });
     const rosterEntries = seasonRow
@@ -114,12 +134,12 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         gender: normalizeGender(a.gender),
         grade,
         races,
-        raceCount: races.length,
+        raceCount: isTrack ? trackSeasonCounts.get(a.id) ?? 0 : races.length,
         careerRaceCount: careerCountByAthlete.get(a.id) ?? 0,
         graduated: hasGraduated(a.graduationYear, seasonYear),
         onRoster: hasExplicitRoster
           ? Boolean(rosterEntry && rosterEntry.isActive)
-          : races.length > 0 || isEnrolled(a.graduationYear, seasonYear),
+          : (isTrack ? trackSeasonCounts.has(a.id) : races.length > 0) || isEnrolled(a.graduationYear, seasonYear),
         // Set by an earlier roster sync (retired) when
         // this athlete no longer appeared on Athletic.net — a review signal
         // for the coach, never an automatic removal.
@@ -313,9 +333,9 @@ router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req,
     // someone mid-preseason (before any results exist) actually shows up.
     if (gradYear !== null && isEnrolled(gradYear, seasonYear)) {
       const seasonRow = await prisma.season.upsert({
-        where: { teamId_year_sport: { teamId, year: seasonYear, sport: 'XC' } },
+        where: { teamId_year_sport: { teamId, year: seasonYear, sport: currentSport() } },
         update: {},
-        create: { teamId, year: seasonYear, sport: 'XC' },
+        create: { teamId, year: seasonYear, sport: currentSport() },
       });
       await prisma.seasonRoster.upsert({
         where: { seasonId_athleteId: { seasonId: seasonRow.id, athleteId: athlete.id } },
@@ -390,9 +410,9 @@ router.post('/import-roster', authenticate, requireTeam, requireRole(FULL_COACH)
 
   try {
     const seasonRow = await prisma.season.upsert({
-      where: { teamId_year_sport: { teamId, year: seasonYear, sport: 'XC' } },
+      where: { teamId_year_sport: { teamId, year: seasonYear, sport: currentSport() } },
       update: {},
-      create: { teamId, year: seasonYear, sport: 'XC' },
+      create: { teamId, year: seasonYear, sport: currentSport() },
     });
 
     const existingAthletes = await prisma.athlete.findMany({ where: { teamId } });

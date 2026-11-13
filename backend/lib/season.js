@@ -1,4 +1,5 @@
 const prisma = require('./db');
+const { currentSport, schoolYearStart } = require('./sport');
 
 // ---------------------------------------------------------------------------
 // Season & eligibility domain rules.
@@ -39,15 +40,17 @@ function currentCalendarSeason(now = new Date()) {
 // therefore FINAL_HS_GRADE during season = graduationYear - 1, not season =
 // graduationYear. Getting this wrong makes a currently-enrolled senior
 // compute as already graduated for the entire season they're racing in.
-function deriveGrade(graduationYear, season) {
+// `season` is the season's own year; the sport says which half of the
+// school year that is (see lib/sport.js schoolYearStart).
+function deriveGrade(graduationYear, season, sport = currentSport()) {
   if (!Number.isFinite(graduationYear) || !Number.isFinite(season)) return null;
-  return FINAL_HS_GRADE - (graduationYear - season - 1);
+  return FINAL_HS_GRADE - (graduationYear - schoolYearStart(season, sport) - 1);
 }
 
-function deriveGraduationYear(grade, season) {
+function deriveGraduationYear(grade, season, sport = currentSport()) {
   const gradeNum = parseInt(grade, 10);
   if (!Number.isFinite(gradeNum) || !Number.isFinite(season)) return null;
-  return season + 1 + (FINAL_HS_GRADE - gradeNum);
+  return schoolYearStart(season, sport) + 1 + (FINAL_HS_GRADE - gradeNum);
 }
 
 // "Is this athlete on the team during this season?" — i.e. grades 9-12.
@@ -61,7 +64,7 @@ function isEnrolled(graduationYear, season) {
 
 function hasGraduated(graduationYear, season) {
   if (!Number.isFinite(graduationYear) || !Number.isFinite(season)) return false;
-  return graduationYear <= season;
+  return graduationYear <= schoolYearStart(season);
 }
 
 // "Is this specific athlete on the roster for this season?" — the
@@ -77,7 +80,7 @@ async function isAthleteOnSeasonRoster(athleteId, teamId, season) {
   const athlete = await prisma.athlete.findFirst({ where: { id: athleteId, teamId }, select: { graduationYear: true } });
   if (!athlete) return false;
 
-  const seasonRow = await prisma.season.findFirst({ where: { teamId, year: season }, select: { id: true } });
+  const seasonRow = await prisma.season.findFirst({ where: { teamId, year: season, sport: currentSport() }, select: { id: true } });
   if (seasonRow) {
     const rosterEntry = await prisma.seasonRoster.findFirst({ where: { seasonId: seasonRow.id, athleteId } });
     if (rosterEntry) return rosterEntry.isActive;
@@ -87,12 +90,19 @@ async function isAthleteOnSeasonRoster(athleteId, teamId, season) {
     if (anyRosterForSeason) return false;
   }
 
-  const raceCount = await prisma.result.count({ where: { teamId, athleteId, race: { season } } });
+  const raceCount =
+    currentSport() === 'TRACK'
+      ? await prisma.trackResult.count({ where: { teamId, athleteId, trackMeet: { season } } })
+      : await prisma.result.count({ where: { teamId, athleteId, race: { season } } });
   return raceCount > 0 || isEnrolled(athlete.graduationYear, season);
 }
 
 // Seasons this team actually has race data for, newest first.
 async function listSeasonsWithData(teamId) {
+  if (currentSport() === 'TRACK') {
+    const meets = await prisma.trackMeet.findMany({ where: { teamId }, select: { season: true }, distinct: ['season'] });
+    return meets.map((m) => m.season).sort((a, b) => b - a);
+  }
   const races = await prisma.race.findMany({
     where: { teamId },
     select: { season: true },
@@ -112,7 +122,7 @@ async function resolveActiveSeason(teamId, requestedSeason) {
 
   const [team, activeSeasonRow, seasonsWithData] = await Promise.all([
     prisma.team.findUnique({ where: { id: teamId }, select: { currentSeason: true } }),
-    prisma.season.findFirst({ where: { teamId, isActive: true }, select: { year: true } }),
+    prisma.season.findFirst({ where: { teamId, sport: currentSport(), isActive: true }, select: { year: true } }),
     listSeasonsWithData(teamId),
   ]);
 
@@ -126,7 +136,8 @@ async function resolveActiveSeason(teamId, requestedSeason) {
   const notBehindData = (year) =>
     Number.isFinite(latestWithData) ? Math.max(year, latestWithData) : year;
 
-  if (Number.isFinite(team?.currentSeason)) return notBehindData(team.currentSeason);
+  // Team.currentSeason is cross country's; track has only its season rows.
+  if (currentSport() === 'XC' && Number.isFinite(team?.currentSeason)) return notBehindData(team.currentSeason);
   if (Number.isFinite(activeSeasonRow?.year)) return notBehindData(activeSeasonRow.year);
   if (Number.isFinite(latestWithData)) return latestWithData;
 
@@ -193,7 +204,7 @@ function serializeSeason(season) {
 //   'in-season'  — render the full Today page.
 //   'off-season' — render last season's summary instead of an empty dashboard.
 async function resolveTodaySeasonState(teamId, today = new Date()) {
-  const seasons = await prisma.season.findMany({ where: { teamId }, orderBy: { year: 'desc' } });
+  const seasons = await prisma.season.findMany({ where: { teamId, sport: currentSport() }, orderBy: { year: 'desc' } });
   if (seasons.length === 0) {
     return { state: 'none', season: null, lastSeasonSummary: null };
   }

@@ -750,7 +750,7 @@ router.post('/races/:raceId/results', authenticate, requireTeam, requireRole(FUL
     const athleteIds = [...new Set(results.map((r) => r.athleteId).filter(Boolean))];
     const [validAthletes, season] = await Promise.all([
       prisma.athlete.findMany({ where: { id: { in: athleteIds }, teamId }, select: { id: true } }),
-      prisma.season.findFirst({ where: { teamId, year: race.season } }),
+      prisma.season.findFirst({ where: { teamId, year: race.season, sport: 'XC' } }),
     ]);
     const validAthleteIds = new Set(validAthletes.map((a) => a.id));
 

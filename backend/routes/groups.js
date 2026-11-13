@@ -3,7 +3,8 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole, requireLinkedAthlete, hasTeamRole } = require('../middleware/auth');
 const { ANY_COACH, FULL_COACH } = require('../lib/teamRoles');
-const { getGroupOn, getActiveMembersOf, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn } = require('../lib/groups');
+const { getGroupOn, getActiveMembersOf, moveAthleteToGroup, removeAthleteFromGroup, isMembershipActiveOn, isExclusiveType } = require('../lib/groups');
+const { EVENT_GROUPS, EVENT_GROUP_KEYS, membersByEventGroup } = require('../lib/trackEventGroups');
 const { decideCanManageGroup } = require('../lib/groupPermissions');
 const { normalizeGender } = require('../lib/gender');
 const { deriveGrade } = require('../lib/season');
@@ -12,7 +13,7 @@ const { buildAthleteSeasonSummary, summarizeGroup, paceSecPerMile, summarizeGrou
 const { RULES, findRule, evaluateRule, evaluateAll } = require('../lib/dynamicGroups');
 const { isFeatureEnabled } = require('../lib/teamFeatures');
 
-const GROUP_TYPES = new Set(['TRAINING', 'CAPTAIN', 'CUSTOM']);
+const GROUP_TYPES = new Set(['TRAINING', 'CAPTAIN', 'CUSTOM', 'EVENT']);
 
 // A head/paid coach can manage any group on their team. A volunteer coach
 // can only manage a group they actually lead — T2 is the first place
@@ -83,6 +84,7 @@ router.get('/', authenticate, requireTeam, async (req, res) => {
         sortOrder: g.sortOrder,
         color: g.color,
         archived: g.archived,
+        eventGroup: g.eventGroup,
         activeMemberCount: g._count.memberships,
         leaders: g.leaders.map((l) => ({ userId: l.userId, name: l.user.name, email: l.user.email, primary: l.primary })),
       }))
@@ -776,7 +778,7 @@ router.get('/athlete/:athleteId/current', authenticate, requireTeam, async (req,
 
 // POST /api/groups
 router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
-  const { seasonId, name, type, gender, sortOrder, color } = req.body;
+  const { seasonId, name, type, gender, sortOrder, color, eventGroup } = req.body;
 
   if (!seasonId || !name || !GROUP_TYPES.has(type)) {
     return res.status(400).json({ msg: `seasonId, name, and type (one of ${[...GROUP_TYPES].join(', ')}) are required.` });
@@ -797,6 +799,7 @@ router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req,
         gender: normalizeGender(gender),
         sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0,
         color: color || null,
+        eventGroup: type === 'EVENT' && EVENT_GROUP_KEYS.has(eventGroup) ? eventGroup : null,
       },
     });
     res.status(201).json(group);
@@ -1131,6 +1134,62 @@ router.post('/x-training', authenticate, requireTeam, async (req, res) => {
 // transaction, per the doc ("Save writes all changes in one transaction").
 // Head/paid-coach only — a volunteer coach moving athletes one at a time
 // into their own group uses POST /:id/members above instead.
+// POST /api/groups/event-groups/setup  { seasonId }
+// Track & Field: make the season's event groups (Sprints, Jumps, Throws...)
+// and put each athlete in every group they have competed in this season.
+// Safe to run again after another meet: it only ever adds groups and
+// members, so anyone a coach added or removed by hand stays as they left it
+// unless they have since competed in that group's events.
+router.post('/event-groups/setup', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const season = await prisma.season.findFirst({ where: { id: req.body?.seasonId, teamId: req.user.teamId } });
+    if (!season) return res.status(404).json({ msg: 'Season not found.' });
+    if (season.sport !== 'TRACK') return res.status(400).json({ msg: 'Event groups are for Track & Field seasons.' });
+
+    const [events, results, existing] = await Promise.all([
+      prisma.event.findMany(),
+      prisma.trackResult.findMany({
+        where: { teamId: req.user.teamId, trackMeet: { season: season.year } },
+        select: { athleteId: true, eventId: true },
+      }),
+      prisma.group.findMany({ where: { seasonId: season.id, type: 'EVENT' } }),
+    ]);
+    const wanted = membersByEventGroup(results, events);
+    const groupByKey = new Map(existing.filter((g) => g.eventGroup).map((g) => [g.eventGroup, g]));
+    const today = new Date();
+    let groupsCreated = 0;
+    let membersAdded = 0;
+
+    await prisma.$transaction(async (tx) => {
+      for (const [index, def] of EVENT_GROUPS.entries()) {
+        const athleteIds = wanted.get(def.key);
+        if (!athleteIds || athleteIds.size === 0) continue;
+        let group = groupByKey.get(def.key);
+        if (!group) {
+          group = await tx.group.create({
+            data: { teamId: req.user.teamId, seasonId: season.id, name: def.label, type: 'EVENT', eventGroup: def.key, sortOrder: index },
+          });
+          groupsCreated++;
+        }
+        const everIn = await tx.groupMembership.findMany({ where: { groupId: group.id }, select: { athleteId: true } });
+        const known = new Set(everIn.map((m) => m.athleteId));
+        const toAdd = [...athleteIds].filter((id) => !known.has(id));
+        if (toAdd.length) {
+          await tx.groupMembership.createMany({
+            data: toAdd.map((athleteId) => ({ groupId: group.id, athleteId, startDate: today, movedById: req.user.id, reason: 'Competed in this event group' })),
+          });
+          membersAdded += toAdd.length;
+        }
+      }
+    });
+
+    res.status(201).json({ groupsCreated, membersAdded });
+  } catch (error) {
+    console.error('Error setting up event groups:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 router.post('/assign', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { assignments, effectiveDate } = req.body;
   if (!Array.isArray(assignments) || assignments.length === 0) {
@@ -1143,7 +1202,7 @@ router.post('/assign', authenticate, requireTeam, requireRole(FULL_COACH), async
 
     const [athletes, groups] = await Promise.all([
       prisma.athlete.findMany({ where: { id: { in: athleteIds }, teamId: req.user.teamId }, select: { id: true } }),
-      prisma.group.findMany({ where: { id: { in: groupIds }, teamId: req.user.teamId }, select: { id: true, type: true } }),
+      prisma.group.findMany({ where: { id: { in: groupIds }, teamId: req.user.teamId }, select: { id: true, type: true, season: { select: { sport: true } } } }),
     ]);
     const validAthleteIds = new Set(athletes.map((a) => a.id));
     const groupById = new Map(groups.map((g) => [g.id, g]));
@@ -1162,8 +1221,12 @@ router.post('/assign', authenticate, requireTeam, requireRole(FULL_COACH), async
         // opens its own — nesting prisma transactions isn't supported).
         const targetType = groupById.get(groupId).type;
 
+        // Exclusive types close the athlete's other group of that type in
+        // the same sport; custom and event groups stack (lib/groups.js).
         const currentlyActive = await tx.groupMembership.findMany({
-          where: { athleteId, endDate: null, group: { type: targetType } },
+          where: isExclusiveType(targetType)
+            ? { athleteId, endDate: null, group: { type: targetType, season: { sport: groupById.get(groupId).season.sport } } }
+            : { athleteId, endDate: null, groupId },
         });
         for (const membership of currentlyActive) {
           if (membership.groupId === groupId) continue;

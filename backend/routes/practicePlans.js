@@ -1,4 +1,5 @@
 const express = require('express');
+const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const { parse } = require('csv-parse/sync');
 const prisma = require('../lib/db');
@@ -109,7 +110,7 @@ router.get('/mine', authenticate, requireLinkedAthlete, async (req, res) => {
   const dateParam = req.query.date ? new Date(req.query.date) : new Date();
 
   try {
-    const season = await prisma.season.findFirst({ where: { teamId: req.user.teamId, isActive: true } });
+    const season = await prisma.season.findFirst({ where: { teamId: req.user.teamId, sport: currentSport(), isActive: true } });
     if (!season) {
       return res.json({ date: dateParam, plan: null });
     }

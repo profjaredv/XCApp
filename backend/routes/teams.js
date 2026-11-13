@@ -1,4 +1,5 @@
 const express = require('express');
+const { currentSport, SPORT_NAME } = require('../lib/sport');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
@@ -431,7 +432,7 @@ router.post('/seasons/:year/roster/:athleteId/clear-flag', authenticate, require
   const year = parseInt(req.params.year, 10);
 
   try {
-    const season = await prisma.season.findFirst({ where: { teamId, year } });
+    const season = await prisma.season.findFirst({ where: { teamId, year, sport: currentSport() } });
     if (!season) {
       return res.status(404).json({ message: 'Season not found.' });
     }
@@ -459,11 +460,14 @@ router.post('/seasons/:year/roster/:athleteId/clear-flag', authenticate, require
 // instead of treating "no results" as "nothing here".
 router.get('/seasons', authenticate, requireTeam, async (req, res) => {
   const teamId = req.user.teamId;
+  const sport = currentSport();
 
   try {
     const [seasonRows, raceGroups, activeSeason] = await Promise.all([
-      prisma.season.findMany({ where: { teamId }, orderBy: { year: 'desc' } }),
-      prisma.race.groupBy({ by: ['season'], where: { teamId }, _count: { _all: true } }),
+      prisma.season.findMany({ where: { teamId, sport }, orderBy: { year: 'desc' } }),
+      sport === 'TRACK'
+        ? prisma.trackMeet.groupBy({ by: ['season'], where: { teamId }, _count: { _all: true } })
+        : prisma.race.groupBy({ by: ['season'], where: { teamId }, _count: { _all: true } }),
       resolveActiveSeason(teamId),
     ]);
 
@@ -486,7 +490,7 @@ router.get('/seasons', authenticate, requireTeam, async (req, res) => {
       return {
         id: row?.id ?? null,
         year,
-        name: `${year} Cross Country`,
+        name: `${year} ${SPORT_NAME[sport]}`,
         raceCount,
         rosterCount: row ? rosterCountBySeasonId.get(row.id) || 0 : 0,
         hasData: raceCount > 0,
@@ -520,11 +524,12 @@ router.get('/context', authenticate, requireTeam, async (req, res) => {
       resolveActiveSeason(teamId),
       listSeasonsWithData(teamId),
       prisma.athlete.count({ where: { teamId } }),
-      prisma.race.count({ where: { teamId } }),
+      // "Races" for track are its meets: track has no Race rows.
+      currentSport() === 'TRACK' ? prisma.trackMeet.count({ where: { teamId } }) : prisma.race.count({ where: { teamId } }),
     ]);
 
     const activeRosterSeason = await prisma.season.findFirst({
-      where: { teamId, year: activeSeason },
+      where: { teamId, year: activeSeason, sport: currentSport() },
       select: { id: true },
     });
     const activeRosterCount = activeRosterSeason
@@ -532,9 +537,10 @@ router.get('/context', authenticate, requireTeam, async (req, res) => {
           where: { seasonId: activeRosterSeason.id, isActive: true },
         })
       : 0;
-    const activeSeasonRaceCount = await prisma.race.count({
-      where: { teamId, season: activeSeason },
-    });
+    const activeSeasonRaceCount =
+      currentSport() === 'TRACK'
+        ? await prisma.trackMeet.count({ where: { teamId, season: activeSeason } })
+        : await prisma.race.count({ where: { teamId, season: activeSeason } });
 
     // Season-readiness signals for the Today page's checklist (below the
     // "is there a season at all" gate above) — meets/groups/plans are
@@ -617,7 +623,7 @@ router.post('/seasons/:year/start', authenticate, requireRole(FULL_COACH), async
     let sourceYear = parseInt(fromSeason, 10);
     if (!Number.isFinite(sourceYear)) {
       const priorSeasons = await prisma.season.findMany({
-        where: { teamId, year: { lt: targetYear } },
+        where: { teamId, sport: currentSport(), year: { lt: targetYear } },
         orderBy: { year: 'desc' },
         select: { year: true },
       });
@@ -626,9 +632,9 @@ router.post('/seasons/:year/start', authenticate, requireRole(FULL_COACH), async
     }
 
     const targetSeason = await prisma.season.upsert({
-      where: { teamId_year_sport: { teamId, year: targetYear, sport: 'XC' } },
+      where: { teamId_year_sport: { teamId, year: targetYear, sport: currentSport() } },
       update: {},
-      create: { teamId, year: targetYear, sport: 'XC' },
+      create: { teamId, year: targetYear, sport: currentSport() },
     });
 
     // Candidates: whoever was on the source roster, plus anyone who raced
@@ -636,7 +642,7 @@ router.post('/seasons/:year/start', authenticate, requireRole(FULL_COACH), async
     let candidateIds = [];
     if (Number.isFinite(sourceYear)) {
       const sourceSeason = await prisma.season.findFirst({
-        where: { teamId, year: sourceYear },
+        where: { teamId, year: sourceYear, sport: currentSport() },
         select: { id: true },
       });
       const [rosterRows, resultRows] = await Promise.all([
@@ -693,7 +699,7 @@ router.post('/seasons/:year/start', authenticate, requireRole(FULL_COACH), async
 
     if (activate) {
       await prisma.season.updateMany({
-        where: { teamId, sport: 'XC', id: { not: targetSeason.id } },
+        where: { teamId, sport: currentSport(), id: { not: targetSeason.id } },
         data: { isActive: false },
       });
       await prisma.season.update({ where: { id: targetSeason.id }, data: { isActive: true } });
@@ -864,9 +870,9 @@ router.post('/seasons/:year/roster', authenticate, requireRole(FULL_COACH), asyn
     }
 
     const season = await prisma.season.upsert({
-      where: { teamId_year_sport: { teamId, year, sport: 'XC' } },
+      where: { teamId_year_sport: { teamId, year, sport: currentSport() } },
       update: {},
-      create: { teamId, year, sport: 'XC' },
+      create: { teamId, year, sport: currentSport() },
     });
 
     const resolvedGrade = Number.isFinite(parseInt(grade, 10))
@@ -911,7 +917,7 @@ router.delete('/seasons/:year/roster/:athleteId', authenticate, requireRole(FULL
   const year = parseInt(req.params.year, 10);
 
   try {
-    const season = await prisma.season.findFirst({ where: { teamId, year } });
+    const season = await prisma.season.findFirst({ where: { teamId, year, sport: currentSport() } });
     if (!season) {
       return res.status(404).json({ message: 'Season not found.' });
     }

@@ -27,12 +27,18 @@ function csv(rows) {
 }
 
 function withStubs(t, { athletes = [], meets = [] } = {}) {
-  const created = { athletes: [], meets: [], resultUpserts: [] };
+  const created = { athletes: [], meets: [], resultUpserts: [], roster: [] };
   const restores = [
     stub(prisma.event, 'findMany', async () => EVENTS),
     stub(prisma.athlete, 'findMany', async () => athletes),
     stub(prisma.athleteAliasId, 'findMany', async () => []),
     stub(prisma.trackMeet, 'findMany', async () => meets),
+    stub(prisma.season, 'upsert', async () => ({ id: 'season-track' })),
+    stub(prisma.seasonRoster, 'findMany', async () => []),
+    stub(prisma.seasonRoster, 'createMany', async ({ data }) => {
+      created.roster.push(...data);
+      return { count: data.length };
+    }),
     stub(prisma.athlete, 'create', async ({ data }) => {
       const athlete = { id: `athlete-${created.athletes.length + 1}`, ...data };
       created.athletes.push(athlete);
@@ -76,6 +82,7 @@ test('imports a new athlete, meet and a feet-inches result', async (t) => {
   assert.equal(created.resultUpserts.length, 1);
   assert.equal(created.resultUpserts[0].create.markValue, 410.5); // 34' 2.5" -> 410.5 total inches
   assert.equal(created.resultUpserts[0].create.round, 'FINAL'); // "JV F" -> FINAL
+  assert.deepEqual(created.roster, [{ seasonId: 'season-track', athleteId: 'athlete-1', grade: 11, isActive: true }]);
 });
 
 test('a DNS result imports with a null markValue, never a fabricated 0', async (t) => {

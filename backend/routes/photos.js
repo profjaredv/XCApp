@@ -1,4 +1,5 @@
 const express = require('express');
+const { currentSport } = require('../lib/sport');
 const router = express.Router();
 // archiver 8 exports classes, not the classic archiver('zip') factory —
 // same import shape as routes/export.js.
@@ -523,7 +524,7 @@ router.get('/roster', authenticateUserOrVolunteer, resolvePhotosTeam, requirePho
         where: { teamId: req.photosTeamId, athleteId: { in: athleteIds }, race: { season: seasonYear } },
         _count: { _all: true },
       }),
-      prisma.season.findFirst({ where: { teamId: req.photosTeamId, year: seasonYear }, select: { id: true } }),
+      prisma.season.findFirst({ where: { teamId: req.photosTeamId, year: seasonYear, sport: currentSport() }, select: { id: true } }),
     ]);
     const raceCountByAthlete = new Map(raceCounts.map((r) => [r.athleteId, r._count._all]));
     const rosterEntries = seasonRow ? await prisma.seasonRoster.findMany({ where: { seasonId: seasonRow.id } }) : [];

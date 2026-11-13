@@ -1,6 +1,6 @@
 import api from './api';
 
-export type GroupType = 'TRAINING' | 'CAPTAIN' | 'CUSTOM' | 'X_TRAINING';
+export type GroupType = 'TRAINING' | 'CAPTAIN' | 'CUSTOM' | 'X_TRAINING' | 'EVENT';
 
 export interface Group {
   id: string;
@@ -10,6 +10,8 @@ export interface Group {
   sortOrder: number;
   color: string | null;
   archived: boolean;
+  /** EVENT groups only: which event group (lib/trackEventGroups.ts). */
+  eventGroup?: string | null;
   activeMemberCount: number;
   leaders: Array<{ userId: string; name: string | null; email: string; primary: boolean }>;
 }
@@ -231,6 +233,12 @@ export const groupService = {
   },
 
   /** Moves one athlete into a group (effective-dated — see lib/groups.js), for CAPTAIN/CUSTOM groups the bulk TRAINING screen doesn't cover. */
+  /** Track & Field: make the season's event groups and fill them from results. Only ever adds. */
+  async setUpEventGroups(seasonId: string): Promise<{ groupsCreated: number; membersAdded: number }> {
+    const response = await api.post<{ groupsCreated: number; membersAdded: number }>('/groups/event-groups/setup', { seasonId });
+    return response.data;
+  },
+
   async addMember(groupId: string, athleteId: string): Promise<void> {
     await api.post(`/groups/${groupId}/members`, { athleteId });
   },

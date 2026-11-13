@@ -1296,6 +1296,9 @@ enum GroupType {
   // getActiveMembersOf, the one place list queries actually account for
   // that instead of shortcutting "active" to endDate IS NULL.
   X_TRAINING
+  // Track & Field: an event group (Sprints, Jumps, Throws...). Not
+  // exclusive: an athlete is in every event group they compete in.
+  EVENT
 }
 
 model Group {
@@ -1308,6 +1311,8 @@ model Group {
   sortOrder Int       @default(0) @map("sort_order") // display order, fastest first
   color     String?
   archived  Boolean   @default(false)
+  // EVENT groups only: which event group this is (lib/trackEventGroups.js).
+  eventGroup String?  @map("event_group")
 
   team             Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
   season           Season            @relation(fields: [seasonId], references: [id], onDelete: Cascade)
