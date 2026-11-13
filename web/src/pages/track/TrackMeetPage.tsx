@@ -175,7 +175,7 @@ const TrackMeetPage: React.FC = () => {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Plan for the day</CardTitle>
-          <CardDescription>Bus time, uniform, what to bring. Coaches see this; athletes do not yet.</CardDescription>
+          <CardDescription>Bus time, uniform, what to bring. Athletes see this on their own Track & Field page.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           <Textarea aria-label="Meet notes" value={notes ?? meet.notes ?? ''} onChange={(e) => setNotes(e.target.value)} readOnly={!canEdit} className="min-h-20" />

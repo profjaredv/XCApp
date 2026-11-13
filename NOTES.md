@@ -4846,3 +4846,61 @@ picks the meet up. No failed requests or page errors. Backend 1217 of
 **Still open**: parents see nothing of track; athletes do not see the meet
 plan or their entries; no track Season dashboard or Program beyond Points;
 relay splits; indoor; sport-scoped staff invites.
+
+## PR7: track Program, staff by sport, the athlete's meets, plans by group
+
+**Program** (`/track/program`, `programByEvent` in `lib/trackAnalytics.js`).
+Every individual event, season over season, grouped by event group, one
+question at a time: best mark (and whose), depth (average of the top five
+athletes' season bests), athletes with a mark, in-season improvement (first
+mark of the season to best, athletes with two or more marks), and returners
+against the year before. Improvement is a percent where positive is always
+better whichever way the event scores (`improvementPct`). Each cell shows
+how many athletes it is built on, because an average of one is not a trend.
+
+**Staff by sport.** Invites and existing staff take a set of sports
+(Settings, Coaching staff). Stored as the one `TeamMember.sport` /
+`StaffInvite.sport` value that already existed: with two sports, "both" is
+null and one sport is that sport, so no migration. A third sport would need
+a real list. Enforced in `requireRole`: a member's role only counts for
+requests about their sport, so a track-only coach gets 403 on every
+coach-gated cross country route and the reverse (`code: 'SPORT_SCOPE'`).
+The team owner cannot be narrowed. On the client a one-sport coach has no
+sport switch, every request carries their sport, and a cross country URL
+sends a track-only coach to Track & Field's home.
+*Limit:* routes that any team member can read (gated by `requireTeam`
+alone, such as the athlete list) are not sport-checked, so a track-only
+coach could still read what an athlete on the team can read of cross
+country. They cannot write any of it.
+
+**Athletes.** "My Track & Field" now opens with today's published track
+practice and the meets to come: the coach's plan for the day and what they
+are entered in, including their leg on a relay and that squad's names.
+`GET /api/track-me/upcoming` returns only rows that are the caller's own or
+a relay they are on. Athletes ask for the track practice plan by name
+(`/practice-plans/mine?sport=TRACK`) because the track sport header is
+refused for non-coaches.
+
+**Plans by group.** A day's practice plan stays one plan for the whole
+team; `PracticePlanGroupPart` (migration
+`20261114120000_practice_plan_group_parts`) adds the part written for one
+group, any group type. Coaches write them in the day editor under "By
+group"; an athlete sees the team plan plus only their own groups' parts
+(checked server-side in `/mine`). In track the editor's three fields read
+Warm-up, Main session, Cool-down instead of Pre Run, Run, Post Run. Same
+three columns.
+
+**Verified** on Postgres 16 with the real pages in Chromium: Program
+across an imported 2025 and 2026 (all five views), a track-only invite and
+changing an existing coach's sports, a track-only coach landing on /today
+and being taken to track with no switch, the athlete page with plan,
+entries and relay leg, and through the API a published plan with Sprints
+and Throws parts where a sprinter got only Sprints. Backend 1221 of 1222,
+web 930 of 930, build clean.
+
+**Not looked at in a browser:** saving a group part through the editor
+dialog itself (the dialog and its "save the day first" state were seen;
+the save was exercised through the API).
+
+**Hudl.** No public API for the core video product; integrations are by
+partnership. Not started.

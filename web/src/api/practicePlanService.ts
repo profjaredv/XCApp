@@ -39,6 +39,15 @@ export interface PracticePlan {
   workoutTemplate: PracticePlanWorkoutTemplate | null;
   intervalSessionId: string | null;
   intervalSession: PracticePlanIntervalSession | null;
+  /** The parts written for one group each; the rest of the plan is the whole team's. */
+  groupPlans?: PracticePlanGroupPlan[];
+}
+
+export interface PracticePlanGroupPlan {
+  groupId: string;
+  groupName: string;
+  groupType: string;
+  details: string;
 }
 
 // Every field but seasonId/date is optional and should stay that way:
@@ -74,13 +83,19 @@ export const practicePlanService = {
     return response.data;
   },
 
-  async myPlan(date: string): Promise<{ date: string; plan: PracticePlan | null }> {
-    const response = await api.get('/practice-plans/mine', { params: { date } });
+  async myPlan(date: string, sport?: 'TRACK'): Promise<{ date: string; plan: PracticePlan | null }> {
+    const response = await api.get('/practice-plans/mine', { params: { date, sport } });
     return response.data;
   },
 
   async savePlan(input: PracticePlanInput): Promise<PracticePlan> {
     const response = await api.post<PracticePlan>('/practice-plans', input);
+    return response.data;
+  },
+
+  /** Write one group's part of a day's plan. Blank removes it. */
+  async saveGroupPlan(planId: string, groupId: string, details: string): Promise<PracticePlan> {
+    const response = await api.put<PracticePlan>(`/practice-plans/${planId}/group-plans/${groupId}`, { details });
     return response.data;
   },
 

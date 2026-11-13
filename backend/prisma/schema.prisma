@@ -1319,6 +1319,7 @@ model Group {
   memberships      GroupMembership[]
   leaders          GroupLeader[]
   intervalSessions IntervalSession[]
+  planParts        PracticePlanGroupPart[]
 
   @@unique([seasonId, name])
   @@index([teamId, seasonId])
@@ -1429,6 +1430,7 @@ model PracticePlan {
   workoutTemplate WorkoutTemplate?  @relation(fields: [workoutTemplateId], references: [id], onDelete: SetNull)
   intervalSession IntervalSession?  @relation(fields: [intervalSessionId], references: [id], onDelete: SetNull)
   createdBy       User?             @relation("PracticePlanCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  groupParts      PracticePlanGroupPart[]
 
   @@unique([seasonId, date])
   @@index([seasonId, date])
@@ -1508,6 +1510,24 @@ model AttendanceRecord {
 // workoutTemplateId) — editing a template later updates every plan that
 // still references it, which is the point of "attach a template" instead
 // of retyping the workout by hand.
+// The part of a day's practice plan that is specific to one group: what
+// the throwers do, what the jumpers do. The PracticePlan itself is the
+// whole team's plan; a group with no row here just follows it.
+model PracticePlanGroupPart {
+  id             String   @id @default(uuid()) @db.Uuid
+  practicePlanId String   @map("practice_plan_id") @db.Uuid
+  groupId        String   @map("group_id") @db.Uuid
+  details        String
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+
+  practicePlan PracticePlan @relation(fields: [practicePlanId], references: [id], onDelete: Cascade)
+  group        Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([practicePlanId, groupId])
+  @@index([groupId])
+  @@map("practice_plan_group_parts")
+}
+
 model WorkoutTemplate {
   id              String   @id @default(uuid()) @db.Uuid
   teamId          String   @map("team_id") @db.Uuid

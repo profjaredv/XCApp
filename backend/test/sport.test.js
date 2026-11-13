@@ -61,3 +61,39 @@ test('no season lookup by year alone is left in the backend', () => {
   }
   assert.deepEqual(offenders, []);
 });
+
+test('staff sports: both, neither or nothing means every sport; one means that one', () => {
+  const { sportScopeFromList, sportListFromScope } = require('../lib/sport');
+  assert.equal(sportScopeFromList(undefined), null);
+  assert.equal(sportScopeFromList([]), null);
+  assert.equal(sportScopeFromList(['XC', 'TRACK']), null);
+  assert.equal(sportScopeFromList(['track']), 'TRACK');
+  assert.equal(sportScopeFromList(['XC', 'soccer']), 'XC');
+  assert.deepEqual(sportListFromScope(null), ['XC', 'TRACK']);
+  assert.deepEqual(sportListFromScope('TRACK'), ['TRACK']);
+});
+
+test('requireRole refuses a one-sport coach on the other sport, and lets them through on their own', async () => {
+  const prisma = require('../lib/db');
+  const { requireRole } = require('../middleware/auth');
+  const { runWithSport } = require('../lib/sport');
+  const original = prisma.teamMember.findUnique;
+  prisma.teamMember.findUnique = async () => ({ active: true, role: 'COACH', sport: 'TRACK' });
+  const call = (sport) =>
+    runWithSport(sport, async () => {
+      let status = 200;
+      let nexted = false;
+      const res = { status: (c) => ((status = c), { json: () => {} }) };
+      await requireRole(['HEAD_COACH', 'COACH'])({ user: { id: 'u', teamId: 't', team: { coachUid: 'owner' } } }, res, () => (nexted = true));
+      return nexted ? 'ok' : status;
+    });
+  try {
+    assert.equal(await call('TRACK'), 'ok');
+    assert.equal(await call('XC'), 403);
+    prisma.teamMember.findUnique = async () => ({ active: true, role: 'COACH', sport: null });
+    assert.equal(await call('XC'), 'ok');
+    assert.equal(await call('TRACK'), 'ok');
+  } finally {
+    prisma.teamMember.findUnique = original;
+  }
+});

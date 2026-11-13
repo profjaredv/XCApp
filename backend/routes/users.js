@@ -1,4 +1,5 @@
 const express = require('express');
+const { sportListFromScope } = require('../lib/sport');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate } = require('../middleware/auth');
@@ -20,7 +21,13 @@ router.get('/me', authenticate, async (req, res) => {
   // even before/without a TeamMember row, checked first there too. Shared
   // with usage logging (lib/loggingRole.js) so the two can't disagree.
   const teamRole = await resolveTeamRole(prisma, req.user);
-  res.status(200).json({ ...req.user, teamRole });
+  // Which sports this person's staff role covers. Every sport unless their
+  // membership narrows it; the client uses it to show one sport or both.
+  const membership =
+    req.user.teamId && req.user.team?.coachUid !== req.user.id
+      ? await prisma.teamMember.findUnique({ where: { teamId_userId: { teamId: req.user.teamId, userId: req.user.id } }, select: { sport: true } })
+      : null;
+  res.status(200).json({ ...req.user, teamRole, teamSports: sportListFromScope(membership?.sport) });
 });
 
 // PUT /api/users/me

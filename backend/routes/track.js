@@ -29,6 +29,7 @@ const {
   pointsContribution,
   athleteProgression,
   parseScoringTable,
+  programByEvent,
   relayLegEventName,
   suggestRelay,
   meetSheet,
@@ -195,6 +196,23 @@ router.get('/points', authenticate, requireRole(ANY_COACH), requireFeature('trac
   } catch (err) {
     console.error('Error fetching track points:', err.message);
     res.status(500).json({ message: 'Could not load points by event.' });
+  }
+});
+
+// GET /api/track/program?gender=M|F — every individual event season over
+// season: best mark, depth, how many athletes, how much they improved in
+// season, and how returners compare with the year before.
+router.get('/program', authenticate, requireRole(ANY_COACH), requireFeature('track'), requireTrackSport, async (req, res) => {
+  try {
+    const gender = normalizeGenderParam(req.query.gender);
+    const [events, results] = await Promise.all([
+      prisma.event.findMany(),
+      prisma.trackResult.findMany({ where: { teamId: req.user.teamId, athleteId: { not: null }, ...(gender ? { gender } : {}) }, select: RESULT_SELECT }),
+    ]);
+    res.json(programByEvent(results.map(flatten), events));
+  } catch (err) {
+    console.error('Error fetching track program:', err.message);
+    res.status(500).json({ message: 'Could not load the program view.' });
   }
 });
 

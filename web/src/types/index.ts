@@ -44,6 +44,8 @@ export interface User {
     // athlete. Null if this user has no active membership on their own
     // team. Use this — never `role` — to gate anything HEAD_COACH-specific.
     teamRole?: TeamRole | null;
+    /** Sports this person's staff role covers; both unless narrowed. */
+    teamSports?: Array<'XC' | 'TRACK'>;
     // The specific roster row this account is linked to, if any — set by an
     // accepted AthleteInvite or an approved AthleteClaim. A coach who has
     // never raced, or an athlete who hasn't been invited/claimed yet, has

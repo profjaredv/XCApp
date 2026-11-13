@@ -1,5 +1,5 @@
 const { createRemoteJWKSet, jwtVerify } = require('jose');
-const { currentSport } = require('../lib/sport');
+const { currentSport, SPORT_NAME } = require('../lib/sport');
 const { isFeatureEnabled } = require('../lib/teamFeatures');
 const { ANY_COACH } = require('../lib/teamRoles');
 const { decideCanAccessSportScopedResource } = require('../lib/groupPermissions');
@@ -223,6 +223,8 @@ async function hasTeamRole(user, allowedRoles) {
   const membership = await prisma.teamMember.findUnique({
     where: { teamId_userId: { teamId: user.teamId, userId: user.id } },
   });
+  // Kept for requireRole's sport check below, so it costs no second query.
+  user.staffSport = membership?.active ? membership.sport ?? null : null;
   return Boolean(membership?.active && allowedRoles.includes(membership.role));
 }
 
@@ -245,6 +247,12 @@ const requireRole = (allowedRoles) =>
 
     try {
       if (await hasTeamRole(req.user, allowedRoles)) {
+        // Staff can be limited to one sport (TeamMember.sport). Their role
+        // only counts for requests about that sport. The owner has no
+        // membership row and so no limit; null means every sport.
+        if (req.user.staffSport && req.user.staffSport !== currentSport()) {
+          return res.status(403).json({ message: `Your staff access covers ${SPORT_NAME[req.user.staffSport]} only.`, code: 'SPORT_SCOPE' });
+        }
         return next();
       }
     } catch (err) {

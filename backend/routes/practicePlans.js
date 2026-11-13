@@ -1,4 +1,5 @@
 const express = require('express');
+const { isFeatureEnabled } = require('../lib/teamFeatures');
 const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const { parse } = require('csv-parse/sync');
@@ -31,6 +32,7 @@ const INCLUDE = {
   location: { select: { id: true, name: true } },
   workoutTemplate: { select: { id: true, name: true, volumeTier: true, focus: true, durationMinutes: true, distanceMi: true, strength: true, details: true } },
   intervalSession: { select: { id: true, title: true, groupId: true, repDistanceM: true, zone: true, group: { select: { name: true } } } },
+  groupParts: { include: { group: { select: { id: true, name: true, type: true, sortOrder: true } } } },
 };
 
 function serializePlan(plan) {
@@ -42,6 +44,10 @@ function serializePlan(plan) {
     locationId: plan.locationId,
     locationName: plan.location?.name ?? null,
     announcements: plan.announcements,
+    // What differs by group, in the groups' own order.
+    groupPlans: (plan.groupParts || [])
+      .map((p) => ({ groupId: p.groupId, groupName: p.group.name, groupType: p.group.type, sortOrder: p.group.sortOrder, details: p.details }))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.groupName.localeCompare(b.groupName)),
     preRun: plan.preRun,
     run: plan.run,
     postRun: plan.postRun,
@@ -110,7 +116,20 @@ router.get('/mine', authenticate, requireLinkedAthlete, async (req, res) => {
   const dateParam = req.query.date ? new Date(req.query.date) : new Date();
 
   try {
-    const season = await prisma.season.findFirst({ where: { teamId: req.user.teamId, sport: currentSport(), isActive: true } });
+    // An athlete is never "in" Track & Field the way a coach is (that
+    // header is refused for them), so they ask for the track plan by name.
+    // Same published-only, own-groups-only answer either way.
+    const sport = req.query.sport === 'TRACK' ? 'TRACK' : currentSport();
+    if (sport === 'TRACK') {
+      const team = await prisma.team.findUnique({ where: { id: req.user.teamId }, select: { features: true } });
+      if (!isFeatureEnabled(team && team.features, 'track')) return res.json({ date: dateParam, plan: null });
+    }
+    let season = await prisma.season.findFirst({ where: { teamId: req.user.teamId, sport, isActive: true } });
+    if (!season && sport === 'TRACK') {
+      // Track seasons are made by importing results and may never have been
+      // marked active; the newest one is the one in progress.
+      season = await prisma.season.findFirst({ where: { teamId: req.user.teamId, sport }, orderBy: { year: 'desc' } });
+    }
     if (!season) {
       return res.json({ date: dateParam, plan: null });
     }
@@ -120,7 +139,17 @@ router.get('/mine', authenticate, requireLinkedAthlete, async (req, res) => {
       include: INCLUDE,
     });
 
-    res.json({ date: dateParam, plan: plan ? serializePlan(plan) : null });
+    // An athlete sees the team plan plus only their own groups' parts.
+    const serialized = plan ? serializePlan(plan) : null;
+    if (serialized && serialized.groupPlans.length) {
+      const mine = await prisma.groupMembership.findMany({
+        where: { athleteId: req.user.linkedAthlete.id, endDate: null, group: { seasonId: season.id } },
+        select: { groupId: true },
+      });
+      const myGroups = new Set(mine.map((m) => m.groupId));
+      serialized.groupPlans = serialized.groupPlans.filter((g) => myGroups.has(g.groupId));
+    }
+    res.json({ date: dateParam, plan: serialized });
   } catch (error) {
     console.error('Error fetching athlete practice plan:', error.message);
     res.status(500).json({ msg: 'Server error' });
@@ -137,6 +166,30 @@ router.get('/mine', authenticate, requireLinkedAthlete, async (req, res) => {
 // silently blank out the other's already-saved field, which a blanket
 // "always write all eight fields" upsert would risk whenever one coach's
 // save is built from a snapshot that predates the other's.
+// PUT /api/practice-plans/:id/group-plans/:groupId { details }
+// The part of this day's plan that is specific to one group. Blank details
+// removes it, and that group is back on the team plan alone.
+router.put('/:id/group-plans/:groupId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const plan = await prisma.practicePlan.findFirst({ where: { id: req.params.id, teamId: req.user.teamId } });
+    if (!plan) return res.status(404).json({ msg: 'Plan not found.' });
+    const group = await prisma.group.findFirst({ where: { id: req.params.groupId, teamId: req.user.teamId, seasonId: plan.seasonId } });
+    if (!group) return res.status(404).json({ msg: 'Group not found in this season.' });
+    const details = String(req.body?.details ?? '').trim();
+    const key = { practicePlanId_groupId: { practicePlanId: plan.id, groupId: group.id } };
+    if (!details) {
+      await prisma.practicePlanGroupPart.deleteMany({ where: { practicePlanId: plan.id, groupId: group.id } });
+    } else {
+      await prisma.practicePlanGroupPart.upsert({ where: key, update: { details }, create: { practicePlanId: plan.id, groupId: group.id, details } });
+    }
+    const fresh = await prisma.practicePlan.findUnique({ where: { id: plan.id }, include: INCLUDE });
+    res.json(serializePlan(fresh));
+  } catch (error) {
+    console.error('Error saving group plan:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
 router.post('/', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
   const { seasonId, date, locationId, startTime, announcements, preRun, run, postRun, workoutTemplateId, intervalSessionId } = req.body;
   if (!seasonId || !date) {

@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { Home, Medal, BarChart3, Flag, Upload, ClipboardList, Users, CalendarDays, Package, Camera } from 'lucide-react';
+import { Home, Medal, TrendingUp, BarChart3, Flag, Upload, ClipboardList, Users, CalendarDays, Package, Camera } from 'lucide-react';
 import type { TeamFeatureKey } from './teamFeatureKeys';
 
 // One team, two sports. The sport is chosen at the top of the nav, and
@@ -41,7 +41,19 @@ export function teamSubpath(pathname: string): string {
  * what API requests and the query cache go by: a screen under /track is
  * about the team's track seasons, everything else about cross country.
  */
+// A coach whose staff access covers one sport only is always in that
+// sport, whatever screen they are on (set from the signed-in user by
+// AuthProvider). Null for everyone else.
+let onlySport: Sport | null = null;
+export function setOnlySport(sport: Sport | null): void {
+  onlySport = sport;
+}
+export function getOnlySport(): Sport | null {
+  return onlySport;
+}
+
 export function sportOfLocation(pathname: string = typeof window === 'undefined' ? '' : window.location.pathname): Sport {
+  if (onlySport) return onlySport;
   return teamSubpath(pathname).split('/')[0] === 'track' ? 'TRACK' : 'XC';
 }
 
@@ -98,6 +110,7 @@ export const TRACK_NAV: TrackNavEntry[] = [
   { key: 'meets', label: 'Meets', path: '/track/meets', icon: Flag, zone: 'season' },
   { key: 'events', label: 'Events', path: '/track/events', icon: Medal, zone: 'season', mobileTab: 4 },
   { key: 'points', label: 'Points', path: '/track/points', icon: BarChart3, zone: 'season' },
+  { key: 'program', label: 'Program', path: '/track/program', icon: TrendingUp, zone: 'season' },
   { key: 'import', label: 'Import results', path: '/track/import', icon: Upload, zone: 'setup' },
   { key: 'equipment', label: 'Equipment', path: '/track/equipment', icon: Package, zone: 'setup', feature: 'equipment' },
   { key: 'photos', label: 'Photos', path: '/track/photos', icon: Camera, zone: 'setup', feature: 'photos' },

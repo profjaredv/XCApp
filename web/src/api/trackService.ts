@@ -96,6 +96,34 @@ export interface TrackRosterAthlete {
   onRoster: boolean;
 }
 
+export interface TrackProgramCell {
+  best: number;
+  bestAthleteId: string;
+  bestAthleteName: string | null;
+  depthAvg: number | null;
+  depthCount: number;
+  athletes: number;
+  inSeasonPct: number | null;
+  inSeasonCount: number;
+  returningPct: number | null;
+  returners: number;
+}
+
+export interface TrackProgram {
+  seasons: number[];
+  depth: number;
+  events: Array<{ event: TrackEvent; bySeason: Record<string, TrackProgramCell> }>;
+}
+
+export interface MyUpcomingMeet {
+  id: string;
+  name: string;
+  date: string;
+  location: string | null;
+  notes: string | null;
+  entries: Array<{ event: string; relayTeam: string | null; leg: number | null; squad: string[] }>;
+}
+
 export interface RelayInput {
   eventId: string;
   gender: TrackGender;
@@ -193,6 +221,13 @@ export const trackService = {
   },
   async suggestRelay(year: number, eventId: string, gender: TrackGender): Promise<RelaySuggestion> {
     return (await api.get<RelaySuggestion>(`/track/seasons/${year}/relay-suggest`, { params: { eventId, gender } })).data;
+  },
+  async getProgram(gender: TrackGender): Promise<TrackProgram> {
+    return (await api.get<TrackProgram>('/track/program', { params: { gender } })).data;
+  },
+  /** The signed-in athlete's meets to come, with the plan and their own entries. */
+  async getMyUpcoming(): Promise<MyUpcomingMeet[]> {
+    return (await api.get<MyUpcomingMeet[]>('/track-me/upcoming')).data;
   },
   /** The signed-in athlete's own record. */
   async getMine(): Promise<TrackAthleteProgression> {

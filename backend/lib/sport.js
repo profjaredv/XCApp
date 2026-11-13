@@ -47,6 +47,23 @@ function schoolYearStart(season, sport = currentSport()) {
   return sport === 'TRACK' ? season - 1 : season;
 }
 
+/**
+ * A staff member's sports, as the one value TeamMember.sport stores. With
+ * two sports there are three answers: every sport (null), or one of them.
+ * No list, an empty list, or every sport all mean "every sport", so nobody
+ * is ever saved with access to nothing.
+ */
+function sportScopeFromList(list) {
+  if (!Array.isArray(list)) return null;
+  const picked = SPORTS.filter((s) => list.map((v) => String(v).toUpperCase()).includes(s));
+  return picked.length === 1 ? picked[0] : null;
+}
+
+/** The reverse, for the API: null -> every sport. */
+function sportListFromScope(scope) {
+  return SPORTS.includes(scope) ? [scope] : [...SPORTS];
+}
+
 const SPORT_NAME = { XC: 'Cross Country', TRACK: 'Track & Field' };
 
-module.exports = { SPORTS, SPORT_NAME, parseSport, sportMiddleware, currentSport, runWithSport, schoolYearStart };
+module.exports = { sportScopeFromList, sportListFromScope, SPORTS, SPORT_NAME, parseSport, sportMiddleware, currentSport, runWithSport, schoolYearStart };

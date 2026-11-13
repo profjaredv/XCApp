@@ -122,6 +122,7 @@ const TEAM_EXPORT = [
   { key: 'groupLeaders', model: 'groupLeader', where: via('group'), label: 'Group leaders' },
   { key: 'practiceLocations', model: 'practiceLocation', where: direct, label: 'Practice locations' },
   { key: 'practicePlans', model: 'practicePlan', where: direct, label: 'Practice plans' },
+  { key: 'practicePlanGroupParts', model: 'practicePlanGroupPart', where: via('practicePlan'), label: 'Practice plans by group' },
   { key: 'workoutTemplates', model: 'workoutTemplate', where: direct, label: 'Workout templates' },
   { key: 'intervalSessions', model: 'intervalSession', where: direct, label: 'Interval sessions' },
   { key: 'intervalSessionEntries', model: 'intervalSessionEntry', where: via('intervalSession'), label: 'Interval session entries' },

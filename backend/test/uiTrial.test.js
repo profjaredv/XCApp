@@ -162,7 +162,7 @@ test('PATCH /profile/ui-version validates against the two values and logs a swit
 });
 
 test('GET /users/me returns the full user row (and so uiVersion) plus teamRole', () => {
-  const fn = sectionFor(USERS, "router.get('/me'", 600);
+  const fn = sectionFor(USERS, "router.get('/me'", 1400);
   assert.match(fn, /\.\.\.req\.user/);
   assert.match(fn, /resolveTeamRole\(prisma, req\.user\)/);
 });
