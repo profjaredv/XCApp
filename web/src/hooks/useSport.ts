@@ -20,10 +20,14 @@ export function useSport() {
 
   const role = currentUser?.teamRole;
   const isCoach = role === 'HEAD_COACH' || role === 'COACH' || role === 'VOLUNTEER_COACH';
-  const canSwitch = isCoach && features?.enabled?.track !== false;
+  const sports = currentUser?.teamSports ?? ['XC', 'TRACK'];
+  const trackOn = features?.enabled?.track !== false;
+  // Both sports: you get the switch. One sport: you are simply in it.
+  const canSwitch = isCoach && trackOn && sports.length > 1;
+  const only: Sport | null = isCoach && sports.length === 1 ? (sports[0] === 'TRACK' && !trackOn ? null : sports[0]) : null;
 
   const sub = teamSubpath(location.pathname);
-  const sport: Sport = canSwitch ? sportForSubpath(sub, stored) : 'XC';
+  const sport: Sport = only ?? (canSwitch ? sportForSubpath(sub, stored) : 'XC');
 
   useEffect(() => {
     if (canSwitch && sport !== stored) {
@@ -31,6 +35,13 @@ export function useSport() {
       setStored(sport);
     }
   }, [canSwitch, sport, stored]);
+
+  // A track-only coach who lands on a cross country screen (a bookmark, the
+  // default landing page) is taken to Track & Field's home instead.
+  const misplaced = only === 'TRACK' && sportForSubpath(sub, 'TRACK') === 'XC' && location.pathname.startsWith('/t/');
+  useEffect(() => {
+    if (misplaced) navigate(teamPath(SPORT_HOME.TRACK, 'TRACK'), { replace: true });
+  }, [misplaced, navigate, teamPath]);
 
   const switchTo = useCallback(
     (next: Sport) => {

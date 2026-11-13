@@ -1,4 +1,5 @@
 const express = require('express');
+const { sportScopeFromList, sportListFromScope } = require('../lib/sport');
 const router = express.Router();
 const { customAlphabet } = require('nanoid');
 const prisma = require('../lib/db');
@@ -223,6 +224,7 @@ router.get('/staff', authenticate, requireTeam, requireRole(ANY_COACH), async (r
         role: m.role,
         active: m.active,
         joinedAt: m.joinedAt,
+        sports: sportListFromScope(m.sport),
       })),
       otherMembers: others.map((m) => ({
         userId: m.userId,
@@ -235,6 +237,7 @@ router.get('/staff', authenticate, requireTeam, requireRole(ANY_COACH), async (r
       pendingInvites: invites.map((i) => ({
         email: i.email,
         role: i.role,
+        sports: sportListFromScope(i.sport),
         expiresAt: i.expiresAt,
         createdAt: i.createdAt,
       })),
@@ -251,6 +254,9 @@ router.get('/staff', authenticate, requireTeam, requireRole(ANY_COACH), async (r
 router.post('/staff-invite', authenticate, requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
   const { email, role } = req.body;
   const teamId = req.user.teamId;
+  // Which sports this person coaches (Cross Country, Track & Field, or
+  // both). Not sent, or both, means every sport.
+  const sport = sportScopeFromList(req.body.sports);
 
   if (!email || !email.includes('@')) {
     return res.status(400).json({ msg: 'A valid email is required.' });
@@ -266,8 +272,8 @@ router.post('/staff-invite', authenticate, requireTeam, requireRole(FULL_COACH),
     // role rather than accumulating history, same pattern as AthleteInvite.
     const invite = await prisma.staffInvite.upsert({
       where: { teamId_email: { teamId, email } },
-      update: { role, status: 'pending', expiresAt, acceptedAt: null, invitedById: req.user.id },
-      create: { teamId, email, role, expiresAt, invitedById: req.user.id },
+      update: { role, sport, status: 'pending', expiresAt, acceptedAt: null, invitedById: req.user.id },
+      create: { teamId, email, role, sport, expiresAt, invitedById: req.user.id },
     });
 
     // Best-effort send — the head coach still gets the token/link back
@@ -292,7 +298,7 @@ router.post('/staff-invite', authenticate, requireTeam, requireRole(FULL_COACH),
       msg: emailSent ? `Invite sent to ${email}.` : `Invite ready for ${email}.`,
       token: invite.token,
       emailSent,
-      invite: { token: invite.token, email: invite.email, role: invite.role, expiresAt: invite.expiresAt },
+      invite: { token: invite.token, email: invite.email, role: invite.role, sports: sportListFromScope(invite.sport), expiresAt: invite.expiresAt },
     });
   } catch (error) {
     console.error('Error creating staff invite:', error.message);
@@ -334,8 +340,8 @@ router.post('/accept-staff-invite', authenticate, async (req, res) => {
       prisma.user.update({ where: { id: userId }, data: { teamId: invite.teamId } }),
       prisma.teamMember.upsert({
         where: { teamId_userId: { teamId: invite.teamId, userId } },
-        update: { role: invite.role, active: true },
-        create: { teamId: invite.teamId, userId, role: invite.role },
+        update: { role: invite.role, sport: invite.sport, active: true },
+        create: { teamId: invite.teamId, userId, role: invite.role, sport: invite.sport },
       }),
     ]);
 
@@ -355,7 +361,7 @@ router.post('/accept-staff-invite', authenticate, async (req, res) => {
 // them (active: false) rather than deleting the row, so past group-leader/
 // plan-author references stay intact.
 router.patch('/staff/:userId', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
-  const { role, active } = req.body;
+  const { role, active, sports } = req.body;
   const teamId = req.user.teamId;
 
   if (role !== undefined && !INVITABLE_STAFF_ROLES.has(role)) {
@@ -382,7 +388,8 @@ router.patch('/staff/:userId', authenticate, requireTeam, requireRole(FULL_COACH
     if (team?.coachUid && team.coachUid === req.params.userId) {
       const demoting = role !== undefined && role !== 'HEAD_COACH';
       const deactivating = active !== undefined && !active;
-      if (demoting || deactivating) {
+      const narrowing = sports !== undefined && sportScopeFromList(sports) !== null;
+      if (demoting || deactivating || narrowing) {
         return res
           .status(409)
           .json({ msg: "This is the team's owner. Their access can't be removed or reduced here." });
@@ -390,11 +397,12 @@ router.patch('/staff/:userId', authenticate, requireTeam, requireRole(FULL_COACH
     }
 
     const updates = {};
+    if (sports !== undefined) updates.sport = sportScopeFromList(sports);
     if (role !== undefined) updates.role = role;
     if (active !== undefined) updates.active = Boolean(active);
 
     const updated = await prisma.teamMember.update({ where: { id: membership.id }, data: updates });
-    res.json({ userId: updated.userId, role: updated.role, active: updated.active });
+    res.json({ userId: updated.userId, role: updated.role, active: updated.active, sports: sportListFromScope(updated.sport) });
   } catch (error) {
     console.error('Error updating staff member:', error.message);
     res.status(500).json({ msg: 'Server error' });

@@ -39,7 +39,7 @@ describe('the two sports do not share a nav', () => {
     expect(trackNavActive(by('events'), 'track/points')).toBe(false);
   });
   it('carries the spine a coach asked for', () => {
-    expect(TRACK_NAV.map((e) => e.label)).toEqual(['Today', 'Roster', 'Groups', 'Schedule', 'Meets', 'Events', 'Points', 'Import results', 'Equipment', 'Photos']);
+    expect(TRACK_NAV.map((e) => e.label)).toEqual(['Today', 'Roster', 'Groups', 'Schedule', 'Meets', 'Events', 'Points', 'Program', 'Import results', 'Equipment', 'Photos']);
   });
 });
 

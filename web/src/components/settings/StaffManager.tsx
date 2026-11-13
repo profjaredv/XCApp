@@ -1,3 +1,5 @@
+import type { StaffSport } from '@/api/teamService';
+import { useFeatureEnabled } from '@/hooks/useTeamFeatures';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Mail, Copy, UserPlus } from 'lucide-react';
@@ -14,6 +16,32 @@ import { getApiErrorMessage } from '../../lib/apiError';
 import { isFullCoach, isImpersonatingAdmin } from '../../lib/teamRole';
 
 type StaffRole = 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH';
+
+const ALL_SPORTS: StaffSport[] = ['XC', 'TRACK'];
+const SPORT_LABEL: Record<StaffSport, string> = { XC: 'Cross Country', TRACK: 'Track & Field' };
+
+// Which sports a coach works with. At least one always stays ticked: a
+// coach with no sport would have access to nothing.
+const SportsPicker: React.FC<{ value: StaffSport[]; onChange: (next: StaffSport[]) => void; disabled?: boolean; label: string }> = ({
+  value,
+  onChange,
+  disabled,
+  label,
+}) => (
+  <div role="group" aria-label={label} className="flex items-center gap-3 text-xs">
+    {ALL_SPORTS.map((sport) => (
+      <label key={sport} className="flex min-h-8 items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={value.includes(sport)}
+          disabled={disabled || (value.length === 1 && value.includes(sport))}
+          onChange={(e) => onChange(e.target.checked ? [...value, sport] : value.filter((v) => v !== sport))}
+        />
+        {SPORT_LABEL[sport]}
+      </label>
+    ))}
+  </div>
+);
 
 const ROLE_LABEL: Record<StaffRole, string> = {
   HEAD_COACH: 'Head Coach',
@@ -46,6 +74,8 @@ export function StaffManager() {
   const canManageStaff = isFullCoach(currentUser) || isImpersonatingAdmin(currentUser);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<StaffRole>('COACH');
+  const [sports, setSports] = useState<StaffSport[]>(ALL_SPORTS);
+  const trackOn = useFeatureEnabled('track');
   const [isSending, setIsSending] = useState(false);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
@@ -58,10 +88,10 @@ export function StaffManager() {
   // pending invite — POST /staff-invite upserts on (team, email), so
   // resending is just calling it again with the same email/role: it
   // overwrites the token and expiry and re-triggers the eusend email.
-  const submitInvite = async (targetEmail: string, targetRole: StaffRole) => {
+  const submitInvite = async (targetEmail: string, targetRole: StaffRole, targetSports?: StaffSport[]) => {
     setError(null);
     try {
-      const result = await teamService.sendStaffInvite(targetEmail, targetRole);
+      const result = await teamService.sendStaffInvite(targetEmail, targetRole, targetSports);
       const link = `${window.location.origin}/staff-invite/${result.token}`;
       setLastInviteLink(link);
       setLastInviteEmailSent(result.emailSent);
@@ -81,17 +111,17 @@ export function StaffManager() {
     }
     setIsSending(true);
     try {
-      await submitInvite(email.trim(), role);
+      await submitInvite(email.trim(), role, sports);
       setEmail('');
     } finally {
       setIsSending(false);
     }
   };
 
-  const handleResendInvite = async (targetEmail: string, targetRole: StaffRole) => {
+  const handleResendInvite = async (targetEmail: string, targetRole: StaffRole, targetSports?: StaffSport[]) => {
     setResendingEmail(targetEmail);
     try {
-      await submitInvite(targetEmail, targetRole);
+      await submitInvite(targetEmail, targetRole, targetSports);
     } finally {
       setResendingEmail(null);
     }
@@ -110,6 +140,16 @@ export function StaffManager() {
       refetch();
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Failed to update staff member.'));
+    }
+  };
+
+  const handleSportsChange = async (userId: string, next: StaffSport[]) => {
+    try {
+      await teamService.updateStaffMember(userId, { sports: next });
+      toast.success('Sports updated.');
+      refetch();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to update sports.'));
     }
   };
 
@@ -176,6 +216,12 @@ export function StaffManager() {
                 {isSending ? 'Sending…' : 'Send Invite'}
               </Button>
             </div>
+            {trackOn && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                Coaches
+                <SportsPicker label="Sports for this invite" value={sports} onChange={setSports} />
+              </div>
+            )}
           </div>
         )}
 
@@ -198,7 +244,13 @@ export function StaffManager() {
                         <p className="text-sm font-medium">{member.name || member.email}</p>
                         <p className="text-xs text-muted-foreground">{member.email}</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {trackOn &&
+                          (canManageStaff ? (
+                            <SportsPicker label={`Sports for ${member.name || member.email}`} value={member.sports ?? ALL_SPORTS} onChange={(next) => handleSportsChange(member.userId, next)} />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">{(member.sports ?? ALL_SPORTS).map((x) => SPORT_LABEL[x]).join(' + ')}</span>
+                          ))}
                         {canManageStaff ? (
                           <Select
                             value={member.role}
@@ -290,6 +342,7 @@ export function StaffManager() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="outline">{ROLE_LABEL[invite.role as StaffRole] || invite.role}</Badge>
+                        {trackOn && invite.sports?.length === 1 && <Badge variant="outline">{SPORT_LABEL[invite.sports[0]]} only</Badge>}
                         <span className="text-xs text-muted-foreground">
                           Expires {new Date(invite.expiresAt).toLocaleDateString()}
                         </span>
@@ -298,7 +351,7 @@ export function StaffManager() {
                             size="sm"
                             variant="outline"
                             disabled={resendingEmail === invite.email}
-                            onClick={() => handleResendInvite(invite.email, invite.role as StaffRole)}
+                            onClick={() => handleResendInvite(invite.email, invite.role as StaffRole, invite.sports)}
                           >
                             {resendingEmail === invite.email ? 'Resending…' : 'Resend'}
                           </Button>

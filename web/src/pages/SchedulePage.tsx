@@ -1,3 +1,5 @@
+import { GroupPlansEditor } from '@/components/practicePlans/GroupPlansEditor';
+import { practicePlanLabels } from '@/lib/practicePlanLabels';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -960,6 +962,7 @@ const DayEditorDialog: React.FC<{
   const activeSessions = sessions.filter((s) => !s.archived);
 
   const savePlan = useSavePracticePlan(seasonId);
+  const planLabels = practicePlanLabels();
   const setPublished = useSetPublished(seasonId);
   const duplicateDay = useDuplicateDay(seasonId);
   const duplicateWeek = useDuplicateWeek(seasonId);
@@ -1008,6 +1011,7 @@ const DayEditorDialog: React.FC<{
   const selectedTemplate = templates.find((t) => t.id === workoutTemplateId) ?? null;
   const selectedSession = activeSessions.find((s) => s.id === intervalSessionId) ?? null;
   const previewData = {
+    groupPlans: plan?.groupPlans ?? null,
     locationName: selectedLocationName,
     startTime: startTime || null,
     announcements: announcements || null,
@@ -1167,17 +1171,19 @@ const DayEditorDialog: React.FC<{
           </div>
 
           <div>
-            <Label>Pre Run</Label>
+            <Label>{planLabels.pre}</Label>
             <Input className="mt-1" value={preRun} onChange={(e) => setPreRun(e.target.value)} />
           </div>
           <div>
-            <Label>Run</Label>
-            <Input className="mt-1" value={run} onChange={(e) => setRun(e.target.value)} placeholder="Tempo, Long Run, Dis/Steady…" />
+            <Label>{planLabels.main}</Label>
+            <Input className="mt-1" value={run} onChange={(e) => setRun(e.target.value)} placeholder={planLabels.mainPlaceholder} />
           </div>
           <div>
-            <Label>Post Run</Label>
+            <Label>{planLabels.post}</Label>
             <Input className="mt-1" value={postRun} onChange={(e) => setPostRun(e.target.value)} />
           </div>
+
+          <GroupPlansEditor plan={plan ?? null} seasonId={seasonId} />
 
           <div>
             <Label>Workout template</Label>

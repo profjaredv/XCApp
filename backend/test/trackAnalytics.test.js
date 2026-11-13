@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { relayLegEventName, suggestRelay, meetSheet, prsAtMeet, parseScoringTable, seasonLeaders, pointsFor, pointsContribution, athleteProgression, DEFAULT_SCORING_TABLE } = require('../lib/trackAnalytics');
+const { programByEvent, improvementPct, relayLegEventName, suggestRelay, meetSheet, prsAtMeet, parseScoringTable, seasonLeaders, pointsFor, pointsContribution, athleteProgression, DEFAULT_SCORING_TABLE } = require('../lib/trackAnalytics');
 
 const E100 = { id: 'e100', name: '100 Meters', scoringDirection: 'LOWER_BETTER', sortOrder: 10 };
 const ESP = { id: 'esp', name: 'Shot Put', scoringDirection: 'HIGHER_BETTER', sortOrder: 180 };
@@ -136,4 +136,43 @@ test('prsAtMeet: only marks better than everything before that meet, first-ever 
 test('an entry is not an entrant with a result: it scores nothing and counts nowhere', () => {
   const out = pointsContribution([row({ eventId: 'e100', athleteId: 'a', status: 'ENTERED', markValue: null })], EVENTS);
   assert.deepEqual(out.events[0].bySeason[2026], { points: 0, scorers: 0, entrants: 0 });
+});
+
+test('improvementPct: positive is always better, whichever way the event scores', () => {
+  assert.ok(Math.abs(improvementPct(12, 11.4, 'LOWER_BETTER') - 5) < 1e-9);
+  assert.ok(Math.abs(improvementPct(400, 420, 'HIGHER_BETTER') - 5) < 1e-9);
+  assert.equal(improvementPct(11.4, 12, 'LOWER_BETTER') < 0, true);
+  assert.equal(improvementPct(0, 5, 'HIGHER_BETTER'), null);
+});
+
+test('programByEvent: best, depth, in-season improvement and returners, per season', () => {
+  const out = programByEvent(
+    [
+      // 2025: a 12.0, b 12.5
+      row({ eventId: 'e100', athleteId: 'a', athleteName: 'A', markValue: 12.0, season: 2025, date: '2025-04-01' }),
+      row({ eventId: 'e100', athleteId: 'b', athleteName: 'B', markValue: 12.5, season: 2025, date: '2025-04-01' }),
+      // 2026: a opens 12.0 and drops to 11.4 (5% in season, 5% vs last year); b gone; c new at 13
+      row({ eventId: 'e100', athleteId: 'a', athleteName: 'A', markValue: 12.0, season: 2026, date: '2026-03-20' }),
+      row({ eventId: 'e100', athleteId: 'a', athleteName: 'A', markValue: 11.4, season: 2026, date: '2026-05-01' }),
+      row({ eventId: 'e100', athleteId: 'c', athleteName: 'C', markValue: 13.0, season: 2026, date: '2026-04-01' }),
+      row({ eventId: 'e100', athleteId: 'd', markValue: null, status: 'DNS', season: 2026 }),
+      row({ eventId: 'e100', athleteId: null, markValue: 45, season: 2026 }),
+    ],
+    EVENTS
+  );
+  assert.deepEqual(out.seasons, [2025, 2026]);
+  const e = out.events[0].bySeason;
+  assert.equal(e[2025].best, 12.0);
+  assert.equal(e[2025].depthAvg, 12.25);
+  assert.equal(e[2025].athletes, 2);
+  assert.equal(e[2025].inSeasonPct, null);
+  assert.equal(e[2025].returningPct, null);
+  assert.equal(e[2026].best, 11.4);
+  assert.equal(e[2026].bestAthleteName, 'A');
+  assert.ok(Math.abs(e[2026].depthAvg - 12.2) < 1e-9);
+  assert.equal(e[2026].athletes, 2);
+  assert.ok(Math.abs(e[2026].inSeasonPct - 5) < 1e-9);
+  assert.equal(e[2026].inSeasonCount, 1);
+  assert.ok(Math.abs(e[2026].returningPct - 5) < 1e-9);
+  assert.equal(e[2026].returners, 1);
 });

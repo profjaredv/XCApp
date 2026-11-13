@@ -1,3 +1,4 @@
+import { practicePlanLabels } from '@/lib/practicePlanLabels';
 import React from 'react';
 
 // The one place a practice plan's day-of fields get rendered "the way an
@@ -16,11 +17,13 @@ export interface PracticePlanPreviewData {
   postRun?: string | null;
   workoutTemplate?: { name: string; details?: string | null } | null;
   intervalSession?: { title: string; groupName?: string | null } | null;
+  groupPlans?: Array<{ groupId: string; groupName: string; details: string }> | null;
 }
 
-export const PracticePlanPreview: React.FC<{ plan: PracticePlanPreviewData }> = ({ plan }) => {
+export const PracticePlanPreview: React.FC<{ plan: PracticePlanPreviewData; sport?: 'XC' | 'TRACK' }> = ({ plan, sport }) => {
   const hasDetails =
-    plan.announcements || plan.preRun || plan.run || plan.postRun || plan.workoutTemplate || plan.intervalSession;
+    plan.announcements || plan.preRun || plan.run || plan.postRun || plan.workoutTemplate || plan.intervalSession || plan.groupPlans?.length;
+  const labels = practicePlanLabels(sport);
 
   return (
     <div className="space-y-3">
@@ -30,22 +33,28 @@ export const PracticePlanPreview: React.FC<{ plan: PracticePlanPreviewData }> = 
       {plan.announcements && <p className="text-sm font-medium">{plan.announcements}</p>}
       {plan.preRun && (
         <div>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pre Run</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{labels.pre}</p>
           <p className="text-sm">{plan.preRun}</p>
         </div>
       )}
       {plan.run && (
         <div>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Run</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{labels.main}</p>
           <p className="text-sm">{plan.run}</p>
         </div>
       )}
       {plan.postRun && (
         <div>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Post Run</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{labels.post}</p>
           <p className="text-sm">{plan.postRun}</p>
         </div>
       )}
+      {plan.groupPlans?.map((g) => (
+        <div key={g.groupId} className="rounded-lg border p-3 text-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{g.groupName}</p>
+          <p className="mt-1 whitespace-pre-wrap">{g.details}</p>
+        </div>
+      ))}
       {plan.workoutTemplate && (
         <div className="rounded-lg border p-3 text-sm">
           <p className="font-medium">{plan.workoutTemplate.name}</p>

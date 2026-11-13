@@ -205,4 +205,86 @@ function prsAtMeet(allResults, events, meetId) {
   return out.sort((a, b) => a.event.sortOrder - b.event.sortOrder || String(a.athleteName).localeCompare(String(b.athleteName)));
 }
 
-module.exports = { relayLegEventName, suggestRelay, meetSheet, prsAtMeet, DEFAULT_SCORING_TABLE, parseScoringTable, isBetter, bestOf, seasonLeaders, pointsFor, pointsContribution, athleteProgression };
+// ---------------------------------------------------------------------------
+// Program: every event, season over season.
+
+const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+/** How much better `to` is than `from`, as a percent. Positive is always improvement, whichever way the event scores. */
+function improvementPct(from, to, direction) {
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from === 0) return null;
+  return ((direction === 'HIGHER_BETTER' ? to - from : from - to) / from) * 100;
+}
+
+const PROGRAM_DEPTH = 5;
+
+/**
+ * Per event, per season:
+ *   best          the team's best mark, and whose
+ *   depthAvg      the average of the top five athletes' season bests (fewer
+ *                 if fewer have a mark; depthCount says how many)
+ *   athletes      how many athletes have a mark
+ *   inSeasonPct   average improvement from an athlete's first mark of the
+ *                 season to their best, over athletes with two or more marks
+ *   returningPct  average change in season best against the season before,
+ *                 over athletes with a mark in both (returners)
+ * Individual events only: a relay has no single athlete to follow.
+ */
+function programByEvent(results, events) {
+  const seasons = [...new Set(results.map((r) => r.season))].sort((a, b) => a - b);
+  const usable = results.filter((r) => r.athleteId && counts(r));
+  const byEvent = groupBy(usable, (r) => r.eventId);
+  const out = [];
+  for (const event of [...events].sort((a, b) => a.sortOrder - b.sortOrder)) {
+    const rows = byEvent.get(event.id);
+    if (!rows || event.isRelay) continue;
+    const dir = event.scoringDirection;
+    const bestBySeasonAthlete = new Map(); // season -> Map(athleteId -> best row)
+    const bySeason = {};
+    for (const [season, seasonRows] of groupBy(rows, (r) => r.season)) {
+      const bests = new Map();
+      const inSeason = [];
+      for (const [athleteId, mine] of groupBy(seasonRows, (r) => r.athleteId)) {
+        const best = bestOf(mine, dir);
+        bests.set(athleteId, best);
+        if (mine.length >= 2) {
+          const first = [...mine].sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+          const pct = improvementPct(first.markValue, best.markValue, dir);
+          if (pct != null) inSeason.push(pct);
+        }
+      }
+      bestBySeasonAthlete.set(season, bests);
+      const ranked = [...bests.values()].sort((a, b) => (isBetter(a.markValue, b.markValue, dir) ? -1 : a.markValue === b.markValue ? 0 : 1));
+      const top = ranked.slice(0, PROGRAM_DEPTH);
+      bySeason[season] = {
+        best: ranked[0].markValue,
+        bestAthleteId: ranked[0].athleteId,
+        bestAthleteName: ranked[0].athleteName ?? null,
+        depthAvg: mean(top.map((r) => r.markValue)),
+        depthCount: top.length,
+        athletes: ranked.length,
+        inSeasonPct: mean(inSeason),
+        inSeasonCount: inSeason.length,
+        returningPct: null,
+        returners: 0,
+      };
+    }
+    for (const season of Object.keys(bySeason).map(Number)) {
+      const now = bestBySeasonAthlete.get(season);
+      const before = bestBySeasonAthlete.get(season - 1);
+      if (!before) continue;
+      const changes = [];
+      for (const [athleteId, row] of now) {
+        const prev = before.get(athleteId);
+        if (!prev) continue;
+        const pct = improvementPct(prev.markValue, row.markValue, dir);
+        if (pct != null) changes.push(pct);
+      }
+      bySeason[season].returningPct = mean(changes);
+      bySeason[season].returners = changes.length;
+    }
+    out.push({ event, bySeason });
+  }
+  return { seasons, depth: PROGRAM_DEPTH, events: out };
+}
+
+module.exports = { programByEvent, improvementPct, relayLegEventName, suggestRelay, meetSheet, prsAtMeet, DEFAULT_SCORING_TABLE, parseScoringTable, isBetter, bestOf, seasonLeaders, pointsFor, pointsContribution, athleteProgression };

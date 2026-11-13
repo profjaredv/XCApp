@@ -1,3 +1,4 @@
+import { setOnlySport } from '../lib/sport';
 import React, { ReactNode, useState, useEffect, useCallback } from 'react';
 import { AuthContext } from '../contexts/AuthContext';
 import { User } from '../types';
@@ -16,6 +17,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const response = await api.get('/users/me');
       const userData = response.data;
       if (userData) {
+        // One-sport staff: every request and link is about that sport.
+        const staffSports: string[] = Array.isArray(userData.teamSports) ? userData.teamSports : [];
+        setOnlySport(staffSports.length === 1 && (userData.teamRole === 'HEAD_COACH' || userData.teamRole === 'COACH' || userData.teamRole === 'VOLUNTEER_COACH') ? (staffSports[0] as 'XC' | 'TRACK') : null);
         return {
           uid: userData.id || userData.uid,
           email: userData.email,
@@ -29,6 +33,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           // field to decide the coach vs. athlete sidebar, so that bug
           // made every coach's sidebar collapse to just "Today."
           teamRole: userData.teamRole ?? null,
+          teamSports: Array.isArray(userData.teamSports) ? userData.teamSports : ['XC', 'TRACK'],
           linkedAthlete: userData.linkedAthlete ?? null,
           isSuperAdmin: userData.isSuperAdmin ?? false,
           isImpersonating: userData.isImpersonating ?? false,

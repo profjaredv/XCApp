@@ -41,8 +41,12 @@ test('results cannot be thrown away through the meet or relay routes', () => {
 
 test('the athlete route only ever reads the caller\'s own linked athlete', () => {
   const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'routes', 'trackMe.js'), 'utf8');
-  assert.match(src, /authenticate, requireTeam, requireFeature\('track'\), requireLinkedAthlete/);
+  const routes = src.match(/router\.get\([^\n]*/g) || [];
+  assert.equal(routes.length, 2);
+  for (const line of routes) assert.match(line, /authenticate, requireTeam, requireFeature\('track'\), requireLinkedAthlete/);
   assert.doesNotMatch(src, /req\.(params|query|body)/);
+  // Upcoming meets: only rows that are this athlete's own, or a relay they are on.
+  assert.match(src, /OR: \[\{ athleteId: me\.id \}, \{ relayAthleteIds: \{ has: me\.id \} \}\]/);
 });
 
 test('routes/track.js is mounted at /api/track in server.js', () => {

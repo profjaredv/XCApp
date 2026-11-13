@@ -1,6 +1,9 @@
 import { axiosInstance } from './axios';
 import type { TeamPerformance } from '../types/team';
 
+/** A sport a staff member coaches. Both (or neither picked) means every sport. */
+export type StaffSport = 'XC' | 'TRACK';
+
 export interface JoinCodeResponse {
   msg: string;
   joinCode: string;
@@ -224,9 +227,9 @@ export const teamService = {
    * a reduced menu. They belong in this list so someone can promote them.
    */
   async getStaff(): Promise<{
-    staff: Array<{ userId: string; name: string | null; email: string; role: string; active: boolean }>;
+    staff: Array<{ userId: string; name: string | null; email: string; role: string; active: boolean; sports: StaffSport[] }>;
     otherMembers: Array<{ userId: string; name: string | null; email: string; role: string; active: boolean }>;
-    pendingInvites: Array<{ email: string; role: string; expiresAt: string }>;
+    pendingInvites: Array<{ email: string; role: string; sports: StaffSport[]; expiresAt: string }>;
   }> {
     const response = await axiosInstance.get('/team/staff');
     return response.data;
@@ -241,20 +244,20 @@ export const teamService = {
    * (false when EUSEND_API_KEY isn't configured or the send failed), so the
    * caller can fall back to a copy-link UI either way.
    */
-  async sendStaffInvite(email: string, role: 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH'): Promise<{
+  async sendStaffInvite(email: string, role: 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH', sports?: StaffSport[]): Promise<{
     msg: string;
     token: string;
     emailSent: boolean;
     invite: { token: string; email: string; role: string; expiresAt: string };
   }> {
-    const response = await axiosInstance.post('/team/staff-invite', { email, role });
+    const response = await axiosInstance.post('/team/staff-invite', { email, role, sports });
     return response.data;
   },
 
   /** Head-coach-only: change an existing staff member's role, or deactivate them. */
   async updateStaffMember(
     userId: string,
-    updates: { role?: 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH'; active?: boolean }
+    updates: { role?: 'HEAD_COACH' | 'COACH' | 'VOLUNTEER_COACH'; active?: boolean; sports?: StaffSport[] }
   ): Promise<{ userId: string; role: string; active: boolean }> {
     const response = await axiosInstance.patch(`/team/staff/${userId}`, updates);
     return response.data;

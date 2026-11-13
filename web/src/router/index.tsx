@@ -38,6 +38,7 @@ import LegacyRedirect from './LegacyRedirect';
 import Layout from '../components/Layout';
 import TrackHome from '../pages/track/TrackHome';
 import TrackMeetPage from '../pages/track/TrackMeetPage';
+import TrackProgramPage from '../pages/track/TrackProgramPage';
 import MyTrackPage from '../pages/track/MyTrackPage';
 import TrackEventsPage from '../pages/track/TrackEventsPage';
 import TrackPointsPage from '../pages/track/TrackPointsPage';
@@ -522,6 +523,10 @@ export const router = createBrowserRouter([
                     ),
                   },
                   { path: 'track/leaders', element: <Navigate to="../track/events" replace /> },
+                  {
+                    path: 'track/program',
+                    element: <FeatureGate feature="track"><TrackProgramPage /></FeatureGate>,
+                  },
                   {
                     path: 'track/meet/:meetId',
                     element: <FeatureGate feature="track"><TrackMeetPage /></FeatureGate>,

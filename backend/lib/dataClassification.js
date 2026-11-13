@@ -253,6 +253,11 @@ const CLASSIFICATION = {
     what: 'Planned practices and the workouts assigned.',
     why: 'Instructional material, and it assigns work to named students.',
   },
+  PracticePlanGroupPart: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: "The part of a day's practice plan written for one group.",
+    why: 'Instructional material assigned to a named group of students.',
+  },
   IntervalSession: {
     class: CLASSES.EDUCATION_RECORD,
     what: 'A workout as actually run, with its reps and targets.',
