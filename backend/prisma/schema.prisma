@@ -2380,6 +2380,10 @@ model TrackMeet {
   team    Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
   results TrackResult[]
 
+  // Lets a re-import (the coach repasting the same season's Event Progress
+  // page, e.g. after a new meet) upsert each meet in place instead of
+  // duplicating it — same pattern as Race's teamId_name_date_distance key.
+  @@unique([teamId, name, date])
   @@index([teamId, season])
   @@map("track_meets")
 }
@@ -2422,6 +2426,13 @@ model TrackResult {
   event     Event     @relation(fields: [eventId], references: [id])
   athlete   Athlete?  @relation(fields: [athleteId], references: [id], onDelete: SetNull)
 
+  // Re-import safety, same reasoning as TrackMeet's unique key above. Postgres
+  // treats each NULL as distinct in a unique index, so relay rows
+  // (athleteId null, see the comment above) never collide with each other
+  // under this constraint — only individual results actually dedupe here,
+  // which is exactly the case this needs to cover; relay import itself is
+  // out of scope for now (no real "Relays" tab markup to build it against).
+  @@unique([teamId, trackMeetId, eventId, athleteId, round], map: "track_results_dedupe_key")
   @@index([teamId, eventId])
   @@index([athleteId])
   @@map("track_results")

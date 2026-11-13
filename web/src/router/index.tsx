@@ -34,10 +34,10 @@ import LandingPage from '../pages/LandingPage';
 // Enhanced analytics now integrated into main analytics page
 import ProtectedRoute from './ProtectedRoute';
 import TeamRouteGuard from './TeamRouteGuard';
-import SuperAdminRouteGuard from './SuperAdminRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
 import Layout from '../components/Layout';
-import TrackDashboardPage from '../pages/track/TrackDashboardPage';
+import TrackPage from '../pages/track/TrackPage';
+import TrackAthletePage from '../pages/track/TrackAthletePage';
 import ShellSwitch from './ShellSwitch';
 import AthleteProfileNext from '../pages/next/AthleteProfileNext';
 import ByUi from './ByUi';
@@ -218,31 +218,6 @@ export const router = createBrowserRouter([
           // right-place guard, not an authorization check; every API call
           // underneath is still scoped server-side by the session, never by
           // this URL segment.
-          // LeadPack Track & Field handoff: every /tf/* page is a
-          // temporary, super-admin-only demo surface — SuperAdminRouteGuard
-          // redirects (not just hides nav) any non-admin session. The real
-          // boundary is server-side (requireSuperAdmin on every
-          // /api/track/* route); this is UX only. Not nested under
-          // /t/:teamSlug on purpose: this surface predates the
-          // sport-aware season picker merge the handoff describes for
-          // launch (Section 1a) — it's where in-progress phases land for
-          // Jared to click through before that merge happens. See
-          // NOTES.md for when this gate is meant to come off.
-          {
-            path: '/tf',
-            element: <SuperAdminRouteGuard />,
-            children: [
-              {
-                element: <Layout />,
-                children: [
-                  {
-                    path: 'dashboard',
-                    element: <TrackDashboardPage />,
-                  },
-                ],
-              },
-            ],
-          },
           {
             path: '/t/:teamSlug',
             element: <TeamRouteGuard />,
@@ -499,6 +474,24 @@ export const router = createBrowserRouter([
                   {
                     path: 'team/athlete/:athleteId',
                     element: <TeamAthleteProfilePage />,
+                  },
+                  // Track & Field: coach screens, off for a team that
+                  // turned the feature off (the API refuses it too).
+                  {
+                    path: 'track',
+                    element: (
+                      <FeatureGate feature="track">
+                        <TrackPage />
+                      </FeatureGate>
+                    ),
+                  },
+                  {
+                    path: 'track/athlete/:athleteId',
+                    element: (
+                      <FeatureGate feature="track">
+                        <TrackAthletePage />
+                      </FeatureGate>
+                    ),
                   },
                   {
                     path: 'data-management',

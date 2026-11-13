@@ -3,7 +3,7 @@ import type { TeamFeatureKey } from './teamFeatureKeys';
 import type { User } from '@/types';
 import {
   Home, Dumbbell, Users, UserSquare2, Flag, LayoutDashboard, TrendingUp,
-  ClipboardList, Database, Package, Upload, Camera, Settings, UserCog, Gauge, Heart,
+  ClipboardList, Database, Package, Upload, Camera, Settings, UserCog, Gauge, Heart, Activity,
 } from 'lucide-react';
 
 // The "next" shell's nav, as data (docs/leadpack-new-ui-trial.md §3.6).
@@ -47,6 +47,7 @@ export const NEXT_NAV: NextNavEntry[] = [
   { key: 'meets', label: 'Meets', path: '/meets', icon: Flag, audience: ['coach', 'volunteer', 'athlete', 'parent'], zone: 'insights', mobileTab: { coach: 4, volunteer: 4 } },
   { key: 'season', label: 'Season', path: '/season', icon: LayoutDashboard, audience: COACHES, zone: 'insights', mobileTab: false },
   { key: 'program', label: 'Program', path: '/band-trends', icon: TrendingUp, audience: COACHES, zone: 'insights', mobileTab: false },
+  { key: 'track', label: 'Track & Field', path: '/track', icon: Activity, audience: COACHES, zone: 'insights', mobileTab: false, feature: 'track' },
   { key: 'photos', label: 'Photos', path: '/photos', icon: Camera, audience: ['athlete', 'parent'], zone: 'insights', mobileTab: { athlete: 4, parent: 3 }, feature: 'photos' },
 
   // SETUP (coaches only, never volunteers — as classic)

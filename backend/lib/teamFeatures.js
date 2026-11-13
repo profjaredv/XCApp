@@ -57,6 +57,12 @@ const FEATURES = [
     description: 'Upload meet photos, let families tag and pick them, and build printable collages.',
     default: true,
   },
+  {
+    key: 'track',
+    label: 'Track & Field',
+    description: 'Import track and field results and see event leaders, points by event and athlete progressions.',
+    default: true,
+  },
 ];
 
 const FEATURE_KEYS = FEATURES.map((f) => f.key);
