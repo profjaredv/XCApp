@@ -36,7 +36,11 @@ import ProtectedRoute from './ProtectedRoute';
 import TeamRouteGuard from './TeamRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
 import Layout from '../components/Layout';
-import TrackPage from '../pages/track/TrackPage';
+import TrackHome from '../pages/track/TrackHome';
+import TrackLeadersPage from '../pages/track/TrackLeadersPage';
+import TrackPointsPage from '../pages/track/TrackPointsPage';
+import TrackMeetsPage from '../pages/track/TrackMeetsPage';
+import TrackImportPage from '../pages/track/TrackImportPage';
 import TrackAthletePage from '../pages/track/TrackAthletePage';
 import ShellSwitch from './ShellSwitch';
 import AthleteProfileNext from '../pages/next/AthleteProfileNext';
@@ -475,13 +479,46 @@ export const router = createBrowserRouter([
                     path: 'team/athlete/:athleteId',
                     element: <TeamAthleteProfilePage />,
                   },
-                  // Track & Field: coach screens, off for a team that
-                  // turned the feature off (the API refuses it too).
+                  // Track & Field. Its own sport, so its own screens: none of
+                  // these is a tab inside a cross country page. Off for a
+                  // team that turned the feature off (the API refuses too).
                   {
                     path: 'track',
                     element: (
                       <FeatureGate feature="track">
-                        <TrackPage />
+                        <TrackHome />
+                      </FeatureGate>
+                    ),
+                  },
+                  {
+                    path: 'track/leaders',
+                    element: (
+                      <FeatureGate feature="track">
+                        <TrackLeadersPage />
+                      </FeatureGate>
+                    ),
+                  },
+                  {
+                    path: 'track/points',
+                    element: (
+                      <FeatureGate feature="track">
+                        <TrackPointsPage />
+                      </FeatureGate>
+                    ),
+                  },
+                  {
+                    path: 'track/meets',
+                    element: (
+                      <FeatureGate feature="track">
+                        <TrackMeetsPage />
+                      </FeatureGate>
+                    ),
+                  },
+                  {
+                    path: 'track/import',
+                    element: (
+                      <FeatureGate feature="track">
+                        <TrackImportPage />
                       </FeatureGate>
                     ),
                   },

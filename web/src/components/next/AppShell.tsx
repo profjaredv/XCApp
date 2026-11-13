@@ -25,6 +25,10 @@ import { GroupScopePicker } from './GroupScopePicker';
 import { FindAthleteButton } from './FindAthleteSheet';
 import { TimerButton } from './TimerButton';
 import { Sheet, SheetContent } from './Sheet';
+import { SportSwitcher } from '../SportSwitcher';
+import { useSport } from '@/hooks/useSport';
+import { trackNavEntries } from '@/lib/navigationNext';
+import type { Sport } from '@/lib/sport';
 
 // The "next" shell (docs/leadpack-new-ui-trial.md §3). Desktop (≥1024px):
 // a zoned sidebar — THIS WEEK, INSIGHTS, a collapsed Setup — with the
@@ -45,6 +49,7 @@ function isActive(entry: NextNavEntry, sub: string): boolean {
   if (target === 'groups') return sub === 'groups' || sub.startsWith('group/') || sub.startsWith('groups/');
   if (target === 'meets') return sub === 'meets' || sub.startsWith('meet/');
   if (target === 'athletes') return sub === 'athletes' || sub.startsWith('athlete/');
+  if (target === 'track/leaders') return sub === target || sub.startsWith('track/athlete/');
   return sub === target;
 }
 
@@ -68,10 +73,14 @@ const ShellFrame: React.FC = () => {
   const enabled = features?.enabled;
   const sub = teamSubpath(location.pathname);
   const isCoach = role === 'coach' || role === 'volunteer';
-  const showScope = isCoach && scopeAppliesTo(sub, location.search);
+  // Track & Field is its own sport with its own nav: none of cross
+  // country's tabs, season chip or group scope applies there.
+  const { sport, canSwitch, switchTo } = useSport();
+  const inTrack = sport === 'TRACK';
+  const showScope = !inTrack && isCoach && scopeAppliesTo(sub, location.search);
 
-  const tabs = mobileTabsFor(role, enabled);
-  const more = moreItemsFor(role, enabled);
+  const tabs = inTrack ? trackNavEntries() : mobileTabsFor(role, enabled);
+  const more = inTrack ? moreItemsFor(role, enabled).filter((e) => e.key === 'settings') : moreItemsFor(role, enabled);
   const allEntries = [...tabs, ...more];
   const onNavDestination = location.pathname === '/profile' || sub === '' || allEntries.some((e) => isActive(e, sub) && e.path.replace(/^\//, '') === sub);
   const showBack = !onNavDestination;
@@ -84,7 +93,7 @@ const ShellFrame: React.FC = () => {
       <NextImpersonationBanner />
       <CheckoutReminderBanner />
       <div className="flex min-h-0 flex-1">
-        <DesktopSidebar role={role} enabled={enabled} sub={sub} onSwitchToClassic={() => setSwitchOpen(true)} />
+        <DesktopSidebar role={role} enabled={enabled} sub={sub} sport={sport} canSwitch={canSwitch} onSport={switchTo} onSwitchToClassic={() => setSwitchOpen(true)} />
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-1 lg:h-16 lg:px-3">
             {showBack && (
@@ -110,11 +119,11 @@ const ShellFrame: React.FC = () => {
               {context?.team?.name}
             </span>
             <div className="flex-1 sm:hidden" />
-            <SeasonChip />
+            {!inTrack && <SeasonChip />}
             {showScope && <GroupScopePicker compact />}
             <div className="hidden flex-1 lg:block" />
-            {isCoach && <FindAthleteButton />}
-            {isCoach && <TimerButton />}
+            {!inTrack && isCoach && <FindAthleteButton />}
+            {!inTrack && isCoach && <TimerButton />}
             <div className="hidden lg:block">
               <FeedbackWidget />
             </div>
@@ -128,6 +137,16 @@ const ShellFrame: React.FC = () => {
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent title="More">
+          {canSwitch && (
+            <SportSwitcher
+              sport={sport}
+              onChange={(next) => {
+                setMoreOpen(false);
+                switchTo(next);
+              }}
+              className="mb-2"
+            />
+          )}
           {more.map((e) => (
             <Link
               key={e.key}
@@ -200,8 +219,11 @@ const DesktopSidebar: React.FC<{
   role: ReturnType<typeof nextNavRole>;
   enabled: Parameters<typeof nextNavFor>[2];
   sub: string;
+  sport: Sport;
+  canSwitch: boolean;
+  onSport: (s: Sport) => void;
   onSwitchToClassic: () => void;
-}> = ({ role, enabled, sub, onSwitchToClassic }) => {
+}> = ({ role, enabled, sub, sport, canSwitch, onSport, onSwitchToClassic }) => {
   const { currentUser } = useAuth();
   const teamPath = useTeamPath();
   const [collapsed, setCollapsed] = useState(() => {
@@ -240,9 +262,13 @@ const DesktopSidebar: React.FC<{
     };
   }, [menuOpen]);
 
-  const week = nextNavFor(role, 'week', enabled);
-  const insights = nextNavFor(role, 'insights', enabled);
-  const setup = nextNavFor(role, 'setup', enabled);
+  const inTrack = sport === 'TRACK';
+  const track = trackNavEntries();
+  const week = inTrack ? [] : nextNavFor(role, 'week', enabled);
+  const insights = inTrack ? track.filter((e) => e.zone === 'insights') : nextNavFor(role, 'insights', enabled);
+  const setup = inTrack
+    ? [...track.filter((e) => e.zone === 'setup'), ...nextNavFor(role, 'setup', enabled).filter((e) => e.key === 'settings')]
+    : nextNavFor(role, 'setup', enabled);
   const setupActive = setup.some((e) => isActive(e, sub));
 
   const link = (e: NextNavEntry) => {
@@ -291,10 +317,11 @@ const DesktopSidebar: React.FC<{
 
       {/* Scrolls on its own so a short window never cuts off Setup or the
           avatar row below it. */}
+      {canSwitch && <SportSwitcher sport={sport} onChange={onSport} collapsed={collapsed} className="mx-2 mb-1" />}
       <nav aria-label="Main" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
         {week.length > 0 && zoneLabel('This week')}
         {week.map(link)}
-        {insights.length > 0 && zoneLabel('Insights')}
+        {insights.length > 0 && zoneLabel(inTrack ? 'Season' : 'Insights')}
         {insights.map(link)}
         {setup.length > 0 && (
           <div className="pt-3">

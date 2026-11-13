@@ -1,9 +1,10 @@
 import type { ComponentType } from 'react';
 import type { TeamFeatureKey } from './teamFeatureKeys';
 import type { User } from '@/types';
+import { TRACK_NAV } from './sport';
 import {
   Home, Dumbbell, Users, UserSquare2, Flag, LayoutDashboard, TrendingUp,
-  ClipboardList, Database, Package, Upload, Camera, Settings, UserCog, Gauge, Heart, Activity,
+  ClipboardList, Database, Package, Upload, Camera, Settings, UserCog, Gauge, Heart,
 } from 'lucide-react';
 
 // The "next" shell's nav, as data (docs/leadpack-new-ui-trial.md §3.6).
@@ -34,6 +35,19 @@ export interface NextNavEntry {
 
 const COACHES: NextNavRole[] = ['coach', 'volunteer'];
 
+/** The Track & Field nav in this shell's shape (lib/sport.ts owns the list). */
+export function trackNavEntries(): NextNavEntry[] {
+  return TRACK_NAV.map((e) => ({
+    key: `track-${e.key}`,
+    label: e.label,
+    path: e.path,
+    icon: e.icon,
+    audience: COACHES,
+    zone: e.zone === 'setup' ? 'setup' : 'insights',
+    mobileTab: false,
+  }));
+}
+
 export const NEXT_NAV: NextNavEntry[] = [
   // THIS WEEK
   { key: 'today', label: 'Today', path: '/today', icon: Home, audience: ['coach', 'volunteer', 'athlete', 'parent'], zone: 'week', mobileTab: { coach: 1, volunteer: 1, athlete: 1, parent: 1 } },
@@ -47,7 +61,6 @@ export const NEXT_NAV: NextNavEntry[] = [
   { key: 'meets', label: 'Meets', path: '/meets', icon: Flag, audience: ['coach', 'volunteer', 'athlete', 'parent'], zone: 'insights', mobileTab: { coach: 4, volunteer: 4 } },
   { key: 'season', label: 'Season', path: '/season', icon: LayoutDashboard, audience: COACHES, zone: 'insights', mobileTab: false },
   { key: 'program', label: 'Program', path: '/band-trends', icon: TrendingUp, audience: COACHES, zone: 'insights', mobileTab: false },
-  { key: 'track', label: 'Track & Field', path: '/track', icon: Activity, audience: COACHES, zone: 'insights', mobileTab: false, feature: 'track' },
   { key: 'photos', label: 'Photos', path: '/photos', icon: Camera, audience: ['athlete', 'parent'], zone: 'insights', mobileTab: { athlete: 4, parent: 3 }, feature: 'photos' },
 
   // SETUP (coaches only, never volunteers — as classic)
