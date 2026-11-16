@@ -146,6 +146,12 @@ test('applyMeetDistanceToPendingPredictions never rewrites the actual forecast e
   assert.match(fn, /distanceEstimated: false/, 'a coach-confirmed distance is a real fact, not an estimate');
 });
 
+test('the fitness trend is fit on raw pace, not the same-season course adjustment (that confounds with the team\'s own fitness trend)', () => {
+  const fn = sectionFor(ROUTE, 'async function getAthleteSeasonTrendHistory');
+  assert.doesNotMatch(fn, /computeSeasonAdjustedPaces/, 'same-season adjustment leaks the team\'s own improvement into the trend input, amplifying it');
+  assert.match(fn, /adjustedPaceSecPerMile: r\.paceSecPerMile/, 'must feed the raw race pace, unmodified');
+});
+
 test('reconcilePendingPredictions and applyMeetDistanceToPendingPredictions share one derivation helper, not two', () => {
   assert.match(CALC_SERVICE, /async _derivedFieldsForDistance/, 'the shared helper must exist');
   const reconcile = sectionFor(CALC_SERVICE, 'async reconcilePendingPredictions', 1400);
