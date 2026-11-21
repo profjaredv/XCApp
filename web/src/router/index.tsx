@@ -33,6 +33,9 @@ import PhotosTagInPage from '../pages/photos/PhotosTagInPage';
 import LandingPage from '../pages/LandingPage';
 // Enhanced analytics now integrated into main analytics page
 import ProtectedRoute from './ProtectedRoute';
+import ParentLinkPage from '../pages/parents/ParentLinkPage';
+import ParentInviteAcceptPage from '../pages/parents/ParentInviteAcceptPage';
+import MyRunnersPage from '../pages/parents/MyRunnersPage';
 import TeamRouteGuard from './TeamRouteGuard';
 import LegacyRedirect from './LegacyRedirect';
 import Layout from '../components/Layout';
@@ -120,6 +123,21 @@ export const router = createBrowserRouter([
       {
         path: '/staff-invite/:token',
         element: <StaffInviteAcceptPage />,
+      },
+      // Parents. Outside /t/<team> on purpose: a parent belongs to no team.
+      // The parent link a coach shares (join code built in), a coach's
+      // direct invite, and the page a parent lands on.
+      {
+        path: '/parents/:code',
+        element: <ParentLinkPage />,
+      },
+      {
+        path: '/parent-invite/:token',
+        element: <ParentInviteAcceptPage />,
+      },
+      {
+        path: '/my-runners',
+        element: <MyRunnersPage />,
       },
       // LeadPack Photos: join via the team's standing Photos Admin link —
       // full Load/Tag/Build authority in this module only, for anyone a

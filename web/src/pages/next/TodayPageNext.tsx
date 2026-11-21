@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueries } from '@tanstack/react-query';
-import { AlertTriangle, CalendarDays, ClipboardPaste, ChevronRight, ClipboardCheck, Compass, Dumbbell, Flag, Gauge, Package, Target, Timer, Trophy, Users } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Heart, ClipboardPaste, ChevronRight, ClipboardCheck, Compass, Dumbbell, Flag, Gauge, Package, Target, Timer, Trophy, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -243,6 +243,7 @@ const ATTENTION_ICON: Record<TodayAttentionItem['type'], React.ComponentType<{ c
   'unpublished-plan': CalendarDays,
   'overdue-equipment': Package,
   'update-results': ClipboardPaste,
+  'parent-requests': Heart,
 };
 
 const AttentionBlock: React.FC<{ seasonId: string }> = ({ seasonId }) => {
@@ -257,6 +258,8 @@ const AttentionBlock: React.FC<{ seasonId: string }> = ({ seasonId }) => {
   const linkFor = (item: TodayAttentionItem) =>
     item.type === 'update-results'
       ? teamPath('/data-management')
+      : item.type === 'parent-requests'
+      ? teamPath('/settings#athlete-access')
       : item.type === 'splits' && item.link.raceId
       ? teamPath(`/race/${item.link.raceId}/splits`)
       : item.type === 'unpublished-plan'

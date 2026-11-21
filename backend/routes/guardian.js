@@ -1,4 +1,5 @@
 const express = require('express');
+const { joinNames, maskEmail, sameEmail } = require('../lib/parentAccess');
 const router = express.Router();
 const prisma = require('../lib/db');
 const { authenticate } = require('../middleware/auth');
@@ -144,14 +145,19 @@ router.get('/my-links', authenticate, async (req, res) => {
   try {
     const links = await prisma.guardianLink.findMany({
       where: { userId: req.user.id },
-      include: { athlete: { select: { id: true, name: true, teamId: true } } },
+      include: {
+        athlete: {
+          select: { id: true, name: true, preferredName: true, teamId: true, team: { select: { name: true } } },
+        },
+      },
       orderBy: { requestedAt: 'desc' },
     });
 
     res.json(
       links.map((l) => ({
         athleteId: l.athleteId,
-        athleteName: l.athlete.name,
+        athleteName: l.athlete.preferredName || l.athlete.name,
+        teamName: l.athlete.team?.name ?? null,
         status: l.status,
         requestedAt: l.requestedAt,
         resolvedAt: l.resolvedAt,
@@ -159,6 +165,99 @@ router.get('/my-links', authenticate, async (req, res) => {
     );
   } catch (error) {
     console.error('Error fetching guardian links:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// Parent invites, the parent's side. A coach chose this email and these
+// runners (POST /team/parent-invites), so accepting creates links that are
+// already approved. The signed-in account must have the email the coach
+// typed: a forwarded invite must not hand a student's information to
+// whoever happens to open it.
+
+async function loadInvite(token) {
+  const invite = await prisma.parentInvite.findUnique({
+    where: { token: String(token || '') },
+    include: { team: { select: { name: true } } },
+  });
+  if (!invite) return null;
+  const athletes = await prisma.athlete.findMany({
+    where: { id: { in: invite.athleteIds }, teamId: invite.teamId },
+    select: { id: true, name: true, preferredName: true },
+  });
+  return { invite, athletes };
+}
+
+// GET /api/guardian/invites/:token — what the invite is for, before accepting.
+router.get('/invites/:token', authenticate, async (req, res) => {
+  try {
+    const found = await loadInvite(req.params.token);
+    if (!found || found.invite.status === 'revoked') {
+      return res.status(404).json({ msg: 'This invite is no longer valid. Ask the coach to send a new one.' });
+    }
+    const { invite, athletes } = found;
+    const emailMatches = sameEmail(invite.email, req.user.email);
+    res.json({
+      teamName: invite.team.name,
+      status: invite.status,
+      expired: invite.expiresAt < new Date(),
+      sentTo: maskEmail(invite.email),
+      emailMatches,
+      // Names only to the person the invite was sent to.
+      athletes: emailMatches ? athletes.map((a) => ({ id: a.id, name: a.preferredName || a.name })) : [],
+      athleteCount: athletes.length,
+    });
+  } catch (error) {
+    console.error('Error in GET /guardian/invites/:token:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/guardian/invites/:token/accept
+router.post('/invites/:token/accept', authenticate, async (req, res) => {
+  try {
+    const found = await loadInvite(req.params.token);
+    if (!found || found.invite.status === 'revoked') {
+      return res.status(404).json({ msg: 'This invite is no longer valid. Ask the coach to send a new one.' });
+    }
+    const { invite, athletes } = found;
+    if (!sameEmail(invite.email, req.user.email)) {
+      return res.status(403).json({
+        msg: `This invite was sent to ${maskEmail(invite.email)}. Sign in with that email, or ask the coach to send it to the address you use.`,
+      });
+    }
+    if (invite.status === 'accepted') {
+      return res.json({ msg: 'Already accepted.', linked: athletes.map((a) => a.preferredName || a.name) });
+    }
+    if (invite.expiresAt < new Date()) {
+      return res.status(410).json({ msg: 'This invite has expired. Ask the coach to send it again.' });
+    }
+    if (athletes.length === 0) {
+      return res.status(404).json({ msg: 'The runners on this invite are no longer on the team.' });
+    }
+
+    const now = new Date();
+    await prisma.$transaction([
+      ...athletes.map((athlete) =>
+        prisma.guardianLink.upsert({
+          where: { userId_athleteId: { userId: req.user.id, athleteId: athlete.id } },
+          update: { status: 'approved', resolvedAt: now, resolvedById: invite.invitedById },
+          create: {
+            userId: req.user.id,
+            athleteId: athlete.id,
+            status: 'approved',
+            resolvedAt: now,
+            resolvedById: invite.invitedById,
+          },
+        })
+      ),
+      prisma.parentInvite.update({ where: { id: invite.id }, data: { status: 'accepted', acceptedAt: now } }),
+    ]);
+
+    const names = athletes.map((a) => a.preferredName || a.name);
+    res.json({ msg: `You're now following ${joinNames(names)} at ${invite.team.name}.`, linked: names });
+  } catch (error) {
+    console.error('Error in POST /guardian/invites/:token/accept:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });

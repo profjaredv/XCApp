@@ -308,6 +308,11 @@ const CLASSIFICATION = {
     what: 'A pending invitation for an athlete to claim their profile.',
     why: 'Names a student and carries their email.',
   },
+  ParentInvite: {
+    class: CLASSES.EDUCATION_RECORD,
+    what: 'A coach inviting a parent by email, with the runners they may follow already chosen.',
+    why: 'Names which students a parent is being given access to, and carries that parent\'s email. Accepting it creates approved GuardianLinks, and only for an account with the same email.',
+  },
   AthleteClaim: {
     class: CLASSES.EDUCATION_RECORD,
     what: 'A request from a signed-in person to be matched to a roster entry.',

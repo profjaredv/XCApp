@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { ArrowRight, Check, Loader2, Mail, UserCheck } from 'lucide-react';
 import { axiosInstance } from '@/api/axios';
 import { teamService, type GuardianLookupAthlete } from '@/api/teamService';
+import { parentService } from '@/api/parentService';
 import { authClient } from '@/lib/auth';
 import { useAuth } from '@/contexts/AuthContext';
 import { readIntent, clearIntent, type SignupIntent } from '@/lib/signupIntent';
@@ -65,8 +66,45 @@ const OnboardingPage: React.FC = () => {
     setIntent(stored);
     if (stored.role === 'coach') setStep(stored.teamId ? 'staff-access' : 'request');
     else if (stored.role === 'athlete') setStep('join');
-    else if (stored.role === 'parent') setStep('parent');
+    else if (stored.role === 'parent') {
+      setStep('parent');
+      // From a coach's parent link: the code is already known.
+      if (stored.joinCode) setJoinCode(stored.joinCode);
+    }
   }, []);
+
+  // Parent link: look the team up as soon as the code is in, so the first
+  // thing a parent sees is their team's roster, not a code box.
+  const autoLookedUp = useRef(false);
+  useEffect(() => {
+    if (step !== 'parent' || !intent?.joinCode || autoLookedUp.current || !currentUser) return;
+    autoLookedUp.current = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const result = await teamService.guardianLookup(intent.joinCode as string);
+        setGuardianTeam(result.teamName);
+        setGuardianAthletes(result.athletes);
+      } catch (err) {
+        setError(getApiErrorMessage(err, 'That parent link is out of date. Ask the coach for a new one, or enter the code.'));
+      }
+      setLoading(false);
+    })();
+  }, [step, intent, currentUser]);
+
+  // A parent already following (or waiting on) a runner belongs on their
+  // own page, not in sign-up again. Skipped when they came here on purpose
+  // to add a runner, or as a coach or athlete.
+  useEffect(() => {
+    // Read straight from storage: the intent state above is set by an effect in this same pass.
+    if (!currentUser || currentUser.team || readIntent()) return;
+    parentService
+      .myLinks()
+      .then((links) => {
+        if (links.length > 0) navigate('/my-runners', { replace: true });
+      })
+      .catch(() => {});
+  }, [currentUser, navigate]);
 
   // Onboarding has no nav chrome — without this, someone stuck here (wrong
   // account, needs to re-authenticate) has no way back to /login short of
@@ -411,7 +449,7 @@ const OnboardingPage: React.FC = () => {
                   {currentUser?.email ?? 'you'} once it's approved.
                 </AlertDescription>
               </Alert>
-              <Button className="w-full" onClick={() => navigate('/login')}>
+              <Button className="w-full" onClick={() => navigate('/my-runners')}>
                 Done
               </Button>
             </>

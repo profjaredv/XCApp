@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('node:crypto');
 const { sportScopeFromList, sportListFromScope } = require('../lib/sport');
 const router = express.Router();
 const { customAlphabet } = require('nanoid');
@@ -9,6 +10,7 @@ const { resolveActiveSeason } = require('../lib/season');
 const { decideCanHaveAccount } = require('../lib/minorPolicy');
 const { parseDistanceToMeters, metersToMiles } = require('../lib/distance');
 const { sendEmail } = require('../lib/email');
+const parentAccess = require('../lib/parentAccess');
 const { requireActivePlan } = require('../lib/entitlements');
 const { describeFeatures, applyFeatureUpdate, resolveFeatures } = require('../lib/teamFeatures');
 const { normalizeColors, applyColorUpdate } = require('../lib/teamColors');
@@ -720,9 +722,17 @@ router.post('/parent-requests/:id/link', authenticate, requireTeam, requireRole(
       }),
     ]);
 
+    const parent = await prisma.user.findUnique({ where: { id: request.userId }, select: { email: true } });
+    const emailResult = await parentAccess.sendGuardianApprovedEmail({
+      to: parent?.email,
+      athleteNames: athletes.map((a) => a.preferredName || a.name),
+      teamName: req.user.team?.name,
+    });
+
     res.json({
       msg: 'Parent linked.',
       linked: athletes.map((a) => a.preferredName || a.name),
+      emailSent: Boolean(emailResult && emailResult.sent),
     });
   } catch (error) {
     console.error('Error in POST /team/parent-requests/:id/link:', error.message);
@@ -745,6 +755,123 @@ router.post('/parent-requests/:id/decline', authenticate, requireTeam, requireRo
     res.json({ msg: 'Request declined.' });
   } catch (error) {
     console.error('Error in POST /team/parent-requests/:id/decline:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// Parent invites: a coach invites a parent by email with the runners already
+// chosen. The coach named both, so accepting the invite IS the approval. See
+// the ParentInvite model, and routes/guardian.js for the accepting side.
+
+const shapeParentInvite = (invite, athletesById) => ({
+  id: invite.id,
+  email: invite.email,
+  status: invite.status,
+  createdAt: invite.createdAt,
+  expiresAt: invite.expiresAt,
+  expired: invite.expiresAt < new Date(),
+  link: `${parentAccess.FRONTEND_URL}/parent-invite/${invite.token}`,
+  athletes: invite.athleteIds
+    .map((id) => athletesById.get(id))
+    .filter(Boolean)
+    .map((a) => ({ id: a.id, name: a.preferredName || a.name })),
+});
+
+// GET /api/team/parent-invites — invites not yet accepted.
+router.get('/parent-invites', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const invites = await prisma.parentInvite.findMany({
+      where: { teamId: req.user.teamId, status: 'pending' },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    const ids = [...new Set(invites.flatMap((i) => i.athleteIds))];
+    const athletes = ids.length
+      ? await prisma.athlete.findMany({
+          where: { id: { in: ids }, teamId: req.user.teamId },
+          select: { id: true, name: true, preferredName: true },
+        })
+      : [];
+    const byId = new Map(athletes.map((a) => [a.id, a]));
+    res.json(invites.map((i) => shapeParentInvite(i, byId)));
+  } catch (error) {
+    console.error('Error in GET /team/parent-invites:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// POST /api/team/parent-invites — { email, athleteIds }
+router.post('/parent-invites', authenticate, requireTeam, requireRole(FULL_COACH), requireActivePlan, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const ids = Array.isArray(req.body?.athleteIds) ? [...new Set(req.body.athleteIds.map(String))] : [];
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ msg: 'Enter the parent’s email address.' });
+  }
+  if (ids.length === 0) {
+    return res.status(400).json({ msg: 'Pick at least one athlete.' });
+  }
+  if (ids.length > parentAccess.MAX_ATHLETES_PER_INVITE) {
+    return res.status(400).json({ msg: 'That is more athletes than one invite can cover.' });
+  }
+
+  try {
+    // Only this team's athletes, whatever the body says.
+    const athletes = await prisma.athlete.findMany({
+      where: { id: { in: ids }, teamId: req.user.teamId },
+      select: { id: true, name: true, preferredName: true },
+    });
+    if (athletes.length !== ids.length) {
+      return res.status(404).json({ msg: 'One or more of those athletes are not on your team.' });
+    }
+
+    const expiresAt = new Date(Date.now() + parentAccess.PARENT_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+    const athleteIds = athletes.map((a) => a.id);
+    // Sending again to the same address replaces the old invite and its link.
+    const invite = await prisma.parentInvite.upsert({
+      where: { teamId_email: { teamId: req.user.teamId, email } },
+      update: {
+        athleteIds,
+        status: 'pending',
+        token: crypto.randomUUID(),
+        expiresAt,
+        acceptedAt: null,
+        invitedById: req.user.id,
+      },
+      create: { teamId: req.user.teamId, email, athleteIds, expiresAt, invitedById: req.user.id },
+    });
+
+    const names = athletes.map((a) => a.preferredName || a.name);
+    const { sent } = await parentAccess.sendParentInviteEmail({
+      to: email,
+      token: invite.token,
+      athleteNames: names,
+      teamName: req.user.team?.name || 'your team',
+      coachName: req.user.name,
+    });
+
+    res.status(201).json({
+      msg: sent ? `Invite sent to ${email}.` : `Invite ready for ${email}. Copy the link and send it yourself.`,
+      emailSent: sent,
+      invite: shapeParentInvite(invite, new Map(athletes.map((a) => [a.id, a]))),
+    });
+  } catch (error) {
+    console.error('Error in POST /team/parent-invites:', error.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// DELETE /api/team/parent-invites/:id — the link stops working.
+router.delete('/parent-invites/:id', authenticate, requireTeam, requireRole(FULL_COACH), async (req, res) => {
+  try {
+    const invite = await prisma.parentInvite.findFirst({
+      where: { id: req.params.id, teamId: req.user.teamId, status: 'pending' },
+    });
+    if (!invite) return res.status(404).json({ msg: 'Invite not found.' });
+    await prisma.parentInvite.update({ where: { id: invite.id }, data: { status: 'revoked' } });
+    res.json({ msg: 'Invite cancelled.' });
+  } catch (error) {
+    console.error('Error in DELETE /team/parent-invites/:id:', error.message);
     res.status(500).json({ msg: 'Server error' });
   }
 });
@@ -812,16 +939,31 @@ router.post('/approve-guardian-link', authenticate, requireTeam, requireRole(FUL
       return res.status(409).json({ msg: `Request was already ${link.status}.` });
     }
 
-    await prisma.guardianLink.update({
+    const updated = await prisma.guardianLink.update({
       where: { id: link.id },
       data: {
         status: action === 'approve' ? 'approved' : 'rejected',
         resolvedAt: new Date(),
         resolvedById: req.user.id,
       },
+      include: {
+        user: { select: { email: true } },
+        athlete: { select: { name: true, preferredName: true } },
+      },
     });
 
-    res.json({ msg: `Guardian link ${action === 'approve' ? 'approved' : 'rejected'}.` });
+    // The parent was told "we'll email you once it's approved" — this is that email.
+    let emailSent = false;
+    if (action === 'approve') {
+      const result = await parentAccess.sendGuardianApprovedEmail({
+        to: updated.user?.email,
+        athleteNames: [updated.athlete.preferredName || updated.athlete.name],
+        teamName: req.user.team?.name,
+      });
+      emailSent = Boolean(result && result.sent);
+    }
+
+    res.json({ msg: `Guardian link ${action === 'approve' ? 'approved' : 'rejected'}.`, emailSent });
   } catch (error) {
     console.error('Error resolving guardian link:', error.message);
     res.status(500).json({ msg: 'Server error' });

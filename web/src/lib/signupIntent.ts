@@ -25,6 +25,8 @@ export interface SignupIntent {
   /** What they typed, kept even when nothing matched — it becomes the
    *  team name on the request rather than being thrown away. */
   searchedFor?: string;
+  /** From a coach's parent link (/parents/<code>): the team's join code, already known. */
+  joinCode?: string;
 }
 
 const KEY = 'leadpack.signupIntent';

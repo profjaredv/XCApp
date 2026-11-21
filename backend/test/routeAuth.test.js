@@ -83,6 +83,11 @@ const ALLOWED_UNGUARDED = new Set([
   // grants no access by itself (see requireApprovedGuardianLink, and
   // team.js POST /approve-guardian-link, which does require a role).
   'guardian.js POST /request-link',
+  // A coach's parent invite. The token is the authorization (the coach
+  // chose this email and these athletes), and the route also requires the
+  // signed-in account to have that same email. A guardian is never a team
+  // member, so there is no role it could require.
+  'guardian.js POST /invites/:token/accept',
   // Same reasoning, one step earlier: a parent has to SEE the roster to
   // say which children are theirs. The join code is the boundary — it is
   // the same list anyone holding that code can already reach by joining —

@@ -31,6 +31,7 @@ import { TeamJoinCodeCard } from '@/components/team/TeamJoinCodeCard';
 import { PendingClaimsCard } from '@/components/PendingClaimsCard';
 import { PendingGuardianLinksCard } from '@/components/PendingGuardianLinksCard';
 import { PendingParentRequestsCard } from '@/components/PendingParentRequestsCard';
+import { ParentInvitesCard } from '@/components/team/ParentInvitesCard';
 import { useExpandedSections } from '@/hooks/useExpandedSections';
 import { isFullCoach, canDeleteData, isImpersonatingAdmin } from '@/lib/teamRole';
 import { Users, UserCog, Gauge, Flag, Download, Compass, AlertTriangle, ShieldCheck, Settings2, CalendarPlus, ToggleLeft, KeyRound, Palette } from 'lucide-react';
@@ -344,7 +345,7 @@ const SimpleSettingsPage: React.FC = () => {
             id="athlete-access"
             section="athletes"
             title="Athlete access"
-            description="Join code, profile claims and guardian requests."
+            description="Join code, parent link and invites, profile claims and parent requests."
             icon={KeyRound}
             open={isOpen('athlete-access')}
             onToggle={() => toggle('athlete-access')}
@@ -352,6 +353,7 @@ const SimpleSettingsPage: React.FC = () => {
             {isMounted('athlete-access') && (
               <div className="space-y-4">
                 <TeamJoinCodeCard />
+                <ParentInvitesCard />
                 <PendingClaimsCard />
                 <PendingGuardianLinksCard />
                 <PendingParentRequestsCard />

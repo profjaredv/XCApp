@@ -61,6 +61,7 @@ model User {
   linkedAthlete             Athlete?                 @relation("AthleteAccount")
   athleteClaims             AthleteClaim[]
   sentStaffInvites          StaffInvite[]            @relation("StaffInviteSender")
+  sentParentInvites         ParentInvite[]           @relation("ParentInviteSender")
   photosAdminGrants         PhotosAdmin[]
   guardianLinks             GuardianLink[]           @relation("GuardianAccount")
   resolvedGuardianLinks     GuardianLink[]           @relation("GuardianLinkResolver")
@@ -185,6 +186,7 @@ model Team {
   athleteInvites          AthleteInvite[]
   athleteClaims           AthleteClaim[]
   staffInvites            StaffInvite[]
+  parentInvites           ParentInvite[]
   photosAdmins            PhotosAdmin[]
   groups                  Group[]
   practicePlans           PracticePlan[]
@@ -482,6 +484,32 @@ model GuardianLink {
   @@unique([userId, athleteId])
   @@index([athleteId, status])
   @@map("guardian_links")
+}
+
+// A coach inviting a parent or guardian by email, with the athletes already
+// chosen. The coach named both the person and the children, so accepting is
+// itself the approval: the GuardianLinks it creates start out approved.
+// Accepting needs an account with the same email the coach typed, so a
+// forwarded email cannot hand a student's information to someone else.
+// One live invite per (team, email); sending again updates it.
+model ParentInvite {
+  id          String    @id @default(uuid()) @db.Uuid
+  teamId      String    @map("team_id") @db.Uuid
+  email       String
+  athleteIds  String[]  @map("athlete_ids") @db.Uuid
+  token       String    @unique @default(uuid())
+  status      String    @default("pending") // pending | accepted | revoked
+  invitedById String    @map("invited_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  expiresAt   DateTime  @map("expires_at")
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy User @relation("ParentInviteSender", fields: [invitedById], references: [id])
+
+  @@unique([teamId, email])
+  @@index([teamId])
+  @@map("parent_invites")
 }
 
 // A coach-initiated invite for a SPECIFIC athlete row. The coach already
