@@ -2,9 +2,9 @@ const express = require('express');
 const { currentSport } = require('../lib/sport');
 const router = express.Router();
 const prisma = require('../lib/db');
-const { authenticate, requireTeam, requireRole } = require('../middleware/auth');
+const { authenticate, requireTeam, requireRole, hasTeamRole } = require('../middleware/auth');
 const { resolveFeatures } = require('../lib/teamFeatures');
-const { ANY_COACH } = require('../lib/teamRoles');
+const { ANY_COACH, FULL_COACH } = require('../lib/teamRoles');
 const { resolveTodaySeasonState, resolveActiveSeason } = require('../lib/season');
 const { mergeStaffRoster } = require('../lib/teamStaff');
 const { getGroupOn } = require('../lib/groups');
@@ -130,7 +130,10 @@ router.get('/attention', authenticate, requireTeam, requireRole(ANY_COACH), asyn
     const team = await prisma.team.findUnique({ where: { id: teamId }, select: { features: true } });
     const features = resolveFeatures(team && team.features);
 
-    const [racesNeedingSplits, tomorrowPlan, overdueEquipment, meetAwaitingResults] = await Promise.all([
+    // Parent requests are approved by a full coach, so only they are nudged.
+    const canApproveParents = await hasTeamRole(req.user, FULL_COACH);
+
+    const [racesNeedingSplits, tomorrowPlan, overdueEquipment, meetAwaitingResults, pendingGuardianLinks, pendingParentRequests] = await Promise.all([
       prisma.race.findMany({
         where: {
           teamId,
@@ -165,9 +168,33 @@ router.get('/attention', authenticate, requireTeam, requireRole(ANY_COACH), asyn
         select: { id: true, name: true, date: true },
         orderBy: { date: 'desc' },
       }),
+      canApproveParents
+        ? prisma.guardianLink.findMany({
+            where: { status: 'pending', athlete: { teamId } },
+            select: { userId: true, requestedAt: true },
+          })
+        : [],
+      canApproveParents
+        ? prisma.teamRequest.findMany({
+            where: { status: 'pending', role: 'parent', wantsTeamId: teamId },
+            select: { id: true, createdAt: true },
+          })
+        : [],
     ]);
 
     const items = [];
+    // Counted by parent, not by child: one parent asking for two runners is one request to answer.
+    const parentsWaiting = new Set(pendingGuardianLinks.map((l) => l.userId)).size + pendingParentRequests.length;
+    if (parentsWaiting > 0) {
+      const oldest = [...pendingGuardianLinks.map((l) => l.requestedAt), ...pendingParentRequests.map((r) => r.createdAt)]
+        .sort((a, b) => new Date(a) - new Date(b))[0];
+      items.push({
+        type: 'parent-requests',
+        label: parentsWaiting === 1 ? '1 parent waiting for approval' : `${parentsWaiting} parents waiting for approval`,
+        date: oldest,
+        link: {},
+      });
+    }
     if (meetAwaitingResults) {
       items.push({ type: 'update-results', label: `Update results: ${meetAwaitingResults.name}`, date: meetAwaitingResults.date, link: { meetId: meetAwaitingResults.id } });
     }

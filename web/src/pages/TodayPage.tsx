@@ -17,6 +17,7 @@ import {
   Users,
   Activity,
   NotebookPen,
+  Heart,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamPath } from '@/hooks/useTeamRoute';
@@ -203,6 +204,7 @@ const ATTENTION_ICON: Record<TodayAttentionItem['type'], React.ComponentType<{ c
   'unpublished-plan': CalendarDays,
   'overdue-equipment': Package,
   'update-results': ClipboardPaste,
+  'parent-requests': Heart,
 };
 
 function attentionLink(item: TodayAttentionItem, teamPath: (p: string) => string): string {
@@ -218,6 +220,8 @@ function attentionLink(item: TodayAttentionItem, teamPath: (p: string) => string
       return teamPath('/equipment');
     case 'update-results':
       return teamPath('/data-management');
+    case 'parent-requests':
+      return teamPath('/settings#athlete-access');
     default:
       return teamPath('/analytics');
   }

@@ -37,6 +37,7 @@ const EXCLUDED_MODELS = {
   User: 'Accounts span teams. Staff appear via teamMembers, athletes via athletes.',
   AthleteInvite: 'Exists only to carry a live token; the invitee\'s email is already on the athlete row.',
   StaffInvite: 'Exists only to carry a live token; the invitee\'s email is already on the staff row.',
+  ParentInvite: 'Exists only to carry a live token. Once accepted, the relationship lives on as a GuardianLink.',
   AthleteClaim: 'Exists only to carry a live token.',
   TeamClaim: 'Exists only to carry a live token.',
   Course: 'A shared lookup table, not team-owned. Course names travel on the races that reference them.',
